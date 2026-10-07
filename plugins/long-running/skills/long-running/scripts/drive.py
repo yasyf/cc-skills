@@ -7,6 +7,7 @@
     drive.py current
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
+    drive.py landed  --session ID [--drive ID] --pr N...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
@@ -24,6 +25,10 @@ inherit from ``orca-launch.sh``. ``current`` also resolves the drive whose Orca 
 desk runner that holds no session still launches workers into the drive. A session in no drive, a command run outside the drive's
 repository, and a pull request on another repository are not the drive's and record nothing; a session in no
 drive says so on stderr.
+
+``landed`` is the pack's entry point after a ``cci post --kind landed`` or a ``gh pr close``: it settles each named
+PR the drive's ledger tracks against the trunk in the drive's checkout through ``ledger.py landed``, so the row
+leaves the open set in the same step that announced the landing or the close.
 
 ``thread`` is the pack's entry point after a Slack post: it appends the posted thread to
 ``<state dir>/slack/watched-threads.jsonl``, the list the drive's Slack watch lane polls.
@@ -245,6 +250,19 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_landed(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (entry := find(args.drive, args.session)):
+        return 0
+    argv = ["-C", entry["checkout"], "landed", "--repo", entry["repo"], "--ledger", entry["ledger"], "--checkout", entry["checkout"]]
+    argv += [flag for pr in args.pr for flag in ("--pr", pr)]
+    try:
+        return ledger.main(argv, shell)
+    except (subprocess.CalledProcessError, OSError) as failure:
+        reason = (getattr(failure, "stderr", "") or str(failure)).strip().splitlines()[-1:] or ["no reason given"]
+        print(f"PR {', '.join('#' + pr for pr in args.pr)} not settled in ledger {entry['ledger']}: {reason[0]} — run `ledger.py {' '.join(argv)}`", file=sys.stderr)
+        return 1
+
+
 def cmd_thread(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := find(args.drive, args.session)):
         return 0
@@ -304,6 +322,12 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--cwd", required=True, type=Path)
     record.add_argument("--pr", required=True, action="append", type=pr_spec, metavar="[OWNER/NAME#]N[=SHA]")
     record.set_defaults(handler=cmd_record)
+
+    landed = subparsers.add_parser("landed", help="settle PRs a command announced as landed or closed in the drive's ledger")
+    landed.add_argument("--session", required=True)
+    landed.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
+    landed.add_argument("--pr", required=True, action="append", type=ledger.pr_number)
+    landed.set_defaults(handler=cmd_landed)
 
     thread = subparsers.add_parser("thread", help="add a Slack thread a session posted in to the drive's watch list")
     thread.add_argument("--session", required=True)

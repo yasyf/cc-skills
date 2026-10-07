@@ -237,6 +237,36 @@ def test_a_failed_write_names_the_ledger_and_the_command_to_run(repo, capsys):
     )
 
 
+def closed_pull(shell: FakeShell, pr: str) -> None:
+    shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": HEAD, "ref": "lane/x"}, "base": {"ref": "dev"}}
+    shell.pull_heads[pr] = HEAD
+    shell.pr_files[pr] = ["go/ci/release.go"]
+    shell.delivered[HEAD] = ("f2f8393f0000", "2026-10-07T03:53:00+00:00")
+
+
+def test_a_landing_settles_the_rows_the_ledger_tracks_and_adds_none(repo, capsys):
+    started(repo)
+    shell = FakeShell(rows=[{"key": "31390", "fields": {"lane": "app-build-speed", "registered": "app-build-speed"}}])
+    closed_pull(shell, "31390")
+    closed_pull(shell, "296")
+
+    assert drive.main(["landed", "--session", ROOT_SESSION, "--pr", "31390", "--pr", "296"], shell) == 0
+
+    assert shell.fields("31390")["state"] == "landed"
+    assert shell.fields("31390")["landed_sha"] == "f2f8393f0000"
+    assert [row["key"] for row in shell.store["rows"]] == ["31390"]
+    assert "landed #31390" in capsys.readouterr().out
+
+
+def test_a_landing_outside_any_drive_settles_nothing(repo):
+    started(repo)
+    shell = FakeShell()
+
+    assert drive.main(["landed", "--session", WORKER_SESSION, "--pr", "31390"], shell) == 0
+
+    assert shell.calls == []
+
+
 def test_list_json_reads_back_every_drive(repo, capsys):
     started(repo)
     capsys.readouterr()

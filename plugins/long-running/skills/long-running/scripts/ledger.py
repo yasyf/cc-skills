@@ -21,7 +21,7 @@
     ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
-    ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
+    ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]... [--shard LANES]
     ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
     ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
@@ -1716,7 +1716,7 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     rows = sharded(notes.pr_rows(), args.shard)
-    prs = [args.pr] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
+    prs = [pr for pr in args.pr if pr in rows] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
     settle(shell, gh, notes, args.checkout, pull_records(gh, prs))
     return 0
 
@@ -2122,7 +2122,7 @@ def build_parser() -> argparse.ArgumentParser:
     landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the trunk")
     add_ledger(landed, repo=True)
     landed.add_argument("--checkout", type=Path, required=True)
-    landed.add_argument("--pr", type=pr_number)
+    landed.add_argument("--pr", type=pr_number, action="append")
     add_shard(landed)
     landed.set_defaults(handler=cmd_landed)
 
