@@ -28,7 +28,11 @@ CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the wo
 opens in the drive's ledger under the lane's name. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It names
 the brief as the authority over Orca's preamble, which forbids GitHub posts, and
-over any standing leave-uncommitted default. The pointer must stay within 500
+over any standing leave-uncommitted default. A brief whose ccx: header line
+says role=desk or role=watch is a standing desk, and its pointer adds the desk
+contract: loop until rotation, and send worker_done only at rotation, naming the
+handoff doc, since Orca's preamble otherwise reads setup or one quiet cycle as
+the finished task. The pointer must stay within 500
 characters, so a brief path that pushes it over is replaced by a symlink
 ~/.claude/<8 hex of the path's sha> to the brief. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca detects
@@ -214,8 +218,11 @@ print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if nam
 PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
 [ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
+DESK=
+! grep -qE '^ccx:(.* )?role=(desk|watch)( |$)' "$BRIEF" ||
+  DESK=" Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 pointer() {
-  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold."
+  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold.$DESK"
 }
 spec() {
   SPEC=$(pointer "$BRIEF")

@@ -16,6 +16,7 @@ BIN = Path(__file__).resolve().parents[1] / "bin"
 SENT = {"rc": 0, "out": {"ok": True, "result": {}}}
 BOUND = {"rc": 0, "out": {"ok": True, "result": {"run": {"id": "run_1", "coordinator_handle": "term_coordinator"}}}}
 TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for terminal handle after creation"}}}
+DESK_CONTRACT = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 
 ORCA = """#!/usr/bin/env python3
 import json, os, sys
@@ -182,6 +183,24 @@ def test_the_spec_names_the_brief_by_absolute_path_and_makes_it_outrank_the_prea
     spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
     assert spec.startswith(f"Lane lane-a: read {orca.brief} in full first and execute it exactly;")
     assert "it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says." in spec
+
+
+@pytest.mark.parametrize("header", ["ccx: role=desk", "ccx: lane=alerts-desk role=watch effort=low"])
+def test_a_desk_brief_adds_the_standing_desk_contract_to_the_spec(orca, header):
+    orca.healthy()
+    orca.brief.write_text(f"# landing-sweep-37\n{header}\nRun the landing loop; rotate at 9h with a handoff doc.\n")
+    assert orca.launch().returncode == 0
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert spec.endswith(f"its Escalate rules hold.{DESK_CONTRACT}") and len(spec) <= 500
+
+
+@pytest.mark.parametrize("header", ["ccx: role=fix", "ccx: role=desktop", "role=desk"])
+def test_a_one_shot_brief_keeps_the_plain_spec(orca, header):
+    orca.healthy()
+    orca.brief.write_text(f"# lane-a\n{header}\nShip the fix.\n")
+    assert orca.launch().returncode == 0
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert spec.endswith("its Escalate rules hold.")
 
 
 def test_a_codex_lane_starts_sol_on_the_codex_agent_without_a_custom_terminal(orca):
