@@ -8,7 +8,7 @@ BUILDKITE_TONE = {"passed": "ok", "failed": "bad", "failing": "bad", "canceled":
 ACTIONS_TONE = {"success": "ok", "failure": "bad", "cancelled": "muted", "in_progress": "warn", "queued": "warn"}
 
 
-@component("ci-builds", "CI builds", question="Which recent CI builds passed, failed, or are still running?", reads=["bk api", "gh run list"], every="1m", timeout="60s")
+@component("ci-builds", "CI builds", question="Which recent CI builds passed, failed, or are still running?", reads=["bk api", "gh run list"], every="15m", timeout="60s")
 def ci_builds(ctx: Context, *, source: str = "buildkite", pipeline: str | None = None, repo: str | None = None, branch: str | None = None, limit: int = 20) -> Table:
     """Recent builds from Buildkite (`bk api`, by `pipeline`) or GitHub Actions (`gh run list`, by `repo`), on `branch` when set."""
     if source == "buildkite":

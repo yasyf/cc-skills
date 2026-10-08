@@ -461,7 +461,7 @@ def test_a_rate_limited_build_read_holds_the_shared_cache_for_every_card(tmp_pat
 
     with pytest.raises(RateLimited):
         cards.known_builds(ctx(MOMENT), "release", "/checkout")
-    assert cards.known_builds(ctx(MOMENT + cards.BUILDS_INTERVAL), "release", "/checkout") == []
+    assert cards.known_builds(ctx(MOMENT + timedelta(minutes=1)), "release", "/checkout") == []
     assert cards.known_builds(ctx(MOMENT + timedelta(seconds=RATE_LIMIT_BACKOFF) - timedelta(seconds=1)), "release", "/checkout") == []
     assert len(reads) == 1
     with pytest.raises(RateLimited):
