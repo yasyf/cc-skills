@@ -67,6 +67,8 @@ class FakeShell(runner_module.Shell):
         self.generation = 3
         self.run_use_error: dict | None = None
         self.posts: list[dict] = []
+        self.records: list[dict] = []
+        self.tail_error = ""
         self.judge_process: Running | None = None
 
     def env(self, name):
@@ -119,12 +121,24 @@ class FakeShell(runner_module.Shell):
             verb = argv[4]
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
             return runner_module.Done(0, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]) if verb == "list" else f"{verb} ok\n", "")
+        if argv[:2] == ["cci", "tail"]:
+            return self.cci_tail(argv)
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
             return runner_module.Done(0, f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def cci_tail(self, argv: list[str]) -> runner_module.Done:
+        if self.tail_error:
+            return runner_module.Done(1, "", self.tail_error)
+        assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
+        since = int(argv[argv.index("--since") + 1])
+        found = [record for record in self.records if record["seq"] > since and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])]
+        if "--limit" in argv:
+            found = found[-int(argv[argv.index("--limit") + 1]) :]
+        return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in found), "")
 
     def append(self, flags: list[str]) -> runner_module.Done:
         assert flags[0] == "--entry" and flags[2] == "--attach" and flags[4:] == ["--replace"]
@@ -1385,6 +1399,61 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert launches(shell) == []
     [line] = escalations(shell)
     assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
+
+
+def cci_go(shell: FakeShell, text: str, source: str = "post") -> None:
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "text": text, "to": ["orca-desk"], "source": source})
+
+
+def test_a_launch_posted_to_the_orca_desk_on_cci_launches_once_and_history_never_replays(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cci_go(shell, f"R1345 (5:06 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    cci_go(shell, f"R1346 (5:16 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_n")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "incident", "xhigh", str(brief)]]
+    container = incident(tmp_path, f"desk-lane-{LANE}")
+    assert container.actions["R1346"].status == "verified" and "R1345" not in container.actions
+    assert escalations(shell) == [f"LAUNCHED R1346 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+
+
+def test_a_desk_inbox_line_cci_imported_acts_once_from_the_file(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    line = f"- orca-desk: relay to {LANE}: rebase onto dev"
+    desk_inbox(tmp_path, line)
+    cci_go(shell, line, source=f"import:{(tmp_path / 'inbox/orca-desk.md').resolve()}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert escalations(shell) == [f"RELAYED inbox@0 {LANE}: relay to dispatch ctx_a"]
+
+
+def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, config, tmp_path):
+    orca_pass(shell, config)
+    cci_go(shell, "launch incident-timeout-fix on the incident route now")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: a record addressed to orca-desk is one `orca-desk: ")
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "cci#34766")]
+
+
+def test_a_failed_cci_read_escalates_and_rereads_from_the_same_sequence(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    cci_go(shell, f"R5 orca-desk: relay to {LANE}: rebase onto dev")
+    shell.tail_error = "cci: daemon unavailable"
+    orca_pass(shell, config)
+    shell.tail_error = ""
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail", f"RELAYED R5 {LANE}"]
 
 
 def test_the_alert_grammar_names_the_slug_link_and_what_fired():

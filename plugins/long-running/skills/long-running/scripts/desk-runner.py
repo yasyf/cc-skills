@@ -32,6 +32,10 @@ launch logs `LAUNCHED` with its dispatch and terminal. An `orca-desk: alert <slu
 line, which monitor-watch writes, records the transition and launches nothing. An
 `orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
 lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
+Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
+desk inbox line, starting at the drive's newest record, except a record `cci import` took
+from the desk inbox itself; a record that is no directive logs `DIRECTIVE-FAILED`, and a
+failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same sequence.
 Orca lets only the terminal bound to the Run call
 worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
 The runner records that terminal, its pane, the Run's coordinator and generation, and how
@@ -81,6 +85,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import actions
+import cci
 import inboxes
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -88,6 +93,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RUNNER = "desk-runner"
+ORCA_DESK = "orca-desk"
 CCI_TEXT = 400
 ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker"}
 UNLAUNCHED = "unlaunched"
@@ -165,6 +171,10 @@ class Done:
     code: int
     out: str
     err: str
+
+
+class CciTailFailed(RuntimeError):
+    pass
 
 
 class Shell:
@@ -535,28 +545,58 @@ class Runner:
         if not path.is_file():
             return
         for line in inboxes.Inbox(path).lines(cursor):
-            self.inbox_line(line.start, line.text.strip())
+            self.inbox_line(str(line.start), line.text.strip())
             self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
 
-    def inbox_line(self, offset: int, line: str) -> None:
+    def read_cci(self) -> None:
+        """Act on each cci record addressed to the orca desk past the saved sequence as one desk inbox line; a first read starts at the newest record, and records imported from the desk inbox were already read there."""
+        fact = f"cci:{self.config.drive}:{ORCA_DESK}"
+        cursor = self.book.load(RUNNER).facts.get(fact)
+        try:
+            if cursor is None:
+                newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+                self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
+                return
+            records = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
+        except CciTailFailed as failure:
+            self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
+            return
+        already_read = f"import:{self.config.desk_inbox.resolve()}"
+        for record in records:
+            if record["source"] != already_read:
+                self.cci_line(record["seq"], record["text"].strip())
+            self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
+
+    def cci_tail(self, argv: list[str]) -> str:
+        done = self.shell.run(argv)
+        if done.code != 0:
+            raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
+        return done.out
+
+    def cci_line(self, seq: int, line: str) -> None:
+        if not self.inbox_line(f"cci#{seq}", line):
+            self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold> …` line; nothing was done")
+
+    def inbox_line(self, at: str, line: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)
         if not directive:
-            return
-        key = directive["key"] or f"inbox@{offset}"
+            return False
+        key = directive["key"] or f"inbox@{at}"
         verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line}
-        verbs[directive["verb"]](offset, key, directive["rest"])
+        verbs[directive["verb"]](at, key, directive["rest"])
+        return True
 
-    def relay_line(self, offset: int, key: str, rest: str) -> None:
+    def relay_line(self, at: str, key: str, rest: str) -> None:
         parsed = RELAY_TO.match(rest)
         if not parsed or "; relay " in parsed["text"]:
-            self.record(f"escalation:relay:{offset}", f"RELAY-FAILED {key} inbox: one relay per line, in the form `{RELAY_GRAMMAR}`; nothing was relayed")
+            self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} inbox: one relay per line, in the form `{RELAY_GRAMMAR}`; nothing was relayed")
             return
         for lane in LANE_LIST.split(parsed["lanes"]):
-            self.relay_to(offset, key, lane, parsed["text"])
+            self.relay_to(at, key, lane, parsed["text"])
 
-    def relay_to(self, offset: int, key: str, lane: str, text: str) -> None:
+    def relay_to(self, at: str, key: str, lane: str, text: str) -> None:
         """Accept what `relay` accepts for one lane: a reply to the current dispatch's latest open question, else a plain relay."""
-        log = f"escalation:relay:{offset}:{lane}"
+        log = f"escalation:relay:{at}:{lane}"
         dispatch = self.orca.show(lane)
         if not dispatch or dispatch.status in INACTIVE:
             self.record(log, f"RELAY-FAILED {key} {lane}: no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}")
@@ -568,9 +608,9 @@ class Runner:
             return
         self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
 
-    def launch_line(self, offset: int, key: str, rest: str) -> None:
+    def launch_line(self, at: str, key: str, rest: str) -> None:
         """Accept what `launch` accepts, `NOW` meaning `--owner-directed`, once per key and only for a lane with no live dispatch and no launch in flight."""
-        log = f"escalation:launch:{offset}"
+        log = f"escalation:launch:{at}"
         spec = LAUNCH_SPEC.match(rest)
         if not spec:
             self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
@@ -581,9 +621,9 @@ class Runner:
             return
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
 
-    def alert_line(self, offset: int, key: str, rest: str) -> None:
+    def alert_line(self, at: str, key: str, rest: str) -> None:
         """Record a monitor transition and launch nothing, or relay a repeat to the fix lane already on it; the alerts desk decides whether an incident lane is necessary."""
-        log = f"escalation:alert:{offset}"
+        log = f"escalation:alert:{at}"
         spec = ALERT_SPEC.match(rest)
         if not spec:
             self.record(log, f"ALERT-FAILED {key} inbox: one alert per line, in the form `{ALERT_GRAMMAR}`; nothing was recorded")
@@ -592,13 +632,13 @@ class Runner:
         lane = f"{slug}-fix"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
-            self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
         self.record(log, f"ALERT {slug} {pacific(self.now())}: {what} {link} | no lane launched; the alerts desk writes `{INCIDENT_GRAMMAR}` when it judges one necessary")
 
-    def incident_line(self, offset: int, key: str, rest: str) -> None:
+    def incident_line(self, at: str, key: str, rest: str) -> None:
         """Launch the alert's incident fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
-        log = f"escalation:incident:{offset}"
+        log = f"escalation:incident:{at}"
         spec = ALERT_SPEC.match(rest)
         if not spec:
             self.record(log, f"INCIDENT-FAILED {key} inbox: one incident per line, in the form `{INCIDENT_GRAMMAR}`; nothing was launched")
@@ -607,10 +647,10 @@ class Runner:
         lane = f"{slug}-fix"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
-            self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
         monitors = set(MONITOR_ID.findall(f"{link} {what}"))
-        if monitors and (peer := self.incident_lane(monitors, lane, offset)):
+        if monitors and (peer := self.incident_lane(monitors, lane)):
             self.record(log, f"LAUNCH-SKIPPED {key} {lane}: duplicate of {peer}, already on monitor {', '.join(sorted(monitors))}")
             return
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", ALERT_TEMPLATE):
@@ -632,21 +672,21 @@ class Runner:
     def holds(self, slug: str) -> list[actions.Action]:
         return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
 
-    def hold_line(self, offset: int, key: str, rest: str) -> None:
+    def hold_line(self, at: str, key: str, rest: str) -> None:
         """Start the clock on an urgent hold; `aged_holds` turns one older than `deadlines.hold_minutes` into a DECIDE line for the root."""
         spec = HOLD_SPEC.match(rest)
         if not spec:
-            self.record(f"escalation:hold:{offset}", f"HOLD-FAILED {key} inbox: one hold per line, in the form `{HOLD_GRAMMAR}`; no clock started")
+            self.record(f"escalation:hold:{at}", f"HOLD-FAILED {key} inbox: one hold per line, in the form `{HOLD_GRAMMAR}`; no clock started")
             return
         if self.holds(spec["slug"]):
             return
         target = json.dumps({"slug": spec["slug"], "owner": spec["owner"], "what": spec["what"]})
         self.book.accept(RUNNER, f"hold:{spec['slug']}@{self.book.stamp()}", "hold", target, key, self.now() + timedelta(minutes=self.config.hold_minutes))
 
-    def unhold_line(self, offset: int, key: str, rest: str) -> None:
+    def unhold_line(self, at: str, key: str, rest: str) -> None:
         spec = UNHOLD_SPEC.match(rest)
         if not spec:
-            self.record(f"escalation:unhold:{offset}", f"HOLD-FAILED {key} inbox: lift a hold in the form `{UNHOLD_GRAMMAR}`")
+            self.record(f"escalation:unhold:{at}", f"HOLD-FAILED {key} inbox: lift a hold in the form `{UNHOLD_GRAMMAR}`")
             return
         for action in self.holds(spec["slug"]):
             self.book.edit(RUNNER, lambda incident, held=action.action_id: incident.verify(held, {"at": self.book.stamp(), "by": key}))
@@ -663,7 +703,7 @@ class Runner:
                 f"DECIDE hold:{held['slug']} {held['owner']}: held {minutes} min: {held['what']} | the root decides it now with {held['owner']}, ahead of any open owner question on another subject",
             )
 
-    def incident_lane(self, monitors: set[str], lane: str, offset: int) -> str | None:
+    def incident_lane(self, monitors: set[str], lane: str) -> str | None:
         """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
@@ -675,6 +715,7 @@ class Runner:
             if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
                 return other
         inbox = self.config.desk_inbox
+        offset = self.book.load(RUNNER).facts[f"desk-inbox:{inbox}"]
         for line in inboxes.Inbox(inbox).lines(offset) if inbox.is_file() else []:
             directive = INBOX_DIRECTIVE.match(line.text.strip())
             if line.start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
@@ -1396,6 +1437,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.reap()
             runner.resume_judges()
             runner.read_inbox()
+            runner.read_cci()
             runner.deliver()
             if runner.now() - swept >= SWEEP_EVERY:
                 runner.sweep()
