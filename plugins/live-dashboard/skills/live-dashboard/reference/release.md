@@ -16,7 +16,7 @@ state dir.
 
 `release.builds`, `release.stacks`, and `release.tiles` share one build cache per
 dashboard and pipeline, `buildkite-builds.json` in the dashboard dir, refreshed from
-`bk api` at most once a minute across every card.
+`bk api` at most once every 15 minutes across every card.
 
 - Each refresh reads at most five pages of the pipeline's history, 100 builds a page,
   until a short page ends the backfill. The next page is saved with the builds, so a

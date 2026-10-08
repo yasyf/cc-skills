@@ -15,7 +15,7 @@ from livedash.components import ledger as ledgers
 from livedash.components.release import overview, platy
 
 BUILDS_FILE = "buildkite-builds.json"
-BUILDS_INTERVAL = timedelta(minutes=1)
+BUILDS_INTERVAL = timedelta(minutes=15)
 INCIDENT_WINDOW = timedelta(hours=72)
 CENSUS_WINDOW = timedelta(hours=48)
 LANDED_WINDOW = timedelta(hours=26)
@@ -134,7 +134,7 @@ def incident_groups(ctx: Context, state_dir: Path) -> list[dict]:
     return overview.incident_groups(incidents, {record["seq"] for record in digest.get("open_incidents") or []}, folders, ctx.now, overview.curated(closers), resolved)
 
 
-@component("builds", "Release builds", question="Which release builds ran, and what did each one ship?", reads=["bk api", "git log"], every="1m", timeout="2m")
+@component("builds", "Release builds", question="Which release builds ran, and what did each one ship?", reads=["bk api", "git log"], every="15m", timeout="2m")
 def builds_card(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, limit: int = 20) -> Table:
     """The newest `limit` release, hotfix, rollback, deploy, plan and check builds from the release pipeline, live ones
     first, with the PR each ships."""
@@ -160,7 +160,7 @@ def summarized(rows: list[dict]) -> list[dict]:
     return out
 
 
-@component("stacks", "Platy deployability", question="Which stacks can Platy deploy, and why not the rest?", reads=["bk api", "git", "cci digest"], every="2m", timeout="2m")
+@component("stacks", "Platy deployability", question="Which stacks can Platy deploy, and why not the rest?", reads=["bk api", "git", "cci digest"], every="15m", timeout="2m")
 def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release") -> Table:
     """Each census stack, grouped by release target: proven, unproven or blocked through Platy, its drift against trunk,
     why it is not proven, and the lane working on it. A target's stacks that share a verdict, a reason and a drift state
@@ -170,7 +170,7 @@ def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: 
     return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", f"vs {trunk.removeprefix('origin/')}", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target", note="Backfilling the release pipeline's Buildkite history; a stack's last Platy release may be older than the builds read so far." if backfilling(ctx, pipeline) else None)
 
 
-@component("tiles", "Release overview", question="How is the release pipeline doing today?", reads=["bk api", "git", "cci digest", "cci lanes"], every="1m", timeout="2m")
+@component("tiles", "Release overview", question="How is the release pipeline doing today?", reads=["bk api", "git", "cci digest", "cci lanes"], every="15m", timeout="2m")
 def tiles(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: str, ledger: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release", slack: str | None = None) -> Tiles:
     """Stacks at 0/0, releases today, the median passed release, PRs landed today against open, open incidents and lanes working."""
     builds = known_builds(ctx, pipeline, checkout)
@@ -251,7 +251,7 @@ def percentile(values: list[float], share: float) -> float | None:
     return ordered[max(round(share * len(ordered) + 0.5) - 1, 0)] if ordered else None
 
 
-@component("durations", "Release time without Watch", question="How long did each release take, Watch excluded, against the goal?", reads=["bk api", "git log"], every="2m", timeout="2m")
+@component("durations", "Release time without Watch", question="How long did each release take, Watch excluded, against the goal?", reads=["bk api", "git log"], every="15m", timeout="2m")
 def durations(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, goal_minutes: float = GOAL_MINUTES) -> Series:
     """The last 40 finished release, hotfix, rollback and deploy builds that applied, oldest first: minutes from start to
     finish minus the Watch steps, as bars toned by the build's state and linked to Buildkite, under a `goal_minutes` rule."""
@@ -269,7 +269,7 @@ def track_of(row: dict) -> Track:
     return Track(f"#{row['number']} {row['title']}", spans, row["url"], STATE_TONE.get(row["state"], "warn" if row["live"] else None), f"{passed} of {total} steps{doing}", str(row["number"]), row["cite"])
 
 
-@component("timeline", "Releases now", question="Which releases are running, and which phase is each one in?", reads=["bk api", "git log"], every="1m", timeout="2m")
+@component("timeline", "Releases now", question="Which releases are running, and which phase is each one in?", reads=["bk api", "git log"], every="15m", timeout="2m")
 def timeline(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, hours: int = 3) -> Timeline:
     """Every live release, hotfix, rollback, deploy or plan build, then those finished in the last `hours`, as a Gantt of
     their Build, Plan, Wait, Deploy, Watch and Finish phases read from the Buildkite job times."""
@@ -280,7 +280,7 @@ def timeline(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release
     return Timeline(tracks, note=None if tracks else f"No release ran in the last {hours} hours.")
 
 
-@component("census-grid", "Census by target", question="Which targets are at 0/0 in which environments, and where is the drift?", reads=["census report", "bk api", "git", "cci digest"], every="2m", timeout="2m")
+@component("census-grid", "Census by target", question="Which targets are at 0/0 in which environments, and where is the drift?", reads=["census report", "bk api", "git", "cci digest"], every="15m", timeout="2m")
 def census_grid(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release") -> Heatmap:
     """One square per release target and environment, toned by its worst stack: green when every stack is at 0/0, amber
     drifting, red blocked through Platy, grey not planned. A square counts the stacks still off 0/0, names each by
@@ -324,7 +324,7 @@ def census_then(records: list[dict], moment) -> dict | None:
     return older[-1]["fields"]["census"] if older else None
 
 
-@component("kpis", "Release program", question="Where do the numbers that matter stand right now, and which way are they moving?", reads=["bk api", "git", "cci records", "census report", "the spend, review, needs-owner and incidents cards"], every="1m", timeout="2m")
+@component("kpis", "Release program", question="Where do the numbers that matter stand right now, and which way are they moving?", reads=["bk api", "git", "cci records", "census report", "the spend, review, needs-owner and incidents cards"], every="15m", timeout="2m")
 def kpis(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release", slack: str | None = None, goal_minutes: float = GOAL_MINUTES, spend: str = "spend", review: str = "review", owner: str = "needs-owner", incidents: str = "incidents") -> Tiles:
     """The program's headline numbers as tiles: stacks at 0/0 with a ring and its change over 24 hours, releases today
     and their pass rate, median and p90 release time without Watch against `goal_minutes`, yesterday's cloud spend
