@@ -20,5 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: pytest
         run: uvx pytest plugins/agent-browser-with-cookies/tests -q

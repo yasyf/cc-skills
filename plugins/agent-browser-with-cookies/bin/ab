@@ -107,6 +107,22 @@ is_close=0
 run() { exec agent-browser --session "$SLUG" ${args[@]+"${args[@]}"}; }
 daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
 
+# agent-browser 0.38 `press` sends the Windows key code as nativeVirtualKeyCode, which
+# macOS Chrome turns into a phantom keydown flood (vercel-labs/agent-browser#2053), so
+# a press into Chrome on this Mac goes through abwc-press instead.
+# TODO: drop this and bin/abwc-press once vercel-labs/agent-browser#2054 ships.
+run_mac_chrome() {
+  [[ "${args[0]:-}" == press || "${args[0]:-}" == key ]] || run
+  [[ "${#args[@]}" == 2 ]] || {
+    echo "ab: '${args[0]}' takes exactly one key here (agent-browser#2053 workaround)" >&2
+    exit 2
+  }
+  local url target
+  url="$(agent-browser --session "$SLUG" get cdp-url)" || exit 1
+  target="$(agent-browser --session "$SLUG" tab --json | jq -r '.data.tabs[] | select(.active) | .targetId')" || exit 1
+  exec "$(dirname "${BASH_SOURCE[0]}")/abwc-press" "$url" "$target" "${args[1]}"
+}
+
 # --bridge — route agent-browser through a local cookiesync CDP bridge: a throwaway
 # Chrome pre-seeded with the caller's cookies, exposed over a token-scoped ws:// CDP
 # endpoint. `cookiesync bridge open --json` launches (or reuses) it and prints the
@@ -168,12 +184,12 @@ if [[ "$use_bridge" == 1 ]]; then
     }
     bridge_armed=0 # handed off cleanly; exec below persists the bridge for reuse
   fi
-  run
+  run_mac_chrome
 fi
 
 if [[ "$force_local" == 1 || -z "$API_KEY" ]]; then
   [[ "$force_local" == 1 ]] || echo "ab: Browserbase key unavailable (\`op read\` failed or passed ${OP_TIMEOUT}s; is 1Password locked?); using local browser." >&2
-  run
+  run_mac_chrome
 fi
 
 # curl with the API key fed via a stdin config so it never appears in argv. Bounded so

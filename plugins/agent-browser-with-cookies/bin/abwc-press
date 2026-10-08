@@ -1,0 +1,113 @@
+#!/usr/bin/env node
+// abwc-press <browser-ws-url> <target-id> <key>: agent-browser's `press` without the
+// nativeVirtualKeyCode that floods macOS Chrome with keydowns (vercel-labs/agent-browser#2053).
+// TODO: delete this and its route in ab once vercel-labs/agent-browser#2054 ships.
+
+const NAMED = {
+  enter: ["Enter", "Enter", 13],
+  return: ["Enter", "Enter", 13],
+  tab: ["Tab", "Tab", 9],
+  escape: ["Escape", "Escape", 27],
+  esc: ["Escape", "Escape", 27],
+  backspace: ["Backspace", "Backspace", 8],
+  delete: ["Delete", "Delete", 46],
+  arrowup: ["ArrowUp", "ArrowUp", 38],
+  up: ["ArrowUp", "ArrowUp", 38],
+  arrowdown: ["ArrowDown", "ArrowDown", 40],
+  down: ["ArrowDown", "ArrowDown", 40],
+  arrowleft: ["ArrowLeft", "ArrowLeft", 37],
+  left: ["ArrowLeft", "ArrowLeft", 37],
+  arrowright: ["ArrowRight", "ArrowRight", 39],
+  right: ["ArrowRight", "ArrowRight", 39],
+  home: ["Home", "Home", 36],
+  end: ["End", "End", 35],
+  pageup: ["PageUp", "PageUp", 33],
+  pagedown: ["PageDown", "PageDown", 34],
+  space: [" ", "Space", 32],
+  " ": [" ", "Space", 32],
+};
+
+const PUNCTUATION = [
+  [";:", "Semicolon", 186],
+  ["=+", "Equal", 187],
+  [",<", "Comma", 188],
+  ["-_", "Minus", 189],
+  [".>", "Period", 190],
+  ["/?", "Slash", 191],
+  ["`~", "Backquote", 192],
+  ["[{", "BracketLeft", 219],
+  ["\\|", "Backslash", 220],
+  ["]}", "BracketRight", 221],
+  ["'\"", "Quote", 222],
+];
+
+const MODIFIERS = { alt: 1, control: 2, ctrl: 2, meta: 4, cmd: 4, command: 4, shift: 8 };
+
+function parseChord(input) {
+  const parts = input.split("+");
+  if (parts.length < 2) return [input, 0];
+  let modifiers = 0;
+  const rest = [];
+  for (const part of parts) {
+    const bit = MODIFIERS[part.toLowerCase()];
+    if (bit) modifiers |= bit;
+    else rest.push(part);
+  }
+  if (modifiers === 0) return [input, 0];
+  return [rest.length ? rest.join("+") : input, modifiers];
+}
+
+function charInfo(ch) {
+  if (/^[a-z]$/i.test(ch)) return [ch, `Key${ch.toUpperCase()}`, ch.toUpperCase().charCodeAt(0)];
+  if (/^\d$/.test(ch)) return [ch, `Digit${ch}`, ch.charCodeAt(0)];
+  const [, code, keyCode] = PUNCTUATION.find(([chars]) => chars.includes(ch)) ?? ["", "", 0];
+  return [ch, code, keyCode];
+}
+
+function keyEvents(chord) {
+  const [key, modifiers] = parseChord(chord);
+  const [name, code, keyCode] = NAMED[key.toLowerCase()] ?? (key.length === 1 ? charInfo(key) : [key, key, 0]);
+  const text = modifiers & (2 | 4) ? undefined : { Enter: "\r", Tab: "\t" }[name] ?? (name.length === 1 ? name : undefined);
+  const base = { key: name, code, windowsVirtualKeyCode: keyCode, modifiers };
+  return [
+    { type: "keyDown", ...base, text, unmodifiedText: text },
+    { type: "keyUp", ...base },
+  ];
+}
+
+async function press(url, targetId, chord) {
+  const ws = new WebSocket(url);
+  const pending = new Map();
+  let nextId = 0;
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+    const waiter = pending.get(msg.id);
+    if (!waiter) return;
+    pending.delete(msg.id);
+    if (msg.error) waiter.reject(new Error(`${msg.error.message} (${msg.error.code})`));
+    else waiter.resolve(msg.result);
+  };
+  const send = (method, params, sessionId) =>
+    new Promise((resolve, reject) => {
+      const id = ++nextId;
+      pending.set(id, { resolve, reject });
+      ws.send(JSON.stringify({ id, method, params, sessionId }));
+    });
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = () => reject(new Error(`cannot open ${url}`));
+  });
+  const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+  for (const event of keyEvents(chord)) await send("Input.dispatchKeyEvent", event, sessionId);
+  await send("Target.detachFromTarget", { sessionId });
+  ws.close();
+}
+
+const [url, targetId, chord] = process.argv.slice(2);
+press(url, targetId, chord).then(
+  () => console.log("✓ Done"),
+  (err) => {
+    console.error(`abwc-press: ${err.message}`);
+    process.exit(1);
+  },
+);

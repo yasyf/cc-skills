@@ -152,6 +152,11 @@ a separate cookiesync-side plugin) is the equivalent one-shot bridge for direct
   fresh `--session <name>` and report the stuck daemon's pid to the user
   (`agent-browser session list`, then `ps`). Never `pkill` or `kill` it: other agents'
   sessions share the same binary.
+- **Clicks, presses, and mouse input do nothing after a key press** (`eval` and `fill`
+  still work) — agent-browser 0.38's `press` floods macOS Chrome with phantom keydowns
+  (vercel-labs/agent-browser#2053). `"$ab" --local`/`--bridge` `press <key>` routes
+  around it; a raw `agent-browser press`, or `keyboard type` text holding a newline or
+  tab, still sets it off. `"$ab" reload` or navigate to stop the flood.
 
 - **Browserbase renders logged-out** — cookies and web storage were seeded, but a
   seeded cookie can still be an **expired** desktop session: do **Log in and retry**
