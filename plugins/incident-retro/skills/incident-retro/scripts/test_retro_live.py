@@ -3,9 +3,10 @@
 
   python3 scripts/test_retro_live.py
 """
-import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest
+import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.request
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retro, retro_live, retro_prose
@@ -23,6 +24,35 @@ for f in $(ls -r incident-retros/*/retro.json); do
 done 3>index.html 4>incident-retros/index.html
 """
 SLUG = "2026-09-02-executors-could-reach-browsers"
+
+
+NOTEBOOK_ID = 15440320
+NOTEBOOK_FILE = f"evidence/datadog/notebook-{NOTEBOOK_ID}.json"
+DATADOG = {
+    ("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}"): {"data": {"attributes": {
+        "name": "Executors and browsers", "author": {"name": "Ada"}, "modified": "2026-09-02T23:00:00Z",
+        "metadata": {"type": "investigation"},
+        "time": {"start": "2026-09-02T20:00:00Z", "end": "2026-09-03T01:00:00Z"},
+        "cells": [{"attributes": {"definition": {"type": "markdown", "text": "Northwind runs stall first."}}},
+                  {"attributes": {"graph_size": "m", "definition": {
+                      "type": "timeseries", "title": "Stalled runs", "requests": [{"q": "sum:runs.stalled{*}"}]}}}]}}},
+    ("POST", "/api/v2/query/timeseries"): {"data": {"attributes": {
+        "times": [1788386400000, 1788390000000, 1788393600000],
+        "series": [{"query_index": 0, "group_tags": [], "unit": None}], "values": [[0, 14, 3]]}}},
+}
+
+
+def datadog(request, timeout):
+    """Datadog at the HTTP boundary, so the sync runs the real fetch and writes a production-shaped snapshot."""
+    path = request.full_url.removeprefix("https://api.datadoghq.com")
+    return io.BytesIO(json.dumps(DATADOG[(request.get_method(), path)]).encode())
+
+
+def setUpModule():
+    for patch in (mock.patch.object(urllib.request, "urlopen", datadog),
+                  mock.patch.dict(os.environ, {"DD_API_KEY": "api", "DD_APP_KEY": "app"})):
+        patch.start()
+        unittest.addModuleCleanup(patch.stop)
 
 
 def seed_docs(docs: Path):
@@ -203,6 +233,59 @@ class Sync(unittest.TestCase):
     def test_a_forbidden_term_refuses_the_push(self):
         code = run(retro_live.sync, args(self.incident, self.docs, no_push=False, forbidden_terms="Polar"))
         self.assertEqual(code, 1)
+
+
+class NotebookSnapshot(unittest.TestCase):
+    """A registered notebook with no snapshot file is one the page marks failed, so render-check refuses the doc."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        self.code = run(retro_live.sync, args(self.incident, self.docs))
+
+    def record(self) -> dict:
+        return json.loads((self.root / "retro.json").read_text())
+
+    def test_the_notebook_is_registered_with_its_snapshot_file(self):
+        self.assertEqual(self.code, 0)
+        self.assertEqual(self.record()["evidence"]["notebooks"],
+                         [{"id": NOTEBOOK_ID, "url": f"https://app.datadoghq.com/notebook/{NOTEBOOK_ID}",
+                           "file": NOTEBOOK_FILE, "h": "the incident notebook"}])
+        snapshot = json.loads((self.root / NOTEBOOK_FILE).read_text())
+        self.assertEqual((snapshot["schema"], snapshot["id"]), ("ir.notebook/1", NOTEBOOK_ID))
+        self.assertEqual(snapshot["cells"][1]["status"], "rendered")
+
+    def test_the_snapshot_carries_the_codename_not_the_customer(self):
+        text = (self.root / NOTEBOOK_FILE).read_text()
+        self.assertNotIn("Northwind", text)
+        self.assertIn("Polar runs stall first.", text)
+
+    def test_a_sync_without_datadog_keys_fails_rather_than_registering_no_file(self):
+        with mock.patch.dict(os.environ, {"DD_API_KEY": "", "DD_APP_KEY": ""}):
+            with self.assertRaises(SystemExit):
+                run(retro_live.sync, args(self.incident, self.docs))
+
+    def render_check(self) -> tuple:
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = retro.render_check(argparse.Namespace(dir=str(self.root), timeout=retro.RENDER_TIMEOUT,
+                                                         words=retro.VISIBLE_WORDS))
+        return code, out.getvalue()
+
+    def test_the_page_renders_the_synced_notebook_and_fails_one_registered_with_no_file(self):
+        try:
+            retro.load_builder().require_chrome()
+        except Exception as e:
+            self.skipTest(f"headless Chrome is not available: {e}")
+        code, out = self.render_check()
+        self.assertEqual(code, 0, out)
+        R = self.record()
+        R["evidence"]["notebooks"][0].pop("file")
+        (self.root / "retro.json").write_text(json.dumps(R))
+        failed, out = self.render_check()
+        self.assertEqual(failed, 1)
+        self.assertIn(f"the page marked 'notebook {NOTEBOOK_ID}' as failed", out)
 
 
 class HistoryAcrossSyncs(unittest.TestCase):
@@ -437,6 +520,15 @@ class PushGate(unittest.TestCase):
             os.environ.clear()
             os.environ.update(environ)
         self.assertTrue(pushed_ref(self.docs, self.branch))
+
+    def test_the_push_carries_the_notebook_snapshot_the_page_fetches_from_the_branch(self):
+        self.assertEqual(self.sync(), 0)
+        tree = subprocess.run(["git", "-C", str(self.docs), "ls-tree", "-r", "--name-only", self.pushed()],
+                              capture_output=True, text=True, check=True).stdout.split()
+        self.assertIn(f"{retro_live.RETRO_DIR}/{SLUG}/{NOTEBOOK_FILE}", tree)
+
+    def pushed(self) -> str:
+        return pushed_ref(self.docs, self.branch).split()[0]
 
     def test_the_push_leaves_the_checkout_head_and_index_alone(self):
         head = subprocess.run(["git", "-C", str(self.docs), "rev-parse", "HEAD"],

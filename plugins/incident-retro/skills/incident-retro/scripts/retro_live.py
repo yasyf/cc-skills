@@ -12,8 +12,9 @@ retro.json for the same state. `init` scaffolds `incident-retros/<slug>/` with
 the docs checkout's `sync-index.sh` regenerate both index pages' cards. `sync` rebuilds the timeline, windows, causes,
 actions and the `live` block, appends to `actions[].history` and
 `hypotheses[].history` when a state changed since the last sync, replaces every
-raw customer name with its codename, runs `check`, and force-pushes retro.json
-and the Slack snapshots to `live/<slug>`. `finalize` drops `live.source` and
+raw customer name with its codename, snapshots the incident's Datadog notebook
+with DD_API_KEY and DD_APP_KEY, runs `check`, and force-pushes retro.json and
+the Slack and Datadog snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
 Stdlib only.
 """
@@ -25,6 +26,7 @@ LIVE_BRANCH = "live/{slug}"
 STATE = "state.json"
 SLACK_LOG = "slack-log.jsonl"
 SLACK_DIR = "evidence/slack"
+DATADOG_DIR = "evidence/datadog"
 INDEX = "index.html"
 INDEX_SCRIPT = Path(".claude/skills/update-design-docs/scripts/sync-index.sh")
 DISPOSITION_STATE = {"open": "todo", "deferred": "todo", "mitigated": "in-progress", "fixed": "done",
@@ -405,13 +407,26 @@ def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime,
     notebook = state.get("notebook") or {}
     evidence = R.setdefault("evidence", {})
     if notebook.get("id"):
-        evidence["notebooks"] = [{"id": notebook["id"], "url": notebook["url"], "h": "the incident notebook"}]
+        evidence["notebooks"] = [{"id": notebook["id"], "url": notebook["url"], "file": notebook_file(notebook),
+                                  "h": "the incident notebook"}]
     evidence["monitors"] = [{"id": m["id"], "url": m["url"], "h": f"monitor {m['id']}"}
                             for m in state.get("monitors") or [] if m.get("id")]
     R["detection"] = {"text": "", "p": "",
                       "monitors": [{"id": m["id"], "role": "caught", "fired": m["fired_at"]}
                                    for m in state.get("monitors") or [] if m.get("id") and m.get("fired_at")]}
     return R
+
+
+def notebook_file(notebook: dict) -> str:
+    return f"{DATADOG_DIR}/notebook-{notebook['id']}.json"
+
+
+def notebook_snapshot(notebook: dict, evidence, now: datetime.datetime) -> dict:
+    """The page renders only snapshots, and the notebook grows while the incident runs, so every sync refetches it."""
+    site = evidence.NOTEBOOK_URL.match(notebook["url"]).group(1)
+    dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
+    options = argparse.Namespace(interval=None, logs_limit=evidence.LOGS_LIMIT)
+    return evidence.fetch_notebook(dd, notebook["id"], options, now, False)
 
 
 def incident_title(state: dict, slug: str, retro) -> str:
@@ -551,6 +566,12 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     R["evidence"]["slack"] = [{"url": snapshot["permalink"], "file": f"{SLACK_DIR}/{name}",
                                "h": f"the {snapshot['channel_name']} thread"}
                               for name, snapshot in sorted(snapshots.items())]
+    notebook = state.get("notebook") or {}
+    if notebook.get("id"):
+        snapshot = notebook_snapshot(notebook, retro.sibling_module("retro_evidence"), now)
+        (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
+        prose.write_atomic(root / notebook_file(notebook),
+                           json.dumps(scrub_tree(snapshot, scrub), ensure_ascii=False) + "\n")
     prose.write_atomic(root / "retro.json", json.dumps(R, indent=2, ensure_ascii=False) + "\n")
     if run_check(retro, root, args.forbidden_terms):
         print("live sync: check failed; the branch was not pushed", file=sys.stderr)
@@ -572,7 +593,8 @@ def publish(args, retro, docs: Path, raw: dict, slug: str, root: Path, branch: s
               file=sys.stderr)
         return 1
     message = f"live: {slug} as of {at}"
-    tree, commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}"], message)
+    tree, commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}",
+                                       f"{RETRO_DIR}/{slug}/{DATADOG_DIR}"], message)
     named = {"the branch name": branch, "the slug": slug, "the commit message": message}
     hits = artifact_hits(docs, tree, named, patterns)
     if hits:

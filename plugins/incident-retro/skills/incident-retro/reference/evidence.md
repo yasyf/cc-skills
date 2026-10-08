@@ -11,8 +11,12 @@ While the incident is ongoing, `retro.py live sync` builds Slack snapshots
 from `<incident-dir>/slack-log.jsonl` in `--docs <checkout>` without calling a
 model. It groups messages by channel and thread, replaces customer names
 through `state.teams[].aliases`, and registers the files in `evidence.slack`.
-Each sync checks and force-pushes `retro.json` and `evidence/slack/` to
-`live/<slug>`. Datadog snapshots still use `evidence fetch` after all-clear.
+When `state.notebook` names a notebook, each sync refetches it with
+`DD_API_KEY` and `DD_APP_KEY` into `evidence/datadog/notebook-<id>.json`, scrubbed
+the same way, and registers it with its `file`; the page marks a registered
+notebook with no file as failed. Each sync checks and force-pushes `retro.json`,
+`evidence/slack/` and `evidence/datadog/` to `live/<slug>`. Monitor snapshots
+still use `evidence fetch` after all-clear.
 
 Three formats exist, each named by a `schema` string carrying a version:
 `ir.notebook/1`, `ir.monitor/1`, `ir.slack/1`. A renderer refuses a file

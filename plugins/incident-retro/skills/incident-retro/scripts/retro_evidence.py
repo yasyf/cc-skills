@@ -25,6 +25,7 @@ LIVE_SPAN = re.compile(r"^(\d+)(mo|m|h|d|w)$")
 LIVE_UNITS = {"m": 60, "h": 3600, "d": 86400, "w": 604800, "mo": 2592000}
 SCALAR_TYPES = ("toplist", "query_table")
 MAX_POINTS = 1500
+LOGS_LIMIT = 25
 MESSAGE_CHARS = 500
 EVENTS_PAGE = 500
 EVENT_PAD = datetime.timedelta(hours=1)
@@ -683,7 +684,7 @@ def add_evidence_parsers(sub) -> None:
     fe.add_argument("--aws-profile", metavar="NAME")
     fe.add_argument("--aws-region", metavar="R")
     fe.add_argument("--site", default="datadoghq.com", help="Datadog site (default datadoghq.com)")
-    fe.add_argument("--logs-limit", type=int, default=25, help="log lines kept per log_stream cell (default 25)")
+    fe.add_argument("--logs-limit", type=int, default=LOGS_LIMIT, help=f"log lines kept per log_stream cell (default {LOGS_LIMIT})")
     fe.add_argument("--interval", type=int, metavar="SECONDS", help="timeseries rollup; default lets Datadog choose, capped at ~1500 points")
     fe.add_argument("--no-register", action="store_true", help="write the files without touching retro.json")
     fe.add_argument("--allow-terms", action="store_true", help="write a snapshot even when the forbidden-terms grep matches")
