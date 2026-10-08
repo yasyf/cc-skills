@@ -1054,7 +1054,10 @@ keys. A repeated key in the same lane is one action. A relay can also be one
 `RELAY-FAILED`. A launch can be one
 `R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
 the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
-and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
+and logs `LAUNCHED` or `LAUNCH-FAILED`. A
+`cci post --drive <drive> --lane root --kind go --to orca-desk --text "<line>"` record
+carrying the same line is read the same way; post it there or append it to the file,
+never both, since a key held twice logs `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
 receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.
@@ -1241,8 +1244,9 @@ These I-rules apply to the landing desk, priority desks, and shards. The owner r
 > take all ephemeral stuff out of manual files and ccn, and move it into cci (cc-inbox)
 
 Durable owner rulings, decisions, runbooks, and design docs stay in cc-notes.
-The orca desk keeps its launch, relay, and hold lines in `inbox/orca-desk.md` in
-the `R<n>` form because the owner's CLAUDE.md Incident Turn names that file and format.
+The orca desk reads its launch, relay, and hold lines from `inbox/orca-desk.md` and
+from cci records addressed to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
+Incident Turn names.
 The root never `SendMessage`s a desk.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling

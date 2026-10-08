@@ -28,7 +28,10 @@ desk-runner.py show --config C
 A relay can also be one line appended to the desk inbox. Set the required
 `orca.desk_inbox` config field to the drive's `inbox/orca-desk.md`. The orca runner
 reads each complete line appended since its saved byte offset; its first read starts
-at the file's end, so history never replays. A line is a relay only in this form, one
+at the file's end, so history never replays. It reads each cci record addressed to
+`orca-desk` the same way, from a saved sequence that starts at the drive's newest
+record, skipping records `cci import` took from the desk inbox; a record that is no
+directive logs `DIRECTIVE-FAILED`. A line is a relay only in this form, one
 relay per line, its text running to the end of the line:
 
 ```text
