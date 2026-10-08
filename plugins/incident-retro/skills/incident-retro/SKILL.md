@@ -138,7 +138,9 @@ snapshots the `state.notebook` Datadog notebook with `DD_API_KEY` and
 `DD_APP_KEY`, writes `summary` from the title, monitors, `severity`,
 `commander`, and `status`, updates `live.updatedAt`, and force-pushes
 `retro.json`, `evidence/slack/` and `evidence/datadog/` to `live/<slug>`. The checkout's HEAD and index stay in place. Use
-`--no-push` to write and check locally. No live command calls a model;
+`--no-push` to write and check locally. `--notebook-snapshot <path>` publishes
+an existing `ir.notebook/1` snapshot of that notebook, scrubbed, instead of
+fetching it, so a sync with no Datadog keys still works. No live command calls a model;
 do not run `prose` or draft narrative while the incident is ongoing.
 
 Every live push must pass the codename scrub and forbidden-terms check.

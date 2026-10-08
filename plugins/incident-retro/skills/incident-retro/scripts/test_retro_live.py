@@ -79,7 +79,7 @@ def incident_dir() -> Path:
 def args(incident: Path, docs: Path, **extra):
     base = {"incident_dir": str(incident), "docs": str(docs), "slug": None,
             "repo": "Forge-AI/design-docs", "timezone": "America/Los_Angeles",
-            "forbidden_terms": None, "retro": retro, "no_push": True, "push": False,
+            "forbidden_terms": None, "retro": retro, "no_push": True, "push": False, "notebook_snapshot": None,
             "tags": "browser-pool,executors,deploy"}
     base.update(extra)
     return argparse.Namespace(**base)
@@ -265,6 +265,19 @@ class NotebookSnapshot(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DD_API_KEY": "", "DD_APP_KEY": ""}):
             with self.assertRaises(SystemExit):
                 run(retro_live.sync, args(self.incident, self.docs))
+
+    def test_a_supplied_snapshot_is_published_scrubbed_without_calling_datadog(self):
+        supplied = json.loads((self.root / NOTEBOOK_FILE).read_text())
+        supplied["title"] = "Northwind offline"
+        path = Path(tempfile.mkdtemp()) / f"notebook-{NOTEBOOK_ID}.json"
+        path.write_text(json.dumps(supplied))
+        offline = mock.Mock(side_effect=AssertionError("live sync fetched from Datadog"))
+        with mock.patch.object(urllib.request, "urlopen", offline), \
+                mock.patch.dict(os.environ, {"DD_API_KEY": "", "DD_APP_KEY": ""}):
+            self.assertEqual(run(retro_live.sync, args(self.incident, self.docs, notebook_snapshot=str(path))), 0)
+        offline.assert_not_called()
+        self.assertEqual(json.loads((self.root / NOTEBOOK_FILE).read_text()), {**supplied, "title": "Polar offline"})
+        self.assertEqual(self.record()["evidence"]["notebooks"][0]["file"], NOTEBOOK_FILE)
 
     def render_check(self) -> tuple:
         out = io.StringIO()

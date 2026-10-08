@@ -14,7 +14,9 @@ through `state.teams[].aliases`, and registers the files in `evidence.slack`.
 When `state.notebook` names a notebook, each sync refetches it with
 `DD_API_KEY` and `DD_APP_KEY` into `evidence/datadog/notebook-<id>.json`, scrubbed
 the same way, and registers it with its `file`; the page marks a registered
-notebook with no file as failed. Each sync checks and force-pushes `retro.json`,
+notebook with no file as failed. `--notebook-snapshot <path>` takes an
+existing `ir.notebook/1` snapshot in place of the fetch and scrubs it the same
+way. Each sync checks and force-pushes `retro.json`,
 `evidence/slack/` and `evidence/datadog/` to `live/<slug>`. Monitor snapshots
 still use `evidence fetch` after all-clear.
 

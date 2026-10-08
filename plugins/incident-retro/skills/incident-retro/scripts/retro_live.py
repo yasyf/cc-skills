@@ -2,7 +2,7 @@
 """Keep a retro current while the incident is still running.
 
   retro.py live init     <incident-dir> --docs <design-docs checkout> [--slug S]
-  retro.py live sync     <incident-dir> --docs <design-docs checkout> [--no-push]
+  retro.py live sync     <incident-dir> --docs <design-docs checkout> [--no-push] [--notebook-snapshot PATH]
   retro.py live finalize <incident-dir> --docs <design-docs checkout> [--push]
 
 The inputs are the incident skill's `state.json` and `slack-log.jsonl`. Every
@@ -13,8 +13,9 @@ the docs checkout's `sync-index.sh` regenerate both index pages' cards. `sync` r
 actions and the `live` block, appends to `actions[].history` and
 `hypotheses[].history` when a state changed since the last sync, replaces every
 raw customer name with its codename, snapshots the incident's Datadog notebook
-with DD_API_KEY and DD_APP_KEY, runs `check`, and force-pushes retro.json and
-the Slack and Datadog snapshots to `live/<slug>`. `finalize` drops `live.source` and
+with DD_API_KEY and DD_APP_KEY or takes the snapshot `--notebook-snapshot`
+names, runs `check`, and force-pushes retro.json and the Slack and Datadog
+snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
 Stdlib only.
 """
@@ -568,7 +569,8 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
                               for name, snapshot in sorted(snapshots.items())]
     notebook = state.get("notebook") or {}
     if notebook.get("id"):
-        snapshot = notebook_snapshot(notebook, retro.sibling_module("retro_evidence"), now)
+        snapshot = (json.loads(Path(args.notebook_snapshot).read_text()) if args.notebook_snapshot
+                    else notebook_snapshot(notebook, retro.sibling_module("retro_evidence"), now))
         (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
         prose.write_atomic(root / notebook_file(notebook),
                            json.dumps(scrub_tree(snapshot, scrub), ensure_ascii=False) + "\n")
@@ -653,6 +655,8 @@ def add_live_parser(sub, retro):
                        help="customer names the retro must not carry (default: FORBIDDEN_TERMS, then .customer-names)")
         if name == "sync":
             p.add_argument("--no-push", action="store_true", help="write and check the retro without pushing it")
+            p.add_argument("--notebook-snapshot", metavar="PATH",
+                           help="an ir.notebook/1 snapshot of state.notebook to publish instead of fetching it from Datadog")
         else:
             p.add_argument("--tags", help=f"{retro.TAG_COUNT[0]} to {retro.TAG_COUNT[1]} lower-case topical tags, "
                                           f"comma separated; a retro past ongoing carries them")
