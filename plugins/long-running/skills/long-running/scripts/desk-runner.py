@@ -444,8 +444,9 @@ class Runner:
         if len(text) > CCI_TEXT or message:
             body = self.config.receipts / "cci" / f"{hashlib.sha256(key.encode()).hexdigest()[:16]}.txt"
             body.parent.mkdir(parents=True, exist_ok=True)
-            body.write_text("\n\n".join(filter(None, [text, message])) + "\n")
+            body.write_text("\n\n".join(filter(None, [text, message.strip()])) + "\n")
             argv += ["--path", str(body)]
+        if len(text) > CCI_TEXT:
             text = text[: CCI_TEXT - 1] + "…"
         return self.shell.run([*argv, "--text", text])
 

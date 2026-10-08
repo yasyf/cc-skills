@@ -456,7 +456,7 @@ def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_pa
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     shell.verdict = {"verdict": "escalate", "text": "scope? A) widen B) hold"}
-    body = "The scope surprise is " + "x" * 2_950 + " A) take it B) leave it"
+    body = "The scope surprise is " + "x" * 2_955 + " A) take it B) leave it"
     shell.receive({"id": "msg_q9", "type": "question", "subject": "scope?", "body": body, "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
     [post] = [post for post in shell.posts if post["to"] == "root"]
