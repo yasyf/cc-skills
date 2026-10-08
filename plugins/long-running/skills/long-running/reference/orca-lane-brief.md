@@ -147,7 +147,7 @@ Worktree and VCS:
   generated output; the build generates it. A stack that still carries a regenerated
   artifact rebases and regenerates it on ejection.
 
-Landing desk (records over cc-notes refs, shared by every checkout):
+Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkout):
 - Ledger `<id>`; script `ledger.py`, on PATH by name; repo
   `<owner/name>`; base `<base>`.
 - Holds file `<path>`, root-owned; #<n> names a held PR, lane:<name> a held lane,
@@ -156,9 +156,9 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   the hook records opened PRs, with hand registration as the fallback. Never SendMessage a subagent.
 - On spawn: `ledger.py register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
-- On every PR open, push, and READY: `ledger.py report --ledger <id> --pr <n> --head
+- On every PR open, push, and READY: `ledger.py report --ledger <id> --drive <drive> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
-  READY is `--verdict clean --text "READY ..."`; the desk reads only this row.
+  READY is `--verdict clean --text "READY ..."`; the desk reads only this cci record.
 - The moment your stack has a green, approved bottom prefix, re-read the holds file.
   Before each enqueue, write a fresh digits-only file with
   `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
@@ -170,7 +170,7 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   `stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
   numeric file is empty; it requires at least one number, never a filename.
   Argparse exit 2 otherwise reads as unsettled. Report the enqueue with
-  `ledger.py report`; refresh records it as labelled outside the desk.
+  `ledger.py report --drive <drive>`; refresh records it as labelled outside the desk.
   `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
   `ledger.py label --repo <owner/name> --ledger <id> --pr <prefix top>
   --expect-head <sha> --checkout <worktree>`; mirrored ledger holds are the guard.

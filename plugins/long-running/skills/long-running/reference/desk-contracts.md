@@ -17,13 +17,13 @@ PR #<n> <head sha, full> <clean|red|conflicting|held>
 ```
 
 For an owner ask, append an optional fourth line, `ask <id>`. The desk records it
-with `--ask <id>` on `ledger.py report`. Every `--ask` takes the key `ledger.py ask`
+with `--ask <id>` on `ledger.py report --drive <drive>`. Every `--ask` takes the key `ledger.py ask`
 printed, `ask/000104`, or its bare number, `000104`.
 
-A lane with the ledger id records it itself, and a running desk reads nothing else:
-`ledger.py report --ledger <id> --pr <n> --head <sha> --lane <name> --verdict <v>
+A lane with the ledger id and cci drive records it itself, and a running desk reads nothing else:
+`ledger.py report --ledger <id> --drive <drive> --pr <n> --head <sha> --lane <name> --verdict <v>
 --text "<line 2>"`. READY is `--verdict clean`. A desk types a report that arrives as
-a message in the same shape. The desk's `ledger.py inbox --take` lists both. The same
+a message in the same shape. The desk's `ledger.py inbox --drive <drive> --take` lists both. The same
 PR, head, and verdict twice is one report: the second is dropped and never answered. A
 new head is a new report. Reports open rows, carry the lane's text, and feed `stale`
 and the p50 report-to-landing figure. A report is not required to label; the current
@@ -67,7 +67,7 @@ An ask has one status: `LIVE`, `LANDED-NOT-LIVE`, `IN-PR`, `LOST`, `dropped`, or
 `answered`. The last two are terminal. Only `LIVE` counts as done. Before then, the
 root says "in #N, not live yet: `<blocker>`", never that the ask is handled or done.
 
-The lane reports each PR with that ask id; the desk records `ledger.py report --ask
+The lane reports each PR with that ask id; the desk records `ledger.py report --drive <drive> --ask
 <id>`. The ask's `prs` field records the link. A PR carrying an `IN-PR` ask takes no
 second ask: `report --ask` refuses a distinct ask. The new ask goes on a stacked
 follow-up PR. An unknown ask id exits non-zero.
@@ -107,7 +107,7 @@ the owner or the root. Like a P0 watch line, it reaches the root immediately.
 RULING NEEDED: <the question, one line>; options: A <..> / B <..> / C <..>
 ```
 
-`ledger.py ruling --text "<question>" --options "A <..>|B <..>|C <..>"` records it and
+`ledger.py ruling --drive <drive> --text "<question>" --options "A <..>|B <..>|C <..>"` records it and
 prints the line to forward. The root answers with the letter. Two rulings with the same
 question on the same PR are one ruling.
 
@@ -155,7 +155,7 @@ task that later handoffs could close.
 trunk and the forge in one batch: one trunk fetch, one `git log` read that lands every row a
 squash subject ending `(#n)` names, and one `ccx vcs pr state` read over the rest, with
 per-PR forge calls only for a closed row no squash names. `--dry-run` prints the changes
-and writes nothing. `ledger.py summary` runs it first, from `--checkout` (default:
+and writes nothing. `ledger.py summary --drive <drive>` runs it first, from `--checkout` (default:
 the working directory) and `--repo` (default: that checkout's origin). A row nobody has touched for an hour is exactly the one that has gone stale, so the
 sweep's input is the whole board rather than the rows the desk just changed.
 
@@ -168,7 +168,7 @@ earlier. A lane closing its own pull request never reaches the desk as an event,
 
 ## The desk to root summary, every 30 minutes
 
-`ledger.py summary` prints it; the desk sends it unchanged, followed by the
+`ledger.py summary --drive <drive>` prints it; the desk sends it unchanged, followed by the
 `standing.py live --drive <drive>` output from "A standing rule is one cci record,
 listed by id". The summary's first line gives the counts; the lines after it exist
 only when they carry something.
@@ -206,7 +206,7 @@ unchanged; the runner emits `PROMPT` in the sweep that sees it. Submit any
 worker-directed ruling with `desk-runner.py relay --config C --key R<n> --lane L
 --text T`; never send it to an orca-desk lane.
 
-`ledger.py summary --ledger <id>` settles landings before printing. `--checkout`
+`ledger.py summary --ledger <id> --drive <drive>` settles landings before printing. `--checkout`
 defaults to the working directory and `--repo` to that checkout's origin. The `waiting:` line
 groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. Empty groups
 are omitted, and the line disappears when nothing waits.
@@ -225,7 +225,7 @@ It never reads a PR's `merged` field, which the Graphite
 queue leaves false on every PR it lands. The ten-line desk block ends with a pointer
 at `ledger.py show` when more desk lines remain; ask lines never count toward that cap.
 
-`ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... [--shard <lane>,<lane>]`
+`ledger.py watch --repo <repo> --ledger <id> --drive <drive> --checkout <path> [--priority <n>]... [--shard <lane>,<lane>]`
 re-reads non-terminal PR rows each pass, records transitions, and settles landings
 and closures through `landed`. It writes a P0 inbox message and prints
 `P0 #<n> <event> <lane>` for every ejection, and for `conflicting` or `red` on a
@@ -262,7 +262,7 @@ in one Bash call, each backgrounded with `&`, then `wait` and collect each outpu
 Drop `--hold` when the numeric file is empty; it requires at least one PR number,
 never a filename. Argparse exit 2 otherwise reads as unsettled.
 
-Report enqueues with `ledger.py report`; where the repo has no script, use
+Report enqueues with `ledger.py report --drive <drive>`; where the repo has no script, use
 `ledger.py label --pr <prefix top> --expect-head <sha> --checkout <path>` with mirrored
 ledger holds as the guard. Priority desks and shards use the whole ledger's held
 set under D3 and leave `held` refusals unrouted for the root. Never enqueue one
@@ -320,7 +320,7 @@ dev for 15 minutes.*
 Shards split by lane, never by PR number, because one owner must grade
 a whole stack and its rows share the tip's lane. `--shard lane-a,lane-b` filters
 `refresh`, `landed`, `reconcile`, `route`, `label --all-clean`, `stale`, `summary`, and
-`inbox` to rows whose `lane` is in the set.
+`inbox` to rows and cci messages whose `lane` is in the set.
 
 All shards write the same ledger, and the refresh lock is per ledger. The main desk
 keeps typing messages in and sends the summary; a shard never messages the root.
@@ -329,7 +329,7 @@ keeps typing messages in and sends the summary; a shard never messages the root.
 ## Idle notices: record once, answer never
 
 Every lane emits two or three idle notifications per real report. The desk records the
-first as `ledger.py enqueue --kind idle` and the tool drops the rest as duplicates. No
+first as `ledger.py enqueue --drive <drive> --kind idle` and the tool drops the rest as duplicates. No
 idle notice is ever answered: silence costs nothing, an acknowledgement costs a turn,
 and a reply to a finished lane resumes it with its whole original brief.
 
