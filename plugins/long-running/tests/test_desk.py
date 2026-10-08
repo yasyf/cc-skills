@@ -1900,6 +1900,26 @@ def test_summary_inside_orca_names_every_worker_parked_on_a_prompt_for_five_minu
     assert ["orca", "orchestration", "worker-show", "--dispatch", "ctx_done", "--json"] not in shell.calls
 
 
+def test_summary_inside_orca_names_a_worker_it_cannot_show_and_still_renders(capsys, monkeypatch):
+    monkeypatch.setenv(ledger.ORCA_TERMINAL, "term_root")
+    shell = FakeShell(rows=[{"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "yasyf/lightning/"}}])
+    shell.orca = {
+        ("orchestration", "worker-list"): {"workers": [orca_worker("ctx_remote"), orca_worker("ctx_old")], "page": {"hasMore": False}},
+        ("orchestration", "worker-show", "--dispatch", "ctx_old"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(7)}),
+    }
+    shell.orca_errors = {
+        ("orchestration", "worker-show", "--dispatch", "ctx_remote"): {"code": "remote_runtime_unavailable", "message": "Remote runtime is not reachable."},
+    }
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].startswith("desk ")
+    assert lines[1:3] == [
+        "WORKER-SHOW-FAILED dispatch=ctx_remote remote_runtime_unavailable: Remote runtime is not reachable.",
+        f"WAITING-ON-PROMPT {LANE} 7m dispatch=ctx_old via hook: interactive prompt",
+    ]
+
+
 def test_summary_outside_orca_reads_no_orca_state(capsys):
     shell = FakeShell()
 

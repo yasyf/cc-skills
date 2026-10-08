@@ -205,6 +205,9 @@ whose branch prefix holds the worker's branch, else that branch. Forward each li
 unchanged; the runner emits `PROMPT` in the sweep that sees it. Submit any
 worker-directed ruling with `desk-runner.py relay --config C --key R<n> --lane L
 --text T`; never send it to an orca-desk lane.
+A worker whose `worker-show` exits non-zero prints `WORKER-SHOW-FAILED
+dispatch=<id> <code>: <message>` with Orca's error in its place, and the rest of the
+summary still renders.
 
 `ledger.py summary --ledger <id> --drive <drive>` settles landings before printing. `--checkout`
 defaults to the working directory and `--repo` to that checkout's origin. The `waiting:` line

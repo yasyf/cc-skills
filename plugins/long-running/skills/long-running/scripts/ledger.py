@@ -996,7 +996,12 @@ def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozense
     for worker in orca_workers(shell):
         if worker["projection"]["outcome"] != ORCA_IN_PROGRESS:
             continue
-        shown = orca(shell, "orchestration", "worker-show", "--dispatch", worker["dispatchId"])
+        try:
+            shown = orca(shell, "orchestration", "worker-show", "--dispatch", worker["dispatchId"])
+        except subprocess.CalledProcessError as failure:
+            error = json.loads(failure.stdout)["error"]
+            lines.append(f"WORKER-SHOW-FAILED dispatch={worker['dispatchId']} {error['code']}: {error['message']}")
+            continue
         if not (wait := shown["observation"].get("agentWait")):
             continue
         minutes = int((moment.timestamp() * 1000 - wait["since"]) // 60000) if "since" in wait else None
