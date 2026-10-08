@@ -55,6 +55,21 @@ Orca's preamble forbids posting to GitHub, and codex's global instructions leave
 delegated edits uncommitted. The pointer makes the brief outrank both, so a lane
 whose brief says to ship opens its PR without asking.
 
+A brief whose `ccx:` header line says `role=desk` or `role=watch` is a standing
+desk, and the launcher appends the desk contract to its pointer:
+
+```text
+ Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc.
+```
+
+Every other role keeps the one-shot pointer. Orca's preamble tells a worker to send
+`worker_done` once its task is done and then go idle, so a desk launched without
+the contract read setup or one quiet cycle as done. The role in the brief is the only
+switch; the launch line carries none.
+
+*Prevents landing-sweep-36, iac-drift-census-27, and incident-slack-watch-49 each
+sending `worker_done` after setup or one quiet cycle (release-v3, 2026-10-08).*
+
 When the pointer would pass 500 characters, the script links the brief at
 `~/.claude/<8 hex>` and points there instead; only a worktree path long enough to
 overflow on its own fails the launch.
@@ -207,6 +222,10 @@ found, and what is left; the PR numbers, full head shas, and any tool refusal, v
 go in the report file its `--report-path` names. `worker_done` is your last act: the
 root's gc then closes your idle terminal and removes your worktree once it is clean
 and pushed, so push everything and leave no background process running first.
+A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
+loops until rotation, through setup and quiet cycles alike, and never ends a turn
+waiting. At rotation it writes its handoff doc, then
+sends `worker_done --outcome succeeded` with the doc id in the body.
 
 Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 ```
@@ -215,7 +234,7 @@ Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 
 ```
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
-ccx: role=<role> tooling-lane=<key, for a tooling lane only>
+ccx: role=<role; desk or watch for a standing desk> tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
 Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
@@ -238,6 +257,21 @@ Observable acceptance: <the test, output, or PR URL that proves completion>.
 Orca's task-spec contract requires every spec to include `Target`, `Change`,
 `Constraints`, `Ownership`, and `Observable acceptance`. The shared file supplies the
 long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Finish`.
+
+## A standing desk's brief
+
+A desk on Orca, its first launch or a successor after rotation, uses this brief. The
+`ccx: role=desk` line, or `role=watch` for a watch, is what gives it the standing
+desk contract; a brief without it launches one-shot.
+
+```
+# <lane>-<N>: <desk's job>, successor of <lane>-<N-1>
+ccx: role=desk
+Read cc-notes doc <handoff or desk doc id> (ccn doc show <id>) and continue exactly as it says.
+<live standing rules by #<seq> id; anything this successor changes>.
+Report on cci as <lane>-<N>. Loop until rotation at <hours>h; setup and quiet cycles are not done.
+Rotate: write the handoff doc, then send worker_done naming its id.
+```
 
 ## Checks before launch
 

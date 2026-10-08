@@ -1409,7 +1409,10 @@ message.
 
 The `ccx:` line names the lane's role for the hooks: `fix` with incident wording routes
 to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`,
-`comms`, and `triage` lanes need no root task.
+`comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a
+standing desk: `orca-launch.sh` gives it a contract that loops until rotation and
+sends `worker_done` only then, naming the handoff doc
+([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)).
 
 ```
 ccx: role=<role> tooling-lane=<key, for a tooling lane only>
