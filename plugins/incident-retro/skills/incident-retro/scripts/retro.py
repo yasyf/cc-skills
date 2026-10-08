@@ -586,6 +586,7 @@ def render_check(args) -> int:
     finally:
         report = builder.diagnostics(chrome)
         server.shutdown()
+        server.server_close()
         chrome.close()
 
     for e in builder.page_errors(chrome):

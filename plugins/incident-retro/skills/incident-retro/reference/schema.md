@@ -785,7 +785,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 | File | Role |
 |---|---|
 | `retro.json` | canonical structured retro |
-| `live/<slug>` branch | `retro.json` and `evidence/slack/` as `live sync` last pushed them, the ref the page polls while `meta.status` is `ongoing` |
+| `live/<slug>` branch | `retro.json`, `evidence/slack/` and `evidence/datadog/` as `live sync` last pushed them, the ref the page polls while `meta.status` is `ongoing` |
 | `summary.html` | the executive summary, a body-level fragment whose panel prose is written by `prose` |
 | `prose.lock.json` | model and command metadata, total `slop`, and each accepted field's digest, run directory, log path, timestamp, and remaining `slop` count; migrated legacy entries carry a digest, `kind`, `grandfathered` plugin version, and timestamp |
 | `.prose.lock` | transient exclusive writer claim (`WRITE_LOCK = ".prose.lock"`); removed when the writing run ends and safe to delete after a killed run if no other run holds it |

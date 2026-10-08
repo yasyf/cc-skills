@@ -134,9 +134,10 @@ $TOOL live sync <incident-dir> --docs <design-docs-checkout>
 ```
 
 `sync` derives the timeline, windows, causes, actions, and Slack snapshots,
-writes `summary` from the title, monitors, `severity`, `commander`, and
-`status`, updates `live.updatedAt`, and force-pushes `retro.json` and `evidence/slack/`
-to `live/<slug>`. The checkout's HEAD and index stay in place. Use
+snapshots the `state.notebook` Datadog notebook with `DD_API_KEY` and
+`DD_APP_KEY`, writes `summary` from the title, monitors, `severity`,
+`commander`, and `status`, updates `live.updatedAt`, and force-pushes
+`retro.json`, `evidence/slack/` and `evidence/datadog/` to `live/<slug>`. The checkout's HEAD and index stay in place. Use
 `--no-push` to write and check locally. No live command calls a model;
 do not run `prose` or draft narrative while the incident is ongoing.
 
