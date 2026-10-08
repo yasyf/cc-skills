@@ -259,6 +259,11 @@ def digest(paths: list[Path], state: Path | None, cap: int, budget: int) -> str:
     return "\n".join(out or ["no new inbox lines"]) + "\n"
 
 
+def seen_count(cursor: Path) -> int:
+    text = cursor.read_text().strip() if cursor.is_file() else ""
+    return int(text) if text else 0
+
+
 def wait(argv: list[str]) -> int:
     guarded = "--" in argv
     split = argv.index("--") if guarded else len(argv)
@@ -281,7 +286,7 @@ def wait(argv: list[str]) -> int:
                 print(clip(line), flush=True)
                 changed = True
         for mailbox, cursor in mailboxes:
-            polled = mailbox.poll(int(cursor.read_text()) if cursor.is_file() else 0)
+            polled = mailbox.poll(seen_count(cursor))
             if polled is None:
                 continue
             count, unread = polled
@@ -291,7 +296,7 @@ def wait(argv: list[str]) -> int:
                 changed = True
         for source in files:
             watched, cursor = Path(source["file"]), Path(source["cursor"])
-            seen = int(cursor.read_text()) if cursor.is_file() else 0
+            seen = seen_count(cursor)
             lines = Inbox(watched).lines() if watched.is_file() else []
             if len(lines) > seen:
                 for line in lines[seen:]:

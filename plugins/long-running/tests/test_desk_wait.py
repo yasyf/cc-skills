@@ -73,10 +73,13 @@ def test_reports_new_lines_from_every_file_in_the_pass(tmp_path, first):
         assert inbox_cursor.read_text() == "1\n"
 
 
-def test_missing_cursor_starts_at_zero(tmp_path):
+@pytest.mark.parametrize("stored", [None, "", "\n"])
+def test_missing_or_empty_cursor_starts_at_zero(tmp_path, stored):
     inbox = tmp_path / "inbox"
     cursor = tmp_path / "cursor"
     inbox.write_text("R1 first\nR2 second\n")
+    if stored is not None:
+        cursor.write_text(stored)
 
     result = subprocess.run([str(SCRIPT), "3", f"{inbox}={cursor}"], capture_output=True, text=True, timeout=5)
 
@@ -159,10 +162,13 @@ def test_a_missing_mailbox_does_not_wake_the_wait(tmp_path):
     assert elapsed >= 5
 
 
-def test_unread_messages_waiting_before_the_call_wake_it_once(tmp_path):
+@pytest.mark.parametrize("stored", [None, ""])
+def test_unread_messages_waiting_before_the_call_wake_it_once(tmp_path, stored):
     mailbox = mailbox_in(tmp_path)
     cursor = tmp_path / "mailbox.cursor"
     mailbox.write_text(json.dumps([message(read=False), message(read=False)]))
+    if stored is not None:
+        cursor.write_text(stored)
 
     first = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
     again = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
