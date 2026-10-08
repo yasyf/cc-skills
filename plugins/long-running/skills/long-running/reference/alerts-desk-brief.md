@@ -44,8 +44,9 @@ On release-v3, 2026-09-30, the watch's first read over `release-target:*` printe
 
 The desk's report carries that line's id, name, states, and `at` time, its first
 read of the monitor's query, and its launch decision. When it launched
-`dd-324525079-fix`, the root's answer is an evidence lane and a target fence for
-324525079 in one inbox line that turn.
+`dd-324525079-fix`, the root's answer that turn is an evidence-lane launch and a
+fence for 324525079, each on its own inbox line. The runner takes one launch per
+line and logs `LAUNCH-FAILED` for a line that chains launches or a fence.
 
 ## Spawn brief
 
