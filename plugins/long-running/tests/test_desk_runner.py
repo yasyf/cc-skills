@@ -311,7 +311,7 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
 
 
 def escalations(shell: FakeShell) -> list[str]:
-    return [Path(post["path"]).read_text().strip() if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
+    return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
 
 
 def incident(tmp_path: Path, name: str) -> actions.Incident:
@@ -450,6 +450,30 @@ def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, conf
     lines = escalations(shell)
     assert len(lines) == 1 and "DECIDE msg_q2" in lines[0] and "A) wait B) apply now" in lines[0]
     assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+
+
+def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_path):
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    shell.verdict = {"verdict": "escalate", "text": "scope? A) widen B) hold"}
+    body = "The scope surprise is " + "x" * 2_950 + " A) take it B) leave it"
+    shell.receive({"id": "msg_q9", "type": "question", "subject": "scope?", "body": body, "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
+    orca_pass(shell, config)
+    [post] = [post for post in shell.posts if post["to"] == "root"]
+    receipt = Path(post["path"]).read_text()
+    assert len(body) == 3_000 and len(post["text"]) <= runner_module.CCI_TEXT
+    assert post["text"].startswith("DECIDE msg_q9") and receipt.startswith("DECIDE msg_q9") and "A) widen B) hold" in receipt
+    assert f"scope?\n\n{body}\n" in receipt
+
+
+def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    shell.receive({"id": "msg_d1", "type": "worker_done", "subject": "shipped", "body": "PR #12 open; " + "y" * 1_000, "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "succeeded"})})
+    orca_pass(shell, config)
+    [post] = [post for post in shell.posts if post["to"] == "root"]
+    assert post["text"] == f"OUTCOME msg_d1 {LANE}: worker_done succeeded dispatch=ctx_a: shipped"
+    assert Path(post["path"]).read_text().endswith("shipped\n\nPR #12 open; " + "y" * 1_000 + "\n")
 
 
 def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell, config, tmp_path):

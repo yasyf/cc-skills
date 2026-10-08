@@ -59,7 +59,10 @@ named for reclaim. Each escalation runs
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 UNBOUND and UNOWNED to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
-`<orca.receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack routes
+`<orca.receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
+escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
+the full line and then the whole message, subject and body, kept under
+`<orca.receipts>/cci/messages/<id>.md` when the message arrives. Landing restack routes
 sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
 The config requires `drive` and `orca.desk_inbox`. A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
@@ -435,13 +438,13 @@ class Runner:
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str) -> Done:
-        """Post one cci record; a body over cci's text limit goes to a receipts file named by `key` and rides as its path."""
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "") -> Done:
+        """Post one cci record; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path."""
         argv = ["cci", "post", "--drive", self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic]
-        if len(text) > CCI_TEXT:
+        if len(text) > CCI_TEXT or message:
             body = self.config.receipts / "cci" / f"{hashlib.sha256(key.encode()).hexdigest()[:16]}.txt"
             body.parent.mkdir(parents=True, exist_ok=True)
-            body.write_text(text + "\n")
+            body.write_text("\n\n".join(filter(None, [text, message])) + "\n")
             argv += ["--path", str(body)]
             text = text[: CCI_TEXT - 1] + "…"
         return self.shell.run([*argv, "--text", text])
@@ -450,7 +453,8 @@ class Runner:
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
             label, topic = action.target.split()[:2]
             kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
-            done = self.cci_post(kind, action.target, "root", topic, action.action_id)
+            message = self.message_file(topic)
+            done = self.cci_post(kind, action.target, "root", topic, action.action_id, message.read_text() if message.is_file() else "")
             if done.code != 0:
                 raise RuntimeError(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
             self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
@@ -966,6 +970,15 @@ class Runner:
             self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
         return True
 
+    def message_file(self, msg: str) -> Path:
+        return self.config.receipts / "cci" / "messages" / f"{msg}.md"
+
+    def keep(self, message: dict) -> None:
+        """Write the whole Orca message where `flush` finds it, so the cci record relaying it carries every word by path."""
+        path = self.message_file(message["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{message.get('subject') or ''}\n\n{message.get('body') or ''}".strip() + "\n")
+
     def message(self, message: dict) -> None:
         decoded = json.loads(message.get("payload") or "{}")
         payload = decoded if isinstance(decoded, dict) else {}
@@ -979,14 +992,18 @@ class Runner:
             result = acked["rest"].removeprefix(key).lstrip(": ").strip()
             self.acknowledge(container, key, sender, acked["verb"], result or (message.get("body") or "").strip(), message["id"])
         elif message["type"] in ("question", "escalation"):
+            self.keep(message)
             self.judge(message, lane)
         elif message["type"] == "worker_done":
+            self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
         elif message["type"] == "status" and subject.lower().startswith(("fix-live:", "mechanism:")):
             kind = subject.split(":", 1)[0].upper()
+            self.keep(message)
             body = " ".join((message.get("body") or "").split())[:300]
             self.escalate(message["id"], kind, lane, f"{subject}: {body}")
         elif message["type"] in ("decision_gate", "handoff"):
+            self.keep(message)
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
 
     def acknowledge(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
