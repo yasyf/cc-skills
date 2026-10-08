@@ -185,7 +185,7 @@ def test_the_spec_names_the_brief_by_absolute_path_and_makes_it_outrank_the_prea
     assert "it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says." in spec
 
 
-@pytest.mark.parametrize("header", ["ccx: role=desk", "ccx: lane=alerts-desk role=watch effort=low"])
+@pytest.mark.parametrize("header", ["ccx: role=desk", "ccx: role=desk\r", "ccx: lane=alerts-desk role=watch effort=low"])
 def test_a_desk_brief_adds_the_standing_desk_contract_to_the_spec(orca, header):
     orca.healthy()
     orca.brief.write_text(f"# landing-sweep-37\n{header}\nRun the landing loop; rotate at 9h with a handoff doc.\n")

@@ -224,7 +224,7 @@ root's gc then closes your idle terminal and removes your worktree once it is cl
 and pushed, so push everything and leave no background process running first.
 A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
 loops until rotation, through setup and quiet cycles alike, and never ends a turn
-waiting. At rotation, or on the root's stand-down, it writes its handoff doc, then
+waiting. At rotation it writes its handoff doc, then
 sends `worker_done --outcome succeeded` with the doc id in the body.
 
 Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
