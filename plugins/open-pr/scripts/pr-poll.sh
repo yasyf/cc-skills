@@ -36,9 +36,10 @@
 # is still missing: it is REST's stand-in for GraphQL reviewDecision, which
 # this REST-only script cannot read. A queued PR is watched until it lands or
 # the queue drops it.
-# Graphite's mergeability check on a stacked PR stays in progress until the
-# downstack PR #<n> merges; it doesn't hold the verdict, which then reads
-# ready-to-merge downstack #<n>: landing needs the stack enqueued together.
+# A stacked PR is one whose base is the head of open PR #<n> rather than the
+# default branch. Graphite's mergeability check stays in progress on it until
+# #<n> merges; it doesn't hold the verdict, which then reads ready-to-merge
+# downstack #<n>: landing needs the stack enqueued together.
 # Green but not yet approved prints GREEN awaiting-review once per head and
 # keeps watching. An eviction holds only its head: pushing a new head clears
 # it.
@@ -80,12 +81,7 @@ CHECK_RUNS='.check_runs[] | {
     elif .conclusion | IN("failure", "timed_out", "action_required", "startup_failure") then "fail"
     else "pending" end),
   link: (.details_url // .html_url // ""),
-  detail: ([.output.title, .output.summary] | map(select(. != null)) | join("\n")),
-  downstack: (
-    if .status != "completed" and .name == "Graphite / mergeability_check"
-      and .output.title == "This check will pass when downstack PRs merge"
-    then [.output.summary // "" | capture("#(?<n>[0-9]+) needs to be merged").n] | first
-    else null end)
+  graphite_mergeability: (.app.slug == "graphite-app" and .name == "Graphite / mergeability_check")
 }'
 
 LATEST_RUNS='. as $runs | .[] | . as $r | select(.id == ([$runs[] | select(.name == $r.name) | .id] | max))'
@@ -93,8 +89,7 @@ LATEST_RUNS='. as $runs | .[] | . as $r | select(.id == ([$runs[] | select(.name
 STATUSES='.statuses[] | {
   name: .context,
   bucket: ({ success: "pass", pending: "pending" }[.state] // "fail"),
-  link: (.target_url // ""),
-  detail: (.description // "")
+  link: (.target_url // "")
 }'
 
 LABEL_EVENTS='.[] | {
@@ -149,8 +144,9 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   and exit 0. Exits 3 when another poller holds the state file.
 
   PR_POLL_INTERVAL defaults to 120 and is floored there. Each pass spends
-  ~7 REST calls, and every watcher on a stack spends them against one shared
-  hourly budget, so the interval is also floored at 10 seconds per
+  ~7 REST calls, one more on a stacked PR, and every watcher on a stack
+  spends them against one shared hourly budget, so the interval is also
+  floored at 10 seconds per
   concurrently watched PR: set PR_POLL_STACK to the number of PRs being
   watched at once (default 1). PR_POLL_QUEUE_LABEL names the merge-queue
   label (default merge).
@@ -278,12 +274,11 @@ closed_verdict() {
 }
 
 eviction_reason() {
-  local merge_state=$1 mergeable=$2 head=$3 checks=$4 queue=$5 actor=$6 downstack failing
+  local merge_state=$1 mergeable=$2 head=$3 checks=$4 queue=$5 actor=$6 downstack=$7 failing
   if [ "$merge_state" = dirty ] || [ "$mergeable" = false ]; then
     printf 'conflicts mergeable_state=%s\n' "$merge_state"
     return
   fi
-  downstack=$(jq -r '[.[] | .downstack // empty] | first // empty' <<<"$checks")
   if [ -n "$downstack" ]; then
     printf 'downstack #%s\n' "$downstack"
     return
@@ -302,7 +297,7 @@ eviction_reason() {
 }
 
 green() {
-  local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4 downstack=${5:-}
+  local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4 downstack=$5
   [ "$reviews_ok" = 1 ] || return 0
   if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then
     finish "ready-to-merge${downstack:+ downstack #$downstack}"
@@ -314,19 +309,20 @@ green() {
 }
 
 poll() {
-  local view head prev base pr_state merged mergeable merge_state present
+  local view head prev base default_branch stacked_on="" downstack="" pr_state merged mergeable merge_state present
   local checks checks_ok=1 events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
   local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
   local last_event last_bot last_actor stint
   local evicted="" conflicted=0 settled n_checks verdict closed_as
 
   view=$(gh api "repos/$REPO/pulls/$PR" \
-    --jq '{state, merged, head: .head.sha, base: .base.ref, mergeable, mergeable_state, labels: [.labels[].name]}' \
+    --jq '{state, merged, head: .head.sha, base: .base.ref, default_branch: .base.repo.default_branch, mergeable, mergeable_state, labels: [.labels[].name]}' \
     2>/dev/null) || return 0
   jq -e . >/dev/null 2>&1 <<<"$view" || return 0
   head=$(jq -r '.head // ""' <<<"$view")
   [ -n "$head" ] || return 0
   base=$(jq -r '.base // ""' <<<"$view")
+  default_branch=$(jq -r '.default_branch' <<<"$view")
   pr_state=$(jq -r '.state // ""' <<<"$view")
   merged=$(jq -r '.merged // false' <<<"$view")
   mergeable=$(jq -r '.mergeable' <<<"$view")
@@ -340,6 +336,14 @@ poll() {
     } 2>/dev/null | jq -cs .
   ) || checks_ok=0
   [ "$checks_ok" = 1 ] || checks='[]'
+
+  if [ "$base" != "$default_branch" ]; then
+    stacked_on=$(gh api "repos/$REPO/pulls?state=open&head=$(jq -rn --arg h "${REPO%%/*}:$base" '$h | @uri')" \
+      --jq '.[0].number // empty' 2>/dev/null) || return 0
+  fi
+  if [ -n "$stacked_on" ] && jq -e 'any(.[]; .graphite_mergeability == true and .bucket == "pending")' <<<"$checks" >/dev/null; then
+    downstack=$stacked_on
+  fi
 
   events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
     2>/dev/null | jq -cs .) || return 0
@@ -458,7 +462,7 @@ poll() {
       fi
     elif [ "$last_event" = unlabeled ] && [ "$stint" != "$(state '.queue.resolved_stint // ""')" ]; then
       if [ "$last_bot" = true ]; then
-        evicted=$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue" "$last_actor")
+        evicted=$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue" "$last_actor" "$downstack")
       elif [ "$(state '.queue.queued')" = true ]; then
         emit "UNQUEUED $last_actor"
         STATE=$(jq -c --arg s "$stint" '.queue.queued = false | .queue.resolved_stint = $s' <<<"$STATE")
@@ -516,22 +520,19 @@ poll() {
     # A just-pushed head carries no registered checks for a few seconds, so an
     # empty rollup only counts as green once it holds across several passes.
     empty_passes=$((empty_passes + 1))
-    if [ "$empty_passes" -ge "$EMPTY_PASSES_BEFORE_GREEN" ] && [ "$settled" = 1 ]; then green "$head" "$merge_state" "$reviews_ok" "$changes_requested"; fi
+    if [ "$empty_passes" -ge "$EMPTY_PASSES_BEFORE_GREEN" ] && [ "$settled" = 1 ]; then green "$head" "$merge_state" "$reviews_ok" "$changes_requested" "$downstack"; fi
     return 0
   fi
   empty_passes=0
 
-  verdict=$(jq -r '
-    if any(.[]; .bucket == "pending" and .downstack == null) then "pending"
+  verdict=$(jq -r --arg downstack "$downstack" '
+    if any(.[]; .bucket == "pending" and ($downstack == "" or .graphite_mergeability != true)) then "pending"
     elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "checks-failed"
     else "green" end
   ' <<<"$checks")
   case "$verdict" in
   checks-failed) finish checks-failed ;;
-  green)
-    [ "$settled" = 0 ] || green "$head" "$merge_state" "$reviews_ok" "$changes_requested" \
-      "$(jq -r '[.[] | .downstack // empty] | first // empty' <<<"$checks")"
-    ;;
+  green) [ "$settled" = 0 ] || green "$head" "$merge_state" "$reviews_ok" "$changes_requested" "$downstack" ;;
   esac
 }
 

@@ -33,7 +33,7 @@ def pull(
         "state": state,
         "merged": merged,
         "head": {"sha": head},
-        "base": {"ref": base},
+        "base": {"ref": base, "repo": {"default_branch": "dev"}},
         "mergeable": mergeable,
         "mergeable_state": mergeable_state,
         "labels": [{"name": name} for name in labels],
@@ -48,10 +48,12 @@ def check_run(
     title: str | None = None,
     summary: str | None = None,
     run_id: int = 1,
+    app: str = "github-actions",
 ) -> dict:
     return {
         "id": run_id,
         "name": name,
+        "app": {"slug": app},
         "status": status,
         "conclusion": conclusion,
         "details_url": f"https://ci.example/{name}",
@@ -94,6 +96,7 @@ def surface(
     comments: list[dict] | None = None,
     reviews: list[dict] | None = None,
     commits: list[dict] | None = None,
+    stacked_on: int | None = None,
 ) -> dict[str, object]:
     head = pr["head"]["sha"]
     runs = [check_run("build")] if runs is None else runs
@@ -106,6 +109,7 @@ def surface(
         f"pulls/{PR}/comments": [],
         f"pulls/{PR}/reviews": reviews or [],
         "commits": commits or [],
+        "pulls": [] if stacked_on is None else [{"number": stacked_on, "head": {"ref": pr["base"]["ref"]}}],
     }
 
 

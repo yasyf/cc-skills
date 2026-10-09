@@ -19,22 +19,12 @@ from conftest import (
     unlabeled,
 )
 
-GRAPHITE_WAITING = check_run(
-    "Graphite / mergeability_check",
-    status="in_progress",
-    conclusion=None,
-    title="This check will pass when downstack PRs merge",
-    summary=(
-        "- #24450 needs to be merged into dev before you can merge this PR.\n"
-        "  - This PR is stacked on top of #24450. Merging this PR on GitHub will cause it to merge incorrectly "
-        "into #24450 instead of dev.\n"
-        "  - Learn more about stacked PRs [here](https://graphite.dev/docs/cli-quick-start)\n"
-        "- To ensure that these PRs merge correctly, "
-        "[view and merge this PR with Graphite](https://app.graphite.com/github/pr/Forge-AI/monorepo/24451)\n"
-        "- To disable this check, edit your "
-        "[organization's settings](https://app.graphite.com/settings?org=Forge-AI) on Graphite."
-    ),
-)
+GRAPHITE_PENDING = check_run("Graphite / mergeability_check", status="in_progress", conclusion=None, app="graphite-app")
+DOWNSTACK = 24450
+
+
+def stacked_pull(**kwargs) -> dict:
+    return pull(base="yasyf/parent", mergeable_state="unstable", **kwargs)
 
 
 def test_green_clean_pr_is_ready_to_merge(poll):
@@ -43,21 +33,33 @@ def test_green_clean_pr_is_ready_to_merge(poll):
 
 
 def test_stacked_pr_waiting_only_on_its_downstack_is_ready_to_merge_downstack(poll):
-    stacked = surface(pull(mergeable_state="unstable"), runs=[check_run("build"), GRAPHITE_WAITING])
+    stacked = surface(stacked_pull(), runs=[check_run("build"), GRAPHITE_PENDING], stacked_on=DOWNSTACK)
     run = poll(stacked)
-    assert run.lines == ["CHECK build pass https://ci.example/build", "DONE ready-to-merge downstack #24450"]
+    assert run.lines == ["CHECK build pass https://ci.example/build", f"DONE ready-to-merge downstack #{DOWNSTACK}"]
+    assert any(call.startswith("api repos/acme/widgets/pulls?state=open&head=acme%3Ayasyf%2Fparent ") for call in run.gh_calls)
 
 
 def test_stacked_pr_with_a_pending_check_besides_the_downstack_wait_keeps_watching(poll):
     pending = check_run("build", status="in_progress", conclusion=None)
-    stacked = surface(pull(mergeable_state="unstable"), runs=[pending, GRAPHITE_WAITING])
+    stacked = surface(stacked_pull(), runs=[pending, GRAPHITE_PENDING], stacked_on=DOWNSTACK)
     run = poll(stacked, stacked)
     assert run.done is None
 
 
-def test_graphite_check_pending_for_another_reason_holds_the_verdict(poll):
-    computing = check_run("Graphite / mergeability_check", status="queued", conclusion=None, title="Checking mergeability")
-    run = poll(*[surface(pull(mergeable_state="unstable"), runs=[check_run("build"), computing])] * 2)
+def test_graphite_check_pending_on_a_pr_based_on_the_default_branch_holds_the_verdict(poll):
+    run = poll(*[surface(pull(mergeable_state="unstable"), runs=[check_run("build"), GRAPHITE_PENDING])] * 2)
+    assert run.done is None
+    assert not any("pulls?" in call for call in run.gh_calls)
+
+
+def test_graphite_check_pending_on_a_base_no_open_pr_heads_holds_the_verdict(poll):
+    run = poll(*[surface(stacked_pull(), runs=[check_run("build"), GRAPHITE_PENDING])] * 2)
+    assert run.done is None
+
+
+def test_another_apps_check_under_graphites_name_holds_the_verdict(poll):
+    impostor = check_run("Graphite / mergeability_check", status="in_progress", conclusion=None)
+    run = poll(*[surface(stacked_pull(), runs=[check_run("build"), impostor], stacked_on=DOWNSTACK)] * 2)
     assert run.done is None
 
 
@@ -143,11 +145,16 @@ def test_push_while_queued_is_evicted_as_head_moved(poll):
     assert run.done == f"DONE evicted head-moved {MOVED_HEAD[:12]}"
 
 
-def test_eviction_names_the_downstack_pr_from_the_graphite_check(poll):
-    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
-    dropped = surface(pull(), runs=[check_run("build"), GRAPHITE_WAITING], events=[labeled(1), unlabeled(2)])
+def test_eviction_names_the_open_pr_a_stacked_pr_waits_on(poll):
+    queued = surface(stacked_pull(labels=("merge",)), events=[labeled(1)], stacked_on=DOWNSTACK)
+    dropped = surface(
+        stacked_pull(),
+        runs=[check_run("build"), GRAPHITE_PENDING],
+        events=[labeled(1), unlabeled(2)],
+        stacked_on=DOWNSTACK,
+    )
     run = poll(queued, dropped)
-    assert run.done == "DONE evicted downstack #24450"
+    assert run.done == f"DONE evicted downstack #{DOWNSTACK}"
 
 
 def test_eviction_names_the_downstack_pr_from_merge_activity(poll):
