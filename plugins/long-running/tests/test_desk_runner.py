@@ -107,6 +107,12 @@ class FakeShell(runner_module.Shell):
         if argv[0] == "claude" and self.judge_process:
             out.write_text("")
             return self.judge_process
+        if Path(argv[0]).name == "orca-launch.sh" and (ready := runner_module.LAUNCHED.search(self.launch_line)):
+            state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / "orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
+            state.mkdir(parents=True, exist_ok=True)
+            (state / f"{argv[1]}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": ready["dispatch"]}}))
+            (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
+            self.dispatches[ready["dispatch"]] = {"status": "dispatched", "terminal": ready["terminal"]}
         out.write_text(json.dumps([{"type": "system"}, {"type": "result", "structured_output": self.verdict}]) if argv[0] == "claude" else self.launch_line)
         return Process()
 
@@ -770,13 +776,19 @@ def test_a_send_with_no_parseable_reply_is_unverifiable_not_retried(shell, confi
     assert "UNVERIFIABLE" in escalations(shell)[0]
 
 
-def test_an_undeliverable_reply_reaches_its_deadline(shell, config, tmp_path):
+def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_deadline(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a", status="completed")
     cli(shell, config, "relay", "--key", "R633", "--lane", LANE, "--text", "use evidence.md", "--reply-to", "msg_q9")
+    cli(shell, config, "relay", "--key", "R634", "--lane", "ghost", "--text", "rebase onto dev")
     for _ in range(12):
         orca_pass(shell, config)
         shell.sleep(60)
-    lines = escalations(shell)
-    assert len(lines) == 1 and "DEADLINE" in lines[0] and "never delivered" in lines[0]
+    assert sorted(line for line in escalations(shell) if not line.startswith("RECLAIM")) == [
+        "RELAY-FAILED R633 incident-fix: no live dispatch (ctx_a is completed); nothing was relayed",
+        "RELAY-FAILED R634 ghost: no live dispatch; nothing was relayed",
+    ]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "failed"
+    assert shell.sends() == [] and replies(shell) == []
 
 
 def test_a_judge_runs_beside_the_pass_and_answers_once_it_exits(shell, config, tmp_path):
@@ -890,8 +902,8 @@ def test_an_empty_receipt_or_a_null_payload_does_not_stop_the_runner(shell, conf
 
 
 def test_read_messages_still_transfer_ownership_complete_relays_and_report_outcomes(shell, config, tmp_path):
-    cli(shell, config, "relay", "--key", "R800", "--lane", LANE, "--text", "apply the fix")
     orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "R800", "--lane", LANE, "--text", "apply the fix")
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
     assert incident(tmp_path, f"desk-lane-{LANE}").pending_owner == "ctx_a"
@@ -1427,6 +1439,30 @@ def test_an_inbox_launch_line_launches_once_and_now_skips_the_load_hold(shell, c
     assert (action.status, json.loads(action.target)["urgent"]) == ("verified", True)
     assert [line for line in escalations(shell)] == [f"LAUNCHED R1907 {LANE}: dispatch ctx_n terminal term_ctx_n"]
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R1907")]
+
+
+@pytest.mark.parametrize("via", ["inbox", "cli"])
+def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_reach_it(shell, config, tmp_path, capsys, via):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    if via == "inbox":
+        desk_inbox(tmp_path, f"R9001 orca-desk: launch {LANE} opus high brief={brief}")
+    else:
+        cli(shell, config, "launch", "--key", "R9001", "--lane", LANE, "--model", "opus", "--effort", "high", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R9004 orca-desk: relay to {LANE}: rebase onto dev")
+    orca_pass(shell, config)
+    assert (tmp_path / "receipts" / f"{LANE}.terminal").read_text() == "term_ctx_n\n"
+    assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_n"]
+    assert [line for line in escalations(shell) if line.startswith(("LAUNCHED", "RELAY"))] == [
+        f"LAUNCHED R9001 {LANE}: dispatch ctx_n terminal term_ctx_n",
+        f"RELAYED R9004 {LANE}: relay to dispatch ctx_n",
+    ]
+    capsys.readouterr()
+    assert cli(shell, config, "show") == 0
+    assert f"## desk-lane-{LANE} owner unlaunched generation 0 pending ctx_n" in capsys.readouterr().out
 
 
 def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, config, tmp_path):

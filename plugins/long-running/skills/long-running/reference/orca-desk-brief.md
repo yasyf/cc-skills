@@ -47,7 +47,8 @@ cci drive as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`,
 addressed to root.
 A dead or missing dispatch, a key that already holds different text, and a line that
 says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
-them.
+them. A `relay` command accepted for a lane with no live dispatch and no launch in
+flight fails the same way on the next pass, never later as a `DEADLINE`.
 
 A launch can also be one line in the same inbox, in this form only, one launch per
 line, with nothing after the brief path:
@@ -163,8 +164,9 @@ required.
 
 `store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
 holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
-owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
-environment. `orca.gc` names the repo's gc command, which every `RECLAIM` line
+owner and `owner_generation`. Match `orca.run` to the launch environment. The runner
+launches with `ORCA_LAUNCH_STATE` set to `orca.receipts`, whatever `launch_env` says, so
+every launch it makes records the lane's dispatch and terminal where it reads them. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says `cpu=high`
@@ -199,7 +201,6 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
       "ORCA_LAUNCH_PREFIX": "<drive prefix>",
       "ORCA_LAUNCH_ROOT": "/absolute/worktrees",
       "ORCA_LAUNCH_BASE": "origin/dev",
-      "ORCA_LAUNCH_STATE": "/absolute/drive/receipts",
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
       "ORCA_LAUNCH_BOOT_SECONDS": "180"
     },
@@ -412,7 +413,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
-| `RELAY-FAILED` | Fix the named inbox relay line's lane, key, or form, and append a corrected line. |
+| `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
