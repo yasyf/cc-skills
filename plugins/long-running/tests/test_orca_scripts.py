@@ -16,6 +16,8 @@ BIN = Path(__file__).resolve().parents[1] / "bin"
 SENT = {"rc": 0, "out": {"ok": True, "result": {}}}
 BOUND = {"rc": 0, "out": {"ok": True, "result": {"run": {"id": "run_1", "coordinator_handle": "term_coordinator"}}}}
 TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for terminal handle after creation"}}}
+IDLE = {"rc": 0, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}}
+NOT_IDLE = {"rc": 1, "out": {"ok": False, "error": {"code": "timeout", "message": "timeout"}}}
 DESK_CONTRACT = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 
 ORCA = """#!/usr/bin/env python3
@@ -104,6 +106,7 @@ class Orca:
         self.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}}})
         self.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": ["❯", screen]}}}})
         self.reply("terminal list", listing(agent))
+        self.reply("terminal wait", IDLE if agent else NOT_IDLE)
         self.reply("terminal close", SENT)
         self.reply("worktree rm", SENT)
 
@@ -590,27 +593,56 @@ def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
     assert len(orca.calls("terminal read")) == 10
 
 
-def test_launch_starts_the_worker_once_orca_detects_claude_in_its_terminal(orca):
+def test_launch_starts_the_worker_once_orca_sees_its_agent_idle(orca):
     orca.healthy()
-    orca.reply("terminal list", bare(), {"rc": 1, "out": "connection lost"}, listing(None), listing("claude"))
+    orca.reply("terminal wait", NOT_IDLE, IDLE)
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(orca.calls("terminal list")) == 4
-    assert orca.sleeps() == ["4", "4", "4"]
-    assert [" ".join(call[:2]) for call in orca.calls()][-3:] == ["terminal list", "orchestration worker-start", "terminal read"]
+    waits = orca.calls("terminal wait")
+    assert [(flag(call, "--terminal"), flag(call, "--for"), flag(call, "--timeout-ms")) for call in waits] == [
+        ("term_a", "tui-idle", "60000"),
+        ("term_a", "tui-idle", "120000"),
+    ]
+    assert orca.sleeps() == []
+    assert [" ".join(call[:2]) for call in orca.calls()][-3:] == ["terminal wait", "orchestration worker-start", "terminal read"]
 
 
-def test_launch_fails_when_orca_never_detects_the_agent_within_the_boot_ceiling(orca):
-    orca.healthy(agent=None)
+def test_an_agent_identity_without_an_idle_agent_never_reaches_worker_start(orca):
+    orca.healthy()
+    orca.reply("terminal wait", NOT_IDLE)
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "10"
     result = orca.launch()
     assert result.returncode == 1
     assert result.stdout.strip() == (
-        f"lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s; rolled back terminal=term_a worktree={orca.worktree}"
+        f"lane-a failed boot terminal=term_a: orca terminal wait --for tui-idle reads timeout: timeout after 10s; rolled back terminal=term_a worktree={orca.worktree}"
     )
-    assert len(orca.calls("terminal list")) == 4
+    assert [flag(call, "--timeout-ms") for call in orca.calls("terminal wait")] == ["3333", "6667"]
     assert orca.calls("orchestration worker-start") == []
     assert orca.calls("terminal send") == []
+
+
+def test_an_agent_blocked_on_a_startup_prompt_fails_naming_the_prompt(orca):
+    orca.healthy()
+    blocked = {"rc": 1, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": False, "status": "running", "exitCode": None, "blockedReason": "agent-trust-workspace"}}}}
+    orca.reply("terminal wait", blocked)
+    orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "Do you trust the files in this folder?"))
+    result = orca.launch()
+    assert result.returncode == 1
+    assert "boot terminal=term_a: orca terminal wait --for tui-idle reads agent-trust-workspace after 180s;" in result.stdout
+    assert orca.calls("terminal send") == []
+    assert orca.calls("orchestration worker-start") == []
+
+
+def test_an_agent_that_exited_is_not_idle(orca):
+    orca.healthy()
+    exited = {"rc": 0, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": True, "status": "exited", "exitCode": 1}}}}
+    orca.reply("terminal wait", exited)
+    orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNNING_LANE=lane-a claude", "yasyf@mac ~/v3-lane-a-base>"))
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
+    result = orca.launch()
+    assert result.returncode == 1
+    assert "reads status=exited after 12s" in result.stdout
+    assert orca.calls("orchestration worker-start") == []
 
 
 def screen(*lines: str, source: str = "screen") -> dict:
@@ -622,7 +654,8 @@ def test_a_startup_command_orca_dropped_is_typed_into_the_terminal_once(orca, mo
     orca.healthy(agent=agent)
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "40"
     orca.reply("terminal create", TIMED_OUT)
-    orca.reply("terminal list", bare(), *[listing(None)] * 5, listing(agent))
+    orca.reply("terminal list", bare(), listing(None))
+    orca.reply("terminal wait", NOT_IDLE, IDLE)
     orca.reply("terminal read", screen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), screen("❯", "⏵⏵ bypass permissions on (shift+tab to cycle)"))
     orca.reply("terminal send", SENT)
     result = orca.launch("lane-a", model, "high", str(orca.brief))
@@ -644,7 +677,7 @@ def test_a_typed_command_that_starts_no_agent_fails_the_launch_before_worker_sta
     result = orca.launch()
     assert result.returncode == 1
     assert result.stdout.strip() == (
-        "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 12s; the command was typed into the terminal once;"
+        "lane-a failed boot terminal=term_a: orca terminal wait --for tui-idle reads timeout: timeout after 12s; the command was typed into the terminal once;"
         f" rolled back terminal=term_a worktree={orca.worktree}"
     )
     assert len(orca.calls("terminal send")) == 1
@@ -682,11 +715,11 @@ def test_no_command_is_typed_when_the_screen_cannot_be_read(orca, read):
     assert orca.calls("terminal send") == []
 
 
-def test_no_command_is_typed_before_a_third_of_the_boot_ceiling_has_passed(orca):
+def test_no_command_is_typed_when_the_agent_idles_within_a_third_of_the_boot_ceiling(orca):
     orca.healthy()
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "180"
-    orca.reply("terminal list", bare(), listing(None), listing(None), listing("claude"))
     assert orca.launch().returncode == 0
+    assert [flag(call, "--timeout-ms") for call in orca.calls("terminal wait")] == ["60000"]
     assert len(orca.calls("terminal read")) == 1
     assert orca.calls("terminal send") == []
 
@@ -695,7 +728,7 @@ def test_every_terminal_list_is_scoped_to_the_lanes_worktree(orca):
     orca.healthy()
     assert orca.launch().returncode == 0
     lists = orca.calls("terminal list")
-    assert len(lists) == 2
+    assert len(lists) == 1
     assert all(flag(call, "--worktree") == f"path:{orca.worktree}" for call in lists)
 
 
@@ -731,12 +764,13 @@ def test_a_failed_create_reports_its_output_after_three_attempts(orca):
     assert len(orca.calls("terminal create")) == 3
 
 
-def test_an_incident_lane_waits_for_orca_to_detect_codex(orca):
-    orca.healthy(agent="claude")
+def test_an_incident_lane_waits_for_its_codex_to_idle(orca):
+    orca.healthy(agent=None)
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
     result = orca.launch("lane-a", "incident", "xhigh", str(orca.brief))
     assert result.returncode == 1
-    assert "not codex" in result.stdout
+    assert "boot terminal=term_a: orca terminal wait --for tui-idle reads timeout" in result.stdout
+    assert orca.calls("orchestration worker-start") == []
 
 
 def test_a_failed_start_keeps_its_dispatch_for_the_relaunch(orca):

@@ -35,14 +35,17 @@ handoff doc, since Orca's preamble otherwise reads setup or one quiet cycle as
 the finished task. The pointer must stay within 500
 characters, so a brief path that pushes it over is replaced by a symlink
 ~/.claude/<8 hex of the path's sha> to the brief. Before
-worker-start, which refuses a terminal with agent_unconfigured until Orca detects
-its agent, the script polls orca terminal list every 4 seconds until the terminal's
-agentIdentity reads claude, or codex for incident, up to ORCA_LAUNCH_BOOT_SECONDS.
+worker-start, which refuses a terminal with agent_unconfigured until Orca sees the
+agent's own UI (an agent title or ready prompt), the script blocks on orca terminal
+wait --for tui-idle, the readiness worker-start itself waits for next, up to
+ORCA_LAUNCH_BOOT_SECONDS. terminal list's agentIdentity is no substitute: it reads
+claude from the agent's process or first hook, before its UI renders.
 Orca drops a terminal's startup command under load, leaving a shell prompt, so
-once a third of that ceiling has passed with no agent detected, the script reads
+once a third of that ceiling has passed with no idle agent, the script reads
 the screen and, when it shows neither the command line nor the agent's own UI,
-types the command into the terminal once. A launch that still has no agent at
-the ceiling fails, and never reaches worker-start.
+types the command into the terminal once. A launch that still has no idle agent at
+the ceiling, or whose agent is blocked on a startup prompt, fails, and never
+reaches worker-start.
 Every list is scoped to the lane's worktree, since an unscoped list stops at 200
 terminals. A terminal create whose output names no handle is followed by a list
 of the worktree, and a terminal that was not there before the create is adopted;
@@ -132,7 +135,7 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
-  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, and on the wait for an outcome_unknown worker's first turn, default 180
+  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
 EOF
   exit 2
@@ -302,8 +305,8 @@ until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   listed
   TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
 done
-IDENTITY=claude MARKER=CLAUDE_LONG_RUNNING_LANE=$LANE
-[ "$AGENT" = claude ] || IDENTITY=codex MARKER=$MODEL_ID
+MARKER=CLAUDE_LONG_RUNNING_LANE=$LANE
+[ "$AGENT" = claude ] || MARKER=$MODEL_ID
 screen_lacks_agent() {
   SCREEN=$(orca terminal read --terminal "$TERMINAL" --screen --json |
     jq -er '.result.terminal | select(.source != "screen-unavailable") | .tail | join("")') || return 1
@@ -311,19 +314,20 @@ screen_lacks_agent() {
     *"$MARKER"* | *"bypass permissions on"*) return 1 ;;
   esac
 }
-attempt=0 DETECTED='' TYPED=''
-until [ "$AGENT" = codex ] || [ "$DETECTED" = "$IDENTITY" ]; do
-  attempt=$((attempt + 1))
-  [ "$attempt" -le $(((BOOT + POLL - 1) / POLL)) ] ||
-    fail "boot terminal=$TERMINAL: orca terminal list shows agentIdentity=${DETECTED:-none}, not $IDENTITY, after ${BOOT}s${TYPED:+; the command was typed into the terminal once}"
-  sleep "$POLL"
-  DETECTED=$(orca terminal list --worktree "path:$WT" --json | jq -r --arg t "$TERMINAL" '.result.terminals[] | select(.handle == $t) | .agentIdentity // empty') || DETECTED=
-  if [ "$DETECTED" != "$IDENTITY" ] && [ -z "$TYPED" ] && [ $((attempt * POLL * 3)) -ge "$BOOT" ] && screen_lacks_agent; then
+booted() {
+  orca terminal wait --terminal "$TERMINAL" --for tui-idle --timeout-ms "$1" --json >"$STATE/$LANE.boot.json" 2>&1 &&
+    jq -e '.result.wait | .satisfied and .status == "running"' "$STATE/$LANE.boot.json" >/dev/null
+}
+TYPED=''
+if [ "$AGENT" != codex ] && ! booted $((BOOT * 1000 / 3)); then
+  if screen_lacks_agent; then
     orca terminal send --terminal "$TERMINAL" --text "$COMMAND" --enter --json >/dev/null ||
       fail "command send terminal=$TERMINAL after Orca dropped the startup command"
     TYPED=1
   fi
-done
+  booted $((BOOT * 1000 - BOOT * 1000 / 3)) ||
+    fail "boot terminal=$TERMINAL: orca terminal wait --for tui-idle reads $(jq -er '.result.wait // empty | .blockedReason // "status=\(.status)"' "$STATE/$LANE.boot.json" 2>/dev/null || orca_error "$STATE/$LANE.boot.json") after ${BOOT}s${TYPED:+; the command was typed into the terminal once}"
+fi
 
 retryable() {
   for status in failed blocked; do
