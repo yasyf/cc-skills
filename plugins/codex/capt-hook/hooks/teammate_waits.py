@@ -5,6 +5,7 @@ from captain_hook import (
     And,
     BaseHookEvent,
     Block,
+    Call,
     CustomCondition,
     Event,
     FromSubagent,
@@ -20,6 +21,12 @@ from .tests.teammate_fixtures import MATE, TEAMMATE
 
 POLL_UNIT_MS = 60_000
 WAIT_ARGS = frozenset({"watch", "wait", "await", "--watch", "--wait", "--await"})
+MAIL_WAIT = "desk-wait.sh"
+
+
+def wakes_on_mail(call: Call) -> bool:
+    sources = call.args[: call.args.index("--")] if "--" in call.args else call.args
+    return call.name == MAIL_WAIT and any("=" in source or source.startswith("cci:") for source in sources[1:])
 
 
 class InProcessTeammate(CustomCondition):
@@ -30,7 +37,11 @@ class InProcessTeammate(CustomCondition):
 class LongPoll(CustomCondition):
     def check(self, evt: BaseHookEvent) -> bool:
         timeout = evt.input.raw.get("timeout")
-        polls = any(call.name == "sleep" or WAIT_ARGS.intersection(call.args) for call in evt.command.calls())
+        polls = any(
+            call.name == "sleep" or WAIT_ARGS.intersection(call.args)
+            for call in evt.command.calls()
+            if not wakes_on_mail(call)
+        )
         return polls and (timeout is None or int(timeout) > POLL_UNIT_MS)
 
 
@@ -97,6 +108,33 @@ hook(
             transcript=TEAMMATE,
             tool_input={"command": "make build", "timeout": 600000},
         ): Allow(),
+        Input(
+            command="desk-wait.sh 540 /h/.claude/teams/s/inboxes/mate.json=/h/mate.cursor -- bk build watch 4292",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={
+                "command": "desk-wait.sh 540 /h/.claude/teams/s/inboxes/mate.json=/h/mate.cursor -- bk build watch 4292",
+                "timeout": 570000,
+            },
+        ): Allow(),
+        Input(
+            command="cd /w && desk-wait.sh 560 cci:drive:mate -- stack-enqueue 33185 --watch --fast",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "cd /w && desk-wait.sh 560 cci:drive:mate -- stack-enqueue 33185 --watch --fast", "timeout": 570000},
+        ): Allow(),
+        Input(
+            command="desk-wait.sh 540 -- bk build watch 4292",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "desk-wait.sh 540 -- bk build watch 4292", "timeout": 570000},
+        ): Block(pattern="parent's messages"),
+        Input(
+            command="desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600", "timeout": 600000},
+        ): Block(pattern="parent's messages"),
         Input(
             command="cc-slack watch --session s1",
             agent_id="a266d86820f8d3efd",
