@@ -17,6 +17,7 @@ SENT = {"rc": 0, "out": {"ok": True, "result": {}}}
 BOUND = {"rc": 0, "out": {"ok": True, "result": {"run": {"id": "run_1", "coordinator_handle": "term_coordinator"}}}}
 TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for terminal handle after creation"}}}
 IDLE = {"rc": 0, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}}
+MISSING = {"rc": 1, "out": ""}
 NOT_IDLE = {"rc": 1, "out": {"ok": False, "error": {"code": "timeout", "message": "timeout"}}}
 DESK_CONTRACT = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 
@@ -43,6 +44,7 @@ sys.exit(reply["rc"])
 
 SLEEP = """#!/bin/sh
 echo "$1" >> "$FAKE_STATE/sleeps"
+[ ! -f "$FAKE_STATE/on_sleep" ] || { sh "$FAKE_STATE/on_sleep" && rm "$FAKE_STATE/on_sleep"; }
 """
 
 
@@ -110,8 +112,22 @@ class Orca:
         self.reply("terminal close", SENT)
         self.reply("worktree rm", SENT)
 
+    def check_out(self, index: str = "full") -> None:
+        git = ["git", "-C", str(self.worktree), "-c", "user.name=t", "-c", "user.email=t@t"]
+        self.worktree.mkdir(exist_ok=True)
+        subprocess.run(["git", "init", "-q", str(self.worktree)], check=True)
+        (self.worktree / "file").write_text("x\n")
+        subprocess.run([*git, "add", "file"], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        if index == "empty":
+            subprocess.run([*git, "read-tree", "--empty"], check=True)
+
     def launch(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
+
+
+def registered(orca: Orca) -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}}
 
 
 def listing(agent: str | None, *handles: str) -> dict:
@@ -342,7 +358,9 @@ def test_a_relaunch_into_an_existing_worktree_closes_nothing(orca):
 
 def test_a_create_whose_response_was_lost_closes_nothing(orca):
     orca.healthy()
-    orca.reply("worktree create", {"rc": 1, "out": "Error: socket hang up", "mkdir": str(orca.worktree)})
+    orca.check_out()
+    orca.reply("worktree show", MISSING, registered(orca))
+    orca.reply("worktree create", {"rc": 1, "out": "Error: socket hang up"})
     orca.reply("terminal list", STARTUP, listing("claude"))
     assert orca.launch().returncode == 0
     assert orca.calls("terminal close") == []
@@ -492,6 +510,7 @@ def test_a_dropped_worktree_create_that_never_registers_is_created_again_after_t
 )
 def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(orca, lost):
     orca.healthy()
+    orca.check_out()
     miss = {"rc": 1, "out": ""}
     orca.reply("worktree create", {**lost, "mkdir": str(orca.worktree)})
     orca.reply("worktree show", miss, miss, miss, {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}})
@@ -500,6 +519,30 @@ def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(orca, 
     assert len(orca.calls("worktree create")) == 1
     assert orca.sleeps()[:2] == ["4", "4"]
     assert result.stdout.strip().endswith(f"worktree={orca.worktree}")
+
+
+def test_a_worktree_whose_create_lost_its_response_waits_for_orca_to_fill_its_index(orca):
+    orca.healthy()
+    orca.check_out(index="empty")
+    orca.reply("worktree show", MISSING, registered(orca))
+    orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "closed"}}})
+    (orca.state / "on_sleep").write_text(f"git -C {orca.worktree} read-tree HEAD\n")
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert orca.sleeps()[:1] == ["4"]
+    assert len(orca.calls("terminal create")) == 1
+
+
+def test_a_worktree_whose_index_never_fills_fails_before_any_terminal_opens(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "4"
+    orca.check_out(index="empty")
+    orca.reply("worktree show", MISSING, registered(orca))
+    orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "closed"}}})
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == f"lane-a failed worktree checkout: {orca.worktree} registered, but its index still differs from HEAD after 4s"
+    assert orca.calls("terminal create") == []
 
 
 def test_a_worktree_that_never_registers_fails_the_launch_after_four_creates(orca):
@@ -1051,7 +1094,7 @@ def test_a_worktree_that_was_only_briefly_unregistered_is_never_removed(orca):
     orca.healthy(agent=None)
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
     orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
-    orca.worktree.mkdir()
+    orca.check_out()
     found = {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}}
     orca.reply("worktree show", {"rc": 1, "out": ""}, found)
     orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_exists"}}})

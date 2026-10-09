@@ -98,6 +98,9 @@ high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
 because the runtime drops connections under load. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
+Orca registers a worktree at git worktree add --no-checkout and fills its index
+with a reset --hard that can run past a minute under load, so a worktree found
+that way waits, for the same ceiling, until its index matches HEAD.
 
 A receipt from an earlier launch names the lane's last task and dispatch. When
 orca orchestration task-list shows that task failed or blocked, worker-start
@@ -136,7 +139,7 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
-  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
+  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, and then for its checkout, default 180
 EOF
   exit 2
 }
@@ -269,6 +272,16 @@ while ! registered; do
   done
 done
 WT=$FOUND
+checked_out() {
+  git -C "$WT" diff-index --cached --quiet HEAD -- 2>/dev/null
+}
+waited=0
+until [ -z "$CREATED" ] || [ -n "$MADE" ] || checked_out; do
+  [ "$waited" -lt "$WORKTREE_WAIT" ] ||
+    fail "worktree checkout: $WT registered, but its index still differs from HEAD after ${WORKTREE_WAIT}s"
+  sleep "$POLL"
+  waited=$((waited + POLL))
+done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
 ROLLBACK=1
 spec
