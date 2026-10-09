@@ -290,7 +290,6 @@ Every variable has a default, and a variable you set wins over it.
 | `ORCA_LAUNCH_BASE` | Base branch; default the parent checkout's `origin/HEAD`. |
 | `ORCA_LAUNCH_STATE` | Receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Further arguments from Orca's agent defaults; default none. Leave out the plan-mode argument. |
-| `ORCA_LAUNCH_RETRY_SECONDS` | Wait before a retry; default `30`. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling on the wait for Orca to detect the terminal's agent; default `180`. |
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling on the wait for a worktree whose create failed to register, and then for its checkout; default `180`. |
 
@@ -327,11 +326,12 @@ It creates a new terminal and keeps the worktree. Never stop the old session or
 duplicate its active work. A follow-up alone is not a relaunch: edit the brief file,
 then send its pointer with `send --type dispatch` to the current dispatch.
 
-Worktree creation gets four attempts; terminal creation gets three, separated by
-`ORCA_LAUNCH_RETRY_SECONDS`. Orca fails a terminal create with `runtime_error:
-Terminal creation timed out` when its renderer has not answered within a fixed 10
-seconds, and `orca terminal create` takes no timeout flag, so on a saturated host
-raise `ORCA_LAUNCH_RETRY_SECONDS` to spread the attempts out. A worktree create that fails often created the worktree
+Worktree creation gets four attempts; terminal creation gets three. Orca fails a
+terminal create with `runtime_error: Terminal creation timed out` when its renderer
+has not answered within a fixed 10 seconds, yet the terminal often opens later, over
+a minute later on a saturated host. After a create that names no handle, the script
+lists the worktree every 4 seconds for up to `ORCA_LAUNCH_BOOT_SECONDS` and adopts the
+new terminal, and creates again only when none appears. A worktree create that fails often created the worktree
 anyway, since the runtime drops the connection but finishes the work. Before each
 attempt and after a failed one, the script asks `orca worktree show` for the
 worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) after a

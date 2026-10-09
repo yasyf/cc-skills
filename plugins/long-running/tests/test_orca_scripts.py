@@ -931,7 +931,7 @@ def test_a_create_that_prints_no_handle_adopts_the_terminal_it_created(orca):
 
 def test_a_relaunch_never_adopts_a_terminal_that_predates_the_create(orca):
     orca.healthy()
-    orca.env["ORCA_LAUNCH_RETRY_SECONDS"] = "4"
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
     orca.reply("terminal create", {"rc": 0, "out": ""}, {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_b"}}}})
     orca.reply("terminal list", listing("claude", "term_a"), listing("claude", "term_a"), listing("claude", "term_a", "term_b"))
     result = orca.launch()
