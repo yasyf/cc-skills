@@ -1648,6 +1648,31 @@ def test_register_a_lone_pr_records_its_head_and_keeps_the_lane_that_claimed_it_
     assert capsys.readouterr().out.splitlines() == [f"registered {LANE} #24070", f"registered ship-pr #24070 (lane {LANE})"]
 
 
+def test_reassign_moves_a_row_to_the_new_lane_and_refresh_keeps_it_there(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "a" * 40, "lightning/one")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--pr", "24071")
+
+    run(shell, "reassign", "--ledger", LEDGER, "--pr", "24071", "--lane", "red-fix")
+    run(shell, "reassign", "--ledger", LEDGER, "--pr", "24071", "--lane", "red-fix")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24071")
+    assert refresh(shell, lock) == 0
+
+    fields = shell.fields("24071")
+    assert (fields["lane"], fields["registered"]) == ("red-fix", "red-fix")
+    assert fields["reassigned"].startswith(f"{LANE}>red-fix ")
+    assert capsys.readouterr().out.splitlines()[1:4] == [
+        f"reassigned #24071 from {LANE} to red-fix",
+        "#24071 already belongs to red-fix",
+        f"registered {LANE} #24071 (lane red-fix)",
+    ]
+
+
+def test_reassign_refuses_a_pr_the_ledger_does_not_track():
+    with pytest.raises(SystemExit, match="has no row for #24071"):
+        run(FakeShell(), "reassign", "--ledger", LEDGER, "--pr", "24071", "--lane", "red-fix")
+
+
 @pytest.mark.parametrize(
     "argv",
     [["--lane", LANE], ["--lane", LANE, "--pr", "1", "--pr", "2", "--head", HEAD]],

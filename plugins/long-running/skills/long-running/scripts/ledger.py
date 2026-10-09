@@ -1250,6 +1250,24 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_reassign(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    with locked(default_lock(args.ledger)):
+        rows = notes.pr_rows()
+        if missing := [pr for pr in args.pr if pr not in rows]:
+            raise SystemExit(f"{args.ledger} has no row for {' '.join(f'#{pr}' for pr in missing)}; register it with --pr first")
+        for pr in args.pr:
+            fields = rows[pr]
+            if fields["lane"] == args.lane:
+                print(f"#{pr} already belongs to {args.lane}")
+                continue
+            move = f"{fields['lane']}>{args.lane} {utc_stamp()}"
+            history = "; ".join(filter(None, [fields.get("reassigned"), move]))
+            notes.set_fields(pr, {"lane": args.lane, "registered": args.lane, "reassigned": history})
+            print(f"reassigned #{pr} from {fields['lane']} to {args.lane}")
+    return 0
+
+
 def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     key = f"{LANE_PREFIX}{args.lane}"
@@ -1272,7 +1290,8 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
-        known = sharded(notes.pr_rows(), args.shard)
+        every = notes.pr_rows()
+        known = sharded(every, args.shard)
         registrations = list(sharded(notes.lanes(), args.shard).values())
         prefixes = sorted({lane["branch_prefix"] for lane in registrations})
         moment = utc_stamp()
@@ -1288,7 +1307,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
             fields["last_refresh"] = moment
             if key not in known:
                 fields["first_seen"] = moment
-            if key in registered:
+            if key in registered and not every.get(key, {}).get("reassigned"):
                 fields |= {"lane": registered[key], "registered": registered[key]}
             if key in lanes:
                 fields["lane"] = lanes[key]
@@ -1322,13 +1341,13 @@ def cmd_lift(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool, gone: frozenset[str] = frozenset()) -> bool:
+def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool) -> bool:
     head = current_head(fields)
     lane = lane or fields["lane"]
     verdict = ""
     if not job:
         verdict, job = route_verdict(notes.shell, gh, fields)
-    if fields.get("routed_head") == head and fields.get("routed_job") == job and fields.get("routed_lane") not in gone:
+    if fields.get("routed_head") == head and fields.get("routed_job") == job and fields.get("routed_lane") == lane:
         print(f"#{pr} {head[:9]} already routed to {fields['routed_lane']} at {fields['routed_at']}; nothing to send")
         return False
     print(route_message(pr, head, lane, job, verdict))
@@ -1360,7 +1379,7 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
     if args.pr:
         if not args.lane and rows[args.pr]["lane"] in gone:
             raise SystemExit(f"#{args.pr}'s lane {rows[args.pr]['lane']} is gone; name a live one with --lane")
-        route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run, gone)
+        route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run)
         return 0
     moment = now()
     routed = 0
@@ -1374,7 +1393,7 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
         if lane is None:
             print(f"#{pr} {fields['lane']} is gone and no --fallback covers it; not routed")
             continue
-        routed += route_one(notes, gh, pr, fields, None, lane, args.dry_run, gone)
+        routed += route_one(notes, gh, pr, fields, None, lane, args.dry_run)
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
     return 0
 
@@ -2104,6 +2123,12 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
     register.set_defaults(handler=cmd_register)
+
+    reassign = subparsers.add_parser("reassign", help="move PR rows to a new owning lane, so route and refresh address it from now on")
+    add_ledger(reassign)
+    reassign.add_argument("--pr", action="append", required=True, metavar="N", type=pr_number)
+    reassign.add_argument("--lane", required=True)
+    reassign.set_defaults(handler=cmd_reassign)
 
     unregister = subparsers.add_parser("unregister", help="remove a lane's branch prefix and drop the untouched rows only that prefix pulled in")
     add_ledger(unregister)
