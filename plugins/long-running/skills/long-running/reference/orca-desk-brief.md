@@ -170,7 +170,9 @@ carries. Set the accepted prefix policy's revision to #28601's revision.
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says `cpu=high`
 runs `orca.sprite.launcher`, the repository's `worker-launch.sh`, on a Sprite, with
 `orca.sprite.env` and `WORKER_RUN` and `WORKER_REMOTE_ATTACH` set by the runner, while
-fewer than `orca.sprite.limit` Sprites are running or warm. Anything else, including
+fewer than `orca.sprite.limit` Sprites are running or warm. Set `CC_REMOTE_CONFIG` in
+`orca.sprite.env`: without it cc-remote reads `~/.config/cc-remote/config.yaml`, and
+every Sprite launch falls back to local. The runner reads its config only at start. Anything else, including
 a failed Sprite launch, starts locally and logs `SPRITE-FALLBACK`.
 
 Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
@@ -207,6 +209,7 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
       "limit": 10,
       "env": {
         "WORKER_CC_REMOTE": "/absolute/drive/checkout/tools/cc-remote/bin/cc-remote",
+        "CC_REMOTE_CONFIG": "/absolute/drive/checkout/tools/cc-remote/config.yaml",
         "WORKER_REF": "dev"
       }
     }
