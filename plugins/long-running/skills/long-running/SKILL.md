@@ -907,9 +907,10 @@ ready, unheld, unqueued bottom prefix in the same turn.
 
 Each desk pass reads all PR numbers in one `ccx vcs pr status <n1> <n2> ...` call
 and the Buildkite build list, never one REST call per PR. The pack's `buildkite_budget`
-hook blocks a Buildkite poll under 30 seconds and a per-job log dump; one
+hook blocks a Buildkite poll under 30 seconds and an unpaced per-job log dump; one
 `bk build view <build> -p <pipeline> --json` call and `bk job log <id>` for the one job replace
-them. Stagger desks and shards by a minute at `:00`, `:01`, and `:02`. One refused prefix never stops another;
+them, and a lane that needs every plan log of a release reads them in a loop that sleeps 2 seconds
+or more between fetches. Stagger desks and shards by a minute at `:00`, `:01`, and `:02`. One refused prefix never stops another;
 the D3 executor routes gate blockers under D14. A lane's `red` or `conflicting`
 verdict does not refuse a head the forge passes.
 
