@@ -370,6 +370,26 @@ def test_ui_enqueue_then_conflict_drop_without_a_label_is_evicted(poll):
     assert run.passes == 2
 
 
+
+def committed(at: str) -> dict[str, object]:
+    return {f"commits/{HEAD}": {"sha": HEAD, "commit": {"committer": {"date": at}}}}
+
+
+def test_drop_logged_before_the_head_was_committed_does_not_evict_it(poll):
+    activity = merge_activity(6085796195, ENQUEUED, CONFLICTED)
+    rebased = {**surface(pull(), comments=[activity]), **committed("2026-09-24T09:41:12Z")}
+    run = poll(rebased)
+    assert run.done == "DONE ready-to-merge"
+    assert run.state["queue"]["evicted"] is None
+
+
+def test_drop_logged_after_the_head_was_committed_evicts_it(poll):
+    activity = merge_activity(21, ENQUEUED, CONFLICTED)
+    queued = {**surface(pull(), comments=[activity]), **committed("2026-09-24T09:30:00Z")}
+    assert poll(queued).done == (
+        "DONE evicted conflicts The Graphite merge queue couldn't merge this PR because it had merge conflicts."
+    )
+
 @pytest.mark.parametrize(
     ("bullet", "done"),
     [

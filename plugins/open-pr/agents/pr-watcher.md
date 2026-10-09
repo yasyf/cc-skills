@@ -145,7 +145,9 @@ otherwise. The foreground Bash path leaves nothing running between calls.
 <queue_drop>
 `DONE evicted` means a bot removed the queue label from an unresolved stint,
 or Graphite's "Merge activity" comment logged a drop as its latest queue
-entry. A drop counts regardless of the label or `mergeable_state`. A human
+entry. A drop counts regardless of the label or `mergeable_state`, unless
+its bullet's time predates the head's commit: that drop ejected an earlier
+head, so a rebased head is never evicted by it. A human
 dequeue in Graphite's UI emits `UNQUEUED` and resolves the stint. The script
 checks for the squash on the base before reporting an eviction; a landing
 emits `DONE queue-merged`.

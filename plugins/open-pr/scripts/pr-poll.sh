@@ -27,7 +27,8 @@
 # evicted: the queue's merge-activity comment logs a drop as its latest queue
 # entry, whatever the label and mergeable state read, or a bot takes the label
 # off a stint no report has ended yet. Fires once per stint; re-enqueueing, by
-# label or in the UI, re-arms it.
+# label or in the UI, re-arms it. A drop logged before the head was committed
+# dropped an earlier head and evicts nothing.
 #
 # ready-to-merge needs every check passed, mergeable true, queue state read,
 # the PR neither queued nor evicted and waiting to re-enter, and the review
@@ -100,9 +101,19 @@ LABEL_EVENTS='.[] | {
 
 QUEUE_ENTRIES='(.body // "") | split("\n") | map(select(test("^ *[*-] +")) | gsub("^ *[*-] +"; ""))'
 
-QUEUE_BULLETS="$QUEUE_ENTRIES"'
+QUEUE_BULLETS='
+  def logged_at($created):
+    capture("^(?<mon>[A-Z][a-z]{2}) (?<day>[0-9]{1,2}), (?<hour>[0-9]{1,2}):(?<min>[0-9]{2}) (?<half>[AP])M UTC: ") as $t
+    | (["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] | index($t.mon) + 1) as $month
+    | (($created[0:4] | tonumber) + (if $month < ($created[5:7] | tonumber) then 1 else 0 end)) as $year
+    | (($t.hour | tonumber) % 12 + (if $t.half == "P" then 12 else 0 end)) as $hour
+    | "\($year)-\("0\($month)"[-2:])-\("0\($t.day)"[-2:])T\("0\($hour)"[-2:]):\($t.min)";
+  (.at // "") as $created
+  | '"$QUEUE_ENTRIES"'
   | .[$seen:][]
-  | (gsub("\\[(?<t>[^]]*)\\]\\([^)]*\\)"; "\(.t)") | gsub("[*`]"; "") | gsub("[\r\n\t]+"; " ") | sub("^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{1,2}:[0-9]{2} [AP]M UTC: "; "")) as $text
+  | (gsub("\\[(?<t>[^]]*)\\]\\([^)]*\\)"; "\(.t)") | gsub("[*`]"; "") | gsub("[\r\n\t]+"; " ")) as $line
+  | (($line | logged_at($created)) // null) as $at
+  | ($line | sub("^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{1,2}:[0-9]{2} [AP]M UTC: "; "")) as $text
   | if ($text | test("added this pull request to the .*merge queue"; "i"))
       then { kind: "queued", actor: ($text | capture("^(?<who>[^ ]+) +added this pull request").who // null) }
     elif ($text | test("^[^ ]+ +removed this pull request from the .*queue"; "i"))
@@ -117,7 +128,8 @@ QUEUE_BULLETS="$QUEUE_ENTRIES"'
              detail: ($text | capture("failed ci \\((?<check>[^)]+)\\)"; "i").check // $text[0:80]) }
     elif ($text | test("couldn.t merge this PR|can ?not be added to the|removed this pull request|removed .* from the .*queue|disabled \"merge when ready\""; "i"))
       then { kind: "drop", class: "other", detail: $text[0:80] }
-    else empty end'
+    else empty end
+  | .at = $at'
 
 QUEUE_EVENTS='
   def bot: .actor.type == "Bot" or (.actor.login | endswith("[bot]"));
@@ -144,9 +156,9 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   and exit 0. Exits 3 when another poller holds the state file.
 
   PR_POLL_INTERVAL defaults to 120 and is floored there. Each pass spends
-  ~7 REST calls, one more on a stacked PR, and every watcher on a stack
-  spends them against one shared hourly budget, so the interval is also
-  floored at 10 seconds per
+  ~7 REST calls, one more on a stacked PR and on a new head, and every
+  watcher on a stack spends them against one shared hourly budget, so the
+  interval is also floored at 10 seconds per
   concurrently watched PR: set PR_POLL_STACK to the number of PRs being
   watched at once (default 1). PR_POLL_QUEUE_LABEL names the merge-queue
   label (default merge).
@@ -212,7 +224,7 @@ if [ -f "$STATE_FILE" ] && jq -e '.watermarks' "$STATE_FILE" >/dev/null 2>&1; th
 normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" \
     --argjson started "$STARTED" '
-    { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
+    { head_at_last_pass: null, head_committed_at: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
       mergeable_false_reads: 0, conflicted_head: null, awaiting_review_head: null,
       queue: { queued: null, head: null, evicted: null, resolved_stint: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
@@ -312,7 +324,7 @@ poll() {
   local view head prev base default_branch stacked_on="" downstack="" pr_state merged mergeable merge_state present
   local checks checks_ok=1 events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
   local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
-  local last_event last_bot last_actor stint
+  local last_event last_bot last_actor stint committed
   local evicted="" conflicted=0 settled n_checks verdict closed_as
 
   view=$(gh api "repos/$REPO/pulls/$PR" \
@@ -384,8 +396,12 @@ poll() {
   prev=$(state '.head_at_last_pass // ""')
   if [ "$head" != "$prev" ]; then
     STATE=$(jq -c --arg h "$head" '
-      .head_at_last_pass = $h | .checks_seen = {} | .mergeable_false_reads = 0
+      .head_at_last_pass = $h | .head_committed_at = null | .checks_seen = {} | .mergeable_false_reads = 0
       | if .queue.evicted != null then .queue.evicted = null | .queue.head = null else . end' <<<"$STATE")
+  fi
+  if [ "$(state '.head_committed_at == null')" = true ] &&
+    committed=$(gh api "repos/$REPO/commits/$head" --jq '.commit.committer.date' 2>/dev/null); then
+    STATE=$(jq -c --arg c "$committed" '.head_committed_at = $c' <<<"$STATE")
   fi
 
   if [ "$checks_ok" = 1 ]; then
@@ -450,7 +466,9 @@ poll() {
     STATE=$(jq -c --arg s "$stint" '.queue.queued = false | .queue.resolved_stint = $s' <<<"$STATE")
     ;;
   drop)
-    if [ "$requeued" = true ] || [ "$(state '.queue.evicted == null')" = true ]; then
+    if [ "$(jq -r --arg c "$(state '.head_committed_at // ""')" '$c != "" and .at < $c[0:16]' <<<"$latest")" = true ]; then
+      STATE=$(jq -c --arg s "$stint" '.queue.queued = false | .queue.resolved_stint = $s' <<<"$STATE")
+    elif [ "$requeued" = true ] || [ "$(state '.queue.evicted == null')" = true ]; then
       evicted=$(jq -r '"\(.class) \(.detail)"' <<<"$latest")
     fi
     ;;
