@@ -87,7 +87,8 @@ def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, mo
     result = pr_ledger.record_opened_prs(evt)
 
     assert result is not None
-    assert result.message == pr_ledger.UNRECORDED
+    assert result.message.startswith("The opened PRs were not recorded in the drive ledger: [Errno 35] Resource temporarily unavailable. Rerun `")
+    assert f"drive.py record --session {SESSION} " in result.message
 
 
 @pytest.mark.parametrize(("lane", "expected"), [("merge-walker-r2", "no drive claims session"), (None, None)], ids=["lane", "no-lane"])
@@ -130,9 +131,27 @@ def test_settled_prs_reads_the_prs_a_landing_record_or_a_close_names(tmp_path, c
 def test_a_landing_the_drive_cannot_settle_names_the_prs(tmp_path, monkeypatch):
     from hooks import pr_ledger
 
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
     monkeypatch.setattr(pr_ledger.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, "", "forge unreachable"))
 
     result = pr_ledger.settle_landed_prs(event(tmp_path, command="cci post --lane l --kind landed --pr 31390 --text x"))
 
     assert result is not None
-    assert result.message == pr_ledger.UNSETTLED.format(prs="#31390")
+    assert result.message.startswith("The landed or closed PRs #31390 were not settled in the drive ledger: forge unreachable. Rerun `")
+    assert f"drive.py landed --session {SESSION} --pr 31390`" in result.message
+
+
+def test_a_landing_that_times_out_names_the_command_that_settles_it(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, pr_ledger.RECORD_TIMEOUT_SECONDS)
+
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.setattr(pr_ledger.subprocess, "run", slow)
+
+    result = pr_ledger.settle_landed_prs(event(tmp_path, command="gh pr close 31159"))
+
+    assert result is not None
+    assert f"drive.py timed out after {pr_ledger.RECORD_TIMEOUT_SECONDS}s" in result.message
+    assert result.message.endswith(f"drive.py landed --session {SESSION} --pr 31159`; it reads the ledger id and checkout from the drive registry.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -75,9 +76,24 @@ def lane_name(evt: BaseHookEvent) -> str:
     return named or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
-UNRECORDED = "The opened PRs were not recorded in the drive ledger. Run `ledger.py register` for each by hand."
-UNSETTLED = "The landed or closed PRs {prs} were not settled in the drive ledger. Run `ledger.py landed --pr N` for each by hand."
+UNRECORDED = "The opened PRs were not recorded in the drive ledger: {reason}. Rerun `{retry}`."
+UNSETTLED = (
+    "The landed or closed PRs {prs} were not settled in the drive ledger: {reason}. "
+    "Rerun `{retry}`; it reads the ledger id and checkout from the drive registry."
+)
 LANDED = f"{sys.executable} {DRIVE} landed"
+
+
+def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None, f"drive.py timed out after {RECORD_TIMEOUT_SECONDS}s"
+    except OSError as failure:
+        return None, str(failure)
+    if not done.returncode:
+        return done, ""
+    return done, (done.stderr.strip().splitlines() or [f"drive.py exited {done.returncode}"])[-1]
 
 
 @on(
@@ -112,12 +128,9 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr.spec]
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
-    except (subprocess.TimeoutExpired, OSError):
-        return evt.context(UNRECORDED)
-    if done.returncode:
-        return evt.context(UNRECORDED)
+    done, reason = run_drive(argv)
+    if done is None or done.returncode:
+        return evt.context(UNRECORDED.format(reason=reason, retry=shlex.join(argv)))
     if done.stdout.strip():
         return None
     return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
@@ -179,10 +192,7 @@ def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr]
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
-    except (subprocess.TimeoutExpired, OSError):
-        done = None
+    done, reason = run_drive(argv)
     if done is None or done.returncode:
-        return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs)))
+        return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs), reason=reason, retry=shlex.join(argv)))
     return None
