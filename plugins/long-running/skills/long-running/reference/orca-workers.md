@@ -288,7 +288,7 @@ Every variable has a default, and a variable you set wins over it.
 | `ORCA_LAUNCH_PREFIX` | Worktree name prefix; default none. The worktree is `<prefix><lane>-base`, so its branch `yasyf/<prefix><lane>-base` never blocks the lane's `yasyf/<prefix><lane>/` branches. |
 | `ORCA_LAUNCH_ROOT` | Directory Orca creates worktrees in; default the parent's directory. |
 | `ORCA_LAUNCH_BASE` | Base branch; default the parent checkout's `origin/HEAD`. |
-| `ORCA_LAUNCH_STATE` | Receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
+| `ORCA_LAUNCH_STATE` | Receipt directory; default `~/.claude/scratch/orca-launch/<run>`, where the desk runner reads lanes. Leave it unset. |
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Further arguments from Orca's agent defaults; default none. Leave out the plan-mode argument. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling on the wait for Orca to detect the terminal's agent; default `180`. |
 | `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling on the wait for a worktree whose create failed to register, and then for its checkout; default `180`. |

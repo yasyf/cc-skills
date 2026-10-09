@@ -40,6 +40,7 @@ class Running:
 class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
+        self.receipts = root / ".claude/scratch/orca-launch/run_1"
         self.clock = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
@@ -108,7 +109,7 @@ class FakeShell(runner_module.Shell):
             out.write_text("")
             return self.judge_process
         if Path(argv[0]).name == "orca-launch.sh" and (ready := runner_module.LAUNCHED.search(self.launch_line)):
-            state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / "orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
+            state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / ".claude/scratch/orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
             state.mkdir(parents=True, exist_ok=True)
             (state / f"{argv[1]}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": ready["dispatch"]}}))
             (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
@@ -272,11 +273,10 @@ class FakeShell(runner_module.Shell):
         return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and "--check" not in call and "--status" not in call]
 
     def launch(self, lane: str, dispatch: str, status: str = "dispatched") -> None:
-        receipts = self.root / "receipts"
-        receipts.mkdir(exist_ok=True)
+        self.receipts.mkdir(parents=True, exist_ok=True)
         terminal = f"term_{dispatch}"
-        (receipts / f"{lane}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": dispatch}}))
-        (receipts / f"{lane}.terminal").write_text(terminal + "\n")
+        (self.receipts / f"{lane}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": dispatch}}))
+        (self.receipts / f"{lane}.terminal").write_text(terminal + "\n")
         self.dispatches[dispatch] = {"status": status, "terminal": terminal}
 
     def ack(self, thread: str, verb: str, dispatch: str) -> None:
@@ -294,7 +294,8 @@ class FakeShell(runner_module.Shell):
 
 
 @pytest.fixture
-def shell(tmp_path: Path) -> FakeShell:
+def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
+    monkeypatch.setenv("HOME", str(tmp_path))
     return FakeShell(tmp_path)
 
 
@@ -311,7 +312,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                 "store": str(tmp_path / "store"),
                 "drive": "d1",
                 "view": str(tmp_path / "desk-runner.md"),
-                "orca": {"run": "run_1", "receipts": str(tmp_path / "receipts"), "desk_inbox": str(tmp_path / "inbox/orca-desk.md"), "briefs": {"repo": str(tmp_path / "checkout"), "log": "briefs1"}},
+                "orca": {"run": "run_1", "desk_inbox": str(tmp_path / "inbox/orca-desk.md"), "briefs": {"repo": str(tmp_path / "checkout"), "log": "briefs1"}},
                 "landing": {
                     "repo": "Forge-AI/monorepo",
                     "ledger": "abc",
@@ -893,8 +894,8 @@ def test_an_unrelated_push_does_not_settle_a_restack_still_on_the_landed_branch(
 def test_an_empty_receipt_or_a_null_payload_does_not_stop_the_runner(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
-    (tmp_path / "receipts" / "half-written.json").write_text("")
-    (tmp_path / "receipts" / "half-written.terminal").write_text("term_x\n")
+    (shell.receipts / "half-written.json").write_text("")
+    (shell.receipts / "half-written.terminal").write_text("term_x\n")
     cli(shell, config, "relay", "--key", "R700", "--lane", "half-written", "--text", "hello")
     shell.receive({"id": "msg_n", "type": "status", "subject": "note", "body": "", "thread_id": None, "payload": "null", "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
@@ -1454,7 +1455,7 @@ def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_re
     orca_pass(shell, config)
     desk_inbox(tmp_path, f"R9004 orca-desk: relay to {LANE}: rebase onto dev")
     orca_pass(shell, config)
-    assert (tmp_path / "receipts" / f"{LANE}.terminal").read_text() == "term_ctx_n\n"
+    assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_ctx_n\n"
     assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_n"]
     assert [line for line in escalations(shell) if line.startswith(("LAUNCHED", "RELAY"))] == [
         f"LAUNCHED R9001 {LANE}: dispatch ctx_n terminal term_ctx_n",
@@ -1463,6 +1464,20 @@ def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_re
     capsys.readouterr()
     assert cli(shell, config, "show") == 0
     assert f"## desk-lane-{LANE} owner unlaunched generation 0 pending ctx_n" in capsys.readouterr().out
+
+
+def test_a_lane_launched_by_hand_with_orca_launch_defaults_receives_relays(shell, config, tmp_path):
+    state = Path.home() / ".claude/scratch/orca-launch/run_1"
+    state.mkdir(parents=True)
+    (state / f"{LANE}.json").write_text(json.dumps({"result": {"taskId": "task_h", "dispatchId": "ctx_h"}}))
+    (state / f"{LANE}.terminal").write_text("term_h\n")
+    shell.dispatches["ctx_h"] = {"status": "dispatched", "terminal": "term_h"}
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R9010 orca-desk: relay to {LANE}: rebase onto dev")
+    cli(shell, config, "relay", "--key", "R9011", "--lane", LANE, "--text", "then rerun CI")
+    orca_pass(shell, config)
+    assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_h", "dispatch:ctx_h"]
+    assert [line for line in escalations(shell) if line.startswith("RELAY")] == [f"RELAYED R9010 {LANE}: relay to dispatch ctx_h"]
 
 
 def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, config, tmp_path):
@@ -1829,8 +1844,8 @@ def test_a_high_cpu_lane_launches_on_a_sprite_whatever_the_mac_load(shell, confi
     assert (env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_REMOTE_ATTACH"]) == ("run_1", "dev", str(runner_module.SPRITE_ATTACH))
     assert runner_module.SPRITE_ATTACH.is_file()
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
-    assert json.loads((tmp_path / "receipts" / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
-    assert (tmp_path / "receipts" / f"{LANE}.terminal").read_text() == "term_s\n"
+    assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
+    assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
 
 
 @pytest.mark.parametrize(("states", "why"), [(["running", "warm", "cold", "running"], "3 Sprites live and 0 launching, at the limit of 3"), (None, "the Sprite count failed")])
