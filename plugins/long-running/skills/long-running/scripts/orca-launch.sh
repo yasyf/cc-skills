@@ -326,7 +326,7 @@ if [ "$AGENT" != codex ] && ! booted $((BOOT * 1000 / 3)); then
     TYPED=1
   fi
   booted $((BOOT * 1000 - BOOT * 1000 / 3)) ||
-    fail "boot terminal=$TERMINAL: orca terminal wait --for tui-idle reads $(jq -er '.result.wait | .blockedReason // "status=\(.status)"' "$STATE/$LANE.boot.json" 2>/dev/null || orca_error "$STATE/$LANE.boot.json") after ${BOOT}s${TYPED:+; the command was typed into the terminal once}"
+    fail "boot terminal=$TERMINAL: orca terminal wait --for tui-idle reads $(jq -er '.result.wait // empty | .blockedReason // "status=\(.status)"' "$STATE/$LANE.boot.json" 2>/dev/null || orca_error "$STATE/$LANE.boot.json") after ${BOOT}s${TYPED:+; the command was typed into the terminal once}"
 fi
 
 retryable() {
