@@ -17,7 +17,6 @@ MOMENT_CHARS = 2000
 DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 PR_VERBS = {("vcs", "ship"), ("vcs", "stack"), ("pr", "create")}
-SLACK_VERBS = {"send", "reply"}
 PROMPT = """An agent in a long-running drive is about to take this action ({kind}):
 
 {moment}
@@ -41,18 +40,12 @@ def verdict_model(ids: list[str]) -> type[BaseModel]:
     return create_model("Verdict", answer=(Literal[("none", *ids)], ...))
 
 
-def flag(args: tuple[str, ...], *names: str) -> str:
-    return next((args[i + 1] for i, arg in enumerate(args[:-1]) if arg in names), "")
-
-
 def bash_moment(evt: BaseHookEvent) -> tuple[str, str] | None:
     for call in evt.command.calls():
         name, args = Path(call.name).name, call.args
         if any(redirect.op == ">>" and "inbox" in Path(redirect.target).parts for redirect in call.redirects):
             if DECISION.search(text := " ".join(args)):
                 return "a GO, HOLD or DECIDE line", text
-        if name == "cc-slack" and args[:1] and args[0] in SLACK_VERBS:
-            return "a Slack write", flag(args, "--text")
         if name in ("ccx", "gh") and tuple(args[:2]) in PR_VERBS:
             return "a pull request", " ".join(args)
         if name == "orca-launch.sh" and args and Path(args[-1]).expanduser().is_file():
@@ -68,8 +61,6 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
             return bash_moment(evt)
         case "Write" | "Edit" | "MultiEdit" if evt.file_matches("**/.claude/plans/*.md"):
             return "a plan step", evt.content or ""
-        case str(name) if "slack" in name and any(verb in name for verb in SLACK_VERBS):
-            return "a Slack write", evt._tool_input.get("text") or evt._tool_input.get("message") or ""
     return None
 
 
@@ -93,9 +84,7 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
             pattern=r"^Durable owner answer `1984bf6`"
         ),
         Input(command="echo '- G902 (root) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
-        Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
-            pattern=r"^Durable owner answer `1984bf6`"
-        ),
+        Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
         Input(command="ls", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "1984bf6"}): Allow(),
     },
@@ -104,13 +93,17 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     if not (found := moment(evt)) or not found[1].strip() or not (which := drive_args(evt)):
         return None
     kind, text = found
-    candidates = rulings(str(evt.cwd), "match", *which, "-k", str(CANDIDATES), "--budget", str(CANDIDATE_BYTES), stdin=text[:MOMENT_CHARS])
+    lane = f"{evt.agent_id or 'main'}:"
+    excluded = [arg for key in JudgedAnswers.load(evt).injected if key.startswith(lane) for arg in ("--exclude", key.removeprefix(lane))]
+    candidates = rulings(
+        str(evt.cwd), "match", *which, "-k", str(CANDIDATES), "--budget", str(CANDIDATE_BYTES), *excluded, stdin=text[:MOMENT_CHARS]
+    )
     if not (ids := BLOCK_ID.findall(candidates)):
         return None
     verdict = evt.llm(PROMPT.format(kind=kind, moment=text[:MOMENT_CHARS], candidates=candidates), verdict_model(ids), size="small")
     if verdict is None or (answer := verdict.answer) not in ids:
         return None
-    key = f"{evt.agent_id or 'main'}:{answer}"
+    key = f"{lane}{answer}"
     with JudgedAnswers.mutate(evt) as state:
         if key in state.injected:
             return None

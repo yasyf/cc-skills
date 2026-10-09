@@ -2,7 +2,7 @@
 """Read the owner-approved register and feed durable answers to the key-moment judge.
 
     rulings.py register (--program SLUG | --drive ID) [--repo PATH]
-    rulings.py match    (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--repo PATH] < ACTION
+    rulings.py match    (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--exclude ID]... [--repo PATH] < ACTION
 
 The register is the newest cc-notes doc labelled ``standing-rules:<program>``.
 A consolidation lane proposes at most 30 rules for the owner to approve.
@@ -13,14 +13,17 @@ prints JSON with fields ``{id, body}``, or ``null`` when no register exists.
 answers labelled ``program:<program>`` plus answers anchored to the repo's current branch.
 Another drive's answers never enter the corpus. Nothing injects it in bulk.
 The command reads an action from stdin. Its first 2,000 characters become the query
-for ``ccx code search --semantic``. Answers the register already cites are excluded.
+for ``ccx code search --semantic``. Answers the register already cites are excluded,
+and so is each ``--exclude`` id.
 Each match is printed as ``- <id7> <title>`` followed by its body quoted with ``  >``.
 The CLI defaults to ``-k 8`` and an 8,000-byte ``--budget``.
 Output stops before an answer would exceed that budget.
 
 The key-moment judge calls ``match`` with ``-k 5`` and a 6,000-byte candidate budget.
-A small model selects one answer the action clearly bears on or would violate,
-or none. The hook injects only that answer, verbatim, once per lane per answer.
+It excludes every answer it already injected into the lane, and makes no model call
+when no candidate remains. Otherwise a small model selects one answer the action
+clearly bears on or would violate, or none. The hook injects only that answer,
+verbatim, once per lane per answer.
 It is advisory, never blocks, and fails open.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory.
@@ -133,7 +136,7 @@ def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     mirror(durable, directory)
     cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
     query = sys.stdin.read()[:QUERY_CHARS]
-    hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers and hit not in cited]
+    hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers and hit not in cited and hit not in args.exclude]
     sys.stdout.write(within([rendered(answers[hit]) for hit in hits], args.budget))
     return 0
 
@@ -146,6 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
     match = subparsers.add_parser("match", help="print the durable rulings the brief on stdin is about")
     match.add_argument("-k", type=int, default=MATCHES)
     match.add_argument("--budget", type=int, default=BUDGET, metavar="BYTES")
+    match.add_argument("--exclude", action="append", default=[], metavar="ID")
     match.set_defaults(handler=cmd_match)
     for sub in (show, match):
         sub.add_argument("--repo", default=".", metavar="PATH")
