@@ -45,7 +45,9 @@ once a third of that ceiling has passed with no idle agent, the script reads
 the screen and, when it shows neither the command line nor the agent's own UI,
 types the command into the terminal once. A launch that still has no idle agent at
 the ceiling, or whose agent is blocked on a startup prompt, fails, and never
-reaches worker-start.
+reaches worker-start. Orca can still refuse an idle agent with agent_unconfigured
+for a few seconds after tui-idle, so that refusal, which dispatches nothing, is
+retried every 4 seconds for up to the same ceiling.
 Every list is scoped to the lane's worktree, since an unscoped list stops at 200
 terminals. A terminal create whose output names no handle is followed by a list
 of the worktree every 4 seconds, for up to ORCA_LAUNCH_RETRY_SECONDS, and the first
@@ -120,7 +122,7 @@ with the rebind command when it is not ORCA_LAUNCH_RUN.
 
 A launch that fails before worker-start, or that worker-start refuses before it
 dispatches anything (consumer_fenced, invalid_argument, task_not_found,
-worker_prompt_too_large, runtime_unavailable), rolls back what it made: it
+worker_prompt_too_large, runtime_unavailable, agent_unconfigured), rolls back what it made: it
 deletes the lane's <lane>.worktree receipt, closes the tab of the terminal whose
 handle its own terminal create returned, and removes the worktree its own
 worktree create made, whether or not that create answered: a registered one with
@@ -397,18 +399,27 @@ else
 fi
 TIMEOUT=600000
 [ "$AGENT" = claude ] || TIMEOUT=90000
-STARTED=0
+refusal() {
+  jq -rs 'if length == 1 and .[0].ok == false then .[0].error.code else empty end' "$RECEIPT.new" 2>/dev/null || :
+}
+waited=0
+while :; do
+  STARTED=0
+  orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
+    --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
+  [ "$STARTED" != 0 ] && [ "$(refusal)" = agent_unconfigured ] && [ "$waited" -lt "$BOOT" ] || break
+  sleep "$POLL"
+  waited=$((waited + POLL))
+done
 ROLLBACK=''
-orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
-  --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
 if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
   mv "$RECEIPT.new" "$RECEIPT"
   [ "$AGENT" != codex ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
 elif [ "$STARTED" != 0 ]; then
-  REFUSED=$(jq -rs 'if length == 1 and .[0].ok == false then .[0].error.code else empty end' "$RECEIPT.new" 2>/dev/null) || REFUSED=
+  REFUSED=$(refusal)
   case $REFUSED in
-    consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable) ROLLBACK=1 ;;
+    consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable | agent_unconfigured) ROLLBACK=1 ;;
     *)
       KEPT=${TERMINAL:+ terminal=$TERMINAL}
       [ -z "$MADE$LOST" ] || KEPT="$KEPT worktree=$WT"

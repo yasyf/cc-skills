@@ -748,6 +748,28 @@ def test_an_unobserved_turn_start_that_never_starts_fails_naming_the_dispatch_an
     assert json.loads((orca.receipts / "lane-a.json").read_text())["result"]["dispatchId"] == "ctx_a"
 
 
+UNCONFIGURED = {"rc": 1, "out": {"ok": False, "error": {"code": "agent_unconfigured", "message": "Terminal term_a is not running a recognized agent."}}}
+
+
+def test_an_idle_agent_orca_does_not_recognize_yet_is_started_again(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", UNCONFIGURED, UNCONFIGURED, {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a"}}})
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(orca.calls("orchestration worker-start")) == 3
+    assert orca.sleeps() == ["4", "4"]
+
+
+def test_an_agent_orca_never_recognizes_rolls_back_at_the_boot_ceiling(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "8"
+    orca.reply("orchestration worker-start", UNCONFIGURED)
+    result = orca.launch()
+    assert result.returncode == 1
+    assert len(orca.calls("orchestration worker-start")) == 3
+    assert result.stdout.strip().endswith(f"; rolled back terminal=term_a worktree={orca.worktree}")
+
+
 def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
     orca.healthy(screen="⏸ plan mode on (shift+tab to cycle)")
     result = orca.launch()
