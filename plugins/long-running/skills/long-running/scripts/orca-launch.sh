@@ -94,8 +94,11 @@ itself and prints the lane as unsupervised: it runs, but Orca carries no worker_
 <model> is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on
 the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra,
 for exceptional cases only), or a gpt-* model id. <effort> is low, medium,
-high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
-because the runtime drops connections under load. A worktree create that fails
+high, xhigh, or max. Terminal creation gets three attempts, ORCA_LAUNCH_RETRY_SECONDS
+apart, because the runtime drops connections under load and Orca fails a create
+with "Terminal creation timed out" when its renderer has not answered within a
+fixed 10 seconds; orca terminal create takes no timeout, so under load raise
+ORCA_LAUNCH_RETRY_SECONDS. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 Orca registers a worktree at git worktree add --no-checkout and fills its index
@@ -126,8 +129,8 @@ and worktree a dispatch may own. A worktree that existed before the launch
 stays. Every failure line is one line, and an Orca error in it reads
 "<code>: <message>".
 
-  ORCA_LAUNCH_RUN            orchestration Run id, required
-  ORCA_LAUNCH_REPO           Orca repo id, required
+  ORCA_LAUNCH_RUN            orchestration Run id, default the Orca run of the drive this session belongs to, from drive.py orca-run
+  ORCA_LAUNCH_REPO           Orca repo id, default the repo orca repo list names at the parent's main checkout, the directory holding its git common dir
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
   ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as incident always does, default unset
   ORCA_LAUNCH_PREFIX         worktree name prefix, default none
@@ -146,19 +149,14 @@ EOF
 
 [ $# -eq 4 ] || usage
 LANE=$1 MODEL=$2 EFFORT=$3 BRIEF=$4
-RUN=${ORCA_LAUNCH_RUN:?ORCA_LAUNCH_RUN is required}
-REPO=${ORCA_LAUNCH_REPO:?ORCA_LAUNCH_REPO is required}
 PARENT=${ORCA_LAUNCH_PARENT:-$PWD}
 NAME=${ORCA_LAUNCH_PREFIX:-}$LANE
 WORKTREE_NAME=$NAME-base
 ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
-STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
 RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 POLL=4
-RECEIPT=$STATE/$LANE.json
-WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
 ROLLBACK='' MADE='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
 rollback() {
@@ -189,6 +187,20 @@ orca_error() {
   jq -er 'select(.ok == false) | "\(.error.code): \(.error.message // "no message")"' "$1" 2>/dev/null ||
     cat "$@" | tr -s '[:space:]' ' ' | cut -c1-300
 }
+
+RUN=${ORCA_LAUNCH_RUN:-$(python3 "$(dirname "$0")/drive.py" orca-run)} ||
+  fail "run: this session's drive binds no Orca run; set ORCA_LAUNCH_RUN or run drive.py start --orca-run <id>"
+REPO=${ORCA_LAUNCH_REPO:-}
+if [ -z "$REPO" ]; then
+  MAIN=$(git -C "$PARENT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) ||
+    fail "repo: $PARENT is not a git checkout; set ORCA_LAUNCH_REPO"
+  MAIN=$(dirname "$MAIN")
+  REPO=$(orca repo list --json | jq -er --arg path "$MAIN" 'first(.result.repos[] | select(.path == $path) | .id)') ||
+    fail "repo: orca repo list names no repo at $MAIN; set ORCA_LAUNCH_REPO or run orca repo add --path $MAIN"
+fi
+STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
+RECEIPT=$STATE/$LANE.json
+WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
 AGENT=claude
 case $MODEL in

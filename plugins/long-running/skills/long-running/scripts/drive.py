@@ -5,6 +5,7 @@
     drive.py end     [--drive ID]
     drive.py context [--drive ID]
     drive.py current
+    drive.py orca-run
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
@@ -22,9 +23,10 @@ live dashboard binds its cards from; ``context`` rewrites it from the registry a
 A session belongs to a drive when its id is one of the drive's root sessions, which covers every
 in-process subagent and teammate, or when it carries ``CLAUDE_LONG_RUNNING_DRIVE``, which Orca workers
 inherit from ``orca-launch.sh``. ``current`` also resolves the drive whose Orca run is ``ORCA_LAUNCH_RUN``, so a
-desk runner that holds no session still launches workers into the drive. A session in no drive, a command run outside the drive's
-repository, and a pull request on another repository are not the drive's and record nothing; a session in no
-drive says so on stderr.
+desk runner that holds no session still launches workers into the drive. ``orca-run`` prints the Orca run
+of the drive this session belongs to, which ``orca-launch.sh`` launches into when ``ORCA_LAUNCH_RUN`` is unset.
+A session in no drive, a command run outside the drive's repository, and a pull request on another repository
+are not the drive's and record nothing; a session in no drive says so on stderr.
 
 ``landed`` is the pack's entry point after a ``cci post --kind landed`` or a ``gh pr close``: it settles each named
 PR the drive's ledger tracks against the trunk in the drive's checkout through ``ledger.py landed``, so the row
@@ -197,6 +199,13 @@ def cmd_current(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_orca_run(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (drive := current_drive()) or not (entry := find(drive, None)) or not entry["orca_run"]:
+        return 1
+    print(entry["orca_run"])
+    return 0
+
+
 def cmd_list(args: argparse.Namespace, shell: ledger.Shell) -> int:
     entries = drives()
     if args.json:
@@ -302,6 +311,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     current = subparsers.add_parser("current", help="print the drive this session belongs to; exit 1 when none")
     current.set_defaults(handler=cmd_current)
+
+    orca_run = subparsers.add_parser("orca-run", help="print the Orca run of the drive this session belongs to; exit 1 when none")
+    orca_run.set_defaults(handler=cmd_orca_run)
 
     list_cmd = subparsers.add_parser("list", help="every registered drive")
     list_cmd.add_argument("--json", action="store_true")
