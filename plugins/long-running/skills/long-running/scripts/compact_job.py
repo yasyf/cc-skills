@@ -6,27 +6,13 @@ import sys
 import time
 from pathlib import Path
 
-__capt_hook_skip__ = True
+import prompt_screen
 
-RULE = "─"
-PROMPT = "❯"
 POLL_SECONDS = 30
 DEADLINE_SECONDS = 30 * 60
 WAIT_TIMEOUT_MS = 120_000
 MAX_LIFETIME_SECONDS = DEADLINE_SECONDS + WAIT_TIMEOUT_MS // 1000 + POLL_SECONDS
 COMPACT_BOUNDARY = b'"subtype":"compact_boundary"'
-
-
-def input_empty(terminal: dict) -> bool:
-    if terminal.get("draft") or terminal.get("source") != "screen":
-        return False
-    tail = [line.strip() for line in terminal.get("tail") or []]
-    rules = [i for i, line in enumerate(tail) if line and set(line) == {RULE}]
-    boxes = [(top, bottom) for top, bottom in zip(rules, rules[1:]) if tail[top + 1].startswith(PROMPT)]
-    if not boxes:
-        return False
-    top, bottom = boxes[-1]
-    return tail[top + 1 : bottom] == [PROMPT]
 
 
 def compacted_since(transcript: Path, offset: int) -> bool:
@@ -48,7 +34,7 @@ def main(handle: str, text: str, transcript: str) -> None:
             read = orca("read", "--terminal", handle, "--screen", "--json")
             if (
                 read.returncode == 0
-                and input_empty(json.loads(read.stdout)["result"]["terminal"])
+                and prompt_screen.idle_prompt(json.loads(read.stdout)["result"]["terminal"])
                 and not compacted_since(path, offset)
             ):
                 orca("send", "--terminal", handle, "--text", text, "--enter")

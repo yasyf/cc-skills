@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import compact_job
 import pytest
 import standing
 from cc_transcript import Session
@@ -14,7 +15,7 @@ from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
 
-from hooks import compact_job, nudges
+from hooks import nudges
 from hooks import compaction_handoff as handoff
 
 FIXTURES = Path(handoff.__file__).parent / "tests" / "fixtures"
@@ -450,27 +451,6 @@ def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
 
     saved = handoff.CompactionState.load(evt)
     assert (saved.phase, saved.compacting_since) == ("idle", None)
-
-
-RULE = "─" * 40
-EMPTY_BOX = [RULE, "❯", RULE, "  ⏵⏵ bypass permissions on · 1 shell"]
-
-
-@pytest.mark.parametrize(
-    ("terminal", "empty"),
-    [
-        ({"source": "screen", "tail": ["⏺ done", *EMPTY_BOX]}, True),
-        ({"source": "screen", "tail": ["❯ update the plan again", "  ⎿ ok", *EMPTY_BOX]}, True),
-        ({"source": "screen", "tail": ["⏺ done", RULE, "❯\xa0", RULE]}, True),
-        ({"source": "screen", "tail": [RULE, "❯ half-typed ask", RULE]}, False),
-        ({"source": "screen", "tail": [RULE, "❯ first line", "  second line", RULE]}, False),
-        ({"source": "screen", "tail": ["❯ 1. My other session owns it", "  2. Go ahead"]}, False),
-        ({"source": "screen", "tail": EMPTY_BOX, "draft": "/compact  <optional custom summarization instructions>"}, False),
-        ({"source": "screen-unavailable", "tail": EMPTY_BOX}, False),
-    ],
-)
-def test_input_empty_reads_the_rendered_prompt_box(terminal: dict, empty: bool) -> None:
-    assert compact_job.input_empty(terminal) is empty
 
 
 def test_compact_job_stops_once_the_session_compacts(tmp_path: Path) -> None:

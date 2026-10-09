@@ -96,6 +96,7 @@ from zoneinfo import ZoneInfo
 import actions
 import cci
 import inboxes
+import prompt_screen
 
 SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -351,8 +352,11 @@ class Book:
             return False
         return True
 
+    def known(self, container: str, action_id: str) -> actions.Action | None:
+        return self.store.load(container).actions.get(action_id) if self.store.path(container).is_file() else None
+
     def accept(self, container: str, action_id: str, kind: str, target: str, authority: str, deadline: datetime | None) -> tuple[actions.Action, bool]:
-        if self.store.path(container).is_file() and (known := self.store.load(container).actions.get(action_id)):
+        if known := self.known(container, action_id):
             return known, False
 
         def change(incident: actions.Incident) -> tuple[actions.Action, bool]:
@@ -431,8 +435,12 @@ class Orca:
     def request_state(self, request: str) -> str:
         return (self.call("orchestration", "request-show", "--request", request).get("result") or {}).get("state", "absent")
 
-    def wake(self, terminal: str, text: str) -> None:
+    def wake(self, terminal: str, text: str) -> bool:
+        screen = self.call("terminal", "read", "--terminal", terminal, "--screen")
+        if not (screen.get("ok") and prompt_screen.idle_prompt(screen["result"]["terminal"])):
+            return False
         self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
+        return True
 
 
 def request_id(reply: dict) -> str:
@@ -1221,7 +1229,7 @@ class Runner:
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
-        """Unread mail on a live dispatch gets one wake; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
+        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
         done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
         for line in done.out.splitlines():
             parts = line.split()
@@ -1231,9 +1239,12 @@ class Runner:
             if status != "unread":
                 self.escalate(f"stale:{item}", "STALE-MAIL", lane, f"{item} unread by a {status} dispatch")
                 continue
-            _, created = self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
-            if created and (terminal := self.orca.terminal(lane)):
-                self.orca.wake(terminal, f"unread Orca message {item}; read it now")
+            if (
+                not self.book.known(RUNNER, f"wake:{item}")
+                and (terminal := self.orca.terminal(lane))
+                and self.orca.wake(terminal, f"unread Orca message {item}; read it now")
+            ):
+                self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
         hour = actions.stamp(self.now())[:13]
         named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
         settled: list[Dispatch] = []

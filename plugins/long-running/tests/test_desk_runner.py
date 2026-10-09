@@ -21,6 +21,8 @@ spec.loader.exec_module(runner_module)
 
 LANE = "incident-fix"
 FORBIDDEN = {"worker-release", "kill", "pkill", "close", "stop", "terminate", "worker-stop"}
+IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
+PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
 
 
 class Process:
@@ -49,6 +51,7 @@ class FakeShell(runner_module.Shell):
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
         self.stale_out = ""
+        self.screens: dict[str, list[str]] = {}
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
@@ -223,6 +226,8 @@ class FakeShell(runner_module.Shell):
                 return self.inbox_error
             messages = sorted(self.mailbox, key=lambda message: message["sequence"], reverse=True)[:int(argv[5])]
             return self.ok({"messages": messages, "count": len(messages)})
+        if verb == ["terminal", "read"]:
+            return self.ok({"terminal": {"source": "screen", "tail": self.screens.get(argv[3], IDLE_PROMPT)}})
         if verb == ["terminal", "send"]:
             return self.ok({})
         raise AssertionError(f"unexpected orca call {argv}")
@@ -419,6 +424,32 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
     assert len(lines) == 1 and "DEADLINE" in lines[0] and "delivered to ctx_a, no started reply" in lines[0]
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
     assert not [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
+
+
+def wakes(shell: FakeShell) -> list[str]:
+    return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
+
+
+def test_stale_mail_wakes_a_lane_once_and_only_at_its_idle_prompt(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.stale_out = f"STALE {LANE} 12m unread msg_7\n"
+    shell.screens["term_ctx_a"] = PICKER
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert wakes(shell) == []
+    shell.screens["term_ctx_a"] = IDLE_PROMPT
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert wakes(shell) == ["unread Orca message msg_7; read it now"]
+
+
+def test_a_relay_types_no_wake_into_a_picker(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.screens["term_ctx_a"] = PICKER
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert wakes(shell) == []
 
 
 def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_path):

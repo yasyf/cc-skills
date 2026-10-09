@@ -28,7 +28,6 @@ from captain_hook import (
 from captain_hook.conditions import skill_name_matches
 from captain_hook.util import reqenv
 
-from .compact_job import MAX_LIFETIME_SECONDS
 from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
@@ -37,8 +36,8 @@ SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
-COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
+COMPACT_JOB = SCRIPTS / "compact_job.py"
 HANDOFF = SCRIPTS / "handoff.py"
 RULINGS = SCRIPTS / "rulings.py"
 NO_REGISTER = {f"{sys.executable} {RULINGS} register": "null"}
@@ -62,7 +61,7 @@ FIRE_FRACTION = 0.8
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
-COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
+COMPACT_RETRY_SECONDS = 33 * 60
 RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
