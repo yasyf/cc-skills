@@ -12,6 +12,7 @@
 #   GREEN    awaiting-review
 #   DONE     ready-to-merge | merged | queue-merged | closed | checks-failed |
 #            conflicted | deadline-still-open | window-elapsed
+#   DONE     ready-to-merge downstack #<n>
 #   DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 #
 # Exits 0 after DONE. QUEUED means the PR entered the merge queue, by the queue
@@ -35,6 +36,9 @@
 # is still missing: it is REST's stand-in for GraphQL reviewDecision, which
 # this REST-only script cannot read. A queued PR is watched until it lands or
 # the queue drops it.
+# Graphite's mergeability check on a stacked PR stays in progress until the
+# downstack PR #<n> merges; it doesn't hold the verdict, which then reads
+# ready-to-merge downstack #<n>: landing needs the stack enqueued together.
 # Green but not yet approved prints GREEN awaiting-review once per head and
 # keeps watching. An eviction holds only its head: pushing a new head clears
 # it.
@@ -76,7 +80,12 @@ CHECK_RUNS='.check_runs[] | {
     elif .conclusion | IN("failure", "timed_out", "action_required", "startup_failure") then "fail"
     else "pending" end),
   link: (.details_url // .html_url // ""),
-  detail: ([.output.title, .output.summary] | map(select(. != null)) | join("\n"))
+  detail: ([.output.title, .output.summary] | map(select(. != null)) | join("\n")),
+  downstack: (
+    if .status != "completed" and .name == "Graphite / mergeability_check"
+      and .output.title == "This check will pass when downstack PRs merge"
+    then [.output.summary // "" | capture("#(?<n>[0-9]+) needs to be merged").n] | first
+    else null end)
 }'
 
 LATEST_RUNS='. as $runs | .[] | . as $r | select(.id == ([$runs[] | select(.name == $r.name) | .id] | max))'
@@ -274,9 +283,7 @@ eviction_reason() {
     printf 'conflicts mergeable_state=%s\n' "$merge_state"
     return
   fi
-  downstack=$(jq -r '
-    [.[] | select(.name | test("graphite"; "i")) | .detail
-      | capture("#(?<n>[0-9]+) needs to be merged").n] | first // empty' <<<"$checks")
+  downstack=$(jq -r '[.[] | .downstack // empty] | first // empty' <<<"$checks")
   if [ -n "$downstack" ]; then
     printf 'downstack #%s\n' "$downstack"
     return
@@ -295,9 +302,11 @@ eviction_reason() {
 }
 
 green() {
-  local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4
+  local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4 downstack=${5:-}
   [ "$reviews_ok" = 1 ] || return 0
-  if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then finish ready-to-merge; fi
+  if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then
+    finish "ready-to-merge${downstack:+ downstack #$downstack}"
+  fi
   [ "$(state '.awaiting_review_head // ""')" != "$head" ] || return 0
   emit "GREEN awaiting-review"
   STATE=$(jq -c --arg h "$head" '.awaiting_review_head = $h' <<<"$STATE")
@@ -513,13 +522,16 @@ poll() {
   empty_passes=0
 
   verdict=$(jq -r '
-    if any(.[]; .bucket == "pending") then "pending"
+    if any(.[]; .bucket == "pending" and .downstack == null) then "pending"
     elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "checks-failed"
     else "green" end
   ' <<<"$checks")
   case "$verdict" in
   checks-failed) finish checks-failed ;;
-  green) [ "$settled" = 0 ] || green "$head" "$merge_state" "$reviews_ok" "$changes_requested" ;;
+  green)
+    [ "$settled" = 0 ] || green "$head" "$merge_state" "$reviews_ok" "$changes_requested" \
+      "$(jq -r '[.[] | .downstack // empty] | first // empty' <<<"$checks")"
+    ;;
   esac
 }
 

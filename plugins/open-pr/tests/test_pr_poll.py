@@ -24,13 +24,41 @@ GRAPHITE_WAITING = check_run(
     status="in_progress",
     conclusion=None,
     title="This check will pass when downstack PRs merge",
-    summary="- #24450 needs to be merged into dev before you can merge this PR.",
+    summary=(
+        "- #24450 needs to be merged into dev before you can merge this PR.\n"
+        "  - This PR is stacked on top of #24450. Merging this PR on GitHub will cause it to merge incorrectly "
+        "into #24450 instead of dev.\n"
+        "  - Learn more about stacked PRs [here](https://graphite.dev/docs/cli-quick-start)\n"
+        "- To ensure that these PRs merge correctly, "
+        "[view and merge this PR with Graphite](https://app.graphite.com/github/pr/Forge-AI/monorepo/24451)\n"
+        "- To disable this check, edit your "
+        "[organization's settings](https://app.graphite.com/settings?org=Forge-AI) on Graphite."
+    ),
 )
 
 
 def test_green_clean_pr_is_ready_to_merge(poll):
     run = poll(surface(pull()))
     assert run.lines == ["CHECK build pass https://ci.example/build", "DONE ready-to-merge"]
+
+
+def test_stacked_pr_waiting_only_on_its_downstack_is_ready_to_merge_downstack(poll):
+    stacked = surface(pull(mergeable_state="unstable"), runs=[check_run("build"), GRAPHITE_WAITING])
+    run = poll(stacked)
+    assert run.lines == ["CHECK build pass https://ci.example/build", "DONE ready-to-merge downstack #24450"]
+
+
+def test_stacked_pr_with_a_pending_check_besides_the_downstack_wait_keeps_watching(poll):
+    pending = check_run("build", status="in_progress", conclusion=None)
+    stacked = surface(pull(mergeable_state="unstable"), runs=[pending, GRAPHITE_WAITING])
+    run = poll(stacked, stacked)
+    assert run.done is None
+
+
+def test_graphite_check_pending_for_another_reason_holds_the_verdict(poll):
+    computing = check_run("Graphite / mergeability_check", status="queued", conclusion=None, title="Checking mergeability")
+    run = poll(*[surface(pull(mergeable_state="unstable"), runs=[check_run("build"), computing])] * 2)
+    assert run.done is None
 
 
 def test_failed_check_is_checks_failed(poll):

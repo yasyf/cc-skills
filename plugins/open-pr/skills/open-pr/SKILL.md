@@ -163,7 +163,11 @@ A `ready-to-merge` report means the PR is green, mergeable, and approved:
 every check passed, `mergeable` is true, and the PR is neither queued nor
 evicted on its current head. No reviewer's latest review is
 `CHANGES_REQUESTED`, and REST `mergeable_state` is not `blocked` (the state
-for a missing required approval).
+for a missing required approval). A `ready-to-merge downstack #<n>` report is
+a stacked PR whose only unfinished check is Graphite's mergeability check
+waiting on downstack PR #<n>. The PR itself is ready, but it lands only with
+its downstack: name #<n> in the question and enqueue the stack, never this
+PR alone.
 
 Read the user's `CLAUDE.md` for one of these exact lines:
 

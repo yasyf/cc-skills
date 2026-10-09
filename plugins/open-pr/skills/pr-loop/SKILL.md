@@ -73,6 +73,7 @@ UNQUEUED <actor>
 GREEN    awaiting-review
 DONE     ready-to-merge | merged | queue-merged | closed | checks-failed |
          conflicted | deadline-still-open | window-elapsed
+DONE     ready-to-merge downstack #<n>
 DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 ```
 
