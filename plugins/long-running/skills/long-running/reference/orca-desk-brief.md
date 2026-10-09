@@ -134,7 +134,7 @@ Each escalation posts with `--lane desk-runner --to root`; its topic is the line
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
 `UNBOUND` and `UNOWNED` use `blocker`, any `*-FAILED` uses `defect`, and all other
 labels use `report`. Text over 400 characters is clipped, with the full line saved
-to `<orca.receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
+to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
 text limit and attachment rule.
 
@@ -165,8 +165,11 @@ required.
 `store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
 holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
 owner and `owner_generation`. Match `orca.run` to the launch environment. The runner
-launches with `ORCA_LAUNCH_STATE` set to `orca.receipts`, whatever `launch_env` says, so
-every launch it makes records the lane's dispatch and terminal where it reads them. `orca.gc` names the repo's gc command, which every `RECLAIM` line
+reads each lane's dispatch and terminal from `~/.claude/scratch/orca-launch/<orca.run>`,
+the receipt directory orca-launch.sh writes by default, and launches with
+`ORCA_LAUNCH_STATE` set to it. A lane launched by hand with orca-launch.sh is therefore
+relayed to like one the runner launched, with no receipts to copy; never set
+`ORCA_LAUNCH_STATE` on a hand launch. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says `cpu=high`
@@ -190,7 +193,6 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
   "alert": {"facts": "/absolute/drive/alert-facts.md"},
   "orca": {
     "run": "<run id>",
-    "receipts": "/absolute/drive/receipts",
     "desk_inbox": "/absolute/drive/inbox/orca-desk.md",
     "briefs": {"repo": "/absolute/drive/checkout", "log": "<briefs log id>"},
     "gc": "/absolute/drive/checkout/.agents/skills/orca/scripts/orca-gc",

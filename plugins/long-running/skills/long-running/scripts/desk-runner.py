@@ -29,9 +29,10 @@ per lane, a reply to the lane's latest open question when it has one, logged onc
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
-launch logs `LAUNCHED` with its dispatch and terminal. Every local launch runs with
-`ORCA_LAUNCH_STATE` set to `orca.receipts`, so its receipts land where the runner reads
-the lane's dispatch and terminal. An `orca-desk: alert <slug> <link> :: <what fired>`
+launch logs `LAUNCHED` with its dispatch and terminal. The runner reads each lane's
+dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-launch/<run>`,
+where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
+runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
 `orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
 lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
@@ -68,10 +69,10 @@ named for reclaim. Each escalation runs
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 UNBOUND and UNOWNED to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
-`<orca.receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
+`<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
 the full line and then the whole message, subject and body, kept under
-`<orca.receipts>/cci/messages/<id>.md` when the message arrives. Landing restack routes
+`<receipts>/cci/messages/<id>.md` when the message arrives. Landing restack routes
 sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
 The config requires `drive` and `orca.desk_inbox`. A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
@@ -107,6 +108,7 @@ LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
+LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
 ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker"}
 UNLAUNCHED = "unlaunched"
@@ -291,7 +293,7 @@ class Config:
             view=Path(raw["view"]).expanduser(),
             desk_inbox=Path(orca["desk_inbox"]).expanduser(),
             run=orca["run"],
-            receipts=Path(orca["receipts"]).expanduser(),
+            receipts=Path.home() / LAUNCH_STATE / orca["run"],
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
             briefs_log=orca["briefs"]["log"],
             launch_env=orca.get("launch_env", {}),
