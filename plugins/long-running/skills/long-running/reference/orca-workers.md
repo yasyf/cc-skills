@@ -291,7 +291,7 @@ Set the run and repo ids before calling it. The remaining variables have default
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Further arguments from Orca's agent defaults; default none. Leave out the plan-mode argument. |
 | `ORCA_LAUNCH_RETRY_SECONDS` | Wait before a retry; default `30`. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling on the wait for Orca to detect the terminal's agent; default `180`. |
-| `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling on the wait for a worktree whose create failed to register; default `180`. |
+| `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling on the wait for a worktree whose create failed to register, and then for its checkout; default `180`. |
 
 A successful launch prints one of these result lines:
 
@@ -331,7 +331,11 @@ Worktree creation gets four attempts; terminal creation gets three, separated by
 anyway, since the runtime drops the connection but finishes the work. Before each
 attempt and after a failed one, the script asks `orca worktree show` for the
 worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) after a
-failure, and creates again only when none registers. Before `worker-start`, which refuses
+failure, and creates again only when none registers. Orca registers the worktree at
+`git worktree add --no-checkout` and fills its index with a `reset --hard` that can run
+past a minute under load, so a worktree found that way also waits, for the same ceiling,
+until `git diff-index --cached HEAD` is empty; a lane started earlier sees every file
+untracked and every path a staged deletion. Before `worker-start`, which refuses
 with `agent_unconfigured` a terminal where Orca sees no agent title or ready prompt,
 the script blocks on `orca terminal wait --for tui-idle`, the readiness `worker-start`
 waits for next, and fails with
