@@ -63,7 +63,7 @@ Graphite can drop a labeled PR by removing its queue label. The REST `issues/<n>
 gh api "repos/<owner>/<name>/issues/<n>/events" --jq '.[] | select(.event == "unlabeled" and .label.name == "merge") | {actor: .actor.login, type: .actor.type, created_at}'
 ```
 
-A PR enqueued from Graphite's UI carries no queue label. Its enqueue and drop appear as "Merge activity" bullets, without label events. On [#24549](https://github.com/Forge-AI/monorepo/pull/24549), GitHub read `mergeable_state: clean` against `graphite-base/24549` while the queue dropped the PR for conflicts against trunk `dev`. The poller records the enqueue bullet as queued and holds through green checks; a drop as the latest queue entry evicts regardless of the label or `mergeable_state`.
+A PR enqueued from Graphite's UI carries no queue label. Its enqueue and drop appear as "Merge activity" bullets, without label events. On [#24549](https://github.com/Forge-AI/monorepo/pull/24549), GitHub read `mergeable_state: clean` against `graphite-base/24549` while the queue dropped the PR for conflicts against trunk `dev`. The poller records the enqueue bullet as queued and holds through green checks; a drop as the latest queue entry evicts regardless of the label or `mergeable_state`. A drop bullet stamped before the head's committer date ejected an earlier head and evicts nothing, so a PR rebased after a drop reaches ready-to-merge without waiting for a new enqueue.
 
 The queue also edits one "Merge activity" comment in place. Read its `updated_at` and body for the reason when a bullet exists; a watcher keyed on new comments misses the edit. The author can be the enqueuer or `graphite-app[bot]`, so match the body instead of filtering by author.
 
