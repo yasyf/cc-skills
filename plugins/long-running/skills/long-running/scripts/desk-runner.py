@@ -19,7 +19,8 @@ A relay is accepted, then started and completed by the lane itself: it replies
 `started <key>` and `done <key>: <result>` on the action's thread. The send is its own
 `send:` action, delivery evidence only. A send whose response is lost becomes
 `unverifiable` and is settled from Orca's request receipt or the recipient's mailbox,
-never resent blindly.
+never resent blindly. An accepted relay to a lane with no live dispatch and no launch in
+flight fails at once as `RELAY-FAILED`.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
 prompts, and checks relay deadlines. It also reads the drive's desk inbox stream and turns
@@ -28,7 +29,9 @@ per lane, a reply to the lane's latest open question when it has one, logged onc
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
-launch logs `LAUNCHED` with its dispatch and terminal. An `orca-desk: alert <slug> <link> :: <what fired>`
+launch logs `LAUNCHED` with its dispatch and terminal. Every local launch runs with
+`ORCA_LAUNCH_STATE` set to `orca.receipts`, so its receipts land where the runner reads
+the lane's dispatch and terminal. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
 `orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
 lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
@@ -841,10 +844,23 @@ class Runner:
             for action in pending:
                 if action.kind == "launch":
                     self.launch(container, lane, action)
-            if relays and (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
-                for action in relays:
-                    self.send(container, dispatch, action)
+            if relays:
+                self.deliver_relays(container, lane, relays)
             self.reconcile_sends(container, lane)
+
+    def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
+        """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each as RELAY-FAILED now."""
+        dispatch = self.orca.show(lane)
+        if dispatch and dispatch.status not in INACTIVE:
+            for action in relays:
+                self.send(container, dispatch, action)
+            return
+        if any(action.status in ("accepted", "started") for action in self.book.actions(container, kind="launch")):
+            return
+        reason = f"no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}"
+        for action in relays:
+            if self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
+                self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAY-FAILED {action.action_id} {lane}: {reason}; nothing was relayed")
 
     def sends(self, container: str, key: str, dispatch: str) -> list[actions.Action]:
         prefix = f"send:{key}:{dispatch}"
@@ -938,7 +954,8 @@ class Runner:
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
         argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
-        self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), self.config.launch_env)
+        env = {**self.config.launch_env, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
+        self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
 
     def launch_sprite(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
