@@ -69,7 +69,7 @@ It emits `CHECK <name> <bucket> <link>`, `REVIEW <author> <state> <id>`,
 `COMMENT <author> <id> <first-80>`, `QUEUED <actor> <label|comment-id>`,
 `UNQUEUED <actor>`, `GREEN awaiting-review`, `DONE
 ready-to-merge|merged|queue-merged|closed|checks-failed|conflicted|deadline-still-open|window-elapsed`,
-and `DONE evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>`.
+`DONE ready-to-merge downstack #<n>`, and `DONE evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>`.
 `window-elapsed` means the script ended its own round after `PR_POLL_WINDOW`
 seconds (25 minutes, under the Monitor cap) with nothing decided: re-arm the
 same command on the same state file at once, silently — no report, no
@@ -96,7 +96,11 @@ Each `DONE` ends a round; handle queue events while it runs:
   check passed, `mergeable` is true, queue state has been read, the PR is
   neither queued nor evicted on its current head, no reviewer's latest review
   requests changes, and `mergeable_state` is not `blocked` (a required
-  approval still missing).
+  approval still missing). On a stacked PR, Graphite's mergeability check
+  waits in progress until the downstack PR merges; the script doesn't count
+  that wait as pending and prints `ready-to-merge downstack #<n>` instead.
+  Report it as ready, naming `#<n>`: it lands only with its downstack
+  enqueued together.
 - `GREEN awaiting-review` means checks are green but approval is missing or a
   reviewer requested changes. It is not a `DONE`: send nothing and keep the
   Monitor running; `ready-to-merge` follows when the approval lands. Triage a
@@ -257,8 +261,8 @@ After an `evicted` send, re-arm a fresh Monitor on the same state file and
 keep watching. After any other send, `TaskStop` the monitor and stop. Send
 when one of these holds and not before:
 
-- `ready-to-merge` — the script printed `DONE ready-to-merge`: every check
-  green, `mergeable: true`, approved or no approval required, neither queued
+- `ready-to-merge` — the script printed `DONE ready-to-merge`, with or
+  without a `downstack #<n>` suffix: every check green, `mergeable: true`, approved or no approval required, neither queued
   nor evicted. Send it the moment the line arrives, as the first thing you
   do; name the PR, URL, and head SHA, and list any comment still unanswered
   rather than answering it first. The caller decides what to offer the user;
