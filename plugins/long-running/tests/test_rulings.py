@@ -90,6 +90,13 @@ def test_match_mirrors_the_corpus_and_quotes_uncited_hits_in_rank_order(
     assert shell.queries == [("Lane brief: add a --skip-tenant flag.", str(corpus))]
 
 
+def test_match_drops_excluded_answers(home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    out = match(FakeShell(["1984bf6", "8075b46"], []), "brief", monkeypatch, capsys, "--exclude", "1984bf6")
+
+    assert out.startswith("- 8075b46 How does a seed converge?\n")
+    assert "1984bf6" not in out
+
+
 def test_match_stops_at_the_budget(home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     out = match(FakeShell(["1984bf6", "8075b46"], []), "brief", monkeypatch, capsys, "--budget", "200")
 

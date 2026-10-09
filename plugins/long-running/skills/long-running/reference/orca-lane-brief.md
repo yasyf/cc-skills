@@ -20,12 +20,13 @@ the register body verbatim. A brief carries the register, never full-answer quot
 
 At key moments, `ruling_judge.py` searches the five nearest durable answers among this
 drive's: those labelled `program:<slug>` and those anchored to the current branch.
-It excludes answers the register already cites.
-A small model selects the one answer the action clearly bears on or would violate,
+It excludes answers the register already cites and answers already injected into the lane.
+With no candidate left, it makes no model call.
+Otherwise a small model selects the one answer the action clearly bears on or would violate,
 or none. The hook injects only that answer, verbatim, once per lane per answer.
 
-This covers inbox decisions, pull requests, plan edits, Slack writes, and lane spawns
-in Claude drive sessions. The full durable-answer corpus is for retrieval only.
+This covers inbox decisions, pull requests, plan edits, and lane spawns
+in Claude drive sessions. Slack writes are out: each one already carries the owner's approval. The full durable-answer corpus is for retrieval only.
 The judge is advisory, never blocks, and fails open.
 
 ## Why the spec is a pointer
