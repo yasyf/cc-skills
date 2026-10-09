@@ -2602,6 +2602,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
   their owning lanes were idle.
 - Lanes building on the release ledger and the skew check while other lanes deleted
   both, with no lane holding the map of who depended on what.
+- `orca-launch.sh` gating `worker-start` on `terminal list`'s `agentIdentity`, which reads
+  `claude` from the process or first hook before the TUI renders; `worker-start` refused
+  `agent_unconfigured` and lost the lane (R1470, 2026-10-08). Gate on `terminal wait --for tui-idle`.
 
 ## Checklist before every tool call
 

@@ -331,16 +331,18 @@ Worktree creation gets four attempts; terminal creation gets three, separated by
 anyway, since the runtime drops the connection but finishes the work. Before each
 attempt and after a failed one, the script asks `orca worktree show` for the
 worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) after a
-failure, and creates again only when none registers. Before `worker-start`, which refuses a terminal whose
-agent Orca has not detected with `agent_unconfigured`, the script polls
-`orca terminal list` every 4 seconds until the terminal's `agentIdentity` reads
-`claude`, or `codex` for incident, and fails with
-`boot terminal=<handle>: orca terminal list shows agentIdentity=<seen>` once
-`ORCA_LAUNCH_BOOT_SECONDS` passes. Orca drops a terminal's startup command under
-load and leaves a shell prompt. Once a third of the ceiling has passed with no agent
-detected, the script reads the terminal's screen; when it shows neither the command
+failure, and creates again only when none registers. Before `worker-start`, which refuses
+with `agent_unconfigured` a terminal where Orca sees no agent title or ready prompt,
+the script blocks on `orca terminal wait --for tui-idle`, the readiness `worker-start`
+waits for next, and fails with
+`boot terminal=<handle>: orca terminal wait --for tui-idle reads <timeout, status, or blocked prompt>`
+once `ORCA_LAUNCH_BOOT_SECONDS` passes. `orca terminal list` reports `agentIdentity`
+from the agent's process or first hook, before its UI renders, so it reads `claude` while
+`worker-start` still refuses. Orca drops a terminal's startup command under
+load and leaves a shell prompt. Once a third of the ceiling has passed with no idle
+agent, the script reads the terminal's screen; when it shows neither the command
 line nor the agent's UI, the script types the command with `orca terminal send` once.
-A launch whose agent is still undetected at the ceiling fails, and `worker-start` never
+A launch whose agent is still not idle at the ceiling fails, and `worker-start` never
 runs. After a claude start it checks the screen for
 `bypass permissions on` up to ten times, 4 seconds apart. A failed `worker-start` returns immediately;
 it is not one of those retry loops.
