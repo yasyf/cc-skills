@@ -351,8 +351,8 @@ between passes; the landing process sleeps for its configured interval.
 
 **O13. A prompt is a desk bug.** The sweep reads `observation.agentWait` and
 emits `PROMPT` in the pass that sees it. It never types a guessed answer.
-Stale unread mail gets one terminal wake per message; completed or failed
-dispatch mail emits `STALE-MAIL`.
+Stale unread mail gets one terminal wake per message, typed only at the lane's
+plain empty prompt; completed or failed dispatch mail emits `STALE-MAIL`.
 
 **O14. Hold launches under load, for a bounded time.** Before each launch, the
 runner reads the 1-minute load average. Incident and `--owner-directed` launches

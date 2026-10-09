@@ -1149,8 +1149,9 @@ Model desks retain the 60-second inbox-wait rule.
 
 **O13. A prompt is a desk bug.** The five-minute sweep reads `observation.agentWait`
 and emits `PROMPT` in the pass that sees it. Stale unread mail gets one terminal
-wake per message. Completed or failed dispatch mail emits `STALE-MAIL`; no sweep
-relaunches a worker or guesses an answer to its prompt.
+wake per message, typed only when the lane's screen shows the plain empty prompt.
+Completed or failed dispatch mail emits `STALE-MAIL`; no sweep relaunches a worker
+or guesses an answer to its prompt.
 
 *Prevents lanes sitting for hours on a prompt only their own terminal showed
 (release v3, 2026-09-30).*
@@ -2357,10 +2358,12 @@ superseding and pointer edit.
 **`/compact`.** Once the progress record and pointer are ready, the hook starts a
 detached background job at that main-session `Stop` and lets the stop through. The
 job waits through orca for the terminal to go idle, reads the screen, and types
-`/compact` only when the draft is empty and the input line holds no typed text. It
-rechecks every 30 seconds and gives up silently after 30 minutes. With
-`ORCA_TERMINAL_HANDLE` unset, the hook sends the owner one message to run `/compact`
-by hand and blocks nothing.
+`/compact` only when the screen ends in the plain prompt: an empty `❯` box, its mode
+line, and right-aligned notices. A picker, a permission or trust dialog, a menu, or the
+agent list below the box means it keeps waiting, since typed keys would press its
+options (owner, 2026-10-09). It rechecks every 30 seconds and gives up silently after
+30 minutes. With `ORCA_TERMINAL_HANDLE` unset, the hook sends the owner one message to
+run `/compact` by hand and blocks nothing.
 
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes and
