@@ -201,7 +201,6 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
       "ORCA_LAUNCH_BASE": "origin/dev",
       "ORCA_LAUNCH_STATE": "/absolute/drive/receipts",
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
-      "ORCA_LAUNCH_RETRY_SECONDS": "30",
       "ORCA_LAUNCH_BOOT_SECONDS": "180"
     },
     "sprite": {

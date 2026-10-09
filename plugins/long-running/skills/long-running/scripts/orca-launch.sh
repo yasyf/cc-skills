@@ -50,9 +50,11 @@ for a few seconds after tui-idle, so that refusal, which dispatches nothing, is
 retried every 4 seconds for up to the same ceiling.
 Every list is scoped to the lane's worktree, since an unscoped list stops at 200
 terminals. A terminal create whose output names no handle is followed by a list
-of the worktree every 4 seconds, for up to ORCA_LAUNCH_RETRY_SECONDS, and the first
+of the worktree every 4 seconds, for up to ORCA_LAUNCH_BOOT_SECONDS, and the first
 terminal that was not there before the create is adopted; the script creates again
-only when no list in that window shows one. The
+only when no list in that window shows one. Under load a create that timed out can
+open its terminal well over a minute later, and creating again then starts a
+second agent in the same worktree. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 worker-start exits 1 with state outcome_unknown when it wrote the prompt but saw no
 turn start within its 30-second observation; the dispatch still exists and Orca
@@ -146,8 +148,7 @@ launch stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
-  ORCA_LAUNCH_RETRY_SECONDS  how long a terminal create that named no handle is polled for its terminal before creating again, default 30
-  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
+  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the poll for a terminal whose create named no handle, on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, and then for its checkout, default 180
 EOF
   exit 2
@@ -159,7 +160,6 @@ PARENT=${ORCA_LAUNCH_PARENT:-$PWD}
 NAME=${ORCA_LAUNCH_PREFIX:-}$LANE
 WORKTREE_NAME=$NAME-base
 ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
-RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 POLL=4
@@ -326,7 +326,7 @@ listed() {
 
 adopt() {
   waited=0
-  while [ "$waited" -lt "$RETRY" ]; do
+  while [ "$waited" -lt "$BOOT" ]; do
     sleep "$POLL"
     waited=$((waited + POLL))
     listed
