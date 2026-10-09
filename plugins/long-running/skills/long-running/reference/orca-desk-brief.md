@@ -167,6 +167,12 @@ owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
 environment. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
+`orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says `cpu=high`
+runs `orca.sprite.launcher`, the repository's `worker-launch.sh`, on a Sprite, with
+`orca.sprite.env` and `WORKER_RUN` and `WORKER_REMOTE_ATTACH` set by the runner, while
+fewer than `orca.sprite.limit` Sprites are running or warm. Anything else, including
+a failed Sprite launch, starts locally and logs `SPRITE-FALLBACK`.
+
 Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
 the file whose contents go into each brief: drive checkout, apply authority,
 target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
@@ -195,6 +201,14 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
       "ORCA_LAUNCH_RETRY_SECONDS": "30",
       "ORCA_LAUNCH_BOOT_SECONDS": "180"
+    },
+    "sprite": {
+      "launcher": "/absolute/drive/checkout/.agents/skills/orca/scripts/worker-launch.sh",
+      "limit": 10,
+      "env": {
+        "WORKER_CC_REMOTE": "/absolute/drive/checkout/tools/cc-remote/bin/cc-remote",
+        "WORKER_REF": "dev"
+      }
     }
   },
   "deadlines": {

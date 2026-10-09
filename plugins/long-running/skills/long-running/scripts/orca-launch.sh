@@ -48,8 +48,9 @@ the ceiling, or whose agent is blocked on a startup prompt, fails, and never
 reaches worker-start.
 Every list is scoped to the lane's worktree, since an unscoped list stops at 200
 terminals. A terminal create whose output names no handle is followed by a list
-of the worktree, and a terminal that was not there before the create is adopted;
-the script creates again only when that list shows none. The
+of the worktree every 4 seconds, for up to ORCA_LAUNCH_RETRY_SECONDS, and the first
+terminal that was not there before the create is adopted; the script creates again
+only when no list in that window shows one. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 worker-start exits 1 with state outcome_unknown when it wrote the prompt but saw no
 turn start within its 30-second observation; the dispatch still exists and Orca
@@ -94,16 +95,17 @@ itself and prints the lane as unsupervised: it runs, but Orca carries no worker_
 <model> is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on
 the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra,
 for exceptional cases only), or a gpt-* model id. <effort> is low, medium,
-high, xhigh, or max. Terminal creation gets three attempts, ORCA_LAUNCH_RETRY_SECONDS
-apart, because the runtime drops connections under load and Orca fails a create
-with "Terminal creation timed out" when its renderer has not answered within a
-fixed 10 seconds; orca terminal create takes no timeout, so under load raise
-ORCA_LAUNCH_RETRY_SECONDS. A worktree create that fails
+high, xhigh, or max. Orca fails a terminal create with "Terminal creation timed
+out" when its renderer has not answered within a fixed 10 seconds, and the create
+may still open the terminal. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 Orca registers a worktree at git worktree add --no-checkout and fills its index
 with a reset --hard that can run past a minute under load, so a worktree found
-that way waits, for the same ceiling, until its index matches HEAD.
+that way waits, for the same ceiling, until its index matches HEAD; one that
+never gets there is never adopted. A worktree Orca already lists before the
+launch must be a git checkout of its own, or the launch fails at once: Orca can
+serve a stale record for a worktree whose git add timed out and was undone.
 
 A receipt from an earlier launch names the lane's last task and dispatch. When
 orca orchestration task-list shows that task failed or blocked, worker-start
@@ -119,14 +121,16 @@ with the rebind command when it is not ORCA_LAUNCH_RUN.
 A launch that fails before worker-start, or that worker-start refuses before it
 dispatches anything (consumer_fenced, invalid_argument, task_not_found,
 worker_prompt_too_large, runtime_unavailable), rolls back what it made: it
-closes the tab of the terminal whose handle its own terminal create returned,
-and removes, with orca worktree rm --force, a worktree whose path its own
-worktree create returned. Its failure line ends "; rolled back terminal=...
-worktree=..." and "; rollback left ..." names what it kept: a terminal it
-adopted from a listing, which a concurrent launch of the same lane may own,
-whatever Orca refused, and, after any other worker-start failure, the terminal
-and worktree a dispatch may own. A worktree that existed before the launch
-stays. Every failure line is one line, and an Orca error in it reads
+deletes the lane's <lane>.worktree receipt, closes the tab of the terminal whose
+handle its own terminal create returned, and removes the worktree its own
+worktree create made, whether or not that create answered: a registered one with
+orca worktree rm --force, and a directory left at the path with no checkout,
+which a timed-out git add leaves behind, with rm -rf. Its failure line ends
+"; rolled back terminal=... worktree=..." and "; rollback left ..." names what it
+kept: a terminal it adopted from a listing, which a concurrent launch of the same
+lane may own, whatever Orca refused, and, after any other worker-start failure,
+the terminal and worktree a dispatch may own. A worktree that existed before the
+launch stays. Every failure line is one line, and an Orca error in it reads
 "<code>: <message>".
 
   ORCA_LAUNCH_RUN            orchestration Run id, default the Orca run of the drive this session belongs to, from drive.py orca-run
@@ -140,7 +144,7 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
-  ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
+  ORCA_LAUNCH_RETRY_SECONDS  how long a terminal create that named no handle is polled for its terminal before creating again, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, and then for its checkout, default 180
 EOF
@@ -158,7 +162,7 @@ BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 POLL=4
 
-ROLLBACK='' MADE='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
+ROLLBACK='' CREATED='' MADE='' LOST='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
 rollback() {
   [ -n "$ROLLBACK" ] || return 0
   ROLLBACK=''
@@ -168,13 +172,17 @@ rollback() {
   elif [ -n "$TERMINAL" ]; then
     KEPT="$KEPT terminal=$TERMINAL"
   fi
-  [ -n "$MADE" ] || return 0
-  if orca worktree rm --worktree "path:$WT" --force --json >/dev/null 2>&1; then
-    rm -f "$STATE/$LANE.worktree" || :
-    UNDONE="$UNDONE worktree=$WT"
-  else
-    KEPT="$KEPT worktree=$WT"
+  if [ -n "$MADE" ] || { [ -n "$LOST" ] && registered; }; then
+    if orca worktree rm --worktree "path:$WT" --force --json >/dev/null 2>&1; then
+      rm -f "$STATE/$LANE.worktree"
+      UNDONE="$UNDONE worktree=$WT"
+    else
+      KEPT="$KEPT worktree=$WT"
+    fi
+  elif [ -n "$LOST" ] && [ -d "$WT" ] && ! is_checkout; then
+    rm -rf "$WT" && UNDONE="$UNDONE worktree=$WT" || KEPT="$KEPT worktree=$WT"
   fi
+  is_checkout || rm -f "$STATE/$LANE.worktree"
 }
 
 fail() {
@@ -266,8 +274,15 @@ set -- --parent-worktree "path:$PARENT"
 registered() {
   FOUND=$(orca worktree show --worktree "path:$WT" --json | jq -er '.result.worktree.path') || return 1
 }
+is_checkout() {
+  [ "$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$WT" 2>/dev/null && pwd -P)" ]
+}
+checked_out() {
+  is_checkout && git -C "$WT" diff-index --cached --quiet HEAD --
+}
 
-attempt=0 CREATED=''
+ROLLBACK=1
+attempt=0
 while ! registered; do
   attempt=$((attempt + 1)) CREATED=1
   [ "$attempt" -le 4 ] || fail "worktree create: $(orca_error "$STATE/$LANE.worktree.json")"
@@ -277,6 +292,7 @@ while ! registered; do
     MADE=1
     break
   fi
+  jq -e '.error.code == "worktree_exists"' "$STATE/$LANE.worktree.json" >/dev/null 2>&1 || LOST=1
   waited=0
   until registered || [ "$waited" -ge "$WORKTREE_WAIT" ]; do
     sleep "$POLL"
@@ -284,9 +300,8 @@ while ! registered; do
   done
 done
 WT=$FOUND
-checked_out() {
-  git -C "$WT" diff-index --cached --quiet HEAD -- 2>/dev/null
-}
+[ -n "$CREATED" ] || is_checkout ||
+  fail "worktree $WT: Orca lists it, but it is not a git checkout; remove the directory before relaunching"
 waited=0
 until [ -z "$CREATED" ] || [ -n "$MADE" ] || checked_out; do
   [ "$waited" -lt "$WORKTREE_WAIT" ] ||
@@ -295,7 +310,6 @@ until [ -z "$CREATED" ] || [ -n "$MADE" ] || checked_out; do
   waited=$((waited + POLL))
 done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
-ROLLBACK=1
 spec
 
 listed() {
@@ -304,7 +318,18 @@ listed() {
     LISTED=$(jq -ce '[.result.terminals[].handle]' "$STATE/$LANE.terminals.json"); do
     listing=$((listing + 1))
     [ "$listing" -lt 3 ] || fail "terminal list: $(orca_error "$STATE/$LANE.terminals.json")"
-    sleep "$RETRY"
+    sleep "$POLL"
+  done
+}
+
+adopt() {
+  waited=0
+  while [ "$waited" -lt "$RETRY" ]; do
+    sleep "$POLL"
+    waited=$((waited + POLL))
+    listed
+    TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
+    [ -z "$TERMINAL" ] || return 0
   done
 }
 
@@ -326,9 +351,7 @@ until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   TERMINAL=$(jq -r '.result.terminal.handle // empty' "$STATE/$LANE.terminal.json" 2>/dev/null) || TERMINAL=
   OWNED=$TERMINAL
   [ -z "$TERMINAL" ] || break
-  sleep "$RETRY"
-  listed
-  TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
+  adopt
 done
 MARKER=CLAUDE_LONG_RUNNING_LANE=$LANE
 [ "$AGENT" = claude ] || MARKER=$MODEL_ID
@@ -386,7 +409,10 @@ elif [ "$STARTED" != 0 ]; then
   REFUSED=$(jq -rs 'if length == 1 and .[0].ok == false then .[0].error.code else empty end' "$RECEIPT.new" 2>/dev/null) || REFUSED=
   case $REFUSED in
     consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable) ROLLBACK=1 ;;
-    *) KEPT="${TERMINAL:+ terminal=$TERMINAL}${MADE:+ worktree=$WT}" ;;
+    *)
+      KEPT=${TERMINAL:+ terminal=$TERMINAL}
+      [ -z "$MADE$LOST" ] || KEPT="$KEPT worktree=$WT"
+      ;;
   esac
   REBIND=
   [ "$REFUSED" != consumer_fenced ] ||

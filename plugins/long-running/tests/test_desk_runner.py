@@ -70,6 +70,9 @@ class FakeShell(runner_module.Shell):
         self.records: list[dict] = []
         self.tail_error = ""
         self.judge_process: Running | None = None
+        self.sprite_states: list[str] | None = []
+        self.sprite_line = ""
+        self.spawned_env: dict[str, dict] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -88,7 +91,16 @@ class FakeShell(runner_module.Shell):
 
     def spawn(self, argv, out, env, stdin=None, err=None):
         self.calls.append(list(argv))
+        self.spawned_env[Path(argv[0]).name] = env
         out.parent.mkdir(parents=True, exist_ok=True)
+        if Path(argv[0]).name == "worker-launch.sh":
+            out.write_text(self.sprite_line)
+            if self.sprite_line.startswith("{"):
+                attempt = runner_module.sprite_attempt(Path(argv[4]))
+                attempt.mkdir(exist_ok=True)
+                ready = json.loads(self.sprite_line)
+                (attempt / f"{argv[1]}.json").write_text(json.dumps({"ok": True, "result": {"state": "ready", "taskId": ready["task"], "dispatchId": ready["dispatch"]}}))
+            return Process()
         if argv[0] == "claude" and self.judge_process:
             out.write_text("")
             return self.judge_process
@@ -123,6 +135,10 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]) if verb == "list" else f"{verb} ok\n", "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
+        if argv[:3] == ["sprite", "api", runner_module.SPRITES_API]:
+            if self.sprite_states is None:
+                return runner_module.Done(1, "", "Error: not logged in")
+            return runner_module.Done(0, json.dumps({"data": [{"name": f"s{index}", "status": state} for index, state in enumerate(self.sprite_states)]}), "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -1705,3 +1721,96 @@ def test_a_hold_outside_the_grammar_fails_visibly(shell, config, tmp_path):
     lines = [line for line in escalations(shell)]
     assert [line.split(":", 1)[0] for line in lines] == ["HOLD-FAILED R51 inbox", "HOLD-FAILED R52 inbox"]
     assert runner_module.HOLD_GRAMMAR in lines[0] and runner_module.UNHOLD_GRAMMAR in lines[1]
+
+
+LAUNCHER = "/repo/.agents/skills/orca/scripts/worker-launch.sh"
+
+
+def with_sprites(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["orca"]["launch_env"] = {"ORCA_LAUNCH_RUN": "run_1"}
+    raw["orca"]["sprite"] = {"launcher": LAUNCHER, "limit": 3, "env": {"WORKER_CC_REMOTE": "/repo/tools/cc-remote/bin/cc-remote", "WORKER_REF": "dev"}}
+    config.write_text(json.dumps(raw))
+
+
+def sprite_launches(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[0] == LAUNCHER]
+
+
+def high_cpu_brief(tmp_path: Path, header: str = "ccx: role=build cpu=high") -> Path:
+    brief = tmp_path / "build.brief.md"
+    brief.write_text(f"# build\n\n{header}\nDo: build it.\n")
+    return brief
+
+
+SPRITE_READY = json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s", "terminal": "term_s", "worktree": "/home/sprite/repo", "lane": LANE, "workspace": LANE, "allocation": "created"}) + "\n"
+
+
+def test_a_high_cpu_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path):
+    with_sprites(config)
+    brief = high_cpu_brief(tmp_path)
+    shell.cpu_load = 140
+    shell.sprite_states = ["running", "cold", "cold"]
+    shell.sprite_line = SPRITE_READY
+    shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
+    assert launches(shell) == []
+    env = shell.spawned_env["worker-launch.sh"]
+    assert (env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_REMOTE_ATTACH"]) == ("run_1", "dev", str(runner_module.SPRITE_ATTACH))
+    assert runner_module.SPRITE_ATTACH.is_file()
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+    assert json.loads((tmp_path / "receipts" / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
+    assert (tmp_path / "receipts" / f"{LANE}.terminal").read_text() == "term_s\n"
+
+
+@pytest.mark.parametrize(("states", "why"), [(["running", "warm", "cold", "running"], "3 Sprites live and 0 launching, at the limit of 3"), (None, "the Sprite count failed")])
+def test_a_high_cpu_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, why):
+    with_sprites(config)
+    brief = high_cpu_brief(tmp_path)
+    shell.sprite_states = states
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == []
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "opus", "xhigh", str(brief)]]
+    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: {why}" in escalations(shell)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+
+
+def test_a_failed_sprite_launch_starts_the_same_launch_locally(shell, config, tmp_path):
+    with_sprites(config)
+    brief = high_cpu_brief(tmp_path)
+    shell.sprite_line = "cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried\n"
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "gpt-6.1-sol", "xhigh", str(brief)]]
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "sol", "xhigh", str(brief)]]
+    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried" in escalations(shell)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+
+
+@pytest.mark.parametrize(("header", "model"), [("ccx: role=build", "opus"), ("ccx: role=build cpu=high", "fable"), ("ccx: role=fix cpu=high", "incident"), ("ccx: role=build cpu=highest", "opus")])
+def test_only_a_high_cpu_brief_off_fable_and_incident_leaves_the_mac(shell, config, tmp_path, header, model):
+    with_sprites(config)
+    brief = high_cpu_brief(tmp_path, header)
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == []
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, model, "xhigh", str(brief)]]
+    assert not [call for call in shell.calls if call[0] == "sprite"]
+
+
+def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config, tmp_path):
+    with_sprites(config)
+    brief = high_cpu_brief(tmp_path, "ccx: role=build")
+    shell.cpu_load = 40
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert launches(shell) == [] and sprite_launches(shell) == []
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"

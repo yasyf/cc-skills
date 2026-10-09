@@ -46,7 +46,13 @@ UNBOUND once. `rebind` runs `orca orchestration run-use` from the current termin
 records it; `show` prints the binding first. An incident or `--owner-directed` launch starts whatever
 the load; any other launch waits while the 1-minute load is above the core count, for
 at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
-and the Run mailbox. `run --desk landing` gates and enqueues ready
+and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
+says `cpu=high` runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a
+Sprite instead, never waiting on Mac load, while fewer than `orca.sprite.limit` Sprites
+are running or warm, counting the runner's own Sprite launches still in flight. Fable,
+incident, and a lane name a Sprite refuses stay local. A full count, a failed count,
+or a Sprite launch that fails starts the same launch locally, and the fallback logs
+`SPRITE-FALLBACK`. A Sprite launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
@@ -144,6 +150,12 @@ ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<w
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
+CPU_HIGH = re.compile(r"^ccx:(?:.*\s)?cpu=high(?:\s|$)", re.MULTILINE)
+SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
+SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
+SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
+SPRITES_API = "/v1/sprites?max_results=1000"
+SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 JUDGE_SCHEMA = json.dumps(
@@ -219,6 +231,18 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
+def cpu_high(brief: Path) -> bool:
+    return brief.is_file() and bool(CPU_HIGH.search(brief.read_text()))
+
+
+def sprite_model(model: str) -> str:
+    return SPRITE_MODELS.get(model, model)
+
+
+def sprite_attempt(brief: Path) -> Path:
+    return brief.parent / f"{brief.name.rpartition('.')[0] or brief.name}.worker"
+
+
 def pacific(moment: datetime) -> str:
     return moment.astimezone(PACIFIC).strftime("%H:%M")
 
@@ -239,6 +263,7 @@ class Config:
     briefs_repo: str
     briefs_log: str
     launch_env: dict[str, str]
+    sprite: dict | None
     gc: str | None
     start_minutes: int
     launch_minutes: int
@@ -266,6 +291,7 @@ class Config:
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
             briefs_log=orca["briefs"]["log"],
             launch_env=orca.get("launch_env", {}),
+            sprite=orca.get("sprite"),
             gc=orca.get("gc"),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
@@ -424,6 +450,7 @@ class Runner:
         self.book = Book(store, shell)
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
+        self.sprites: set[str] = set()
         self.judging: dict[str, subprocess.Popen] = {}
         self.pass_binding: dict | None = None
         self.book.ensure(RUNNER, RUNNER)
@@ -878,19 +905,65 @@ class Runner:
     def launch_log(self, container: str, key: str) -> Path:
         return (self.config.store or actions.incidents_dir()).parent / "desk-runner-launches" / f"{container}-{key}.out"
 
+    def sprite_log(self, container: str, key: str) -> Path:
+        return self.launch_log(container, key).with_suffix(".sprite.out")
+
     def launch(self, container: str, lane: str, action: actions.Action) -> None:
-        """Start orca-launch.sh detached, so a readiness wait never holds a relay; `reap` records its printed line."""
+        """Start orca-launch.sh, or worker-launch.sh for a Sprite, detached, so a readiness wait never holds a relay; `reap` records its printed line."""
         spec = json.loads(action.target)
         if not self.bound_for_launch():
             return
-        if held := self.load_hold(action):
+        refusal = self.sprite_refusal(lane, spec)
+        if refusal is not None and (held := self.load_hold(action)):
             if self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                 self.expire_launch(container, lane, action, held)
             return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
+        if refusal is None:
+            self.launch_sprite(container, lane, action)
+            return
+        if refusal:
+            self.escalate(f"{container}/{action.action_id}:sprite", "SPRITE-FALLBACK", lane, f"{action.action_id} launches locally: {refusal}")
+        self.launch_local(container, lane, action)
+
+    def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
+        spec = json.loads(action.target)
         argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), self.config.launch_env)
+
+    def launch_sprite(self, container: str, lane: str, action: actions.Action) -> None:
+        spec = json.loads(action.target)
+        sprite = self.config.sprite or {}
+        argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
+        env = {**self.config.launch_env, "WORKER_RUN": self.config.run, "WORKER_REMOTE_ATTACH": str(SPRITE_ATTACH), **sprite.get("env", {})}
+        key = f"{container}/{action.action_id}"
+        self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
+        self.sprites.add(key)
+
+    def sprite_refusal(self, lane: str, spec: dict) -> str | None:
+        """None when the launch goes to a Sprite; why it stays local otherwise, empty when it was never a Sprite candidate."""
+        if not self.config.sprite or not cpu_high(Path(spec["brief"])):
+            return ""
+        if spec["model"] in SPRITE_LOCAL_MODELS:
+            return ""
+        if not SPRITE_LANE.fullmatch(lane):
+            return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
+        live = self.live_sprites()
+        if live is None:
+            return "the Sprite count failed"
+        limit = self.config.sprite.get("limit", 10)
+        if live + len(self.sprites) >= limit:
+            return f"{live} Sprites live and {len(self.sprites)} launching, at the limit of {limit}"
+        return None
+
+    def live_sprites(self) -> int | None:
+        done = self.shell.run(["sprite", "api", SPRITES_API])
+        try:
+            listed = json.loads(done.out)["data"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None
+        return sum(1 for sprite in listed if sprite.get("status") != "cold")
 
     def load_hold(self, action: actions.Action) -> str:
         """Why an accepted launch is waiting on load, or empty when it may start; incident and owner-directed launches never wait."""
@@ -916,7 +989,33 @@ class Runner:
                 if process and process.poll() is None:
                     continue
                 self.launching.pop(f"{container}/{action.action_id}", None)
+                if f"{container}/{action.action_id}" in self.sprites or (self.sprite_log(container, action.action_id).is_file() and not self.launch_log(container, action.action_id).is_file()):
+                    self.sprites.discard(f"{container}/{action.action_id}")
+                    self.settle_sprite(container, lane, action)
+                    continue
                 self.settle_launch(container, lane, action)
+
+    def settle_sprite(self, container: str, lane: str, action: actions.Action) -> None:
+        """Copy a Sprite launch's receipts beside the local ones and settle it, or start the same launch locally."""
+        out = self.sprite_log(container, action.action_id).read_text().strip()
+        if not out:
+            self.settle_launch(container, lane, action)
+            return
+        attempt = sprite_attempt(Path(json.loads(action.target)["brief"]))
+        try:
+            ready = json.loads(out.splitlines()[-1])
+            line = f"{lane} ready task={ready['task']} dispatch={ready['dispatch']} terminal={ready['terminal']} worktree={ready['worktree']}"
+            receipt = (attempt / f"{lane}.json").read_text()
+        except (IndexError, json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
+            reason = " ".join(out.split())[:300]
+            self.escalate(f"{container}/{action.action_id}:sprite", "SPRITE-FALLBACK", lane, f"{action.action_id} launches locally: {reason}")
+            self.launch_local(container, lane, action)
+            return
+        self.config.receipts.mkdir(parents=True, exist_ok=True)
+        (self.config.receipts / f"{lane}.json").write_text(receipt)
+        (self.config.receipts / f"{lane}.terminal").write_text(f"{ready['terminal']}\n")
+        self.launch_log(container, action.action_id).write_text(f"{line}\n")
+        self.settle_launch(container, lane, action)
 
     def settle_launch(self, container: str, lane: str, action: actions.Action) -> None:
         log = self.launch_log(container, action.action_id)
