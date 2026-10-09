@@ -271,6 +271,17 @@ def test_a_route_recorded_to_a_lane_now_gone_is_sent_again(capsys):
     assert shell.fields("20962")["routed_lane"] == "red-desk"
 
 
+def test_a_reassigned_row_is_routed_to_its_new_lane(capsys):
+    shell = FakeShell(rows=[DIRTY])
+    route(shell, capsys)
+
+    assert ledger.main(["reassign", "--ledger", LEDGER, "--pr", "20961", "--lane", "red-desk"], shell) == 0
+    printed = route(shell, capsys)
+
+    assert "to red-desk:\nDESK #20961" in printed
+    assert shell.fields("20961")["routed_lane"] == "red-desk"
+
+
 def test_an_explicit_route_to_a_gone_lane_needs_a_live_one_named():
     shell = FakeShell(rows=[GONE_DIRTY])
     gone(shell, "finished-lane")
