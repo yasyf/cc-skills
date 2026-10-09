@@ -172,6 +172,83 @@ def test_a_worker_launched_by_a_sessionless_runner_carries_the_drive_of_its_orca
     assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
 
 
+def bind_drive(orca: Orca, run: str) -> None:
+    drives = orca.root / "home" / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "900424b6.json").write_text(json.dumps({"drive": "900424b6", "sessions": ["session-root"], "orca_run": run}))
+    orca.env["CLAUDE_CODE_SESSION_ID"] = "session-root"
+
+
+def test_a_launch_without_a_run_id_launches_into_its_drives_orca_run(orca):
+    orca.healthy()
+    bind_drive(orca, "run_1")
+    del orca.env["ORCA_LAUNCH_RUN"]
+    assert orca.launch().returncode == 0
+    [start] = orca.calls("orchestration worker-start")
+    assert flag(start, "--run") == "run_1"
+    assert (orca.receipts / "lane-a.json").exists()
+
+
+def test_an_explicit_run_id_wins_over_the_drives_orca_run(orca):
+    orca.healthy()
+    bind_drive(orca, "run_other")
+    assert orca.launch().returncode == 0
+    [start] = orca.calls("orchestration worker-start")
+    assert flag(start, "--run") == "run_1"
+
+
+def test_a_launch_outside_any_drive_without_a_run_id_fails_before_touching_orca(orca):
+    orca.healthy()
+    orca.env.pop("CLAUDE_CODE_SESSION_ID", None)
+    del orca.env["ORCA_LAUNCH_RUN"]
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.startswith("lane-a failed run: this session's drive binds no Orca run;")
+    assert orca.calls() == []
+
+
+def main_checkout(orca: Orca) -> Path:
+    main = orca.root / "main"
+    subprocess.run(["git", "init", "-q", str(main)], check=True)
+    subprocess.run(["git", "-C", str(main), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+    orca.parent.rmdir()
+    subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", str(orca.parent)], check=True)
+    return main.resolve()
+
+
+def repos(*paths: Path) -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"repos": [{"id": f"repo-{index}", "path": str(path)} for index, path in enumerate(paths)]}}}
+
+
+def test_a_launch_without_a_repo_id_uses_the_orca_repo_at_the_parents_main_checkout(orca):
+    orca.healthy()
+    main = main_checkout(orca)
+    orca.reply("repo list", repos(main.parent / "elsewhere", main))
+    del orca.env["ORCA_LAUNCH_REPO"]
+    assert orca.launch().returncode == 0
+    [create] = orca.calls("worktree create")
+    assert flag(create, "--repo") == "id:repo-1"
+
+
+def test_an_explicit_repo_id_never_lists_orca_repos(orca):
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    assert orca.calls("repo list") == []
+    [create] = orca.calls("worktree create")
+    assert flag(create, "--repo") == "id:repo-1"
+
+
+def test_a_main_checkout_orca_does_not_know_fails_naming_its_path(orca):
+    orca.healthy()
+    main = main_checkout(orca)
+    orca.reply("repo list", repos(main.parent / "elsewhere"))
+    del orca.env["ORCA_LAUNCH_REPO"]
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == f"lane-a failed repo: orca repo list names no repo at {main}; set ORCA_LAUNCH_REPO or run orca repo add --path {main}"
+    assert orca.calls("worktree create") == []
+
+
 def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     orca.healthy()
     result = orca.launch()

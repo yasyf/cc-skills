@@ -158,6 +158,24 @@ def test_a_sessionless_process_resolves_the_drive_of_its_orca_run(repo, monkeypa
     assert capsys.readouterr().out == "900424b6\n"
 
 
+def test_orca_run_prints_the_run_of_the_session_drive(repo, monkeypatch, capsys):
+    started(repo)
+    capsys.readouterr()
+    assert drive.main(["orca-run"]) == 1
+
+    started(repo, "--orca-run", "run_7715a23a5657")
+    capsys.readouterr()
+    assert drive.main(["orca-run"]) == 0
+    assert capsys.readouterr().out == "run_7715a23a5657\n"
+
+    monkeypatch.delenv(drive.SESSION_ENV)
+    assert drive.main(["orca-run"]) == 1
+
+    monkeypatch.setenv(drive.DRIVE_ENV, "900424b6")
+    assert drive.main(["orca-run"]) == 0
+    assert capsys.readouterr().out == "run_7715a23a5657\n"
+
+
 def test_a_lane_in_the_root_session_records_its_pr_with_its_head(repo, capsys):
     started(repo)
     shell = FakeShell()

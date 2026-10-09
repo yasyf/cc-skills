@@ -276,12 +276,12 @@ orca-launch.sh <lane> <model> <effort> \
 usage: orca-launch.sh <lane> <model> <effort> <brief-file>
 ```
 
-Set the run and repo ids before calling it. The remaining variables have defaults.
+Every variable has a default, and a variable you set wins over it.
 
 | Variable | Meaning and default |
 |---|---|
-| `ORCA_LAUNCH_RUN` | Orchestration run id; required. |
-| `ORCA_LAUNCH_REPO` | Orca repo id; required. |
+| `ORCA_LAUNCH_RUN` | Orchestration run id; default the Orca run of the drive this session belongs to (`drive.py orca-run`), which `drive.py start --orca-run` records. |
+| `ORCA_LAUNCH_REPO` | Orca repo id; default the repo `orca repo list` names at the parent's main checkout, the directory holding its `git rev-parse --git-common-dir`. |
 | `ORCA_LAUNCH_PARENT` | Coordinator worktree path; default `$PWD`. |
 | `ORCA_LAUNCH_NO_PARENT` | `1` creates a top-level (`--no-parent`) worktree instead of a child of the parent, as an incident lane always does; default unset. |
 | `ORCA_LAUNCH_PREFIX` | Worktree name prefix; default none. The worktree is `<prefix><lane>-base`, so its branch `yasyf/<prefix><lane>-base` never blocks the lane's `yasyf/<prefix><lane>/` branches. |
@@ -327,7 +327,10 @@ duplicate its active work. A follow-up alone is not a relaunch: edit the brief f
 then send its pointer with `send --type dispatch` to the current dispatch.
 
 Worktree creation gets four attempts; terminal creation gets three, separated by
-`ORCA_LAUNCH_RETRY_SECONDS`. A worktree create that fails often created the worktree
+`ORCA_LAUNCH_RETRY_SECONDS`. Orca fails a terminal create with `runtime_error:
+Terminal creation timed out` when its renderer has not answered within a fixed 10
+seconds, and `orca terminal create` takes no timeout flag, so on a saturated host
+raise `ORCA_LAUNCH_RETRY_SECONDS` to spread the attempts out. A worktree create that fails often created the worktree
 anyway, since the runtime drops the connection but finishes the work. Before each
 attempt and after a failed one, the script asks `orca worktree show` for the
 worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) after a
