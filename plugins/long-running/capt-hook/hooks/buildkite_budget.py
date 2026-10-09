@@ -22,6 +22,7 @@ LOOP_KINDS = frozenset({"for_statement", "c_style_for_statement", "while_stateme
 POLL_KINDS = frozenset({"c_style_for_statement", "while_statement"})
 SLEEP_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 POLL_FLOOR_SECONDS = 30
+LOG_PACE_SECONDS = 2
 MAX_SCRIPT_BYTES = 256_000
 MAX_DEPTH = 3
 
@@ -30,7 +31,8 @@ POLL = "poll"
 
 LOGS_MESSAGE = (
     "Dumping Buildkite logs job by job drains the org REST budget Platy's release reads share."
-    " Make one build-level call, `bk build view <build> -p <pipeline> --json`, then `bk job log <id>` for the one job you need."
+    " Fetch them one at a time with `sleep 2` or more between fetches, or make one build-level call,"
+    " `bk build view <build> -p <pipeline> --json`, then `bk job log <id>` for the one job you need."
 )
 POLL_MESSAGE = (
     "Polling Buildkite more often than every 30 s drains the org REST budget Platy's release reads share."
@@ -95,8 +97,16 @@ def sleep_seconds(args: Sequence[str]) -> float | None:
     return sum(parts) if parts and None not in parts else None
 
 
-def short_wait(waits: Sequence[float | None]) -> bool:
-    return bool(waits) and None not in waits and sum(waits) < POLL_FLOOR_SECONDS
+def short_wait(waits: Sequence[float | None], floor: float = POLL_FLOOR_SECONDS) -> bool:
+    return bool(waits) and None not in waits and sum(waits) < floor
+
+
+def paced(waits: Sequence[float | None]) -> bool:
+    return bool(waits) and not short_wait(waits, LOG_PACE_SECONDS)
+
+
+def loop_waits(calls: Sequence[tuple[str, ...]]) -> list[float | None]:
+    return [sleep_seconds(argv[1:]) for argv in calls if argv[0] == "sleep"]
 
 
 def argvs(cmd: Cmd) -> list[tuple[str, ...]]:
@@ -138,7 +148,7 @@ def repeated_calls(cmd: Cmd, text: str) -> set[tuple[str, ...]]:
     looped = {
         (call.name, *call.args)
         for loop in ast_grep.find_kinds(text, "bash", LOOP_KINDS)
-        if (body := Cmd.parse(loop.text)) is not None
+        if (body := Cmd.parse(loop.text)) is not None and not paced(loop_waits(argvs(body)))
         for call in body.calls()
     }
     return looped | {(call.name, *call.args) for call in cmd.calls() if under_fan_out(cmd, call)}
@@ -205,14 +215,13 @@ def shell_findings(cmd: Cmd, source: Source) -> set[str]:
         if (body := Cmd.parse(loop.text)) is None:
             continue
         calls = argvs(body)
-        if any(job_log_argv(argv) for argv in calls):
+        if any(job_log_argv(argv) for argv in calls) and not paced(loop_waits(calls)):
             found.add(LOGS)
     for loop in ast_grep.find_kinds(source.text, "bash", POLL_KINDS):
         if (body := Cmd.parse(loop.text)) is None:
             continue
         calls = argvs(body)
-        waits = [sleep_seconds(argv[1:]) for argv in calls if argv[0] == "sleep"]
-        if any(rest_argv(argv) for argv in calls) and short_wait(waits):
+        if any(rest_argv(argv) for argv in calls) and short_wait(loop_waits(calls)):
             found.add(POLL)
     return found
 
@@ -298,7 +307,8 @@ def py_findings(source: Source) -> set[str]:
     loggers, pollers = callers(tree, py_job_log), callers(tree, py_rest)
     found: set[str] = set()
     for loop in py_loops(tree, polls=False):
-        if any(py_job_log(node) or names(node, loggers) for node in ast.walk(loop)):
+        nodes = list(ast.walk(loop))
+        if any(py_job_log(node) or names(node, loggers) for node in nodes) and not paced(py_waits(nodes)):
             found.add(LOGS)
     if any(mapped(call, loggers) for call in ast.walk(tree)):
         found.add(LOGS)
@@ -362,7 +372,21 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
             )
         ): Block(),
         Input(tool="Monitor", tool_input={"command": "for id in a b; do bk job log $id; done", "description": "logs"}): Block(),
+        Input(command="for id in a b; do bk job log $id; sleep 1; done"): Block(pattern="sleep 2"),
+        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 1; done"): Block(),
         Input(command="bk job log 0190046e-e199-453b-a302-a21a4d649d31 --agent"): Allow(),
+        Input(
+            command=(
+                "while read id name; do bk job log $id -p release -b 4292 > logs/$id.log; sleep 2; done < planjobs.txt"
+            )
+        ): Allow(),
+        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 3; done"): Allow(),
+        Input(
+            command=(
+                "python3 -c \"import subprocess, time\nfor j in open('ids').read().split():\n"
+                "    subprocess.run(['bk', 'job', 'log', j])\n    time.sleep(2)\""
+            )
+        ): Allow(),
         Input(command="bk build view 595 -p release-pr-check --json"): Allow(),
         Input(command="for b in 14399 14396; do bk build view $b -p test --json; done"): Allow(),
         Input(command=f"python3 {FIXTURES}/one_job_log.py 595 0190046e"): Allow(),
