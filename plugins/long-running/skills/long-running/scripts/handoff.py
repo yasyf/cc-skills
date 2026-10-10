@@ -423,7 +423,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if handoff.record and not args.narrative_file:
         handoff.narrative, handoff.narrative_from = narrative_of(doc_body(shell, args.repo, handoff.record)), f"doc {handoff.record[:SHORT]}"
         handoff.narrative_edit = f"via `ccn doc edit {handoff.record[:8]} --body -`"
-        handoff.fresh = True
+        generated = generation(shell, args.repo, handoff.record)
+        handoff.fresh = generated is None or narrative_of(generated) != handoff.narrative
     elif previous and newest and not args.narrative_file:
         generated = generation(shell, args.repo, newest["id"])
         handoff.narrative = narrative_of(previous)

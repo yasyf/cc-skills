@@ -273,6 +273,7 @@ def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_augmented_and_the_
     second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
 
     assert first["id"] == second["id"] == record
+    assert (first["fresh"], second["fresh"]) == (True, False)
     assert shell.active == [record]
     assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", record] in shell.calls
     assert shell.titles.get(record, "brook: progress") == "brook: progress"
