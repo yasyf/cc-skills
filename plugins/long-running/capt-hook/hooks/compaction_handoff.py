@@ -6,18 +6,23 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from captain_hook import (
     Allow,
+    Arguments,
     BaseHookEvent,
+    Block,
+    CommandSchema,
     Event,
     FileFixture,
     FromSubagent,
     HookResult,
     Input,
+    Operand,
+    Option,
     SkillCall,
     Tool,
     Warn,
@@ -54,8 +59,11 @@ GENERATED_STUB = json.dumps(
         "register": "e" * 40,
         "fresh": False,
         "digest": "Compacted long-running drive `brook`.",
+        "read_first": [],
+        "narrative": "ddddddd",
     }
 )
+READ_FIRST_STUB = json.dumps(json.loads(GENERATED_STUB) | {"id": "c" * 40, "read_first": ["ccn doc show bbbbbbb"], "narrative": "ccccccc", "fresh": True})
 FIRE_FRACTION = 0.8
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
@@ -65,6 +73,19 @@ RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
+DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
+PROGRESS_TITLE = re.compile(r"\bprogress\b|\bpre-compact\b", re.IGNORECASE)
+CCN_DOC_ADD = CommandSchema(
+    "ccn",
+    operands=(Operand("words", count="*"),),
+    options=(
+        Option("repo", ("-R", "--repo")),
+        Option("label", ("--label",)),
+        Option("title", ("--title",)),
+        *(Option(name, (f"--{name}",)) for name in ("when", "body", "body-file", "attach", "branch", "commit", "dir", "path")),
+        *(Option(name, (f"--{name}",), bool) for name in ("json", "local", "sync", "checkout", "apply", "abort")),
+    ),
+)
 
 
 def release(path: Path) -> tuple[int, ...]:
@@ -100,8 +121,8 @@ class CompactionState(WorkflowState):
     failure: str | None = None
     generated_at: float | None = None
     active_doc: str | None = None
-    generated_doc: str | None = None
-    compacted_at: float | None = None
+    read_first: list[str] = []
+    narrative: str | None = None
     register_doc: str | None = None
     register_body: str | None = None
 
@@ -150,10 +171,6 @@ def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
 def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(script("handoff.py")), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
-    if state.generated_doc:
-        argv += ["--generated-doc", state.generated_doc]
-    if state.compacted_at:
-        argv += ["--fresh-since", datetime.fromtimestamp(state.compacted_at, timezone.utc).isoformat()]
     return subprocess.run(
         argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
     )
@@ -162,16 +179,16 @@ def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subproce
 def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -> None:
     if generated.returncode:
         state.digest = state.active_doc = None
+        state.read_first = []
         state.failure = next(iter((generated.stderr or generated.stdout).strip().splitlines()[-1:]), f"exit {generated.returncode}")
         return
     result = json.loads(generated.stdout)
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
     if result["fresh"] and state.phase == "due":
         state.phase = "written"
-    state.active_doc = result["id"]
+    state.active_doc, state.read_first, state.narrative = result["id"], result["read_first"], result["narrative"]
     state.register_doc = result["register"]
     if result["id"]:
-        state.generated_doc = result["id"]
         point_doc(state, result["id"])
     else:
         point_file(state, Path(result["file"]))
@@ -229,9 +246,16 @@ def resume_restore(state: CompactionState, cwd: str) -> str:
 def compact_instructions(state: CompactionState) -> str:
     if state.store == "ccn" and state.active_doc:
         doc = state.active_doc[:8]
+        reads = "".join(f", then `{ref}`" for ref in state.read_first)
+        quote = (
+            f"hand-written handoff {', '.join(ref.split()[-1] for ref in state.read_first)}, then active progress doc: {doc}; "
+            "the ids in this summary win"
+            if state.read_first
+            else f"active progress doc: {doc}; the id in this summary wins"
+        )
         return (
-            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack. "
-            f"Quote: active progress doc: {doc}; the id in this summary wins over any id captured earlier in the conversation."
+            f"Resume from `{state.plan_path}`{reads}, then `ccn doc show {doc}`; keep only in-flight details they lack. "
+            f"Quote: {quote} over any id captured earlier in the conversation."
         )
     failed = f"The generated handoff failed: {state.failure}. " if state.failure else ""
     return (
@@ -296,8 +320,9 @@ def point_doc(state: CompactionState, doc_id: str) -> None:
         Path(state.plan_path or ""),
         f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
         f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). It is the only "
-        "active one: a hand-written progress doc written for the coming compaction gains the generated sections "
-        "in place, else the session's generated doc is edited in place; only this line's id changes.",
+        "active one: the newest hand-written progress doc written for the coming compaction gains the generated sections "
+        "in place and names the earlier ones to read first, else the active generated doc is edited in place; "
+        "only this line's id changes.",
     )
 
 
@@ -309,22 +334,27 @@ def point_file(state: CompactionState, path: Path) -> None:
     )
 
 
-def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
+def wrote_since_nudge(state: CompactionState, cwd: str) -> bool:
     if state.store == "folder":
         folder = progress_folder(Path(state.plan_path or ""))
-        fresh = [path for path in folder.glob("*.md") if path.name not in state.prior and not path.stem.endswith(GENERATED_STEM)]
-        if not fresh:
-            return False
-        narrative = ["--narrative-file", str(max(fresh, key=lambda path: path.stat().st_mtime))]
-    else:
-        docs = progress_docs(state, evt.cwd) or []
-        if fresh := [doc for doc in docs if doc["id"] not in state.prior and not doc["title"].endswith(GENERATED_TITLE)]:
-            narrative = ["--narrative-doc", max(fresh, key=lambda doc: doc["updated_at"])["id"]]
-        elif state.generated_at and any(doc["id"] == state.active_doc and edited_since_generation(doc, state.generated_at) for doc in docs):
-            narrative = []
-        else:
-            return False
-    generated = generate(evt, state, *narrative, "--strict")
+        return any(path.name not in state.prior and not path.stem.endswith(GENERATED_STEM) for path in folder.glob("*.md"))
+    return any(doc["id"] not in state.prior and not doc["title"].endswith(GENERATED_TITLE) for doc in progress_docs(state, cwd) or [])
+
+
+def narrated(state: CompactionState) -> bool:
+    return state.narrative is not None and not any(entry.startswith(state.narrative) for entry in state.prior)
+
+
+def edited_active_doc(state: CompactionState, cwd: str) -> bool:
+    return state.store == "ccn" and state.generated_at is not None and any(
+        doc["id"] == state.active_doc and edited_since_generation(doc, state.generated_at) for doc in progress_docs(state, cwd) or []
+    )
+
+
+def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
+    if not (wrote_since_nudge(state, evt.cwd) or edited_active_doc(state, evt.cwd)):
+        return False
+    generated = generate(evt, state, "--strict")
     if generated.returncode == VIOLATIONS:
         return (
             "The drive's handoff fails the standing-rules lint. "
@@ -405,6 +435,70 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
+def added_title(arguments: Arguments) -> str:
+    words = arguments.values.get("words", ())
+    return str((arguments.values.get("title") or words[2:3] or ("",))[0])
+
+
+def doc_adds(evt: BaseHookEvent) -> list[tuple[str, list[str]]]:
+    if evt.tool_name == DOC_ADD_TOOL:
+        return [(evt._tool_input.get("title") or "", list(evt._tool_input.get("labels") or []))]
+    return [
+        (added_title(arguments), [str(label) for label in arguments.values.get("label", ())])
+        for call in evt.cmd.calls("ccn")
+        if (arguments := CCN_DOC_ADD.bind(call)).values.get("words", ())[:2] == ("doc", "add")
+    ]
+
+
+def unlabelled(title: str, labels: list[str], slug: str) -> bool:
+    if f"progress:{slug}" in labels:
+        return False
+    return PROGRESS_TITLE.search(title) is not None or any(label.startswith("progress:") for label in labels)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", DOC_ADD_TOOL)],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(
+            command='ccn doc add "brook: progress 2026-10-10T2210Z (pre-compact handoff)" --label handoff --body -',
+            state=[CompactionState(active=True, slug="brook")],
+        ): Block(pattern=r"^A progress record for drive `brook` needs the label `progress:brook`"),
+        Input(
+            tool=DOC_ADD_TOOL,
+            tool_input={"title": "brook: handoff addendum", "labels": ["progress:164b13c4"], "body": "x"},
+            state=[CompactionState(active=True, slug="brook")],
+        ): Block(),
+        Input(
+            tool=DOC_ADD_TOOL,
+            tool_input={"title": "brook: progress 2026-10-10T2225Z addendum", "labels": ["progress:brook", "handoff"], "body": "x"},
+            state=[CompactionState(active=True, slug="brook")],
+        ): Allow(),
+        Input(
+            command='ccn -R . doc add "brook: progress" --label progress:brook --when now --body -',
+            state=[CompactionState(active=True, slug="brook")],
+        ): Allow(),
+        Input(command='ccn doc add "Release notes" --label release --body -', state=[CompactionState(active=True, slug="brook")]): Allow(),
+        Input(command='ccn doc add "brook: progress" --body -', state=[CompactionState(slug="brook")]): Allow(),
+        Input(
+            command='ccn doc add "lane-a progress" --body -', agent_id="a1b2c3", state=[CompactionState(active=True, slug="brook")]
+        ): Allow(),
+    },
+)
+def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
+    state = CompactionState.load(evt)
+    if not (state.active and state.slug and state.store == "ccn"):
+        return None
+    if not any(unlabelled(title, labels, state.slug) for title, labels in doc_adds(evt)):
+        return None
+    return evt.block(
+        f"A progress record for drive `{state.slug}` needs the label `progress:{state.slug}`, or the compaction hook "
+        "never carries it. Add that label, keep the others, and write it again; a doc that is no progress record "
+        "leaves `progress` out of its title."
+    )
+
+
 @on(
     Event.PostToolUse,
     skip_if=[FromSubagent()],
@@ -480,6 +574,15 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             r"write a progress record when convenient\.$"
         ),
         Input(
+            source="compact",
+            commands=NO_REGISTER,
+            state=[
+                CompactionState(
+                    active=True, plan_path="/p/brook.md", slug="brook", phase="due", prior=["17ec5e6" + "0" * 33], narrative="aea91e3"
+                )
+            ],
+        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, .*Reload the long-running rules .*context\.$"),
+        Input(
             source="compact", transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]
         ): Allow(),
         Input(
@@ -516,14 +619,13 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             return None
         pending = (
             " Your narrative was not written before compaction; write a progress record when convenient."
-            if state.phase == "due"
+            if state.phase == "due" and not narrated(state)
             else ""
         )
         digest, failure = state.digest, state.failure
         state.phase = "idle"
         state.compacting_since = None
-        state.compacted_at = time.time()
-        state.digest = state.failure = None
+        state.digest = state.failure = state.narrative = None
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
@@ -650,6 +752,16 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
             r"Quote: active progress doc: dddddddd; "
             r"the id in this summary wins over any id captured earlier in the conversation\.$"
+        ),
+        Input(
+            session_id="s1",
+            file=FileFixture(home=True, name="brook.md", content="# brook\n"),
+            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
+            commands={f"{sys.executable} {script('handoff.py')} generate": READ_FIRST_STUB},
+        ): Warn(
+            pattern=r"^Resume from `~/brook\.md`, then `ccn doc show bbbbbbb`, then `ccn doc show cccccccc`; "
+            r"keep only in-flight details they lack\. Quote: hand-written handoff bbbbbbb, then active progress doc: cccccccc; "
+            r"the ids in this summary win over any id captured earlier in the conversation\.$"
         ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
     },
