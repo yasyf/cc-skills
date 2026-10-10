@@ -28,7 +28,8 @@ screen the watch could not classify. A record, a wake, and `show` name that file
 class, and the read command; none carries the dialog's text. A record over cci's 400 characters
 is clipped and its whole line rides as `--path` from `<state dir>/prompt-watch/notices/`.
 
-One cci record per prompt, from lane `prompt-watch`, keyed by the dialog and its `since`:
+One cci record per prompt, from lane `prompt-watch`, keyed by the dialog's class and rows. Orca
+rewrites `agentWait.since` every few seconds while one dialog stays open, so it keys nothing:
 a worker's or desk's prompt is a `blocker` to `root`. The coordinator cannot be woken by its
 own prompt, so its prompt is a `blocker` to the registered supervisor desk while that desk's
 own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
@@ -415,7 +416,7 @@ class Watch:
         if seen.state not in PROMPTS:
             self.close(entry, row)
             return
-        episode = hashlib.sha1(f"{seen.state}|{seen.since}|{seen.asked}".encode()).hexdigest()[:12]
+        episode = hashlib.sha1(f"{seen.state}|{seen.asked}".encode()).hexdigest()[:12]
         if row.get("episode") != episode:
             self.close(entry, row)
             if row["alerts"]:

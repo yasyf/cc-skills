@@ -1929,7 +1929,7 @@ seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends w
 A plugin update signals nothing. The next `start` from the new version names itself in
 `<state dir>/prompt-watch/successor` and waits on the lock. The running watch exits
 after the poll that sees that file, and the new one takes over. A watch older than
-0.7.42 never looks for a successor. Stop it once by hand, and the waiting one takes over.
+0.7.43 never looks for a successor. Stop it once by hand, and the waiting one takes over.
 
 The registry names the terminals it polls.
 
@@ -1968,7 +1968,8 @@ dialog's class, and the command that reads the live screen. None of them carries
 dialog's text.
 
 Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`,
-never one per poll.
+never one per poll. The dialog's class and rows identify a prompt. Orca rewrites
+`agentWait.since` every few seconds while one dialog stays open, so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.

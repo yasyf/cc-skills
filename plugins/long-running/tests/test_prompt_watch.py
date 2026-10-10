@@ -380,14 +380,31 @@ def test_a_stale_wait_alone_never_raises_a_record(home, shell):
     assert shell.posts == []
 
 
+def test_one_dialog_whose_since_orca_keeps_rewriting_stays_one_record_one_line_and_one_owner_ask(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.question")
+    supervisor(shell, "managed-server.working", idle=True)
+    captures = set()
+
+    for since in (1791631247002, 1791631259279, 1791631280162, 1791631294557, 1791631308001, 1791631321440, 1791631335912, 1791631349077, 1791631362530, 1791631376218, 1791631390644, 1791631404189):
+        churned = fixture("terminal-show.coordinator.waiting")
+        churned["result"]["terminal"]["agentWait"]["since"] = since
+        shell.orca[show(ROOT)] = churned
+        row = poll(shell)[ROOT]
+        captures.add(row["capture"])
+        assert row["since"] == since
+
+    assert [post["--kind"] for post in shell.posts] == ["blocker", "ask"] and [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"]
+    assert len(shell.sends) == 1 and len(captures) == 1
+    assert "supervisor codex-supervisor got the line 5m ago, its turn started, and it is still open" in whole(shell.posts[1])
+
+
 def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell):
     register(home)
     unbound(shell)
     coordinator(shell, "waiting", "coordinator.approval")
     poll(shell)
-    later = fixture("terminal-show.coordinator.waiting")
-    later["result"]["terminal"]["agentWait"]["since"] = 1791627999000
-    shell.orca[show(ROOT)] = later
     shell.orca[read(ROOT)] = fixture("screen.coordinator.question")
 
     poll(shell)
