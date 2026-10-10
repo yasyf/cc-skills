@@ -8,8 +8,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
-from .installed import script
+from .compaction_handoff import CompactionState, script
 from .lane_rotation import DriveActive
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"

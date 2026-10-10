@@ -10,7 +10,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, on
 from captain_hook.util import reqenv
 
-from .installed import script
+from .compaction_handoff import script
 from .session_tree import own_name
 from .tests.ledger_fixtures import FIXTURES
 

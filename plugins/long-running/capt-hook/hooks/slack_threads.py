@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .installed import script
+from .compaction_handoff import script
 from .pr_ledger import RECORD_TIMEOUT_SECONDS, lane_name
 
 POST_TOOLS = (

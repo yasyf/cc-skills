@@ -8,8 +8,7 @@ from typing import Literal
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on, workflow_state
 from pydantic import BaseModel, create_model
 
-from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings
-from .installed import script
+from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script
 from .register_injection import drive_args
 
 CANDIDATES = 5

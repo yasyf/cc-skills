@@ -6,8 +6,7 @@ import sys
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, register_context, register_of
-from .installed import script
+from .compaction_handoff import CompactionState, register_context, register_of, script
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup"})

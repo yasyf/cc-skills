@@ -28,7 +28,6 @@ from captain_hook import (
 from captain_hook.conditions import skill_name_matches
 from captain_hook.util import reqenv
 
-from .installed import script
 from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
@@ -37,7 +36,9 @@ SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
-NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null"}
+VERSION = re.compile(r"\d+(?:\.\d+)+")
+ORPHANED = ".orphaned_at"
+SCRIPTS = Path("skills") / "long-running" / "scripts"
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
 OVERSIZED = 5
@@ -63,6 +64,24 @@ RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
+
+
+def release(path: Path) -> tuple[int, ...]:
+    return tuple(int(part) for part in path.name.split("."))
+
+
+def newest(root: Path) -> Path:
+    if not VERSION.fullmatch(root.name):
+        return root
+    live = [path for path in root.parent.iterdir() if VERSION.fullmatch(path.name) and not (path / ORPHANED).exists() and (path / SCRIPTS).is_dir()]
+    return max(live, key=release)
+
+
+def script(name: str) -> Path:
+    return newest(Path(__file__).parents[2]) / SCRIPTS / name
+
+
+NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null"}
 
 
 @workflow_state("long_running_compaction")
