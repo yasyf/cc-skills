@@ -20,7 +20,8 @@ REMOTE = "ctx_1e2e970fc485"
 REMOTE_TERMINAL = "term_5cfcad9a-6928-47d6-88e3-f04749533661"
 GONE = "ctx_726698aaa803"
 ENVIRONMENT = "codex-hooks-proof"
-READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
+READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("terminal", "wait"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
+TUI_IDLE = ("terminal", "wait", "--terminal", SUPERVISOR, "--for", "tui-idle", "--timeout-ms", "1000")
 ASKED = "Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed?"
 
 
@@ -48,9 +49,15 @@ class FakeShell(prompt_watch.Shell):
         self.envs: dict[tuple[str, ...], dict | None] = {}
         self.posts: list[dict] = []
         self.refuse_posts = False
+        self.sends: list[list[str]] = []
+        self.send_reply = fixture("terminal-send.turn-started")
 
     def run(self, argv, env=None):
         self.calls.append(list(argv))
+        if argv[:3] == ["orca", "terminal", "send"]:
+            assert argv[3:5] == ["--terminal", SUPERVISOR] and argv[5] == "--text" and argv[7:] == ["--enter", "--wait-submit", "5", "--json"], argv
+            self.sends.append(argv)
+            return prompt_watch.Done(0 if self.send_reply["ok"] else 1, json.dumps(self.send_reply), "")
         if argv[0] == "orca":
             assert tuple(argv[1:3]) in READ_ONLY and argv[-1] == "--json", argv
             key = tuple(argv[1:-1])
@@ -124,9 +131,10 @@ def coordinator(shell: FakeShell, state: str, screen: str) -> None:
     shell.orca[read(ROOT)] = fixture(f"screen.{screen}")
 
 
-def supervisor(shell: FakeShell, screen: str = "managed-server.working") -> None:
+def supervisor(shell: FakeShell, screen: str = "supervisor.codex-busy", idle: bool = False) -> None:
     shell.orca[show(SUPERVISOR)] = fixture("terminal-show.coordinator.clear")
     shell.orca[read(SUPERVISOR)] = fixture(f"screen.{screen}")
+    shell.orca[TUI_IDLE] = fixture("terminal-wait.idle" if idle else "error.timeout")
 
 
 def poll(shell: FakeShell, times: int = 1) -> dict:
@@ -164,6 +172,7 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
     )
     assert len(post["--text"]) <= 400
     assert rows[ROOT]["detail"] == ASKED
+    assert shell.sends == [] and "wake" not in rows[ROOT]
 
 
 def test_with_no_supervisor_the_coordinators_prompt_is_one_ask_on_the_owners_card(home, shell):
@@ -212,7 +221,82 @@ def test_a_prompt_still_open_five_minutes_after_the_supervisor_heard_becomes_one
     poll(shell, 4)
 
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"]
-    assert "supervisor codex-supervisor was told 5m ago and it is still open" in shell.posts[1]["--text"]
+    assert "supervisor codex-supervisor showed no idle prompt to wake in 5m" in shell.posts[1]["--text"]
+    assert shell.sends == []
+
+
+@pytest.mark.parametrize("screen", ["managed-server.working", "supervisor.claude-idle"])
+def test_an_idle_supervisor_gets_the_records_line_typed_once_into_its_own_terminal(home, shell, screen):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell, screen, idle=True)
+
+    rows = poll(shell, 3)
+
+    [post] = shell.posts
+    [sent] = shell.sends
+    assert sent[6] == post["--text"] and "\n" not in sent[6]
+    assert rows[ROOT]["wake"] | {"at": ""} == {"at": "", "request": "02c7edf3-c3d1-4ec3-b3ed-c1d125c8be82", "stages": ["input_accepted", "turn_started"]}
+    poll(shell, 8)
+    assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
+    assert "supervisor codex-supervisor was woken 5m ago and it is still open" in shell.posts[1]["--text"]
+
+
+def test_a_line_orca_accepted_with_no_turn_start_is_kept_as_accepted_and_never_typed_again(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell, "managed-server.working", idle=True)
+    shell.send_reply = fixture("terminal-send.accepted")
+
+    rows = poll(shell, 4)
+
+    assert rows[ROOT]["wake"]["stages"] == ["input_accepted"] and len(shell.sends) == 1
+    assert [post["--to"] for post in shell.posts] == ["codex-supervisor"]
+
+
+def test_a_busy_supervisor_is_woken_on_the_first_poll_that_finds_it_idle(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell)
+    poll(shell, 2)
+    assert shell.sends == []
+    shell.orca[TUI_IDLE] = fixture("terminal-wait.idle")
+    poll(shell)
+    assert shell.sends == []
+    shell.orca[read(SUPERVISOR)] = fixture("screen.managed-server.working")
+
+    poll(shell, 2)
+
+    assert len(shell.sends) == 1 and len(shell.posts) == 1
+
+
+def test_a_wake_orca_refuses_is_an_owner_ask_at_once_and_is_not_typed_again(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell, "managed-server.working", idle=True)
+    shell.send_reply = fixture("error.terminal-handle-stale")
+
+    rows = poll(shell, 3)
+
+    assert rows[ROOT]["wake"]["error"] == "terminal_handle_stale: terminal_handle_stale"
+    assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
+    assert "the wake to supervisor codex-supervisor failed with terminal_handle_stale: terminal_handle_stale" in shell.posts[1]["--text"]
+
+
+def test_no_line_is_ever_typed_into_a_terminal_that_waits_or_for_a_workers_prompt(home, shell):
+    workers(home, shell, "waiting")
+    shell.orca[read(LOCAL_TERMINAL)] = fixture("screen.coordinator.approval")
+    shell.orca[show(ROOT)] = fixture("terminal-show.coordinator.waiting")
+    shell.orca[read(ROOT)] = fixture("screen.coordinator.approval")
+
+    poll(shell, 3)
+
+    assert shell.sends == []
+    assert [call for call in shell.calls if call[0] == "orca" and tuple(call[1:3]) not in READ_ONLY] == []
 
 
 def test_an_answered_prompt_reads_stale_and_resolves_what_it_raised(home, shell, capsys):

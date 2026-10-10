@@ -19,6 +19,8 @@ PICKER = re.compile(r"\bto (?:select|navigate)\b", re.IGNORECASE)
 CURSOR = re.compile(r"^\s*[❯›]\s*\S")
 NUMBERED = re.compile(r"^\s*[❯›]?\s*\d+\.\s+\S")
 CODEX_COMPOSER = re.compile(r"^›(?:\s|$)")
+BUSY = re.compile(r"\besc to interrupt\b", re.IGNORECASE)
+BUSY_ROWS = 12
 FRAME = "│☐ "
 
 
@@ -87,3 +89,14 @@ def dialog(terminal: dict) -> Dialog | None:
     options = next(i for i in range(top, cursor + 1) if CURSOR.match(tail[i]) or NUMBERED.match(tail[i]))
     head = [line.strip(FRAME) for line in tail[top:options] if line.strip(FRAME)]
     return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(head[-EXCERPT_ROWS:]))
+
+
+def idle_input(terminal: dict) -> bool:
+    """True when a typed line would start a turn: Claude Code's plain empty prompt, or Codex's `›` line with no draft, no dialog, and no turn in flight."""
+    if idle_prompt(terminal):
+        return True
+    if terminal.get("draft") or terminal.get("source") != "screen" or dialog(terminal):
+        return False
+    tail = [line.rstrip() for line in terminal.get("tail") or []]
+    box = composer(tail)
+    return box is not None and bool(CODEX_COMPOSER.match(tail[box])) and not any(BUSY.search(line) for line in tail[-BUSY_ROWS:])

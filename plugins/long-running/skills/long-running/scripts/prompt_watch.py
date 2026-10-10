@@ -29,15 +29,21 @@ own prompt, so its prompt is a `blocker` to the registered supervisor desk while
 own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
 card shows, when no supervisor is registered, when the supervisor is itself at a prompt,
 unknown, or unreachable, and when the prompt is still open five minutes after the supervisor
-was told. A cci record wakes nobody by itself: the supervisor keeps
-`cci watch --drive <cci drive> --to <its lane> --for 0` running, as the root's Monitor does for
-`root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`.
+was told. A supervisor that holds a foreground wait is never idle, so it keeps
+`cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
+as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`.
 When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
 each record it raised. While `worker-list` fails, no worker is closed: each keeps its open prompt
 and reads unknown or unreachable until the list answers again.
 
-The watch types into no terminal and answers no prompt. It never stops, restarts, releases,
-closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
+The supervisor's record comes with one wake: the record's line typed into the supervisor's own
+terminal with `orca terminal send --enter`, once per prompt, and only when Orca reads that
+terminal `tui-idle` and its screen shows the empty input box. Until then each poll looks again.
+The receipt's stages are kept, so an accepted line is told from a started turn, and a line is
+never typed twice; a send Orca refuses is an owner `ask` at once.
+
+The watch answers no prompt and types into no terminal that waits on one. It never stops,
+restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
 exits at once, and it ends when the drive's registry file is gone. A poll that raises is
 logged and the next one runs, so the state file ages and `show` reports the watch down.
 `start` detaches a `run` and logs to `<state dir>/prompt-watch/watch.log`; with `--root-terminal` it first records the
@@ -92,6 +98,8 @@ ORCA_SECONDS = 20
 SHOW_WORKERS = 8
 UNSEEN_POLLS = 3
 SUPERVISOR_WAIT = timedelta(minutes=5)
+IDLE_MS = 1000
+SUBMIT_SECONDS = 5
 DOWN_AFTER = timedelta(minutes=2)
 CCI_TEXT = 400
 RECEIPTS = Path(".claude/scratch/orca-launch")
@@ -274,8 +282,24 @@ class Watch:
                 left[who] = seq
         row["alerts"] = left
         if not left:
-            row.pop("episode", None)
-            row.pop("told_at", None)
+            for key in ("episode", "told_at", "wake"):
+                row.pop(key, None)
+
+    def wake(self, supervisor: Subject, text: str) -> dict | None:
+        """Type one line into the supervisor's own terminal when Orca and its screen both show it idle; None when it is not idle, else the send's receipt or error."""
+        where = {"environment": supervisor.environment}
+        waited = self.orca("terminal", "wait", "--terminal", supervisor.terminal, "--for", "tui-idle", "--timeout-ms", str(IDLE_MS), **where)
+        if not (waited.get("ok") and waited["result"]["wait"].get("satisfied")):
+            return None
+        read = self.orca("terminal", "read", "--terminal", supervisor.terminal, "--screen", **where)
+        if not (read.get("ok") and prompt_screen.idle_input(read["result"]["terminal"])):
+            return None
+        sent = self.orca("terminal", "send", "--terminal", supervisor.terminal, "--text", text, "--enter", "--wait-submit", str(SUBMIT_SECONDS), **where)
+        at = stamp(self.shell.now())
+        if not sent.get("ok"):
+            return {"at": at, "error": unseen(sent["error"])[1]}
+        prompt = sent["result"]["send"].get("prompt") or {}
+        return {"at": at, "request": prompt.get("requestId", ""), "stages": prompt.get("stages") or []}
 
     def prompt_text(self, seen: Seen, tail: str) -> str:
         subject = seen.subject
@@ -292,19 +316,27 @@ class Watch:
         if OWNER in alerts:
             return
         ready = supervisor is not None and supervisor.state in (CLEAR, STALE)
+        text = self.prompt_text(seen, f"Read: {read}. Answer only within what the owner already authorized, else ask the owner.")
+        if SUPERVISOR not in alerts and ready and (seq := self.post(entry, "blocker", supervisor.subject.name, subject.name, text)):
+            alerts[SUPERVISOR], row["told_at"] = seq, stamp(self.shell.now())
         if SUPERVISOR not in alerts and ready:
-            tail = f"Read: {read}. Answer only within what the owner already authorized, else ask the owner."
-            if seq := self.post(entry, "blocker", supervisor.subject.name, subject.name, self.prompt_text(seen, tail)):
-                alerts[SUPERVISOR], row["told_at"] = seq, stamp(self.shell.now())
             return
-        if SUPERVISOR in alerts and ready and self.shell.now() - parse_stamp(row["told_at"]) < SUPERVISOR_WAIT:
+        if SUPERVISOR in alerts and ready and "wake" not in row and (sent := self.wake(supervisor.subject, text)):
+            row["wake"] = sent
+        failed = (row.get("wake") or {}).get("error")
+        if SUPERVISOR in alerts and ready and not failed and self.shell.now() - parse_stamp(row["told_at"]) < SUPERVISOR_WAIT:
             return
+        minutes = int(SUPERVISOR_WAIT.total_seconds() // 60)
         if supervisor is None:
             why = "no supervisor desk is registered"
         elif not ready:
             why = f"supervisor {supervisor.subject.name} is {supervisor.state}"
+        elif failed:
+            why = f"the wake to supervisor {supervisor.subject.name} failed with {failed}"
+        elif "wake" not in row:
+            why = f"supervisor {supervisor.subject.name} showed no idle prompt to wake in {minutes}m"
         else:
-            why = f"supervisor {supervisor.subject.name} was told {int(SUPERVISOR_WAIT.total_seconds() // 60)}m ago and it is still open"
+            why = f"supervisor {supervisor.subject.name} was woken {minutes}m ago and it is still open"
         if seq := self.post(entry, "ask", OWNER, subject.name, self.prompt_text(seen, f"It froze the coordinator; {why}. Answer it in that terminal.")):
             alerts[OWNER] = seq
 

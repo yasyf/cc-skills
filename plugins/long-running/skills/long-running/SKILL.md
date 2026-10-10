@@ -1150,8 +1150,8 @@ Model desks retain the 60-second inbox-wait rule.
 
 **O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the one
 reader of Orca's `agentWait`, as [Prompt watch](#prompt-watch) describes. It covers the
-coordinator's terminal, every registered desk, and every in-progress worker, and it
-answers nothing. The runner's five-minute sweep reads the watch's last poll and emits
+coordinator's terminal, every registered desk, and every in-progress worker. It
+answers no prompt and types into no terminal that waits on one. The runner's five-minute sweep reads the watch's last poll and emits
 `PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old. Stale unread
 mail gets one terminal wake per message, typed only when the lane's screen shows the
 plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`; no sweep
@@ -1962,19 +1962,24 @@ never one per poll.
   the command in the record and decides.
 - Its own prompt cannot wake the coordinator. Register one independent agent as
   its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`;
-  the coordinator's prompt is then a `blocker` to that lane. A record wakes nobody by
-  itself, so the supervisor keeps `cci watch --drive <cci drive> --to <lane> --for 0`
-  running, in a Monitor for a Claude session and in a background terminal for Codex.
-  `drive.py desk --supervisor` prints that command. The supervisor reads the live
+  the coordinator's prompt is then a `blocker` to that lane, and the watch types the
+  record's line into the supervisor's own terminal with `orca terminal send --enter`.
+  It types that line once per prompt, and only when Orca reads the supervisor
+  `tui-idle` and its screen shows the empty input box; until then each poll looks
+  again. A supervisor that holds a foreground wait is never idle, so it runs
+  `cci watch --drive <cci drive> --to <lane> --for 0` in that wait and the record ends
+  it. `drive.py desk --supervisor` prints that command. The supervisor reads the live
   screen and answers only within what the owner already authorized. For anything else
   it posts the owner an `ask`.
-- The owner gets an `ask`, which `lr.needs-owner` shows, in three cases. No supervisor
-  is registered. The supervisor is itself at a prompt, unknown, or unreachable. The
-  prompt is still open five minutes after the supervisor was told.
+- The owner gets an `ask`, which `lr.needs-owner` shows, in four cases. No supervisor
+  is registered. The supervisor is itself at a prompt, unknown, or unreachable. Orca
+  refuses the wake. The prompt is still open five minutes after the supervisor's
+  record, even if the supervisor was never idle to wake.
 
 When the prompt leaves the screen, or its terminal leaves the watch, the watch posts
-an `unblock` record that resolves each record it raised. The watch itself types into no terminal, sends no Enter, and
-never stops, restarts, releases, closes, or signals anything.
+an `unblock` record that resolves each record it raised. The watch answers no prompt
+and types into no terminal that waits on one; the supervisor's wake is the only line
+it types. It never stops, restarts, releases, closes, or signals anything.
 
 `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line
 per terminal that is not clear. `ledger.py summary` prints the same lines after its

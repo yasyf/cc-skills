@@ -83,7 +83,7 @@ def test_desk_records_standing_desks_and_keeps_one_supervisor(repo, capsys):
     }
     assert capsys.readouterr().out.splitlines()[-2:] == [
         "drive 900424b6 desks: codex-supervisor=term_codex (supervisor), landing=term_landing",
-        "codex-supervisor hears of the coordinator's prompts only while it runs: cci watch --drive 900424b6 --to codex-supervisor --for 0",
+        "codex-supervisor is woken at its idle prompt; while it holds a wait it hears only through: cci watch --drive 900424b6 --to codex-supervisor --for 0",
     ]
 
 

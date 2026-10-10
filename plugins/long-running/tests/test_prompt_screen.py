@@ -145,3 +145,24 @@ def test_a_footer_above_the_input_box_or_with_no_cursor_is_no_dialog(terminal: d
 )
 def test_the_input_box_is_claudes_ruled_prompt_or_codexs_composer_line(tail: tuple[str, ...], box: int | None) -> None:
     assert prompt_screen.composer(list(tail)) == box
+
+
+CODEX_IDLE = ("• Completed and reported success through Orca.", "  Worked for 4m 35s • 10:10 AM", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh · ~/app", "  ? for shortcuts")
+
+
+@pytest.mark.parametrize(
+    ("terminal", "idle"),
+    [
+        (screen(*IDLE), True),
+        (screen(*CODEX_IDLE), True),
+        (screen(*CODEX_WORKING), False),
+        (screen(*CODEX_IDLE, draft="half a thought"), False),
+        (screen(*CODEX_APPROVAL), False),
+        (screen(*AGENT_LIST), False),
+        (screen(*HOOK_APPROVAL), False),
+        (screen(RULE, "❯ half-typed ask", RULE, MODE), False),
+        ({"source": "screen-unavailable", "tail": list(CODEX_IDLE)}, False),
+    ],
+)
+def test_a_wake_is_typed_only_where_a_line_would_start_a_turn(terminal: dict, idle: bool) -> None:
+    assert prompt_screen.idle_input(terminal) is idle

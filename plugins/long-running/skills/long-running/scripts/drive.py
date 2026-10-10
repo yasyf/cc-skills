@@ -20,8 +20,8 @@ directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names anot
 Run inside an Orca terminal, it records that terminal as ``root_terminal``, the coordinator's.
 ``desk`` records a standing desk's Orca terminal under ``desks``, with ``--environment`` for one on a
 remote host. ``--supervisor`` marks the one desk that hears of the coordinator's own prompts, by
-cci records addressed to its name, and prints the ``cci watch`` command that desk has to keep
-running; ``--remove`` forgets a desk. ``prompt_watch.py`` reads all three.
+cci records addressed to its name and one line typed at its idle prompt, and prints the
+``cci watch`` command a desk that holds a wait runs instead; ``--remove`` forgets a desk. ``prompt_watch.py`` reads all three.
 Every registry write also writes ``<state dir>/dashboard/context.json``, the facts the drive's
 live dashboard binds its cards from; ``context`` rewrites it from the registry alone.
 
@@ -213,7 +213,7 @@ def cmd_desk(args: argparse.Namespace, shell: ledger.Shell) -> int:
     listed = [f"{name}={desk['terminal']}{' (supervisor)' if desk['supervisor'] else ''}" for name, desk in sorted(desks.items())]
     print(f"drive {drive} desks: {', '.join(listed) or 'none'}")
     if not args.remove and args.supervisor:
-        print(f"{args.name} hears of the coordinator's prompts only while it runs: cci watch --drive {cci_drive(entry)} --to {args.name} --for 0")
+        print(f"{args.name} is woken at its idle prompt; while it holds a wait it hears only through: cci watch --drive {cci_drive(entry)} --to {args.name} --for 0")
     return 0
 
 
