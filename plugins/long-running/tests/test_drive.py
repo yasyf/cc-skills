@@ -81,7 +81,10 @@ def test_desk_records_standing_desks_and_keeps_one_supervisor(repo, capsys):
         "landing": {"terminal": "term_landing", "environment": None, "supervisor": False},
         "codex-supervisor": {"terminal": "term_codex", "environment": "pool-a", "supervisor": True},
     }
-    assert capsys.readouterr().out.splitlines()[-1] == "drive 900424b6 desks: codex-supervisor=term_codex (supervisor), landing=term_landing"
+    assert capsys.readouterr().out.splitlines()[-2:] == [
+        "drive 900424b6 desks: codex-supervisor=term_codex (supervisor), landing=term_landing",
+        "codex-supervisor hears of the coordinator's prompts only while it runs: cci watch --drive 900424b6 --to codex-supervisor --for 0",
+    ]
 
 
 def test_desk_remove_forgets_a_desk_and_refuses_one_it_never_held(repo, capsys):

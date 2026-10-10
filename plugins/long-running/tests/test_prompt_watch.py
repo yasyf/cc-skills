@@ -116,7 +116,7 @@ def supervised(home: Path, **fields) -> dict:
 
 
 def unbound(shell: FakeShell) -> None:
-    shell.orca[("orchestration", "worker-list")] = {"ok": True, "result": {"workers": [], "page": {"hasMore": False}, "scope": {"run": None, "source": "all"}}}
+    shell.orca[("orchestration", "worker-list", "--include-remote")] = {"ok": True, "result": {"workers": [], "page": {"hasMore": False}, "scope": {"run": None, "source": "all"}}}
 
 
 def coordinator(shell: FakeShell, state: str, screen: str) -> None:
@@ -300,7 +300,7 @@ def test_a_screen_orca_cannot_render_is_unknown_whatever_its_text_holds(home, sh
 def workers(home: Path, shell: FakeShell, local: str = "clear") -> None:
     register(home, orca_run="run_4104a86f0a03")
     coordinator(shell, "clear", "coordinator.answered")
-    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03")] = fixture("worker-list")
+    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")] = fixture("worker-list")
     shell.orca[worker_show(LOCAL)] = fixture(f"worker-show.local.{local}")
     shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
     shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture("screen.managed-server.working")
@@ -399,7 +399,7 @@ def test_a_remote_screen_that_stops_answering_keeps_the_open_prompt_and_raises_n
 def test_with_no_run_in_the_registry_the_workers_come_from_the_run_bound_to_the_coordinators_terminal(home, shell):
     register(home)
     coordinator(shell, "clear", "coordinator.answered")
-    shell.orca[("orchestration", "worker-list")] = fixture("worker-list")
+    shell.orca[("orchestration", "worker-list", "--include-remote")] = fixture("worker-list")
     shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.clear")
     shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
     shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture("screen.managed-server.working")
@@ -407,7 +407,7 @@ def test_with_no_run_in_the_registry_the_workers_come_from_the_run_bound_to_the_
 
     rows = poll(shell)
 
-    assert shell.envs[("orchestration", "worker-list")] == {"ORCA_TERMINAL_HANDLE": ROOT}
+    assert shell.envs[("orchestration", "worker-list", "--include-remote")] == {"ORCA_TERMINAL_HANDLE": ROOT}
     assert sorted(rows) == sorted([ROOT, f"dispatch:{LOCAL}", f"dispatch:{REMOTE}", f"dispatch:{GONE}"])
 
 
@@ -416,7 +416,7 @@ def test_an_unbound_terminal_lists_every_run_so_none_of_those_workers_are_taken(
     coordinator(shell, "clear", "coordinator.answered")
     listed = fixture("worker-list")
     listed["result"]["scope"] = {"run": None, "source": "all"}
-    shell.orca[("orchestration", "worker-list")] = listed
+    shell.orca[("orchestration", "worker-list", "--include-remote")] = listed
 
     assert sorted(poll(shell)) == [ROOT]
 
@@ -427,12 +427,40 @@ def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, s
     poll(shell)
     listed = fixture("worker-list")
     listed["result"]["workers"][0]["projection"]["outcome"] = "succeeded"
-    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03")] = listed
+    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")] = listed
 
     rows = poll(shell)
 
     assert f"dispatch:{LOCAL}" not in rows
     assert [(post["--kind"], post.get("--resolves")) for post in shell.posts] == [("blocker", None), ("unblock", str(shell.posts[0]["seq"]))]
+    assert shell.posts[1]["--text"] == f"CLEARED bake (worker) terminal={LOCAL_TERMINAL}: the terminal left the watch"
+
+
+@pytest.mark.parametrize(("page", "cursor"), [("error.remote-runtime-unavailable", ()), ("error.terminal-handle-stale", ("--cursor", "c2"))])
+def test_a_worker_list_that_fails_closes_no_prompt_and_the_same_prompt_is_not_raised_again(home, shell, capsys, page, cursor):
+    workers(home, shell, "waiting")
+    shell.orca[read(LOCAL_TERMINAL)] = fixture("screen.coordinator.approval")
+    listing = ("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")
+    poll(shell)
+    if cursor:
+        paged = fixture("worker-list")
+        paged["result"]["page"] |= {"hasMore": True, "nextCursor": "c2"}
+        shell.orca[listing] = paged
+    shell.orca[(*listing, *cursor)] = fixture(page)
+
+    rows = poll(shell, 2)
+
+    state_name = "unreachable" if page == "error.remote-runtime-unavailable" else "unknown"
+    assert rows[f"dispatch:{LOCAL}"]["state"] == state_name and rows[f"dispatch:{LOCAL}"]["detail"].startswith("last read approval; worker-list failed with ")
+    assert rows[f"dispatch:{LOCAL}"]["alerts"] == {"root": shell.posts[0]["seq"]} and rows[f"dispatch:{REMOTE}"]["detail"].startswith("last read clear; ")
+    assert rows["workers"]["state"] == state_name
+    assert [post["--kind"] for post in shell.posts] == ["blocker"]
+    shell.orca[listing] = fixture("worker-list")
+
+    rows = poll(shell)
+
+    assert rows[f"dispatch:{LOCAL}"]["state"] == "approval" and "workers" not in rows
+    assert shell.kinds("bake") == ["blocker"]
 
 
 def test_a_record_cci_refuses_is_posted_on_the_next_poll(home, shell):

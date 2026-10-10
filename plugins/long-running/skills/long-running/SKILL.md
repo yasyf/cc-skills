@@ -1931,9 +1931,11 @@ It reads three sets of terminals from the registry.
   record from `ORCA_TERMINAL_HANDLE`. A prompt raised by an in-process lane shows here.
 - Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`,
   plus `--environment <name>` for a desk on a remote host.
-- The workers are every in-progress dispatch of the drive's Run, local or remote. With
-  no `orca_run` in the registry the watch takes the Run bound to the coordinator's
-  terminal, and none when that terminal is unbound.
+- The workers are every in-progress dispatch of the drive's Run, local or remote, from
+  `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry
+  the watch takes the Run bound to the coordinator's terminal, and none when that
+  terminal is unbound. While that list fails, no worker's prompt is closed. Each worker
+  keeps its record and reads `unknown` or `unreachable` until the list answers again.
 
 Orca's `agentWait` only says where to look. It stays set after a prompt is answered, so
 it never raises a record and never authorizes an answer. The watch reads the rendered
@@ -1960,15 +1962,18 @@ never one per poll.
   the command in the record and decides.
 - Its own prompt cannot wake the coordinator. Register one independent agent as
   its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`;
-  the coordinator's prompt is then a `blocker` to that lane, which waits on its cci
-  mailbox. The supervisor reads the live screen and answers only within what the owner
-  already authorized. For anything else it posts the owner an `ask`.
+  the coordinator's prompt is then a `blocker` to that lane. A record wakes nobody by
+  itself, so the supervisor keeps `cci watch --drive <cci drive> --to <lane> --for 0`
+  running, in a Monitor for a Claude session and in a background terminal for Codex.
+  `drive.py desk --supervisor` prints that command. The supervisor reads the live
+  screen and answers only within what the owner already authorized. For anything else
+  it posts the owner an `ask`.
 - The owner gets an `ask`, which `lr.needs-owner` shows, in three cases. No supervisor
   is registered. The supervisor is itself at a prompt, unknown, or unreachable. The
   prompt is still open five minutes after the supervisor was told.
 
-When the prompt leaves the screen, the watch posts an `unblock` record that resolves
-each record it raised. The watch itself types into no terminal, sends no Enter, and
+When the prompt leaves the screen, or its terminal leaves the watch, the watch posts
+an `unblock` record that resolves each record it raised. The watch itself types into no terminal, sends no Enter, and
 never stops, restarts, releases, closes, or signals anything.
 
 `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line

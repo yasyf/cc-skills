@@ -7,8 +7,8 @@
 
 STDLIB ONLY. Every 30 seconds `run` reads the drive's registry entry and polls its terminals:
 the coordinator's (`root_terminal`), each standing desk `drive.py desk` registered, and every
-in-progress worker of the drive's Orca Run, local or remote. Orca's `agentWait` only says where
-to look. The rendered screen decides, and each terminal lands in exactly one state:
+in-progress worker of the drive's Orca Run, local or remote, from `worker-list --include-remote`.
+Orca's `agentWait` only says where to look. The rendered screen decides, and each terminal lands in exactly one state:
 
     approval     an approval dialog is on screen: a hook's ask, a tool permission, a trust check
     question     a question picker is on screen
@@ -29,8 +29,12 @@ own prompt, so its prompt is a `blocker` to the registered supervisor desk while
 own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
 card shows, when no supervisor is registered, when the supervisor is itself at a prompt,
 unknown, or unreachable, and when the prompt is still open five minutes after the supervisor
-was told. A terminal unknown or unreachable for three polls in a row is one `report` to `root`.
-When a prompt leaves the screen an `unblock` record resolves each record it raised.
+was told. A cci record wakes nobody by itself: the supervisor keeps
+`cci watch --drive <cci drive> --to <its lane> --for 0` running, as the root's Monitor does for
+`root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`.
+When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
+each record it raised. While `worker-list` fails, no worker is closed: each keeps its open prompt
+and reads unknown or unreachable until the list answers again.
 
 The watch types into no terminal and answers no prompt. It never stops, restarts, releases,
 closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
@@ -192,7 +196,7 @@ class Watch:
         found: list[dict] = []
         cursor: list[str] = []
         while True:
-            listed = self.orca("orchestration", "worker-list", *scope, *cursor, env=env)
+            listed = self.orca("orchestration", "worker-list", *scope, "--include-remote", *cursor, env=env)
             if not listed.get("ok"):
                 return [Subject(WORKERS, WORKERS, "worker-list", failure=unseen(listed["error"]))]
             result = listed["result"]
@@ -262,11 +266,11 @@ class Watch:
         except (json.JSONDecodeError, KeyError):
             return None
 
-    def close(self, entry: dict, row: dict) -> None:
+    def close(self, entry: dict, row: dict, why: str = "the prompt left the screen") -> None:
         """Resolve each record the row's prompt raised; a record cci refused to resolve stays for the next poll."""
         left = {}
         for who, seq in (row.get("alerts") or {}).items():
-            if self.post(entry, "unblock", None, row["name"], f"CLEARED {row['name']} ({row['role']}) terminal={row['terminal']}: the prompt left the screen", seq) is None:
+            if self.post(entry, "unblock", None, row["name"], f"CLEARED {row['name']} ({row['role']}) terminal={row['terminal']}: {why}", seq) is None:
                 left[who] = seq
         row["alerts"] = left
         if not left:
@@ -332,6 +336,12 @@ class Watch:
             row["episode"] = episode
         self.alert(entry, row, seen, supervisor)
 
+    def unverified(self, row: dict, unlisted: Seen) -> dict:
+        """A worker nobody could list keeps its open prompt and its records; only its state says it went unread."""
+        if row["state"] in UNSEEN:
+            return row
+        return row | {"state": unlisted.state, "state_at": stamp(self.shell.now()), "detail": f"last read {row['state']}; worker-list failed with {unlisted.detail}"}
+
     def poll(self) -> bool:
         if not (entry := drive.find(self.ident, None)):
             return False
@@ -341,12 +351,16 @@ class Watch:
         with ThreadPoolExecutor(SHOW_WORKERS) as pool:
             seen = list(pool.map(self.observe, subjects))
         supervisor = next((found for found in seen if found.subject.role == SUPERVISOR), None)
+        unlisted = next((found for found in seen if found.subject.role == WORKERS), None)
         fresh = {}
         for found in seen:
             fresh[found.subject.key] = row = rows.pop(found.subject.key, {})
             self.settle(entry, row, found, supervisor)
         for key, row in rows.items():
-            self.close(entry, row)
+            if unlisted and row["role"] == WORKER:
+                fresh[key] = self.unverified(row, unlisted)
+                continue
+            self.close(entry, row, "the terminal left the watch")
             if row["alerts"]:
                 fresh[key] = row
         drive.write_atomic(path, {"drive": self.ident, "at": stamp(self.shell.now()), "pid": os.getpid(), "subjects": fresh})
