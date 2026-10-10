@@ -50,8 +50,11 @@ again. The row keeps what the send reached: `turn_started` when Orca saw the tur
 refuses, by an error or by `accepted: false`, is an owner `ask` at once.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
-restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
-exits at once, and it ends when the drive's registry file is gone. A poll that raises is
+restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock` and writes its own script
+path there, so a second `run` of the same script exits at once. A `run` from another script, as
+after a plugin update, names itself in `<state dir>/prompt-watch/successor` and waits on the lock;
+the running watch exits after the poll that sees that file, and the newer one takes over with no
+process signalled. `run` ends when the drive's registry file is gone. A poll that raises is
 logged and the next one runs, so the state file ages and `show` reports the watch down.
 `start` detaches a `run` and logs to `<state dir>/prompt-watch/watch.log`; with `--root-terminal` it first records the
 coordinator's terminal. `show` prints the last poll from `<state dir>/prompt-watch/state.json`:
@@ -118,6 +121,7 @@ SCREENS = "screens"
 NOTICES = "notices"
 OWNER_ONLY = 0o600
 LOCK_FILE = "lock"
+SUCCESSOR_FILE = "successor"
 LOG_FILE = "watch.log"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 
@@ -497,12 +501,25 @@ def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
     if not (entry := drive.find(args.drive, None)):
         raise SystemExit(f"no drive {args.drive} in {drive.drives_dir()}")
     watch_dir(entry).mkdir(parents=True, exist_ok=True)
-    with (watch_dir(entry) / LOCK_FILE).open("w") as lock:
+    successor = watch_dir(entry) / SUCCESSOR_FILE
+    with (watch_dir(entry) / LOCK_FILE).open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print(f"prompt-watch {args.drive}: another watch holds {lock.name}")
-            return 0
+            lock.seek(0)
+            holder = lock.read().strip()
+            if args.once or str(SCRIPT) in (holder, successor.read_text().strip() if successor.exists() else ""):
+                print(f"prompt-watch {args.drive}: another watch holds or awaits {lock.name}")
+                return 0
+            successor.write_text(str(SCRIPT))
+            print(f"prompt-watch {args.drive}: waiting to take over from {holder or 'a watch that names no script'}", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(SCRIPT))
+        lock.flush()
+        if successor.exists() and successor.read_text().strip() == str(SCRIPT):
+            successor.unlink()
         watch = Watch(shell, args.drive)
         if args.once:
             watch.poll()
@@ -513,6 +530,9 @@ def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
                     break
             except Exception:
                 traceback.print_exc()
+            if successor.exists():
+                print(f"prompt-watch {args.drive}: handing over to {successor.read_text().strip()}")
+                return 0
             shell.sleep(POLL_SECONDS)
     print(f"prompt-watch {args.drive}: the drive ended")
     return 0

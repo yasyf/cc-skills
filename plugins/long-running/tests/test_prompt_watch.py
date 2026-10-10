@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -687,16 +688,70 @@ def test_a_poll_that_raises_is_logged_and_the_next_one_runs(home, shell, capsys)
     assert json.loads(state_file.read_text())["subjects"][ROOT]["state"] == "clear"
 
 
-def test_a_second_watch_on_the_same_drive_exits_at_once(home, shell, capsys):
+def held_lock(entry: dict, holder: str):
+    prompt_watch.watch_dir(entry).mkdir(parents=True, exist_ok=True)
+    held = (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).open("a+")
+    prompt_watch.fcntl.flock(held, prompt_watch.fcntl.LOCK_EX)
+    held.write(holder)
+    held.flush()
+    return held
+
+
+def test_a_second_watch_from_the_same_script_exits_at_once(home, shell, capsys):
+    with held_lock(register(home), str(prompt_watch.SCRIPT)):
+        assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+
+    assert "another watch holds or awaits" in capsys.readouterr().out
+    assert shell.calls == []
+
+
+@pytest.mark.parametrize("holder", ["", "/plugins/cache/skills/long-running/0.7.41/skills/long-running/scripts/prompt_watch.py"])
+def test_a_watch_from_another_script_names_itself_waits_for_the_lock_and_takes_over(home, shell, capsys, holder):
     entry = register(home)
-    prompt_watch.watch_dir(entry).mkdir(parents=True)
-    with (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).open("w") as held:
-        prompt_watch.fcntl.flock(held, prompt_watch.fcntl.LOCK_EX)
+    unbound(shell)
+    coordinator(shell, "clear", "coordinator.answered")
+    successor = prompt_watch.watch_dir(entry) / prompt_watch.SUCCESSOR_FILE
+    held = held_lock(entry, holder)
+    seen = []
+
+    def release():
+        seen.append(successor.read_text())
+        held.close()
+
+    shell.sleep = lambda seconds: (drive.drives_dir() / f"{DRIVE}.json").unlink()
+    timer = threading.Timer(0.3, release)
+    timer.start()
+
+    assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+    timer.join()
+
+    assert seen == [str(prompt_watch.SCRIPT)] and not successor.exists()
+    assert (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).read_text() == str(prompt_watch.SCRIPT)
+    assert json.loads((prompt_watch.watch_dir(entry) / prompt_watch.STATE_FILE).read_text())["subjects"][ROOT]["state"] == "clear"
+    assert "waiting to take over from" in capsys.readouterr().out
+
+
+def test_a_second_successor_from_the_same_script_does_not_wait(home, shell, capsys):
+    entry = register(home)
+    with held_lock(entry, ""):
+        (prompt_watch.watch_dir(entry) / prompt_watch.SUCCESSOR_FILE).write_text(str(prompt_watch.SCRIPT))
 
         assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
 
-    assert "another watch holds" in capsys.readouterr().out
-    assert shell.calls == []
+    assert "another watch holds or awaits" in capsys.readouterr().out
+
+
+def test_a_running_watch_exits_after_the_poll_that_sees_a_successor(home, shell, capsys):
+    entry = register(home)
+    unbound(shell)
+    coordinator(shell, "clear", "coordinator.answered")
+    successor = prompt_watch.watch_dir(entry) / prompt_watch.SUCCESSOR_FILE
+    shell.sleep = lambda seconds: successor.write_text("/plugins/long-running/0.7.99/scripts/prompt_watch.py")
+
+    assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+
+    assert capsys.readouterr().out == f"prompt-watch {DRIVE}: handing over to /plugins/long-running/0.7.99/scripts/prompt_watch.py\n"
+    assert len([call for call in shell.calls if call[:3] == ["orca", "terminal", "show"]]) == 2 and successor.exists()
 
 
 def test_start_records_the_coordinators_terminal_and_detaches_one_run(home, shell, capsys, monkeypatch):

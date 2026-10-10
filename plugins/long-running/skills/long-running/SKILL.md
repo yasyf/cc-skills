@@ -1924,8 +1924,12 @@ looks busy. The prompt watch reads Orca instead.
 which detaches one `run` per drive beside the dashboard server. The watch is its own
 process, so a closed dashboard or a stuck session does not stop it. It polls every 30
 seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends when
-`drive.py end` removes the registry file. A plugin update restarts nothing; the running
-watch keeps its code until the next root session starts one.
+`drive.py end` removes the registry file.
+
+A plugin update signals nothing. The next `start` from the new version names itself in
+`<state dir>/prompt-watch/successor` and waits on the lock. The running watch exits
+after the poll that sees that file, and the new one takes over. A watch older than
+0.7.42 never looks for a successor. Stop it once by hand, and the waiting one takes over.
 
 The registry names the terminals it polls.
 
