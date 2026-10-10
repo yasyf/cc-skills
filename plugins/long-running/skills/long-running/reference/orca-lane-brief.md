@@ -235,7 +235,7 @@ Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 
 ```
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
-ccx: role=<role; desk or watch for a standing desk> tooling-lane=<key, for a tooling lane only>
+ccx: role=<role; desk or watch for a standing desk> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
 Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
@@ -258,6 +258,12 @@ Observable acceptance: <the test, output, or PR URL that proves completion>.
 Orca's task-spec contract requires every spec to include `Target`, `Change`,
 `Constraints`, `Ownership`, and `Observable acceptance`. The shared file supplies the
 long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Finish`.
+
+The `ccx:` line also places the lane. `place=remote` sends it to a Sprite and
+`place=local` keeps it on the Mac; with neither, `cpu=high` sends it to a Sprite and
+any other lane stays local (SKILL.md O16). A lane placed remote gets a brief it can
+run from the Sprite's checkout alone, with no Mac path or Mac-only credential. A
+standing desk launches locally whatever the line says.
 
 ## A standing desk's brief
 

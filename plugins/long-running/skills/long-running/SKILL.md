@@ -1174,14 +1174,27 @@ Incident launches name `--model incident --effort xhigh`: `gpt-6.1-sol`, a
 launch needs a reporting route, never another launch. Inline lanes still use
 `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
-**O16. Run high-CPU lanes on a Sprite.** With `orca.sprite` configured, a launch
-whose brief's `ccx:` line says `cpu=high` (builds, test reproductions, sweeps, heavy
-research) runs the repository's `worker-launch.sh` on a Sprite and never waits on
-Mac load. The runner counts running and warm Sprites before each one, adding its own
-Sprite launches in flight, and at `orca.sprite.limit` (10 while the account caps
-Sprites at 10) it launches locally. Fable, incident, a lane name a Sprite refuses,
-a failed count, and a failed Sprite launch all start locally, logged
-`SPRITE-FALLBACK`. Remote API keys travel only to the worker process.
+**O16. Place each lane on a Sprite or the Mac; high-CPU lanes default to a Sprite.**
+The launching model places a lane on its brief's `ccx:` line, with `place=remote` for
+a Sprite or `place=local` for the Mac. With neither key, a `cpu=high` lane goes to a
+Sprite and every other lane launches locally; `cpu=high` marks a build, a test
+reproduction, a sweep, or heavy research. An explicit `place=` wins over `cpu=high`
+in both directions. Fable, incident, and a standing desk's `role=desk` or
+`role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
+says what a Sprite holds and when to choose each.
+
+A Sprite launch needs `orca.sprite` configured; without it every lane launches
+locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
+while a lane placed local still waits under O14. The runner counts running and warm
+Sprites before each one, adding its own Sprite launches in flight, and at
+`orca.sprite.limit` (10 while the account caps Sprites at 10) it launches locally.
+That limit, a failed count, and a lane name a Sprite refuses start the same lane
+locally under O14's load hold. A Sprite launch that prints a failure or a malformed
+result starts it locally at once. Each logs `SPRITE-FALLBACK` with the reason. A
+Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
+
+Model and effort are the same on either route, and the runner sets no Codex service
+tier on either. Remote API keys travel only to the worker process.
 
 *Prevents the 01:00 cohort's 152-202 s launches at load 54-63 on 32 cores
 (release-v3, 2026-10-09).*
@@ -1427,10 +1440,12 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 standing desk: `orca-launch.sh` gives it a contract that loops until rotation and
 sends `worker_done` only then, naming the handoff doc
 ([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)). `cpu=high` marks a
-build, test reproduction, sweep, or heavy research lane for a Sprite (O16).
+build, test reproduction, sweep, or heavy research lane, which goes to a Sprite by
+default. `place=remote` or `place=local` places any lane yourself and wins over that
+default (O16).
 
 ```
-ccx: role=<role> [cpu=high] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -1522,14 +1537,25 @@ For implementation and test lanes, prefer the repository's canonical remote
 entrypoint when it provides one. In Forge-AI/monorepo, follow
 [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md).
 It defaults to Sprite prepare+attach and the already-owned native Run with its
-sole inbox consumer. The orca desk calls it for `cpu=high` briefs (O16) and runs
-every other lane through `orca-launch.sh`. Preserve explicit model, effort, and
-Codex service tier.
+sole inbox consumer. The orca desk calls it for a brief placed remote, by
+`place=remote` or by `cpu=high` with no `place=` (O16), and runs every other lane
+through `orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
 
-A desk Sprite lane's brief is self-contained, because the Sprite holds only the
-brief and a checkout of `dev`: no Mac path, scratch file, or local worktree. The lane
-commits, pushes its branch, and opens its PR from the VM like any lane; the root
-pulls the branch when it needs the source locally. A remote worker keeps its runtime
+Placement is yours to decide for every lane that is not `cpu=high`, and for a
+`cpu=high` lane that cannot leave the Mac. A Sprite holds only the brief and a
+shallow checkout of the ref its config names, `dev` in Forge-AI/monorepo. It has no
+Mac path, scratch file, local worktree, or unpushed commit, no Keychain, and no
+credential that lives only on the Mac.
+
+Write `place=remote` when the lane can work inside those limits, with every fact in
+the brief by value and everything it builds on already pushed. Write `place=local`
+when the lane reads a file, worktree, or branch only the Mac has, needs a Mac-only
+credential, or drives something on the Mac itself. Without `orca.sprite` every lane
+launches locally, and a Sprite fallback starts the same brief locally, so a brief
+placed remote must also run from a local worktree.
+
+A Sprite lane commits, pushes its branch, and opens its PR from the VM like any
+lane; the root pulls the branch when it needs the source locally. A remote worker keeps its runtime
 and workspace after completion. A local lane the root has decided is done ends under R195's
 `--done` route. Dedicated remote API keys belong only to the
 worker process; local Fable keeps existing Mac interactive authentication.
@@ -1562,8 +1588,9 @@ and `codex-ask` for one-off questions.
 
 That adapter's launch, relay, and receipt rules apply only to its own lanes.
 Canonical remote workers use home Dispatch messages and the repository skill's
-source-return workflow. Namespace remains opt-in pending regular Compute runtime
-acceptance; native recipe-picker enablement is a separate surface.
+source-return workflow. Namespace runs on regular Compute through an explicit config
+and stays opt-in; the desk never launches there. Native recipe-picker enablement is a
+separate surface.
 
 One isolated checkout per editing lane. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
