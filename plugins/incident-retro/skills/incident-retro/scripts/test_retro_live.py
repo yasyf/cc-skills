@@ -28,7 +28,18 @@ SLUG = "2026-09-02-executors-could-reach-browsers"
 
 NOTEBOOK_ID = 15440320
 NOTEBOOK_FILE = f"evidence/datadog/notebook-{NOTEBOOK_ID}.json"
+MONITOR_ID = 312516332
+MONITOR_FILE = f"evidence/datadog/monitor-{MONITOR_ID}.json"
 DATADOG = {
+    ("GET", f"/api/v1/monitor/{MONITOR_ID}"): {
+        "name": "Browser pool exhausted", "type": "query alert", "overall_state": "Alert",
+        "query": "avg(last_5m):sum:browsers.free{*} by {team} < 1",
+        "options": {"thresholds": {"critical": 1, "warning": 3}}},
+    ("GET", "/api/v1/query"): {"series": [
+        {"scope": "team:northwind", "expression": "sum:browsers.free{team:northwind}",
+         "pointlist": [[1788386400000, 4.0], [1788390000000, 0.0]]},
+        {"scope": "team:acme", "expression": "sum:browsers.free{team:acme}",
+         "pointlist": [[1788390000000, 2.0], [1788393600000, 5.0]]}]},
     ("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}"): {"data": {"attributes": {
         "name": "Executors and browsers", "author": {"name": "Ada"}, "modified": "2026-09-02T23:00:00Z",
         "metadata": {"type": "investigation"},
@@ -44,7 +55,7 @@ DATADOG = {
 
 def datadog(request, timeout):
     """Datadog at the HTTP boundary, so the sync runs the real fetch and writes a production-shaped snapshot."""
-    path = request.full_url.removeprefix("https://api.datadoghq.com")
+    path = request.full_url.removeprefix("https://api.datadoghq.com").split("?")[0]
     return io.BytesIO(json.dumps(DATADOG[(request.get_method(), path)]).encode())
 
 
@@ -235,6 +246,38 @@ class Sync(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class MonitorSnapshot(unittest.TestCase):
+    """The live view previews each paging monitor's state and the series it alerts on."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+
+    def sync(self, **extra) -> dict:
+        self.assertEqual(run(retro_live.sync, args(self.incident, self.docs, **extra)), 0)
+        return json.loads((self.root / MONITOR_FILE).read_text())
+
+    def test_the_monitor_is_registered_with_its_state_and_aligned_series(self):
+        snapshot = self.sync()
+        record = json.loads((self.root / "retro.json").read_text())
+        self.assertEqual(record["evidence"]["monitors"][0]["file"], MONITOR_FILE)
+        self.assertEqual((snapshot["schema"], snapshot["id"], snapshot["overallState"]),
+                         ("ir.monitor/1", MONITOR_ID, "Alert"))
+        self.assertEqual(snapshot["series"]["t"], [1788386400, 1788390000, 1788393600])
+        self.assertEqual([row["v"] for row in snapshot["series"]["series"]], [[4.0, 0.0, None], [None, 2.0, 5.0]])
+
+    def test_a_group_the_gate_forbids_is_relabelled_instead_of_refusing_the_push(self):
+        snapshot = self.sync(forbidden_terms="acme")
+        self.assertEqual([row["label"] for row in snapshot["series"]["series"]], ["team:Polar", "group 2"])
+
+    def test_a_monitor_with_no_metric_query_carries_no_series(self):
+        monitor = {**DATADOG[("GET", f"/api/v1/monitor/{MONITOR_ID}")], "type": "log alert"}
+        with mock.patch.dict(DATADOG, {("GET", f"/api/v1/monitor/{MONITOR_ID}"): monitor}):
+            snapshot = self.sync()
+        self.assertNotIn("series", snapshot)
+
+
 class NotebookSnapshot(unittest.TestCase):
     """A registered notebook with no snapshot file is one the page marks failed, so render-check refuses the doc."""
 
@@ -267,6 +310,9 @@ class NotebookSnapshot(unittest.TestCase):
                 run(retro_live.sync, args(self.incident, self.docs))
 
     def test_a_supplied_snapshot_is_published_scrubbed_without_calling_datadog(self):
+        state = json.loads((self.incident / "state.json").read_text())
+        state["monitors"] = []
+        (self.incident / "state.json").write_text(json.dumps(state))
         supplied = json.loads((self.root / NOTEBOOK_FILE).read_text())
         supplied["title"] = "Northwind offline"
         path = Path(tempfile.mkdtemp()) / f"notebook-{NOTEBOOK_ID}.json"
