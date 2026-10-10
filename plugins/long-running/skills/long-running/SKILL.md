@@ -2671,6 +2671,12 @@ adding another. The root acts on it in the turn it arrives. The root sends the o
 lane a stand-down only after the successor has reported. A reply starting `flushed`
 cancels the rotation.
 
+A `SendMessage` to a retired lane resumes it on its old brief, so the pack denies it
+and names the successor. Spawning `<lane>-N+1` beside `<lane>-handoff` retires the old
+name. A `TaskStop` or a root `STAND-DOWN` retires a lane with no successor, and a lane
+writing to it is sent to `main`. The root's `STAND-DOWN` still goes through, and
+respawning under the name clears it.
+
 The same swap applies to a lane that died or outgrew its line before any ask. The
 root never reconstructs a handoff inline. It never opens a lane's transcript, its
 receipts, its cursor files, or a runtime listing such as `orca orchestration

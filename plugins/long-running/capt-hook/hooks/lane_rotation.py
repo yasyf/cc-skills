@@ -14,10 +14,12 @@ from cc_transcript import UserEvent
 from captain_hook import (
     Allow,
     BaseHookEvent,
+    Block,
     Event,
     FromSubagent,
     HookResult,
     Input,
+    Tool,
     WorkflowState,
     on,
     workflow_state,
@@ -25,7 +27,7 @@ from captain_hook import (
 
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
-from .nudges import NudgeState, cancel_root_action, queue_nudge, root_action_key
+from .nudges import NudgeState, cancel_root_action, queue_nudge, root_action_key, stopped_lane
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent, covered
 from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
@@ -58,6 +60,7 @@ class RotationState(WorkflowState):
     asked_events: dict[str, int] = {}
     frozen: dict[str, int] = {}
     root_actions: dict[str, float] = {}
+    retired: dict[str, str | None] = {}
 
 
 @dataclass(frozen=True)
@@ -169,10 +172,22 @@ def successors(name: str) -> set[str]:
     return names
 
 
-def stood_down(evt: BaseHookEvent, lane: Lane, live: set[str], handed_off: set[str]) -> bool:
+def predecessors(name: str) -> set[str]:
+    if not (numbered := NUMBERED.fullmatch(name)) or (number := int(numbered[2])) < 2:
+        return set()
+    return {f"{numbered[1]}-{number - 1}"} | ({numbered[1]} if number == 2 else set())
+
+
+def handed_off(evt: BaseHookEvent) -> set[str]:
+    return {
+        agent.name.removesuffix(HANDOFF) for agent in session_tree.subagents(evt) if agent.name and agent.name.endswith(HANDOFF)
+    }
+
+
+def stood_down(evt: BaseHookEvent, lane: Lane, live: set[str], rotated: set[str]) -> bool:
     return (
         lane.told_to_stand_down
-        or (lane.name in handed_off and not successors(lane.name).isdisjoint(live))
+        or (lane.name in rotated and not successors(lane.name).isdisjoint(live))
         or (lane.team is not None and session_tree.stood_down(session_tree.inbox_path(evt, lane.team, lane.name)))
     )
 
@@ -182,17 +197,13 @@ def awake(evt: BaseHookEvent, lanes: list[Lane], state: RotationState) -> list[L
         if lane.agent_id in state.frozen and lane.events != state.frozen[lane.agent_id]:
             del state.frozen[lane.agent_id]
     live = {lane.name for lane in lanes}
-    handed_off = {
-        agent.name.removesuffix(HANDOFF)
-        for agent in session_tree.subagents(evt)
-        if agent.name and agent.name.endswith(HANDOFF)
-    }
+    rotated = handed_off(evt)
     return [
         lane
         for lane in lanes
         if lane.agent_id not in state.frozen
         and lane.name not in state.flushed
-        and not stood_down(evt, lane, live, handed_off)
+        and not stood_down(evt, lane, live, rotated)
     ]
 
 
@@ -352,3 +363,83 @@ def escalate_unrotated_lanes(evt: BaseHookEvent) -> HookResult | None:
                 queue_root_action(evt, lane, escalation(lane))
                 record_escalation(state, lane, now)
     return None
+
+
+def heir(retired: dict[str, str | None], name: str) -> str | None:
+    successor = retired[name]
+    while successor in retired:
+        successor = retired[successor]
+    return successor
+
+
+def stand_down(message: object) -> bool:
+    return isinstance(message, str) and session_tree.STAND_DOWN.match(message) is not None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool("Agent", "TaskStop", "SendMessage")],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(tool="TaskStop", tool_input={"task_id": "desk@session-root"}): Allow(),
+        Input(tool="Agent", tool_input={"name": "landing-desk-2", "prompt": "go"}, transcript=ROOT): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}): Allow(),
+    },
+)
+def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
+    raw = evt.input.raw
+    if evt.tool_name == "Agent":
+        if not (name := raw.get("name")):
+            return None
+        rotated = predecessors(name) & handed_off(evt)
+        with RotationState.mutate(evt) as state:
+            state.retired.pop(name, None)
+            state.retired |= dict.fromkeys(rotated, name)
+        return None
+    retired = stopped_lane(evt) or (raw.get("to") if stand_down(raw.get("message")) else None)
+    if retired:
+        with RotationState.mutate(evt) as state:
+            state.retired.setdefault(retired, None)
+    return None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("SendMessage")],
+    tests={
+        Input(
+            tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": "desk-2"})]
+        ): Block(pattern=r"^`desk` rotated to `desk-2`"),
+        Input(
+            tool="SendMessage",
+            tool_input={"to": "desk", "message": "status?"},
+            agent_id="a1b2c3",
+            state=[RotationState(retired={"desk": "desk-2", "desk-2": "desk-3"})],
+        ): Block(pattern="Send this to `desk-3` instead"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Block(),
+        Input(
+            tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}, state=[RotationState(retired={"desk": "desk-2"})]
+        ): Allow(),
+        Input(
+            tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": None})]
+        ): Block(pattern="Send this to `main` instead"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": None})]): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "desk-2", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Allow(),
+    },
+)
+def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
+    raw = evt.input.raw
+    retired = RotationState.load(evt).retired
+    if (to := raw.get("to")) not in retired or (evt.agent_id is None and stand_down(raw.get("message"))):
+        return None
+    if successor := heir(retired, to):
+        return evt.block(
+            f"`{to}` rotated to `{successor}`, which owns its work now, and a message to `{to}` resumes the old lane "
+            f"on its stale brief. Send this to `{successor}` instead."
+        )
+    if evt.agent_id is None:
+        return None
+    return evt.block(
+        f"`{to}` was stopped and has no successor, and a message to it resumes the stopped lane on its stale brief. "
+        "Send this to `main` instead."
+    )
