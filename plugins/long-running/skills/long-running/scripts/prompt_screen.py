@@ -19,8 +19,11 @@ PICKER = re.compile(r"\bto (?:select|navigate)\b", re.IGNORECASE)
 CURSOR = re.compile(r"^\s*[❯›]\s*\S")
 NUMBERED = re.compile(r"^\s*[❯›]?\s*\d+\.\s+\S")
 CODEX_COMPOSER = re.compile(r"^›(?:\s|$)")
-BUSY = re.compile(r"\besc to interrupt\b", re.IGNORECASE)
-BUSY_ROWS = 12
+IDLE = "idle"
+BUSY = "busy"
+WAITING = "waiting"
+RUNNING = re.compile(r"\besc to interrupt\b|\((?:\d+h )?(?:\d+m )?\d+s [·•]", re.IGNORECASE)
+RUNNING_ROWS = 12
 FRAME = "│☐ "
 
 
@@ -91,12 +94,19 @@ def dialog(terminal: dict) -> Dialog | None:
     return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(head[-EXCERPT_ROWS:]))
 
 
-def idle_input(terminal: dict) -> bool:
-    """True when a typed line would start a turn: Claude Code's plain empty prompt, or Codex's `›` line with no draft, no dialog, and no turn in flight."""
-    if idle_prompt(terminal):
-        return True
-    if terminal.get("draft") or terminal.get("source") != "screen" or dialog(terminal):
-        return False
+def input_state(terminal: dict) -> str | None:
+    """What a line typed into this screen would meet, or None when the screen shows no dialog and no input box.
+
+    `idle` is Claude Code's plain empty prompt or Codex's `›` line, with no draft and no turn in flight,
+    so the line starts a turn. `waiting` is an open dialog. `busy` is an input box with a turn running,
+    a draft, or a list under it, where the line would queue or land in the wrong place.
+    """
+    if terminal.get("source") != "screen":
+        return None
+    if dialog(terminal):
+        return WAITING
     tail = [line.rstrip() for line in terminal.get("tail") or []]
-    box = composer(tail)
-    return box is not None and bool(CODEX_COMPOSER.match(tail[box])) and not any(BUSY.search(line) for line in tail[-BUSY_ROWS:])
+    if (box := composer(tail)) is None:
+        return None
+    empty = idle_prompt(terminal) or (bool(CODEX_COMPOSER.match(tail[box])) and not terminal.get("draft"))
+    return IDLE if empty and not any(RUNNING.search(line) for line in tail[-RUNNING_ROWS:]) else BUSY

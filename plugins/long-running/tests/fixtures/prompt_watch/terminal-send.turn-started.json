@@ -12,7 +12,7 @@
           "input_accepted",
           "turn_started"
         ],
-        "provider": "codex",
+        "provider": "claude",
         "observation": "supported",
         "processIncarnation": "ed6ee6c2-aef9-4c46-853e-06005d14ba0a",
         "generation": 5276,

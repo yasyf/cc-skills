@@ -23,6 +23,11 @@ while its agentWait is set. A remote worker gets one on every poll, because a ho
 Orca's managed server installs no agent hook and never sets agentWait. A remote terminal is
 read with `--environment <server name>` from its `worker-show`.
 
+A confirmed prompt's screen is saved owner-only under `<state dir>/prompt-watch/screens/`, as is a
+screen the watch could not classify. A record, a wake, and `show` name that file, the dialog's
+class, and the read command; none carries the dialog's text. A record over cci's 400 characters
+is clipped and its whole line rides as `--path` from `<state dir>/prompt-watch/notices/`.
+
 One cci record per prompt, from lane `prompt-watch`, keyed by the dialog and its `since`:
 a worker's or desk's prompt is a `blocker` to `root`. The coordinator cannot be woken by its
 own prompt, so its prompt is a `blocker` to the registered supervisor desk while that desk's
@@ -38,9 +43,11 @@ and reads unknown or unreachable until the list answers again.
 
 The supervisor's record comes with one wake: the record's line typed into the supervisor's own
 terminal with `orca terminal send --enter`, once per prompt, and only when Orca reads that
-terminal `tui-idle` and its screen shows the empty input box. Until then each poll looks again.
-The receipt's stages are kept, so an accepted line is told from a started turn, and a line is
-never typed twice; a send Orca refuses is an owner `ask` at once.
+terminal `tui-idle` and `prompt_screen.input_state` reads its screen `idle`, Claude Code's or
+Codex's. A `busy` or `waiting` supervisor gets no line, the row says which, and each poll looks
+again. The row keeps what the send reached: `turn_started` when Orca saw the turn start,
+`input_accepted` when it only took the line. A line is never typed twice, and a send Orca
+refuses is an owner `ask` at once.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
 restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
@@ -88,7 +95,8 @@ UNREACHABLE = "unreachable"
 CLEAR = "clear"
 PROMPTS = (prompt_screen.APPROVAL, prompt_screen.QUESTION)
 UNSEEN = (UNKNOWN, UNREACHABLE)
-WAITS_ON = {prompt_screen.APPROVAL: "an approval", prompt_screen.QUESTION: "a question"}
+WAITS_ON = {prompt_screen.APPROVAL: "an approval dialog", prompt_screen.QUESTION: "a question dialog"}
+REACHED = {"turn_started": "its turn started", "input_accepted": "Orca accepted it and saw no turn start"}
 UNREACHABLE_CODES = frozenset({"remote_runtime_unavailable"})
 UNPARSEABLE = "unparseable"
 TIMED_OUT = 124
@@ -105,6 +113,9 @@ CCI_TEXT = 400
 RECEIPTS = Path(".claude/scratch/orca-launch")
 WATCH_DIR = Path("prompt-watch")
 STATE_FILE = "state.json"
+SCREENS = "screens"
+NOTICES = "notices"
+OWNER_ONLY = 0o600
 LOCK_FILE = "lock"
 LOG_FILE = "watch.log"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
@@ -151,6 +162,8 @@ class Seen:
     state: str
     detail: str = ""
     since: int | None = None
+    asked: str = ""
+    screen: dict | None = None
 
 
 def stamp(moment: datetime) -> str:
@@ -172,6 +185,12 @@ def read_command(subject: Subject) -> str:
 def unseen(error: dict) -> tuple[str, str]:
     state = UNREACHABLE if error["code"] in UNREACHABLE_CODES else UNKNOWN
     return state, f"{error['code']}: {' '.join(error.get('message', '').split())}"[:200]
+
+
+def supervisor_note(row: dict) -> str:
+    if wake := row.get("wake"):
+        return f"; supervisor got one line and {REACHED[wake['reached']]}" if "reached" in wake else f"; the supervisor's wake failed with {wake['error']}"
+    return f"; supervisor is {row['supervisor_input']}" if "supervisor_input" in row else ""
 
 
 class Watch:
@@ -257,18 +276,35 @@ class Watch:
         if screen.get("source") != "screen":
             return Seen(subject, UNKNOWN, f"no rendered screen (source {screen.get('source', 'absent')})", since)
         if found := prompt_screen.dialog(screen):
-            return Seen(subject, found.kind, found.excerpt, since)
+            return Seen(subject, found.kind, "", since, found.excerpt, screen)
         if not wait:
             return Seen(subject, CLEAR)
         if prompt_screen.composer([line.rstrip() for line in screen.get("tail") or []]) is not None:
             return Seen(subject, STALE, f"agentWait via {wait.get('source', 'unknown')} is set and the input box is back", since)
-        return Seen(subject, UNKNOWN, f"agentWait via {wait.get('source', 'unknown')} is set and the screen shows neither a known dialog nor an input box", since)
+        return Seen(subject, UNKNOWN, f"agentWait via {wait.get('source', 'unknown')} is set and the screen shows neither a known dialog nor an input box", since, screen=screen)
+
+    def capture(self, entry: dict, name: str, seen: Seen) -> str:
+        """Save the screen a state was read from, owner-only, under the drive's state directory; no record, wake, or view carries its text."""
+        path = watch_dir(entry) / SCREENS / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.chmod(0o700)
+        subject = seen.subject
+        saved = {"at": stamp(self.shell.now()), "role": subject.role, "name": subject.name, "terminal": subject.terminal, "environment": subject.environment, "state": seen.state, "since": seen.since, "asked": seen.asked, "tail": seen.screen.get("tail") or []}
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, OWNER_ONLY), "w") as out:
+            out.write(json.dumps(saved, indent=2, ensure_ascii=False) + "\n")
+        return str(path)
 
     def post(self, entry: dict, kind: str, to: str | None, name: str, text: str, resolves: int | None = None) -> int | None:
         argv = ["cci", "post", "--drive", drive.cci_drive(entry), "--lane", LANE, "--kind", kind, "--topic", f"prompt:{name}", "--json"]
         argv += ["--to", to] if to else []
         argv += ["--resolves", str(resolves)] if resolves else []
-        done = self.shell.run([*argv, "--text", text if len(text) <= CCI_TEXT else text[: CCI_TEXT - 1] + "…"])
+        if len(text) > CCI_TEXT:
+            body = watch_dir(entry) / NOTICES / f"{hashlib.sha1(text.encode()).hexdigest()[:12]}.txt"
+            body.parent.mkdir(parents=True, exist_ok=True)
+            body.write_text(text + "\n")
+            argv += ["--path", str(body)]
+            text = text[: CCI_TEXT - 1] + "…"
+        done = self.shell.run([*argv, "--text", text])
         try:
             return json.loads(done.out)["seq"] if done.code == 0 else None
         except (json.JSONDecodeError, KeyError):
@@ -282,47 +318,54 @@ class Watch:
                 left[who] = seq
         row["alerts"] = left
         if not left:
-            for key in ("episode", "told_at", "wake"):
+            for key in ("episode", "told_at", "wake", "capture", "supervisor_input"):
                 row.pop(key, None)
 
-    def wake(self, supervisor: Subject, text: str) -> dict | None:
-        """Type one line into the supervisor's own terminal when Orca and its screen both show it idle; None when it is not idle, else the send's receipt or error."""
+    def wake(self, supervisor: Subject, text: str) -> dict:
+        """Type one line into the supervisor's own terminal, only when Orca reads it `tui-idle` and its screen reads idle.
+
+        Returns `blocked` with what the screen showed instead, or the send's outcome: `reached` is
+        `turn_started` only when Orca saw the turn start, `input_accepted` when it only took the line.
+        """
         where = {"environment": supervisor.environment}
         waited = self.orca("terminal", "wait", "--terminal", supervisor.terminal, "--for", "tui-idle", "--timeout-ms", str(IDLE_MS), **where)
-        if not (waited.get("ok") and waited["result"]["wait"].get("satisfied")):
-            return None
         read = self.orca("terminal", "read", "--terminal", supervisor.terminal, "--screen", **where)
-        if not (read.get("ok") and prompt_screen.idle_input(read["result"]["terminal"])):
-            return None
+        shows = (prompt_screen.input_state(read["result"]["terminal"]) or UNKNOWN) if read.get("ok") else unseen(read["error"])[0]
+        if shows != prompt_screen.IDLE or not (waited.get("ok") and waited["result"]["wait"].get("satisfied")):
+            return {"blocked": prompt_screen.BUSY if shows == prompt_screen.IDLE else shows}
         sent = self.orca("terminal", "send", "--terminal", supervisor.terminal, "--text", text, "--enter", "--wait-submit", str(SUBMIT_SECONDS), **where)
         at = stamp(self.shell.now())
         if not sent.get("ok"):
             return {"at": at, "error": unseen(sent["error"])[1]}
         prompt = sent["result"]["send"].get("prompt") or {}
-        return {"at": at, "request": prompt.get("requestId", ""), "stages": prompt.get("stages") or []}
+        stages = prompt.get("stages") or []
+        return {"at": at, "request": prompt.get("requestId", ""), "stages": stages, "reached": "turn_started" if "turn_started" in stages else "input_accepted"}
 
-    def prompt_text(self, seen: Seen, tail: str) -> str:
+    def prompt_text(self, row: dict, seen: Seen, tail: str) -> str:
         subject = seen.subject
-        head = f"PROMPT {subject.name} ({subject.role}) terminal={subject.terminal} waits on {WAITS_ON[seen.state]}: "
-        room = CCI_TEXT - len(head) - len(tail) - 2
-        return f"{head}{seen.detail if len(seen.detail) <= room else '…' + seen.detail[1 - room :]}. {tail}"
+        return f"PROMPT {subject.name} ({subject.role}) waits on {WAITS_ON[seen.state]}. Screen: {row['capture']}. Read: {read_command(subject)}. {tail}"
 
     def alert(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
-        alerts, subject, read = row["alerts"], seen.subject, read_command(seen.subject)
+        alerts, subject = row["alerts"], seen.subject
         if subject.role != COORDINATOR:
-            if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(seen, f"Read: {read}. The watch answers nothing."))):
+            if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(row, seen, "The watch answers nothing."))):
                 alerts[ROOT] = seq
             return
         if OWNER in alerts:
             return
         ready = supervisor is not None and supervisor.state in (CLEAR, STALE)
-        text = self.prompt_text(seen, f"Read: {read}. Answer only within what the owner already authorized, else ask the owner.")
+        text = self.prompt_text(row, seen, "Answer only within what the owner already authorized, else ask the owner.")
         if SUPERVISOR not in alerts and ready and (seq := self.post(entry, "blocker", supervisor.subject.name, subject.name, text)):
             alerts[SUPERVISOR], row["told_at"] = seq, stamp(self.shell.now())
         if SUPERVISOR not in alerts and ready:
             return
-        if SUPERVISOR in alerts and ready and "wake" not in row and (sent := self.wake(supervisor.subject, text)):
-            row["wake"] = sent
+        if SUPERVISOR in alerts and ready and "wake" not in row:
+            sent = self.wake(supervisor.subject, text)
+            if "blocked" in sent:
+                row["supervisor_input"] = sent["blocked"]
+            else:
+                row["wake"] = sent
+                row.pop("supervisor_input", None)
         failed = (row.get("wake") or {}).get("error")
         if SUPERVISOR in alerts and ready and not failed and self.shell.now() - parse_stamp(row["told_at"]) < SUPERVISOR_WAIT:
             return
@@ -334,10 +377,10 @@ class Watch:
         elif failed:
             why = f"the wake to supervisor {supervisor.subject.name} failed with {failed}"
         elif "wake" not in row:
-            why = f"supervisor {supervisor.subject.name} showed no idle prompt to wake in {minutes}m"
+            why = f"supervisor {supervisor.subject.name} stayed {row['supervisor_input']} for {minutes}m"
         else:
-            why = f"supervisor {supervisor.subject.name} was woken {minutes}m ago and it is still open"
-        if seq := self.post(entry, "ask", OWNER, subject.name, self.prompt_text(seen, f"It froze the coordinator; {why}. Answer it in that terminal.")):
+            why = f"supervisor {supervisor.subject.name} got the line {minutes}m ago, {REACHED[row['wake']['reached']]}, and it is still open"
+        if seq := self.post(entry, "ask", OWNER, subject.name, self.prompt_text(row, seen, f"It froze the coordinator; {why}. Answer it in that terminal.")):
             alerts[OWNER] = seq
 
     def settle(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
@@ -349,24 +392,31 @@ class Watch:
         if seen.state in UNSEEN:
             row["unseen"] = row.get("unseen", 0) + 1 if row.get("unseen_state") == seen.state else 1
             row["unseen_state"] = seen.state
+            if seen.screen is not None:
+                if row["unseen"] == 1:
+                    row["unread_capture"] = self.capture(entry, f"unknown-{hashlib.sha1(subject.key.encode()).hexdigest()[:12]}", seen)
+                row["detail"] = f"{seen.detail}; screen saved at {row['unread_capture']}"
             if row["unseen"] >= UNSEEN_POLLS and row.get("reported") != seen.state:
-                text = f"{seen.state.upper()} {subject.name} ({subject.role}) terminal={subject.terminal or 'unresolved'}{f' environment={subject.environment}' if subject.environment else ''}: {seen.detail}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
+                text = f"{seen.state.upper()} {subject.name} ({subject.role}) terminal={subject.terminal or 'unresolved'}{f' environment={subject.environment}' if subject.environment else ''}: {row['detail']}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
                 if self.post(entry, "report", ROOT, subject.name, text):
                     row["reported"] = seen.state
             return
         row["unseen"] = 0
-        row.pop("unseen_state", None)
-        row.pop("reported", None)
+        for key in ("unseen_state", "reported", "unread_capture"):
+            row.pop(key, None)
         if seen.state not in PROMPTS:
             self.close(entry, row)
             return
-        episode = hashlib.sha1(f"{seen.state}|{seen.since}|{seen.detail}".encode()).hexdigest()[:12]
+        episode = hashlib.sha1(f"{seen.state}|{seen.since}|{seen.asked}".encode()).hexdigest()[:12]
         if row.get("episode") != episode:
             self.close(entry, row)
             if row["alerts"]:
                 return
             row["episode"] = episode
+        if "capture" not in row:
+            row["capture"] = self.capture(entry, episode, seen)
         self.alert(entry, row, seen, supervisor)
+        row["detail"] = f"screen saved at {row['capture']}{supervisor_note(row)}"
 
     def unverified(self, row: dict, unlisted: Seen) -> dict:
         """A worker nobody could list keeps its open prompt and its records; only its state says it went unread."""

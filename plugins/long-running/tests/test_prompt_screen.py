@@ -150,19 +150,25 @@ def test_the_input_box_is_claudes_ruled_prompt_or_codexs_composer_line(tail: tup
 CODEX_IDLE = ("• Completed and reported success through Orca.", "  Worked for 4m 35s • 10:10 AM", "› Ask Codex to do anything", "  GPT-6.1-Sol xhigh · ~/app", "  ? for shortcuts")
 
 
+CLAUDE_WORKING = ("· Timing the fetch… (14s · still thinking with xhigh effort)", "", *IDLE)
+
+
 @pytest.mark.parametrize(
-    ("terminal", "idle"),
+    ("terminal", "state"),
     [
-        (screen(*IDLE), True),
-        (screen(*CODEX_IDLE), True),
-        (screen(*CODEX_WORKING), False),
-        (screen(*CODEX_IDLE, draft="half a thought"), False),
-        (screen(*CODEX_APPROVAL), False),
-        (screen(*AGENT_LIST), False),
-        (screen(*HOOK_APPROVAL), False),
-        (screen(RULE, "❯ half-typed ask", RULE, MODE), False),
-        ({"source": "screen-unavailable", "tail": list(CODEX_IDLE)}, False),
+        (screen(*IDLE), "idle"),
+        (screen(*CODEX_IDLE), "idle"),
+        (screen(*CLAUDE_WORKING), "busy"),
+        (screen(*CODEX_WORKING), "busy"),
+        (screen(*CODEX_IDLE, draft="half a thought"), "busy"),
+        (screen(*AGENT_LIST), "busy"),
+        (screen(RULE, "❯ half-typed ask", RULE, MODE), "busy"),
+        (screen(*CODEX_APPROVAL), "waiting"),
+        (screen(*HOOK_APPROVAL), "waiting"),
+        (screen(*ASK_USER_QUESTION), "waiting"),
+        (screen(" Resume Session", "", "   Loading conversations…"), None),
+        ({"source": "screen-unavailable", "tail": list(CODEX_IDLE)}, None),
     ],
 )
-def test_a_wake_is_typed_only_where_a_line_would_start_a_turn(terminal: dict, idle: bool) -> None:
-    assert prompt_screen.idle_input(terminal) is idle
+def test_idle_busy_and_waiting_stay_apart_for_claude_and_codex(terminal: dict, state: str | None) -> None:
+    assert prompt_screen.input_state(terminal) == state

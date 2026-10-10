@@ -22,6 +22,7 @@ GONE = "ctx_726698aaa803"
 ENVIRONMENT = "codex-hooks-proof"
 READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("terminal", "wait"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
 TUI_IDLE = ("terminal", "wait", "--terminal", SUPERVISOR, "--for", "tui-idle", "--timeout-ms", "1000")
+DIALOG_WORDS = ("runs rm", "Do you want to proceed", "Kick it off", "Would you like to run", "rm -rf")
 ASKED = "Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed?"
 
 
@@ -148,6 +149,16 @@ def state() -> dict:
     return json.loads((prompt_watch.watch_dir(drive.find(DRIVE, None)) / prompt_watch.STATE_FILE).read_text())["subjects"]
 
 
+def whole(post: dict) -> str:
+    """The record's whole line: pytest's long paths push it past cci's limit, so it rides as the --path body."""
+    assert len(post["--text"]) <= 400
+    return Path(post["--path"]).read_text().rstrip("\n") if "--path" in post else post["--text"]
+
+
+def notice(name: str, role: str, waits: str, capture: str, read_it: str, tail: str) -> str:
+    return f"PROMPT {name} ({role}) waits on {waits}. Screen: {capture}. Read: {read_it}. {tail}"
+
+
 def shown(shell: FakeShell, capsys) -> list[str]:
     capsys.readouterr()
     assert prompt_watch.main(["show", "--drive", DRIVE], shell) == 0
@@ -165,14 +176,30 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
     assert rows[ROOT]["state"] == "approval" and rows[ROOT]["since"] == 1791627768779
     [post] = shell.posts
     assert post["--to"] == "codex-supervisor" and post["--kind"] == "blocker" and post["--lane"] == "prompt-watch" and post["--topic"] == "prompt:coordinator"
-    assert post["--text"].startswith(f"PROMPT coordinator (coordinator) terminal={ROOT} waits on an approval: …")
-    assert post["--text"].endswith(
-        f"This shell -c script runs rm and could not be checked / Do you want to proceed?. Read: orca terminal read --terminal {ROOT} --screen. "
-        "Answer only within what the owner already authorized, else ask the owner."
+    capture = Path(rows[ROOT]["capture"])
+    assert whole(post) == notice(
+        "coordinator", "coordinator", "an approval dialog", str(capture), f"orca terminal read --terminal {ROOT} --screen", "Answer only within what the owner already authorized, else ask the owner."
     )
-    assert len(post["--text"]) <= 400
-    assert rows[ROOT]["detail"] == ASKED
+    assert rows[ROOT]["detail"] == f"screen saved at {capture}; supervisor is busy"
     assert shell.sends == [] and "wake" not in rows[ROOT]
+
+
+def test_the_dialogs_text_stays_in_an_owner_only_file_under_the_drives_state_directory(home, shell, capsys):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell, "managed-server.working", idle=True)
+
+    rows = poll(shell, 11)
+
+    capture = Path(rows[ROOT]["capture"])
+    saved = json.loads(capture.read_text())
+    assert capture.parent == home / "scratch" / "release-v3" / "prompt-watch" / "screens"
+    assert capture.stat().st_mode & 0o777 == 0o600 and capture.parent.stat().st_mode & 0o777 == 0o700
+    assert saved["asked"] == ASKED and " ❯ 1. Yes" in saved["tail"] and saved["terminal"] == ROOT and saved["state"] == "approval"
+    everything_else = [whole(post) for post in shell.posts] + [call[6] for call in shell.sends] + shown(shell, capsys) + [json.dumps(rows)]
+    assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
+    assert not [text for text in everything_else for words in DIALOG_WORDS if words in text]
 
 
 def test_with_no_supervisor_the_coordinators_prompt_is_one_ask_on_the_owners_card(home, shell):
@@ -184,7 +211,7 @@ def test_with_no_supervisor_the_coordinators_prompt_is_one_ask_on_the_owners_car
 
     [post] = shell.posts
     assert post["--to"] == "owner" and post["--kind"] == "ask"
-    assert "It froze the coordinator; no supervisor desk is registered. Answer it in that terminal." in post["--text"]
+    assert whole(post).endswith(" It froze the coordinator; no supervisor desk is registered. Answer it in that terminal.")
 
 
 @pytest.mark.parametrize(
@@ -206,7 +233,7 @@ def test_a_supervisor_that_cannot_act_sends_the_coordinators_prompt_to_the_owner
     poll(shell)
 
     [ask] = shell.to("owner")
-    assert f"It froze the coordinator; {why}. Answer it in that terminal." in ask["--text"]
+    assert whole(ask).endswith(f" It froze the coordinator; {why}. Answer it in that terminal.")
     assert shell.to("codex-supervisor") == []
 
 
@@ -221,26 +248,34 @@ def test_a_prompt_still_open_five_minutes_after_the_supervisor_heard_becomes_one
     poll(shell, 4)
 
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"]
-    assert "supervisor codex-supervisor showed no idle prompt to wake in 5m" in shell.posts[1]["--text"]
+    assert whole(shell.posts[1]).endswith(" It froze the coordinator; supervisor codex-supervisor stayed busy for 5m. Answer it in that terminal.")
     assert shell.sends == []
 
 
-@pytest.mark.parametrize("screen", ["managed-server.working", "supervisor.claude-idle"])
-def test_an_idle_supervisor_gets_the_records_line_typed_once_into_its_own_terminal(home, shell, screen):
+@pytest.mark.parametrize(
+    ("screen", "receipt", "request_id"),
+    [
+        ("managed-server.working", "terminal-send.codex-pilot", "82f8014f-c164-4856-b77b-bac9e2338ae4"),
+        ("supervisor.claude-idle", "terminal-send.turn-started", "02c7edf3-c3d1-4ec3-b3ed-c1d125c8be82"),
+    ],
+)
+def test_an_idle_supervisor_gets_the_records_line_typed_once_into_its_own_terminal(home, shell, screen, receipt, request_id):
     supervised(home)
     unbound(shell)
     coordinator(shell, "waiting", "coordinator.approval")
     supervisor(shell, screen, idle=True)
+    shell.send_reply = fixture(receipt)
 
     rows = poll(shell, 3)
 
     [post] = shell.posts
     [sent] = shell.sends
-    assert sent[6] == post["--text"] and "\n" not in sent[6]
-    assert rows[ROOT]["wake"] | {"at": ""} == {"at": "", "request": "02c7edf3-c3d1-4ec3-b3ed-c1d125c8be82", "stages": ["input_accepted", "turn_started"]}
+    assert sent[6] == whole(post) and "\n" not in sent[6]
+    assert rows[ROOT]["wake"] | {"at": ""} == {"at": "", "request": request_id, "stages": ["input_accepted", "turn_started"], "reached": "turn_started"}
+    assert rows[ROOT]["detail"].endswith("; supervisor got one line and its turn started")
     poll(shell, 8)
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
-    assert "supervisor codex-supervisor was woken 5m ago and it is still open" in shell.posts[1]["--text"]
+    assert "supervisor codex-supervisor got the line 5m ago, its turn started, and it is still open" in whole(shell.posts[1])
 
 
 def test_a_line_orca_accepted_with_no_turn_start_is_kept_as_accepted_and_never_typed_again(home, shell):
@@ -252,8 +287,20 @@ def test_a_line_orca_accepted_with_no_turn_start_is_kept_as_accepted_and_never_t
 
     rows = poll(shell, 4)
 
-    assert rows[ROOT]["wake"]["stages"] == ["input_accepted"] and len(shell.sends) == 1
+    assert rows[ROOT]["wake"]["reached"] == "input_accepted" and rows[ROOT]["wake"]["stages"] == ["input_accepted"] and len(shell.sends) == 1
+    assert rows[ROOT]["detail"].endswith("; supervisor got one line and Orca accepted it and saw no turn start")
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor"]
+
+
+def test_a_working_claude_supervisor_reads_busy_and_gets_no_line_even_when_orca_calls_it_idle(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    supervisor(shell, "coordinator.answered", idle=True)
+
+    rows = poll(shell, 2)
+
+    assert shell.sends == [] and rows[ROOT]["supervisor_input"] == "busy"
 
 
 def test_a_busy_supervisor_is_woken_on_the_first_poll_that_finds_it_idle(home, shell):
@@ -270,7 +317,7 @@ def test_a_busy_supervisor_is_woken_on_the_first_poll_that_finds_it_idle(home, s
 
     poll(shell, 2)
 
-    assert len(shell.sends) == 1 and len(shell.posts) == 1
+    assert len(shell.sends) == 1 and len(shell.posts) == 1 and "supervisor_input" not in state()[ROOT]
 
 
 def test_a_wake_orca_refuses_is_an_owner_ask_at_once_and_is_not_typed_again(home, shell):
@@ -284,7 +331,7 @@ def test_a_wake_orca_refuses_is_an_owner_ask_at_once_and_is_not_typed_again(home
 
     assert rows[ROOT]["wake"]["error"] == "terminal_handle_stale: terminal_handle_stale"
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
-    assert "the wake to supervisor codex-supervisor failed with terminal_handle_stale: terminal_handle_stale" in shell.posts[1]["--text"]
+    assert "the wake to supervisor codex-supervisor failed with terminal_handle_stale: terminal_handle_stale" in whole(shell.posts[1])
 
 
 def test_no_line_is_ever_typed_into_a_terminal_that_waits_or_for_a_workers_prompt(home, shell):
@@ -339,7 +386,7 @@ def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell):
 
     first, cleared, second = shell.posts
     assert (first["--kind"], cleared["--kind"], second["--kind"]) == ("ask", "unblock", "ask")
-    assert "waits on a question: Test page / Should I kick off the end-to-end test page now?" in second["--text"]
+    assert "waits on a question dialog. Screen: " in whole(second) and state()[ROOT]["capture"] in whole(second)
 
 
 def test_a_wait_with_a_screen_that_shows_no_known_prompt_is_unknown_and_reported_once_after_three_polls(home, shell, capsys):
@@ -354,10 +401,12 @@ def test_a_wait_with_a_screen_that_shows_no_known_prompt_is_unknown_and_reported
     assert rows[ROOT]["state"] == "unknown"
     [report] = shell.posts
     assert report["--to"] == "root" and report["--kind"] == "report"
-    assert report["--text"] == (
+    capture = home / "scratch" / "release-v3" / "prompt-watch" / "screens" / Path(rows[ROOT]["unread_capture"]).name
+    assert whole(report) == (
         f"UNKNOWN coordinator (coordinator) terminal={ROOT}: agentWait via hook is set and the screen shows neither a known dialog nor an input box; "
-        "unread for 3 polls, so whether it waits on a prompt is not known"
+        f"screen saved at {capture}; unread for 3 polls, so whether it waits on a prompt is not known"
     )
+    assert json.loads(capture.read_text())["tail"][-2] == "   Loading conversations…" and capture.stat().st_mode & 0o777 == 0o600
     assert shown(shell, capsys)[0].endswith("0 approval, 0 question, 0 stale, 1 unknown, 0 unreachable, 0 clear")
 
 
@@ -403,10 +452,7 @@ def test_a_workers_question_wakes_the_coordinator_once(home, shell):
     assert rows[f"dispatch:{LOCAL}"]["state"] == "question" and rows[f"dispatch:{LOCAL}"]["name"] == "bake"
     assert shell.kinds("bake") == ["blocker"]
     post = shell.to("root")[0]
-    assert post["--text"] == (
-        f"PROMPT bake (worker) terminal={LOCAL_TERMINAL} waits on a question: Test page / Should I kick off the end-to-end test page now?. "
-        f"Read: orca terminal read --terminal {LOCAL_TERMINAL} --screen. The watch answers nothing."
-    )
+    assert whole(post) == notice("bake", "worker", "a question dialog", rows[f"dispatch:{LOCAL}"]["capture"], f"orca terminal read --terminal {LOCAL_TERMINAL} --screen", "The watch answers nothing.")
     assert shell.to("owner") == [] and shell.kinds(GONE) == ["report"]
 
 
@@ -441,9 +487,8 @@ def test_a_managed_server_worker_sets_no_wait_so_its_screen_is_read_through_its_
 
     assert rows[f"dispatch:{REMOTE}"]["state"] == "approval"
     assert shell.kinds(REMOTE) == ["blocker"]
-    assert shell.to("root")[0]["--text"] == (
-        f"PROMPT {REMOTE} (worker) terminal={REMOTE_TERMINAL} waits on an approval: Would you like to run the following command? / Reason: the bake left a partial output directory / $ rm -rf build/out. "
-        f"Read: orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}. The watch answers nothing."
+    assert whole(shell.to("root")[0]) == notice(
+        REMOTE, "worker", "an approval dialog", rows[f"dispatch:{REMOTE}"]["capture"], f"orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}", "The watch answers nothing."
     )
 
 
@@ -575,7 +620,7 @@ def test_show_names_a_watch_that_never_polled_and_one_that_stopped(home, shell, 
 
     assert lines[0] == f"prompt-watch {DRIVE} polled 270s ago: 1 approval, 0 question, 0 stale, 0 unknown, 0 unreachable, 0 clear"
     assert lines[1] == f"PROMPT-WATCH-DOWN {DRIVE}: last poll 4m ago, so the states below are old; start it with `{prompt_watch.SCRIPT} start --drive {DRIVE}`"
-    assert lines[2] == f"WAITING-ON-PROMPT coordinator coordinator approval 4m terminal={ROOT}: {ASKED}"
+    assert lines[2] == f"WAITING-ON-PROMPT coordinator coordinator approval 4m terminal={ROOT}: screen saved at {state()[ROOT]['capture']}"
 
 
 def test_show_finds_the_drive_by_its_cci_name_and_prints_nothing_for_a_stranger(home, shell, capsys):
