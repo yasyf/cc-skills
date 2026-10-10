@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a retro from response records, record the owner's picks, and publish the rendered page.
 
-  retro.py new --incident SRC [--incident SRC]… --docs <checkout> --title T [--date D] [--team C=a,b]…
+  retro.py new --incident SRC [--incident SRC]… --docs <checkout> --title T [--date D] [--team NAME]…
   retro.py board <dir> [--out FILE]
   retro.py publish <dir> [--seconds N]
   retro.py publish <dir> --await <pr-url> [--seconds N]
@@ -9,8 +9,8 @@
 
 `new` reads an incident directory, `cci:<regex>`, or a cc-notes id. It rebuilds state.json as live
 sync does and imports time-led Markdown bullets, coordination records, or the named note, answer,
-investigation, or log. Timeline rows lift links into refs, replace customer names through --team
-aliases, and store times with the display zone's offset.
+investigation, or log. Timeline rows lift links into refs and store times with the display zone's
+offset.
 
 `board` turns prevention questions into cc-present cards, with options, facts, pros, cons, and
 recommendations. Present it to the owner, record picked options, owners, PR links or named lanes,
@@ -188,40 +188,28 @@ def stamp_rows(rows: list, retro) -> dict:
     return {"detected": detected, "engaged": engaged, "mitigated": first("mitigation")}
 
 
-def teams_of(specs: list) -> list:
-    out = []
-    for spec in specs or []:
-        codename, _, aliases = spec.partition("=")
-        out.append({"codename": codename.strip(), "aliases": [a.strip() for a in aliases.split(",") if a.strip()]})
-    return out
-
-
 def new(args) -> int:
     retro, live = args.retro, args.retro.sibling_module("retro_live")
     tz = zoneinfo.ZoneInfo(args.tz)
     docs = Path(args.docs).expanduser().resolve()
     day = datetime.date.fromisoformat(args.date) if args.date else datetime.datetime.now(tz).date()
-    teams = teams_of(args.team)
-    scrub = live.scrubber(teams)
-    slug = retro.retro_slug(args.slug, scrub(args.title), day.isoformat())
+    slug = retro.retro_slug(args.slug, args.title, day.isoformat())
     root = docs / RETRO_DIR / slug
     started = time.monotonic()
     rows, state, read = gather(args.incident, args, tz, retro, live, day, Path.cwd())
-    made = retro.scaffold(argparse.Namespace(dir=str(root), title=scrub(args.title), subtitle=None, tags=args.tags,
+    made = retro.scaffold(argparse.Namespace(dir=str(root), title=args.title, subtitle=None, tags=args.tags,
                                              date=day.isoformat(), incident=None, slug=slug, example=False))
     if made:
         return made
     R = json.loads((root / "retro.json").read_text())
     if state:
         incident, raw = state
-        messages = live.scrub_tree(live.read_slack(incident), scrub)
-        R = live.rebuild(live.scrub_state(raw, scrub), messages, R, retro, live.utc_now(), None)
+        R = live.rebuild(raw, live.read_slack(incident), R, retro, live.utc_now(), None)
         R.pop("live", None)
     R["meta"]["timezone"] = args.tz
-    R["meta"]["teams"] = [t["codename"] for t in teams] or R["meta"].get("teams") or []
+    R["meta"]["teams"] = [t.strip() for t in args.team or [] if t.strip()] or R["meta"].get("teams") or []
     R["meta"]["status"] = "draft"
-    R["timeline"] = live.scrub_tree(sorted(R.get("timeline", []) + rows, key=lambda r: retro.parse_ts(r["ts"])),
-                                    scrub)
+    R["timeline"] = sorted(R.get("timeline", []) + rows, key=lambda r: retro.parse_ts(r["ts"]))
     for r in R["timeline"]:
         r.pop("id", None)
         r.pop("key", None)
@@ -232,10 +220,10 @@ def new(args) -> int:
     retro.write_retro(root, R)
     notes = root / "NOTES.md"
     notes.write_text(notes.read_text() + "\n## Sources\n\n" +
-                     "".join(f"- `{scrub(s)}`: {n} timeline row(s)\n" for s, n in read))
+                     "".join(f"- `{s}`: {n} timeline row(s)\n" for s, n in read))
     print(f"new: {root} from {len(read)} source(s), {len(R['timeline'])} timeline row(s), "
           f"{sum(1 for r in R['timeline'] if r.get('key'))} key, in {time.monotonic() - started:.1f}s")
-    if retro.check(argparse.Namespace(dir=str(root), strict=False, forbidden_terms=None)):
+    if retro.check(argparse.Namespace(dir=str(root), strict=False)):
         print("new: check found errors; fix them, then run publish", file=sys.stderr)
         return 1
     return 0
@@ -265,8 +253,7 @@ def render_with_plugin_template(root: Path, retro) -> int:
 def gate(root: Path, retro) -> int:
     failed = 0
     for name, call in (
-            ("check --strict", lambda: retro.check(argparse.Namespace(dir=str(root), strict=True,
-                                                                      forbidden_terms=None))),
+            ("check --strict", lambda: retro.check(argparse.Namespace(dir=str(root), strict=True))),
             ("render-check", lambda: render_with_plugin_template(root, retro))):
         started = time.monotonic()
         code = call()
@@ -425,8 +412,8 @@ def add_new_parsers(sub, retro):
     nw.add_argument("--slug")
     nw.add_argument("--tags")
     nw.add_argument("--tz", default="America/Los_Angeles", help="the display zone and the zone bullet times are in")
-    nw.add_argument("--team", action="append", metavar="CODENAME=alias,alias",
-                    help="replace each alias with the codename everywhere the records are copied; repeatable")
+    nw.add_argument("--team", action="append", metavar="NAME",
+                    help="a team the incident affected, by its customer name; repeatable")
     nw.add_argument("--since", help="cci window: a duration such as 8h, or an RFC 3339 time")
     nw.set_defaults(fn=new, retro=retro)
     pb = sub.add_parser("publish", help="gate, commit, open the ready pull request, merge it, and print the rendered "

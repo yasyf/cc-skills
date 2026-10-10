@@ -241,9 +241,8 @@ section carries these parts.
    `timestamps`; set `engaged` and `mitigated` from the timeline.
 4. Retitle every cause whose title is its first sentence and check every
    kind and actor guess.
-5. Replace customer names with deployment codenames in prose, fill
-   `impact.teams` and `meta.teams`, and run `retro.py check` with a
-   `.customer-names` file or `--forbidden-terms`.
+5. Fill `impact.teams` and `meta.teams` with the affected customers'
+   names.
 6. Run `retro.py evidence fetch` for every notebook and monitor the report
    lists, and `retro.py evidence slack new` for every Slack permalink.
 7. Run `retro.py check` and clear what it reports, then continue at the

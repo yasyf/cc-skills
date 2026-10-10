@@ -2,7 +2,7 @@
 """Driver for the incident-retro skill.
 
   retro.py scaffold <dir> --title T [--date YYYY-MM-DD] [--incident N] [--slug S] [--example]
-  retro.py check <dir> [--strict] [--forbidden-terms REGEX]
+  retro.py check <dir> [--strict]
   retro.py render-check <dir> [--timeout S]
   retro.py snapshot <dir> [--note X] [--item …] [--force]
   retro.py links <dir> [--fetch] [--missing] [--json]
@@ -21,7 +21,7 @@ retro.json: identity and vocabularies, timestamp order and offsets, windows,
 the timeline's order and phases, impact metrics, causes, actions, the
 evidence register against the snapshot files beside it, citations and
 footnotes, handles and plain twins, prose that states a derived number,
-capitalisation, declared components, forbidden terms, the library pins, the
+capitalisation, declared components, the library pins, the
 template stamp, ai.json, and the revision history; errors exit non-zero,
 warnings are advisory, and --strict promotes the warnings a published retro
 must not carry. render-check opens the retro in headless Chrome and fails on
@@ -685,7 +685,7 @@ def check_tags(rep, meta, tags):
     teams = {slugify(t) for t in (meta.get("teams") or ()) if isinstance(t, str)}
     shared = sorted(set(tags) & teams)
     if shared:
-        rep.warn(f"meta.tags repeats the team codename{'s' if len(shared) > 1 else ''} {', '.join(shared)}; the page "
+        rep.warn(f"meta.tags repeats the team name{'s' if len(shared) > 1 else ''} {', '.join(shared)}; the page "
                  "already renders team chips, and a tag names a system or a failure class")
 
 
@@ -1042,7 +1042,7 @@ def check_windows(rep, R, ts: dict, sub_ids: set):
                 rep.warn(f"{wid} starts before timestamps.onset; onset is the first moment of impact")
         teams = w.get("teams")
         if teams is not None and not (isinstance(teams, list) and all(isinstance(t, str) and t.strip() for t in teams)):
-            rep.err(f"{wid}.teams must be a list of team codenames")
+            rep.err(f"{wid}.teams must be a list of team names")
         if w.get("incident") is not None and w["incident"] not in sub_ids:
             rep.err(f"{wid}: incident {w['incident']!r} is not in meta.subIncidents")
     for (ida, (a0, a1, wa)), (idb, (b0, b1, wb)) in ((x, y) for x in spans.items() for y in spans.items() if x[0] < y[0]):
@@ -1132,11 +1132,11 @@ def check_impact(rep, R, known: set):
     teams = impact.get("teams")
     if teams is not None:
         if not isinstance(teams, list):
-            rep.err("impact.teams must be a list of {codename, text}")
+            rep.err("impact.teams must be a list of {codename, text}, codename holding the team name")
         else:
             for i, t in enumerate(teams):
                 if not (isinstance(t, dict) and isinstance(t.get("codename"), str) and t["codename"].strip()):
-                    rep.err(f"impact.teams[{i}] must carry a codename")
+                    rep.err(f"impact.teams[{i}] must carry the team name in codename")
     metrics = impact.get("metrics")
     if metrics is None:
         return
@@ -2176,35 +2176,6 @@ def check_components(rep, R, root: Path, known: set, slack_snapshots: set):
         rep.warn(f"components.{cid} is declared but no register field places it; it renders nowhere")
 
 
-def masked(term: str) -> str:
-    return term[:1] + "…" * (len(term) > 1) + f" ({len(term)} chars)"
-
-
-def check_forbidden_terms(rep, root: Path, override):
-    evidence = sibling_module("retro_evidence")
-    if evidence is None:
-        rep.warn("scripts/retro_evidence.py is missing, so the forbidden-terms grep it provides did not run; customer names were not checked")
-        return
-    pattern = evidence.forbidden_terms(override, root)
-    if pattern is None:
-        rep.warn("no forbidden-terms source (--forbidden-terms, FORBIDDEN_TERMS, or a .customer-names file up the tree); customer names were not checked")
-        return
-    files = [root / name for name in PROJECT_FILES if (root / name).exists()]
-    files += [p for p in evidence_files(root) if p.suffix in EVIDENCE_TEXT]
-    for path in files:
-        try:
-            text = path.read_text()
-        except (OSError, UnicodeDecodeError):
-            continue
-        hits = {}
-        for n, line in enumerate(text.splitlines(), 1):
-            for m in pattern.finditer(line):
-                hits.setdefault(m.group().lower(), []).append(n)
-        for term, lines in sorted(hits.items()):
-            shown = ", ".join(map(str, lines[:5])) + (", …" if len(lines) > 5 else "")
-            rep.err(f"{path.relative_to(root)} names the forbidden term {masked(term)} on line(s) {shown}")
-
-
 def check_libs(rep):
     template = TEMPLATES / PAGE
     schema = REFERENCE / "schema.md"
@@ -2341,7 +2312,6 @@ def check(args) -> int:
     check_derived_prose(rep, R)
     check_capitalisation(rep, R)
     check_components(rep, R, root, known, slack_snapshots)
-    check_forbidden_terms(rep, root, args.forbidden_terms)
     check_libs(rep)
     check_template_fresh(rep)
     for folder in (root, root.parent):
@@ -2776,7 +2746,6 @@ def main():
     ck = sub.add_parser("check", help="lint retro.json and the evidence beside it")
     ck.add_argument("dir")
     ck.add_argument("--strict", action="store_true", help="treat the warnings a published retro must not carry as errors")
-    ck.add_argument("--forbidden-terms", metavar="REGEX", help="customer names the retro and its evidence must not carry (default: FORBIDDEN_TERMS, then the nearest .customer-names)")
     ck.set_defaults(fn=check)
     rc = sub.add_parser("render-check", help="render the retro in headless Chrome and fail on an unmounted component or unrendered cell")
     rc.add_argument("dir")

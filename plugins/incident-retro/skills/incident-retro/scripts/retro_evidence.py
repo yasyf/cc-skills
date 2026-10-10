@@ -73,21 +73,6 @@ def resolve_window(time, fetched_at: datetime.datetime):
     return {"start": parse_ts(time["start"]).isoformat(), "end": parse_ts(time["end"]).isoformat(), "live": bool(time.get("live"))}
 
 
-def forbidden_terms(flag, start: Path):
-    if flag:
-        return re.compile(flag, re.IGNORECASE)
-    env = os.environ.get("FORBIDDEN_TERMS")
-    if env:
-        return re.compile(env, re.IGNORECASE)
-    start = start.resolve()
-    for parent in (start, *start.parents):
-        names = parent / ".customer-names"
-        if names.exists():
-            terms = [l.strip() for l in names.read_text().splitlines() if l.strip() and not l.startswith("#")]
-            return re.compile("|".join(terms), re.IGNORECASE)
-    return None
-
-
 def load_retro(root: Path) -> dict:
     path = root / "retro.json"
     if not path.exists():
@@ -392,17 +377,6 @@ def register(entries: list, entry: dict):
     entries.append(entry)
 
 
-def screen(snap: dict, pattern, label: str, allow: bool):
-    if pattern is None:
-        print(f"WARNING: no forbidden-terms source configured; {label} was not screened", file=sys.stderr)
-        return
-    hits = sorted({m.group(0) for m in pattern.finditer(json.dumps(snap, ensure_ascii=False))})
-    if hits and not allow:
-        raise SystemExit(f"{label}: forbidden terms in the payload ({', '.join(hits)}); nothing written. Pass --allow-terms to write anyway")
-    if hits:
-        print(f"WARNING: {label} carries forbidden terms ({', '.join(hits)}); written because of --allow-terms", file=sys.stderr)
-
-
 def write_snapshot(root: Path, rel: str, snap: dict):
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -415,7 +389,6 @@ def fetch(args) -> int:
     if not (args.notebook or args.monitor):
         raise SystemExit("pass at least one --notebook or --monitor")
     retro = load_retro(root)
-    pattern = forbidden_terms(args.forbidden_terms, root)
     api_key, app_key = datadog_keys(args)
     dd = Datadog(args.site, api_key, app_key)
     fetched_at = utc_now()
@@ -425,7 +398,6 @@ def fetch(args) -> int:
         if args.dry_run:
             continue
         rel = f"evidence/datadog/notebook-{nid}.json"
-        screen(snap, pattern, f"notebook {nid}", args.allow_terms)
         write_snapshot(root, rel, snap)
         if not args.no_register:
             register(retro["evidence"].setdefault("notebooks", []), {"id": nid, "url": snap["url"], "file": rel})
@@ -435,7 +407,6 @@ def fetch(args) -> int:
         if args.dry_run:
             continue
         rel = f"evidence/datadog/monitor-{mid}.json"
-        screen(snap, pattern, f"monitor {mid}", args.allow_terms)
         write_snapshot(root, rel, snap)
         if not args.no_register:
             register(retro["evidence"].setdefault("monitors", []), {"id": mid, "url": snap["url"], "file": rel})
@@ -687,8 +658,6 @@ def add_evidence_parsers(sub) -> None:
     fe.add_argument("--logs-limit", type=int, default=LOGS_LIMIT, help=f"log lines kept per log_stream cell (default {LOGS_LIMIT})")
     fe.add_argument("--interval", type=int, metavar="SECONDS", help="timeseries rollup; default lets Datadog choose, capped at ~1500 points")
     fe.add_argument("--no-register", action="store_true", help="write the files without touching retro.json")
-    fe.add_argument("--allow-terms", action="store_true", help="write a snapshot even when the forbidden-terms grep matches")
-    fe.add_argument("--forbidden-terms", metavar="REGEX", help="terms to grep the payload for; default FORBIDDEN_TERMS, else the nearest .customer-names")
     fe.add_argument("--dry-run", action="store_true", help="print the per-cell plan without querying data or writing files")
     fe.set_defaults(func=fetch)
     sl = evs.add_parser("slack", help="validate or scaffold ir.slack/1 snapshots the authoring agent writes from its Slack tooling")

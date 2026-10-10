@@ -144,6 +144,6 @@ Blocks the converter could not place, verbatim:
 2. Write a `p` plain twin for summary, impact, every cause, resolution and detection.
 3. Confirm the timezone of every converted time above, and the inferred timestamps.
 4. Retitle every cause whose `t` is its first sentence, and check every kind and actor guess.
-5. Replace customer names with deployment codenames in prose, and fill `impact.teams` and `meta.teams`.
+5. Fill `impact.teams` and `meta.teams` with the affected customers' names.
 6. Run `retro.py evidence fetch` for the notebooks and monitors, and `evidence slack new` for each Slack permalink.
 7. Run `retro.py check` and clear what it reports.

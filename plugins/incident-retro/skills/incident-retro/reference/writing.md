@@ -57,7 +57,7 @@ the recorded endpoints.
 
 Write 2 to 6 distinct lower-case topical tags in `meta.tags`, joining words
 with hyphens. Name the system, failure class, and surface, as in `migration`,
-`release-pipeline`, and `paging`. Keep team codenames in `meta.teams`; the page
+`release-pipeline`, and `paging`. Keep the affected customers' names in `meta.teams`; the page
 already shows their chips and warns when a tag repeats one. Tags are
 operator-chosen data from a controlled vocabulary for filtering, not
 writing. `meta.tags` is not a prose field and `retro.py prose` does not
@@ -249,21 +249,9 @@ remains unresolved.
 
 ## Public names
 
-Use codenames in published prose and evidence. Apply them to services and
-deployments as well as teams. Remove private names before writing a snapshot,
-not only from the rendered sentence. Private names include customers,
-companies, workspaces, tenants, and accounts. Notebook titles, log messages,
-monitor messages, Slack text, and image captions are all published with the
-retro.
-
-Configure `--forbidden-terms`, `FORBIDDEN_TERMS`, or the nearest
-`.customer-names` file. `retro.py check` scans `retro.json`, `NOTES.md`, and
-text evidence; treat a match as a publishing block.
-
-The same gate applies before every push to `live/<slug>`, which has no CI.
-`live sync` first replaces names using `teams[].aliases`, then runs `check`
-before pushing. Configure the forbidden-terms source before the first sync;
-the command's warning about a missing source does not clear the push.
+Use the customer's name wherever the retro names an affected team: prose,
+`meta.teams`, and `impact.teams`. Evidence keeps the names it was captured
+with.
 
 ## Prose gate
 

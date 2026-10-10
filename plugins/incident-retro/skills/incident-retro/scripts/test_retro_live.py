@@ -90,7 +90,7 @@ def incident_dir() -> Path:
 def args(incident: Path, docs: Path, **extra):
     base = {"incident_dir": str(incident), "docs": str(docs), "slug": None,
             "repo": "Forge-AI/design-docs", "timezone": "America/Los_Angeles",
-            "forbidden_terms": None, "retro": retro, "no_push": True, "push": False, "notebook_snapshot": None,
+            "retro": retro, "no_push": True, "push": False, "notebook_snapshot": None,
             "tags": "browser-pool,executors,deploy"}
     base.update(extra)
     return argparse.Namespace(**base)
@@ -218,17 +218,16 @@ class Sync(unittest.TestCase):
         self.assertEqual([c["id"] for c in record["causes"]], ["C1"])
         self.assertEqual({a["id"]: a["source"] for a in record["actions"]}, {"AI1": "C1", "AI2": "review"})
 
-    def test_a_raw_customer_name_is_replaced_by_its_codename(self):
-        blob = (self.root / "retro.json").read_text() + "".join(
-            p.read_text() for p in (self.root / "evidence" / "slack").glob("*.json"))
-        for raw in ("Northwind Foods", "Northwind", "Contoso EU"):
-            self.assertNotIn(raw, blob, f"{raw} survived the scrub")
-        self.assertIn("Polar", blob)
-        self.assertIn("Mamba", blob)
+    def test_the_customer_names_are_copied_as_written(self):
+        record = self.record()
+        self.assertEqual(record["meta"]["teams"], ["Northwind Foods", "Contoso EU"])
+        blob = "".join(p.read_text() for p in (self.root / "evidence" / "slack").glob("*.json"))
+        self.assertIn("Northwind Foods", blob)
+        self.assertIn("Contoso EU", blob)
 
-    def test_the_incident_channel_is_copied_with_its_name_scrubbed(self):
+    def test_the_incident_channel_is_copied(self):
         self.assertEqual(self.record()["meta"]["incident"]["channel"],
-                         {"name": "inc-Polar-browsers", "id": "C0A1B2C3D4E",
+                         {"name": "inc-northwind-browsers", "id": "C0A1B2C3D4E",
                           "permalink": "https://forge-ai.slack.com/archives/C0A1B2C3D4E"})
 
     def test_the_slack_snapshots_hold_the_thread_and_are_registered(self):
@@ -240,11 +239,6 @@ class Sync(unittest.TestCase):
         thread = json.loads((self.root / "evidence" / "slack" / files[0]).read_text())
         self.assertEqual(thread["schema"], "ir.slack/1")
         self.assertEqual(len(thread["messages"]), 2)
-
-    def test_a_forbidden_term_refuses_the_push(self):
-        code = run(retro_live.sync, args(self.incident, self.docs, no_push=False, forbidden_terms="Polar"))
-        self.assertEqual(code, 1)
-
 
 class MonitorSnapshot(unittest.TestCase):
     """The live view previews each paging monitor's state and the series it alerts on."""
@@ -266,10 +260,7 @@ class MonitorSnapshot(unittest.TestCase):
                          ("ir.monitor/1", MONITOR_ID, "Alert"))
         self.assertEqual(snapshot["series"]["t"], [1788386400, 1788390000, 1788393600])
         self.assertEqual([row["v"] for row in snapshot["series"]["series"]], [[4.0, 0.0, None], [None, 2.0, 5.0]])
-
-    def test_a_group_the_gate_forbids_is_relabelled_instead_of_refusing_the_push(self):
-        snapshot = self.sync(forbidden_terms="acme")
-        self.assertEqual([row["label"] for row in snapshot["series"]["series"]], ["team:Polar", "group 2"])
+        self.assertEqual([row["label"] for row in snapshot["series"]["series"]], ["team:northwind", "team:acme"])
 
     def test_a_monitor_with_no_metric_query_carries_no_series(self):
         monitor = {**DATADOG[("GET", f"/api/v1/monitor/{MONITOR_ID}")], "type": "log alert"}
@@ -299,17 +290,15 @@ class NotebookSnapshot(unittest.TestCase):
         self.assertEqual((snapshot["schema"], snapshot["id"]), ("ir.notebook/1", NOTEBOOK_ID))
         self.assertEqual(snapshot["cells"][1]["status"], "rendered")
 
-    def test_the_snapshot_carries_the_codename_not_the_customer(self):
-        text = (self.root / NOTEBOOK_FILE).read_text()
-        self.assertNotIn("Northwind", text)
-        self.assertIn("Polar runs stall first.", text)
+    def test_the_snapshot_carries_the_notebook_text_as_written(self):
+        self.assertIn("Northwind runs stall first.", (self.root / NOTEBOOK_FILE).read_text())
 
     def test_a_sync_without_datadog_keys_fails_rather_than_registering_no_file(self):
         with mock.patch.dict(os.environ, {"DD_API_KEY": "", "DD_APP_KEY": ""}):
             with self.assertRaises(SystemExit):
                 run(retro_live.sync, args(self.incident, self.docs))
 
-    def test_a_supplied_snapshot_is_published_scrubbed_without_calling_datadog(self):
+    def test_a_supplied_snapshot_is_published_without_calling_datadog(self):
         state = json.loads((self.incident / "state.json").read_text())
         state["monitors"] = []
         (self.incident / "state.json").write_text(json.dumps(state))
@@ -322,7 +311,7 @@ class NotebookSnapshot(unittest.TestCase):
                 mock.patch.dict(os.environ, {"DD_API_KEY": "", "DD_APP_KEY": ""}):
             self.assertEqual(run(retro_live.sync, args(self.incident, self.docs, notebook_snapshot=str(path))), 0)
         offline.assert_not_called()
-        self.assertEqual(json.loads((self.root / NOTEBOOK_FILE).read_text()), {**supplied, "title": "Polar offline"})
+        self.assertEqual(json.loads((self.root / NOTEBOOK_FILE).read_text()), supplied)
         self.assertEqual(self.record()["evidence"]["notebooks"][0]["file"], NOTEBOOK_FILE)
 
     def render_check(self) -> tuple:
@@ -467,36 +456,6 @@ class AfterAllClear(unittest.TestCase):
         self.assertNotIn("phase", clear)
 
 
-class Scrubbing(unittest.TestCase):
-    def scrub(self):
-        return retro_live.scrubber([{"codename": "Polar", "aliases": ["Northwind", "Northwind Foods"]}])
-
-    def test_the_longest_alias_wins(self):
-        self.assertEqual(self.scrub()("Northwind Foods called"), "Polar called")
-
-    def test_the_match_ignores_case(self):
-        self.assertEqual(self.scrub()("northwind called"), "Polar called")
-
-    def test_a_team_with_no_aliases_leaves_the_text_alone(self):
-        blank = retro_live.scrubber([{"codename": "Polar", "aliases": []}])
-        self.assertEqual(blank("Northwind called"), "Northwind called")
-
-    def test_a_short_alias_does_not_match_inside_a_longer_word(self):
-        """Finding 7: alias Box turned 'Sandbox workers' into 'SandPolar workers'."""
-        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Box"]}])
-        self.assertEqual(scrub("Sandbox workers failed"), "Sandbox workers failed")
-        self.assertEqual(scrub("Box workers failed"), "Polar workers failed")
-
-    def test_an_alias_still_matches_against_punctuation(self):
-        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Northwind"]}])
-        self.assertEqual(scrub("#northwind-outage"), "#Polar-outage")
-        self.assertEqual(scrub("(Northwind)"), "(Polar)")
-
-    def test_an_identifier_carrying_the_alias_is_left_alone(self):
-        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Box"]}])
-        self.assertEqual(scrub("sandbox_pool and BoxCutter"), "sandbox_pool and BoxCutter")
-
-
 def git_docs() -> Path:
     """A docs checkout with a bare origin, so a push is a real push."""
     home = Path(tempfile.mkdtemp())
@@ -518,66 +477,20 @@ def pushed_ref(docs: Path, branch: str) -> str:
     return origin.stdout.strip()
 
 
-class PushGate(unittest.TestCase):
-    """The gate reads the artifact being pushed, not a scrubbed copy of part of it."""
+class LivePush(unittest.TestCase):
+    """A sync pushes the retro and its snapshots to the branch the page polls."""
 
     def setUp(self):
         self.incident, self.docs = incident_dir(), git_docs()
         self.branch = f"live/{SLUG}"
-        run(retro_live.init, args(self.incident, self.docs, forbidden_terms="Northwind|Contoso EU"))
+        run(retro_live.init, args(self.incident, self.docs))
         self.root = self.docs / retro_live.RETRO_DIR / SLUG
 
-    def sync(self, **extra):
-        settings = {"no_push": False, "forbidden_terms": "Northwind|Contoso EU"}
-        settings.update(extra)
-        return run(retro_live.sync, args(self.incident, self.docs, **settings))
+    def sync(self):
+        return run(retro_live.sync, args(self.incident, self.docs, no_push=False))
 
     def test_a_clean_sync_reaches_the_branch(self):
         self.assertEqual(self.sync(), 0)
-        self.assertTrue(pushed_ref(self.docs, self.branch))
-
-    def test_a_raw_alias_in_the_branch_name_refuses_the_push(self):
-        record = json.loads((self.root / "retro.json").read_text())
-        record["live"]["source"]["branch"] = "live/NORTHWIND-browser-outage"
-        (self.root / "retro.json").write_text(json.dumps(record))
-        self.assertEqual(self.sync(), 1)
-        self.assertEqual(pushed_ref(self.docs, "live/NORTHWIND-browser-outage"), "")
-
-    def test_a_raw_alias_in_a_staged_file_name_refuses_the_push(self):
-        (self.root / retro_live.SLACK_DIR).mkdir(parents=True, exist_ok=True)
-        (self.root / retro_live.SLACK_DIR / "NORTHWIND-notes.txt").write_text("nothing to see")
-        self.assertEqual(self.sync(), 1)
-        self.assertEqual(pushed_ref(self.docs, self.branch), "")
-
-    def test_a_raw_alias_inside_an_html_blob_refuses_the_push(self):
-        """Finding 2: the old gate only read .json/.md/.txt/.csv, so html walked through it."""
-        (self.root / retro_live.SLACK_DIR).mkdir(parents=True, exist_ok=True)
-        (self.root / retro_live.SLACK_DIR / "archived.html").write_text("<p>Northwind reported it</p>")
-        self.assertEqual(self.sync(), 1)
-        self.assertEqual(pushed_ref(self.docs, self.branch), "")
-
-    def test_no_term_source_at_all_refuses_the_push(self):
-        """Finding 3: a missing source only warned, so an unscrubbable retro published."""
-        state = json.loads((self.incident / "state.json").read_text())
-        state["teams"] = []
-        (self.incident / "state.json").write_text(json.dumps(state))
-        environ = dict(os.environ)
-        os.environ.pop("FORBIDDEN_TERMS", None)
-        try:
-            self.assertEqual(self.sync(forbidden_terms=None), 1)
-        finally:
-            os.environ.clear()
-            os.environ.update(environ)
-        self.assertEqual(pushed_ref(self.docs, self.branch), "")
-
-    def test_the_aliases_alone_can_gate_the_push(self):
-        environ = dict(os.environ)
-        os.environ.pop("FORBIDDEN_TERMS", None)
-        try:
-            self.assertEqual(self.sync(forbidden_terms=None), 0)
-        finally:
-            os.environ.clear()
-            os.environ.update(environ)
         self.assertTrue(pushed_ref(self.docs, self.branch))
 
     def test_the_push_carries_the_notebook_snapshot_the_page_fetches_from_the_branch(self):
@@ -607,16 +520,15 @@ class FinalizePush(unittest.TestCase):
     def setUp(self):
         self.incident, self.docs = incident_dir(), git_docs()
         self.branch = f"live/{SLUG}"
-        self.terms = "Northwind|Contoso EU"
-        run(retro_live.init, args(self.incident, self.docs, forbidden_terms=self.terms))
+        run(retro_live.init, args(self.incident, self.docs))
         state = json.loads((self.incident / "state.json").read_text())
         state["all_clear_at"] = "2026-09-02T17:30:00-07:00"
         (self.incident / "state.json").write_text(json.dumps(state))
-        run(retro_live.sync, args(self.incident, self.docs, no_push=False, forbidden_terms=self.terms))
+        run(retro_live.sync, args(self.incident, self.docs, no_push=False))
         self.synced = pushed_ref(self.docs, self.branch)
 
     def finalize(self, **extra):
-        settings = {"push": True, "forbidden_terms": self.terms}
+        settings = {"push": True}
         settings.update(extra)
         return run(retro_live.finalize, args(self.incident, self.docs, **settings))
 
@@ -637,63 +549,19 @@ class FinalizePush(unittest.TestCase):
         self.assertEqual(self.finalize(push=False), 0)
         self.assertEqual(pushed_ref(self.docs, self.branch), self.synced)
 
-    def test_a_forbidden_term_refuses_the_draft_push(self):
-        record = json.loads((self.docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())
-        record["meta"]["subtitle"] = "Northwind saw it first"
-        (self.docs / retro_live.RETRO_DIR / SLUG / "retro.json").write_text(json.dumps(record))
-        self.assertEqual(self.finalize(), 1)
-        self.assertEqual(pushed_ref(self.docs, self.branch), self.synced)
-
     def test_a_retro_with_no_source_refuses_before_writing(self):
         self.assertEqual(self.finalize(push=False), 0)
         self.assertEqual(self.finalize(), 1)
 
 
-class SlugDerivation(unittest.TestCase):
-    """Finding 1: a lowercase codename let the raw title reach the slug, the paths and the message."""
-
-    def test_the_title_is_scrubbed_before_it_becomes_a_slug(self):
-        incident, docs = incident_dir(), docs_checkout()
-        state = json.loads((incident / "state.json").read_text())
-        state["title"] = "Northwind Foods runs stalled"
-        (incident / "state.json").write_text(json.dumps(state))
-        self.assertEqual(run(retro_live.init, args(incident, docs)), 0)
-        slug = json.loads((incident / "state.json").read_text())["retro_slug"]
-        self.assertNotIn("northwind", slug)
-        self.assertIn("polar", slug)
-        self.assertTrue((docs / retro_live.RETRO_DIR / slug).is_dir())
-
-
 class SnapshotRebuild(unittest.TestCase):
-    """Finding 4: a snapshot captured before an alias was known stayed raw on disk."""
+    """The sync rebuilds the Slack snapshot set from the log on every run."""
 
     def setUp(self):
         self.incident, self.docs = incident_dir(), docs_checkout()
-        state = json.loads((self.incident / "state.json").read_text())
-        state["teams"] = [{"id": "t1", "codename": "Polar", "aliases": []}]
-        (self.incident / "state.json").write_text(json.dumps(state))
         run(retro_live.init, args(self.incident, self.docs))
         self.root = self.docs / retro_live.RETRO_DIR / SLUG
         run(retro_live.sync, args(self.incident, self.docs))
-
-    def blob(self) -> str:
-        return "".join(p.read_text() for p in (self.root / retro_live.SLACK_DIR).glob("*.json"))
-
-    def test_the_first_sync_keeps_a_name_no_alias_covers(self):
-        self.assertIn("Northwind Foods", self.blob())
-
-    def test_a_snapshot_the_log_dropped_does_not_keep_a_name_a_later_alias_covers(self):
-        """The finding's compound case: the thread leaves the log, the alias arrives after it, and
-        the raw file left on disk blocks every later push."""
-        log = (self.incident / "slack-log.jsonl").read_text().splitlines()
-        kept = [line for line in log if "Northwind Foods" not in line]
-        self.assertEqual(len(kept), len(log) - 1, "the fixture no longer carries the raw-name thread")
-        (self.incident / "slack-log.jsonl").write_text("\n".join(kept) + "\n")
-        state = json.loads((self.incident / "state.json").read_text())
-        state["teams"] = [{"id": "t1", "codename": "Polar", "aliases": ["Northwind Foods", "Northwind"]}]
-        (self.incident / "state.json").write_text(json.dumps(state))
-        run(retro_live.sync, args(self.incident, self.docs))
-        self.assertNotIn("Northwind", self.blob(), "a snapshot the log dropped kept its raw name")
 
     def test_a_snapshot_no_longer_in_the_log_is_dropped(self):
         orphan = self.root / retro_live.SLACK_DIR / "outage-1700000000.000001.json"

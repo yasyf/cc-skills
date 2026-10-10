@@ -11,8 +11,8 @@ retro.json for the same state. `init` scaffolds `incident-retros/<slug>/` with
 `meta.status: "ongoing"` and the `live.source` branch the page polls, and has
 the docs checkout's `sync-index.sh` regenerate both index pages' cards. `sync` rebuilds the timeline, windows, causes,
 actions and the `live` block, appends to `actions[].history` and
-`hypotheses[].history` when a state changed since the last sync, replaces every
-raw customer name with its codename, snapshots the incident's Datadog notebook
+`hypotheses[].history` when a state changed since the last sync, snapshots the
+incident's Datadog notebook
 with DD_API_KEY and DD_APP_KEY or takes the snapshot `--notebook-snapshot`
 names, snapshots each paging monitor's state and, for a metric monitor, its
 series since an hour before onset, runs `check`, and force-pushes retro.json and the Slack and Datadog
@@ -65,49 +65,6 @@ def clip(text: str, budget: int, chars: int = 0) -> str:
 def handle(text: str, fallback: str, retro) -> str:
     short = clip(text, retro.HANDLE_WORDS).rstrip(".,;:")
     return short if len(short.split()) > 1 else fallback
-
-
-def alias_pairs(teams: list) -> list:
-    """Raw Slack names are the only join to a team; teams[].aliases maps each to its codename."""
-    pairs = []
-    for team in teams or []:
-        codename = (team or {}).get("codename")
-        for alias in (team or {}).get("aliases") or []:
-            if isinstance(alias, str) and alias.strip() and isinstance(codename, str):
-                pairs.append((alias.strip(), codename))
-    return sorted(pairs, key=lambda pair: -len(pair[0]))
-
-
-def alias_pattern(pairs: list):
-    """Delimiter-aware, so the alias Box leaves Sandbox alone. \\w is unicode by default."""
-    if not pairs:
-        return None
-    return re.compile("|".join(rf"(?<!\w){re.escape(alias)}(?!\w)" for alias, _ in pairs), re.IGNORECASE)
-
-
-def scrubber(teams: list):
-    pairs = alias_pairs(teams)
-    pattern = alias_pattern(pairs)
-    if pattern is None:
-        return lambda value: value
-    table = {alias.lower(): codename for alias, codename in pairs}
-    return lambda value: pattern.sub(lambda m: table[m.group().lower()], value) if isinstance(value, str) else value
-
-
-def scrub_tree(value, scrub):
-    if isinstance(value, dict):
-        return {k: scrub_tree(v, scrub) for k, v in value.items()}
-    if isinstance(value, list):
-        return [scrub_tree(v, scrub) for v in value]
-    return scrub(value)
-
-
-def scrub_state(state: dict, scrub) -> dict:
-    """Everything the retro derives comes from state, so scrub it once at the source and the slug,
-    the title and every register are scrubbed by construction. teams[] is the table itself."""
-    out = {k: scrub_tree(v, scrub) for k, v in state.items() if k != "teams"}
-    out["teams"] = state.get("teams") or []
-    return out
 
 
 def numeric_id(holder: dict, where: str):
@@ -346,9 +303,7 @@ def actions_of(state: dict, retro, before: dict, cause_ids: set, now: datetime.d
 
 
 def slack_snapshots(messages: list, now: datetime.datetime, cap: int) -> dict:
-    """One ir.slack/1 file per thread, so the page can quote what the timeline cites. The messages
-    arrive scrubbed, so the channel name carried into metadata and the file name are scrubbed too;
-    lower-casing keeps a codename substitution a valid Slack channel name."""
+    """One ir.slack/1 file per thread, so the page can quote what the timeline cites."""
     threads = {}
     for m in messages:
         root_ts = m.get("thread_ts") or m["ts"]
@@ -452,29 +407,19 @@ def monitor_series(dd, query: str, start: datetime.datetime, end: datetime.datet
     return {"t": times, "series": series}
 
 
-def monitor_snapshot(monitor: dict, onset, evidence, scrub, patterns: list, now: datetime.datetime) -> dict:
+def monitor_snapshot(monitor: dict, onset, evidence, now: datetime.datetime) -> dict:
     """What the live view previews: the monitor's state now and, for a metric monitor, the series it
-    alerts on. A name or group the push gate would still refuse once scrubbed is replaced, so one
-    series label never stops the whole page from updating."""
+    alerts on."""
     site = evidence.MONITOR_URL.match(monitor["url"]).group(1)
     dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
     m = dd.get(f"/api/v1/monitor/{monitor['id']}")
-
-    def forbidden(text) -> bool:
-        return any(pattern.search(text or "") for _, pattern in patterns)
-
-    name = scrub(m["name"])
     th = m["options"].get("thresholds") or {}
     snapshot = {"schema": "ir.monitor/1", "id": monitor["id"], "url": monitor["url"], "site": site, "fetchedAt": stamp(now),
-                "name": f"Monitor {monitor['id']}" if forbidden(name) else name, "type": m["type"],
+                "name": m["name"], "type": m["type"],
                 "overallState": m["overall_state"],
                 "thresholds": {"critical": th.get("critical"), "warning": th.get("warning")}}
     series = monitor_series(dd, m["query"], (onset or now) - SERIES_LEAD, now) if m["type"] in CHARTED_TYPES else None
     if series is not None:
-        series = scrub_tree(series, scrub)
-        for at, row in enumerate(series["series"]):
-            if forbidden(row["label"]):
-                row["label"] = f"group {at + 1}"
         snapshot["series"] = series
     return snapshot
 
@@ -488,16 +433,15 @@ def sync_cards(docs: Path) -> list:
     return [docs / INDEX, docs / RETRO_DIR / INDEX]
 
 
-def run_check(retro, root: Path, forbidden) -> int:
-    args = argparse.Namespace(dir=str(root), strict=False, forbidden_terms=forbidden)
+def run_check(retro, root: Path) -> int:
+    args = argparse.Namespace(dir=str(root), strict=False)
     return retro.check(args)
 
 
-def git(docs: Path, env, *argv, binary=False):
-    result = subprocess.run(["git", "-C", str(docs), *argv], capture_output=True, text=not binary, env=env)
+def git(docs: Path, env, *argv):
+    result = subprocess.run(["git", "-C", str(docs), *argv], capture_output=True, text=True, env=env)
     if result.returncode:
-        detail = result.stderr if binary else (result.stderr or result.stdout)
-        raise SystemExit(f"live: git {' '.join(argv)} failed: {detail.strip()}")
+        raise SystemExit(f"live: git {' '.join(argv)} failed: {(result.stderr or result.stdout).strip()}")
     return result.stdout
 
 
@@ -508,41 +452,7 @@ def build_commit(docs: Path, paths: list, message: str):
         git(docs, env, "read-tree", "--empty")
         git(docs, env, "add", "--force", "--", *[p for p in paths if (docs / p).exists()])
         tree = git(docs, env, "write-tree").strip()
-        return tree, git(docs, env, "commit-tree", tree, "-m", message).strip()
-
-
-def gate_patterns(state: dict, forbidden, root: Path, retro) -> list:
-    """The two independent term sources the pushed artifact is held against."""
-    out = []
-    aliases = alias_pattern(alias_pairs(state.get("teams")))
-    if aliases is not None:
-        out.append(("teams[].aliases", aliases))
-    configured = retro.sibling_module("retro_evidence").forbidden_terms(forbidden, root)
-    if configured is not None:
-        out.append(("the forbidden-terms source", configured))
-    return out
-
-
-def artifact_hits(docs: Path, tree: str, named: dict, patterns: list) -> list:
-    """Every path and every blob of the tree about to be pushed, whatever the file type."""
-    hits = []
-
-    def scan(where, text):
-        for source, pattern in patterns:
-            found = pattern.search(text)
-            if found:
-                hits.append((where, found.group(), source))
-
-    for where, text in named.items():
-        scan(where, text)
-    for row in git(docs, None, "ls-tree", "-r", "-z", tree).split("\0"):
-        if not row:
-            continue
-        meta, path = row.split("\t", 1)
-        scan(f"the path {path}", path)
-        blob = git(docs, None, "cat-file", "blob", meta.split()[2], binary=True)
-        scan(f"the contents of {path}", blob.decode("utf-8", "replace"))
-    return hits
+        return git(docs, env, "commit-tree", tree, "-m", message).strip()
 
 
 def push_commit(docs: Path, branch: str, commit: str):
@@ -551,8 +461,7 @@ def push_commit(docs: Path, branch: str, commit: str):
 
 def init(args) -> int:
     retro, incident, docs = args.retro, Path(args.incident_dir), Path(args.docs)
-    raw = read_state(incident)
-    state = scrub_state(raw, scrubber(raw.get("teams")))
+    state = read_state(incident)
     slug = slug_of(state, args.slug, retro)
     root = retro_root(docs, slug)
     if root.exists() and any(root.iterdir()):
@@ -568,19 +477,18 @@ def init(args) -> int:
     branch = LIVE_BRANCH.format(slug=slug)
     shell(state, R, retro, utc_now(), {"repo": args.repo, "branch": branch})
     retro.write_retro(root, R)
-    raw["retro_slug"] = slug
-    (incident / STATE).write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+    state["retro_slug"] = slug
+    (incident / STATE).write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
     sync_cards(docs)
     print(f"live init: {root} is ongoing, polling {args.repo}@{branch}")
     print(f"sync:  retro.py live sync {incident} --docs {docs}")
-    return run_check(retro, root, args.forbidden_terms)
+    return run_check(retro, root)
 
 
 def sync(args) -> int:
     retro, incident, docs = args.retro, Path(args.incident_dir), Path(args.docs)
     prose = retro.sibling_module("retro_prose")
-    raw = read_state(incident)
-    slug = slug_of(scrub_state(raw, scrubber(raw.get("teams"))), args.slug, retro)
+    slug = slug_of(read_state(incident), args.slug, retro)
     root = retro_root(docs, slug)
     if not (root / "retro.json").exists():
         print(f"live sync: {root} has no retro.json; run retro.py live init first", file=sys.stderr)
@@ -597,14 +505,12 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     """The record is read under the claim, so a sync that waited does not publish the state it
     read before waiting and append a transition that never happened."""
     now = utc_now()
-    raw = read_state(incident)
-    scrub = scrubber(raw.get("teams"))
-    state = scrub_state(raw, scrub)
+    state = read_state(incident)
     R = retro.load_retro(root, "live sync")
     if R is None:
         return 1
     source = (R.get("live") or {}).get("source") or {"repo": args.repo, "branch": LIVE_BRANCH.format(slug=slug)}
-    messages = [scrub_tree(m, scrub) for m in read_slack(incident)]
+    messages = read_slack(incident)
     rebuild(state, messages, R, retro, now, source)
     snapshots = slack_snapshots(messages, now, retro.sibling_module("retro_evidence").SLACK_MAX_MESSAGES)
     folder = root / SLACK_DIR
@@ -616,12 +522,11 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     R["evidence"]["slack"] = [{"url": snapshot["permalink"], "file": f"{SLACK_DIR}/{name}",
                                "h": f"the {snapshot['channel_name']} thread"}
                               for name, snapshot in sorted(snapshots.items())]
-    patterns = gate_patterns(raw, args.forbidden_terms, root, retro)
     onset = retro.try_ts((R.get("timestamps") or {}).get("onset"))
     for monitor in state.get("monitors") or []:
         if monitor.get("id"):
             (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
-            snapshot = monitor_snapshot(monitor, onset, retro.sibling_module("retro_evidence"), scrub, patterns, now)
+            snapshot = monitor_snapshot(monitor, onset, retro.sibling_module("retro_evidence"), now)
             prose.write_atomic(root / monitor_file(monitor), json.dumps(snapshot, ensure_ascii=False) + "\n")
     notebook = state.get("notebook") or {}
     if notebook.get("id"):
@@ -629,37 +534,21 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
                     else notebook_snapshot(notebook, retro.sibling_module("retro_evidence"), now))
         (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
         prose.write_atomic(root / notebook_file(notebook),
-                           json.dumps(scrub_tree(snapshot, scrub), ensure_ascii=False) + "\n")
+                           json.dumps(snapshot, ensure_ascii=False) + "\n")
     prose.write_atomic(root / "retro.json", json.dumps(R, indent=2, ensure_ascii=False) + "\n")
-    if run_check(retro, root, args.forbidden_terms):
+    if run_check(retro, root):
         print("live sync: check failed; the branch was not pushed", file=sys.stderr)
         return 1
     if args.no_push:
         print(f"live sync: {root} is current as of {R['live']['updatedAt']} (not pushed)")
         return 0
-    return publish(args, retro, docs, raw, slug, root, source["branch"], R["live"]["updatedAt"])
+    return publish(docs, slug, source["branch"], R["live"]["updatedAt"])
 
 
-def publish(args, retro, docs: Path, raw: dict, slug: str, root: Path, branch: str, at: str) -> int:
-    """The gate reads the artifact itself: the tree built for this push, its every path and blob,
-    and the branch, slug and message pushed alongside it."""
-    patterns = gate_patterns(raw, args.forbidden_terms, root, retro)
-    if not patterns:
-        print("live sync: nothing can check this push for raw customer names, because no "
-              "forbidden-terms source resolved (--forbidden-terms, FORBIDDEN_TERMS, or a .customer-names "
-              "file up the tree) and state.teams carries no aliases; set one of them and sync again",
-              file=sys.stderr)
-        return 1
+def publish(docs: Path, slug: str, branch: str, at: str) -> int:
     message = f"live: {slug} as of {at}"
-    tree, commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}",
-                                       f"{RETRO_DIR}/{slug}/{DATADOG_DIR}"], message)
-    named = {"the branch name": branch, "the slug": slug, "the commit message": message}
-    hits = artifact_hits(docs, tree, named, patterns)
-    if hits:
-        for where, term, source in hits:
-            print(f"live sync: {where} carries {retro.masked(term)}, which {source} forbids", file=sys.stderr)
-        print("live sync: the branch was not pushed", file=sys.stderr)
-        return 1
+    commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}",
+                                 f"{RETRO_DIR}/{slug}/{DATADOG_DIR}"], message)
     push_commit(docs, branch, commit)
     print(f"live sync: pushed {branch} as of {at}")
     return 0
@@ -668,8 +557,7 @@ def publish(args, retro, docs: Path, raw: dict, slug: str, root: Path, branch: s
 def finalize(args) -> int:
     retro, incident, docs = args.retro, Path(args.incident_dir), Path(args.docs)
     prose = retro.sibling_module("retro_prose")
-    raw = read_state(incident)
-    state = scrub_state(raw, scrubber(raw.get("teams")))
+    state = read_state(incident)
     slug = slug_of(state, args.slug, retro)
     root = retro_root(docs, slug)
     R = retro.load_retro(root, "live finalize")
@@ -688,11 +576,11 @@ def finalize(args) -> int:
     prose.write_atomic(root / "retro.json", json.dumps(R, indent=2, ensure_ascii=False) + "\n")
     print(f"live finalize: {root} is a draft; the page stopped polling")
     print(f"write:  retro.py prose {root}")
-    if run_check(retro, root, args.forbidden_terms):
+    if run_check(retro, root):
         return 1
     if not args.push:
         return 0
-    return publish(args, retro, docs, raw, slug, root, branch, stamp(utc_now()))
+    return publish(docs, slug, branch, stamp(utc_now()))
 
 
 def add_live_parser(sub, retro):
@@ -707,8 +595,6 @@ def add_live_parser(sub, retro):
         p.add_argument("--slug", help="override the slug state.json carries")
         p.add_argument("--repo", default="Forge-AI/design-docs", help="the owner/repo the page polls")
         p.add_argument("--timezone", default="America/Los_Angeles", help="the zone the page displays times in")
-        p.add_argument("--forbidden-terms", metavar="REGEX",
-                       help="customer names the retro must not carry (default: FORBIDDEN_TERMS, then .customer-names)")
         if name == "sync":
             p.add_argument("--no-push", action="store_true", help="write and check the retro without pushing it")
             p.add_argument("--notebook-snapshot", metavar="PATH",

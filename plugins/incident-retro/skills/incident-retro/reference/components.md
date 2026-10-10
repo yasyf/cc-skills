@@ -106,7 +106,7 @@ The Overview link row starts behind a disclosure showing its link count.
 In Evidence, Sentry issues, Linear issues, builds, pull requests, runs, and
 documents each have one closed disclosure showing the kind and its count.
 The monitor chip list remains visible. The impact per-team table starts
-closed under "What each of N teams saw," with the team codenames beside the
+closed under "What each of N teams saw," with the team names beside the
 heading. These disclosures keep their tables and chip lists out of the
 initial view.
 
