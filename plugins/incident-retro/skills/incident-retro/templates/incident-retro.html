@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:fce909f363e3 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:7ecca5ac0156 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -88,6 +88,7 @@ p{max-width:var(--measure)}
 .sub{color:var(--ink2);max-width:var(--measure);margin:0 0 var(--s-6)}
 section:not(.xs-panel):not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line);padding-bottom:var(--s-4)}
 .doctop{padding:var(--s-7) 0 var(--s-2)}
+.doccover{display:block;width:100%;height:auto;border-radius:var(--r-fig);margin:0 0 var(--s-5)}
 .docsub{font-size:var(--t-xl);line-height:1.45;font-weight:400;color:var(--ink2);margin:0 0 var(--s-4);max-width:var(--measure)}
 .tags{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
 .docmeta{font-size:var(--t-base);color:var(--ink2);margin:0;max-width:none;display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);align-items:center}
@@ -1021,6 +1022,7 @@ html[data-theme=dark]:not([data-print]){
 <main id="main"><div class="col">
 
 <header class="doctop">
+  <img class="doccover" id="docCover" alt="" hidden>
   <h1 id="docTitle"></h1>
   <p class="docsub" id="docSub" hidden></p>
   <p class="docmeta" id="docMeta"></p>
@@ -1277,7 +1279,7 @@ let DIFF=null;
 let toggleUnch=()=>{};
 const dmark=(reg,id)=>DIFF&&DIFF.marks[reg+":"+id]?` <span class="pill p-acc diffpill">${DIFF.marks[reg+":"+id]}</span>`:"";
 
-// @requires 
+// @requires
 // @defines $,URL_ATTR,el,esc,fmt,railLink,reduced,safeUrl,scrub
 const $=s=>document.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e};
@@ -1847,6 +1849,7 @@ const actionSourceLabel=s=>s==="lessons"?"Lessons":s==="review"?"Review":s&&REF[
 
 const EVID={notebooks:Object.create(null),monitors:Object.create(null),slack:Object.create(null),slackMsg:Object.create(null),errors:[]};
 let EV_FETCH=null;
+let EV_IMAGE=null;
 const evFile=async(file)=>JSON.parse(await(EV_FETCH?EV_FETCH(file):loadFile(file)));
 async function loadEvidence(){
  EVID.notebooks=Object.create(null);
@@ -1883,6 +1886,13 @@ let TAGS=tagsOf();
 if(META.homeLink&&META.homeLink.href&&safeUrl(META.homeLink.href)){
  const h=$("#homeLink");h.href=META.homeLink.href;h.textContent=META.homeLink.label||"All retros";h.hidden=false;
 }
+function renderCover(){
+ const cover=$("#docCover"),drawn=META.cover;
+ if(!drawn||!drawn.file){cover.hidden=true;delete cover.dataset.digest;return}
+ if(cover.dataset.digest===drawn.digest)return;
+ const shown=EV_IMAGE?EV_IMAGE(drawn.file):Promise.resolve(drawn.file+"?v="+encodeURIComponent(drawn.digest));
+ shown.then(src=>{cover.src=src;cover.dataset.digest=drawn.digest;cover.hidden=false}).catch(()=>{});
+}
 function renderDoctop(){
  TAGS=tagsOf();
  const tags=$("#docTags");
@@ -1892,6 +1902,7 @@ function renderDoctop(){
  document.title=(META.draft?"[DRAFT] ":"")+(META.title||"Incident retrospective");
  $("#navBrand").textContent=META.title||"";
  $("#docTitle").textContent=META.title||"Untitled retrospective";
+ renderCover();
  const sub=$("#docSub");
  sub.textContent=META.subtitle||"";
  sub.hidden=!META.subtitle;
@@ -4623,23 +4634,27 @@ const liveSource=()=>{
  return src&&/^[\w.-]+\/[\w.-]+$/.test(String(src.repo||""))&&src.branch?src:null;
 };
 const liveWatchable=()=>ongoing()&&!!liveSource();
-function liveContents(path,token){
+function liveFile(path,token){
  const src=liveSource();
  if(!src)return Promise.reject(new Error("no live source"));
  const url=`${GH_API}/repos/${src.repo}/contents/incident-retros/${encodeURIComponent(SLUG)}/`+
   path.split("/").map(encodeURIComponent).join("/")+`?ref=${encodeURIComponent(src.branch)}`;
  return fetch(url,{headers:{Accept:"application/vnd.github.raw","X-GitHub-Api-Version":"2022-11-28",
-  ...(token?{Authorization:"Bearer "+token}:{})}}).then(r=>r.ok?r.text():Promise.reject(new Error("GitHub "+r.status)));
+  ...(token?{Authorization:"Bearer "+token}:{})}}).then(r=>r.ok?r:Promise.reject(new Error("GitHub "+r.status)));
 }
+const liveContents=(path,token)=>liveFile(path,token).then(r=>r.text());
+const liveImage=(path,token)=>liveFile(path,token).then(r=>r.blob()).then(b=>URL.createObjectURL(b));
 let POLL_TIMERS=[];
 function stopLive(){
  POLL_TIMERS.forEach(clearInterval);
  POLL_TIMERS=[];
  EV_FETCH=null;
+ EV_IMAGE=null;
 }
 function watchLive(token){
  if(!liveWatchable())return;
  EV_FETCH=path=>liveContents(path,token);
+ EV_IMAGE=path=>liveImage(path,token);
  let last="";
  const tick=async()=>{
   if(!liveWatchable()){stopLive();return}
