@@ -635,10 +635,20 @@ def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_cci(drive_home: Pa
     assert "every landed PR is deployed" not in body
 
 
+class MinuteClock(datetime):
+    ticks = 0
+
+    @classmethod
+    def now(cls, tz: timezone | None = None) -> datetime:
+        cls.ticks += 1
+        return datetime(2026, 10, 10, 22, cls.ticks, tzinfo=tz)
+
+
 @pytest.mark.parametrize("above", [True, False])
 def test_a_narrative_the_root_edits_into_the_generated_doc_stays_whole_and_the_carried_one_folds(
-    drive_home: Path, capsys: pytest.CaptureFixture[str], above: bool
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, above: bool
 ) -> None:
+    monkeypatch.setattr(handoff, "datetime", MinuteClock)
     shell = shell_with("## 10:00 PM dump 1\n\n### Program state\nCensus 200/293. Lanes a, b.\n")
     first = generate(drive_home, shell, capsys=capsys)
     doc = first["id"]
