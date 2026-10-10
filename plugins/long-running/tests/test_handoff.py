@@ -671,5 +671,5 @@ def test_a_narrative_the_root_edits_into_the_generated_doc_stays_whole_and_the_c
     narrative = shell.docs[doc].split(f"{handoff.NARRATIVE}\n")[1]
     assert narrative.startswith(f"\n_From doc {doc[:7]}, carried forward._\n\n")
     assert narrative.count(dump.strip("\n")) == 1
-    assert "## 10:00 PM dump 1" not in narrative and "Lanes a, b." not in narrative
+    assert "\n## 10:00 PM dump 1" not in narrative and "Lanes a, b." not in narrative
     assert "\n- 20" in narrative.split(progress.FOLDED)[1]

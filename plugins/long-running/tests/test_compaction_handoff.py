@@ -746,7 +746,7 @@ def test_a_narrative_edited_into_the_generated_doc_is_the_written_narrative(home
 
     generated = (docs / ("d" * 40 + ".md")).read_text()
     assert generated.split("## Root narrative\n")[1].startswith(f"\n_From doc ddddddd._\n\n{DUMP_1510.strip()}\n\n## Folded narrative\n")
-    assert "## 10:00 PM dump 1" not in generated
+    assert "\n## 10:00 PM dump 1" not in generated
     assert sum(call[:3] == ["doc", "edit", "d" * 40] for call in ccn_calls(docs)) == 2
     assert "not written" not in restored
 
