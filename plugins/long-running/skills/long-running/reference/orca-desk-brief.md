@@ -172,13 +172,19 @@ relayed to like one the runner launched, with no receipts to copy; never set
 `ORCA_LAUNCH_STATE` on a hand launch. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
-`orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says `cpu=high`
-runs `orca.sprite.launcher`, the repository's `worker-launch.sh`, on a Sprite, with
-`orca.sprite.env` and `WORKER_RUN` and `WORKER_REMOTE_ATTACH` set by the runner, while
-fewer than `orca.sprite.limit` Sprites are running or warm. Set `CC_REMOTE_CONFIG` in
-`orca.sprite.env`: without it cc-remote reads `~/.config/cc-remote/config.yaml`, and
-every Sprite launch falls back to local. The runner reads its config only at start. Anything else, including
-a failed Sprite launch, starts locally and logs `SPRITE-FALLBACK`.
+`orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
+`place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
+repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
+and `WORKER_REMOTE_ATTACH` set by the runner, while fewer than `orca.sprite.limit`
+Sprites are running or warm. `place=local` keeps a `cpu=high` launch on the Mac.
+Fable, incident, and a `role=desk` or `role=watch` brief launch locally whatever the
+line says, and so does every launch when `orca.sprite` is absent.
+
+Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
+`~/.config/cc-remote/config.yaml`, and every Sprite launch falls back to local. The
+runner reads its config only at start. A Sprite limit reached, a failed count, a lane
+name a Sprite refuses, and a failed or malformed Sprite launch each start the same
+launch locally and log `SPRITE-FALLBACK` with the reason.
 
 Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
 the file whose contents go into each brief: drive checkout, apply authority,

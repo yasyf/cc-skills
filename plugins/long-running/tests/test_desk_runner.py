@@ -1819,7 +1819,7 @@ def sprite_launches(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if call[0] == LAUNCHER]
 
 
-def high_cpu_brief(tmp_path: Path, header: str = "ccx: role=build cpu=high") -> Path:
+def lane_brief(tmp_path: Path, header: str) -> Path:
     brief = tmp_path / "build.brief.md"
     brief.write_text(f"# build\n\n{header}\nDo: build it.\n")
     return brief
@@ -1828,9 +1828,10 @@ def high_cpu_brief(tmp_path: Path, header: str = "ccx: role=build cpu=high") -> 
 SPRITE_READY = json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s", "terminal": "term_s", "worktree": "/home/sprite/repo", "lane": LANE, "workspace": LANE, "allocation": "created"}) + "\n"
 
 
-def test_a_high_cpu_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path):
+@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote", "ccx: place=remote role=build cpu=high"])
+def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path, header):
     with_sprites(config)
-    brief = high_cpu_brief(tmp_path)
+    brief = lane_brief(tmp_path, header)
     shell.cpu_load = 140
     shell.sprite_states = ["running", "cold", "cold"]
     shell.sprite_line = SPRITE_READY
@@ -1848,10 +1849,11 @@ def test_a_high_cpu_lane_launches_on_a_sprite_whatever_the_mac_load(shell, confi
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
 
 
+@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
 @pytest.mark.parametrize(("states", "why"), [(["running", "warm", "cold", "running"], "3 Sprites live and 0 launching, at the limit of 3"), (None, "the Sprite count failed")])
-def test_a_high_cpu_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, why):
+def test_a_remote_placed_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, why, header):
     with_sprites(config)
-    brief = high_cpu_brief(tmp_path)
+    brief = lane_brief(tmp_path, header)
     shell.sprite_states = states
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
@@ -1863,24 +1865,59 @@ def test_a_high_cpu_lane_launches_locally_when_no_sprite_is_free(shell, config, 
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
 
 
-def test_a_failed_sprite_launch_starts_the_same_launch_locally(shell, config, tmp_path):
+@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
+@pytest.mark.parametrize(
+    "printed",
+    ["cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried", json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s"})],
+)
+def test_a_failed_or_malformed_sprite_launch_starts_the_same_launch_locally(shell, config, tmp_path, printed, header):
     with_sprites(config)
-    brief = high_cpu_brief(tmp_path)
-    shell.sprite_line = "cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried\n"
+    brief = lane_brief(tmp_path, header)
+    shell.sprite_line = f"{printed}\n"
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     for _ in range(3):
         orca_pass(shell, config)
     assert sprite_launches(shell) == [[LAUNCHER, LANE, "gpt-6.1-sol", "xhigh", str(brief)]]
     assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "sol", "xhigh", str(brief)]]
-    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried" in escalations(shell)
+    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: {printed}" in escalations(shell)
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
 
 
-@pytest.mark.parametrize(("header", "model"), [("ccx: role=build", "opus"), ("ccx: role=build cpu=high", "fable"), ("ccx: role=fix cpu=high", "incident"), ("ccx: role=build cpu=highest", "opus")])
-def test_only_a_high_cpu_brief_off_fable_and_incident_leaves_the_mac(shell, config, tmp_path, header, model):
+@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
+def test_a_lane_name_a_sprite_refuses_launches_locally(shell, config, tmp_path, header):
     with_sprites(config)
-    brief = high_cpu_brief(tmp_path, header)
+    brief = lane_brief(tmp_path, header)
+    lane = "api.build"
+    shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R638", "--lane", lane, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == []
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), lane, "opus", "xhigh", str(brief)]]
+    assert f"SPRITE-FALLBACK desk-lane-{lane}/R638:sprite {lane}: R638 launches locally: lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes" in escalations(shell)
+    assert incident(tmp_path, f"desk-lane-{lane}").actions["R638"].status == "verified"
+
+
+@pytest.mark.parametrize(
+    ("header", "model"),
+    [
+        ("ccx: role=build", "opus"),
+        ("ccx: role=build cpu=highest", "opus"),
+        ("ccx: role=build place=remotely", "opus"),
+        ("ccx: role=build\nplace=remote", "opus"),
+        ("ccx: role=build cpu=high place=local", "opus"),
+        ("ccx: role=build cpu=high", "fable"),
+        ("ccx: role=build place=remote", "fable"),
+        ("ccx: role=fix cpu=high", "incident"),
+        ("ccx: role=fix place=remote", "incident"),
+        ("ccx: role=desk place=remote", "opus"),
+        ("ccx: role=watch cpu=high place=remote", "sonnet"),
+    ],
+)
+def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_path, header, model):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, header)
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
     orca_pass(shell, config)
     assert sprite_launches(shell) == []
@@ -1888,9 +1925,10 @@ def test_only_a_high_cpu_brief_off_fable_and_incident_leaves_the_mac(shell, conf
     assert not [call for call in shell.calls if call[0] == "sprite"]
 
 
-def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config, tmp_path):
+@pytest.mark.parametrize("header", ["ccx: role=build", "ccx: role=build cpu=high place=local"])
+def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config, tmp_path, header):
     with_sprites(config)
-    brief = high_cpu_brief(tmp_path, "ccx: role=build")
+    brief = lane_brief(tmp_path, header)
     shell.cpu_load = 40
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)

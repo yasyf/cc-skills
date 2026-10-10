@@ -12,13 +12,15 @@ ships it. Remote API keys stay in the worker process; local Fable uses existing
 Mac interactive authentication.
 
 Canonical remote workers use their already-owned native Run, one home-inbox
-consumer, and home Dispatch IDs. The desk-runner launches a `cpu=high` brief through
-that entrypoint (SKILL.md O16) and copies its receipts beside the local ones; do not
+consumer, and home Dispatch IDs. The desk-runner launches a brief placed remote, by
+`place=remote` or by `cpu=high` with no `place=`, through that entrypoint (SKILL.md
+O16) and copies its receipts beside the local ones. It launches every other brief,
+and any Sprite fallback, through `orca-launch.sh` below. Do not
 enroll remote workers in common `orca-launch.sh` or `orca-check.sh`, or apply the
 raw-TTY wake, unsupervised retry, or historical cleanup procedures below to them. Do not add
 a second consumer to compensate for an adapter that assumes local terminals.
-Namespace remains opt-in pending regular Compute acceptance; the recipe picker
-is separate from this direct CLI route.
+Namespace runs on regular Compute through an explicit config and stays opt-in; the
+recipe picker is separate from this direct CLI route.
 
 Current session retention also overrides every historical cleanup/rollback
 instruction in this reference for local sessions. Keep workers and coordinators on success,

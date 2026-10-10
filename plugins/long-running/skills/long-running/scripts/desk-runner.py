@@ -51,12 +51,14 @@ records it; `show` prints the binding first. An incident or `--owner-directed` l
 the load; any other launch waits while the 1-minute load is above the core count, for
 at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
 and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
-says `cpu=high` runs `orca.sprite.launcher`, the repository's worker-launch.sh, on a
-Sprite instead, never waiting on Mac load, while fewer than `orca.sprite.limit` Sprites
-are running or warm, counting the runner's own Sprite launches still in flight. Fable,
-incident, and a lane name a Sprite refuses stay local. A full count, a failed count,
-or a Sprite launch that fails starts the same launch locally, and the fallback logs
-`SPRITE-FALLBACK`. A Sprite launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
+says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
+repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load, while
+fewer than `orca.sprite.limit` Sprites are running or warm, counting the runner's own
+Sprite launches still in flight. `place=local` keeps a `cpu=high` launch on the Mac.
+Fable, incident, and a `role=desk` or `role=watch` brief stay local whatever the line
+says. A lane name a Sprite refuses, a full count, a failed count, or a Sprite launch
+that fails starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
+A Sprite launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
@@ -156,7 +158,10 @@ ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<w
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
-CPU_HIGH = re.compile(r"^ccx:(?:.*\s)?cpu=high(?:\s|$)", re.MULTILINE)
+CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
+CPU_HIGH = re.compile(CCX_KEY.format("cpu=high"), re.MULTILINE)
+PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
+STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
@@ -237,8 +242,14 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
-def cpu_high(brief: Path) -> bool:
-    return brief.is_file() and bool(CPU_HIGH.search(brief.read_text()))
+def sprite_placed(brief: Path) -> bool:
+    if not brief.is_file():
+        return False
+    text = brief.read_text()
+    if STANDING_DESK.search(text):
+        return False
+    placed = PLACE.search(text)
+    return placed[1] == "remote" if placed else bool(CPU_HIGH.search(text))
 
 
 def sprite_model(model: str) -> str:
@@ -970,9 +981,7 @@ class Runner:
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """None when the launch goes to a Sprite; why it stays local otherwise, empty when it was never a Sprite candidate."""
-        if not self.config.sprite or not cpu_high(Path(spec["brief"])):
-            return ""
-        if spec["model"] in SPRITE_LOCAL_MODELS:
+        if not self.config.sprite or spec["model"] in SPRITE_LOCAL_MODELS or not sprite_placed(Path(spec["brief"])):
             return ""
         if not SPRITE_LANE.fullmatch(lane):
             return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
