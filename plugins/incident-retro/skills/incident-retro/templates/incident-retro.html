@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:a56737e60c25 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:896e4485b6db — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -2832,8 +2832,11 @@ function lvPreview(r,charted){
  }
  return {chip:host==="github"?refChipHtml(r):hostChipHtml(r.url,r.label)};
 }
-const lvWords=t=>plain(String(t||"")).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-const lvSame=(said,text)=>{const a=lvWords(said),b=lvWords(text);return !!a&&!!b&&(a.startsWith(b)||b.startsWith(a))};
+const lvWords=t=>plain(String(t||"").replace(/(^|\s):[a-z0-9_+'-]+:/g," ")).replace(/…$/,"").replace(/\s+/g," ").trim().toLowerCase();
+const lvSame=(said,text)=>{
+ const a=lvWords(said),b=lvWords(text);
+ return !!b&&a.startsWith(b)&&!/[\p{L}\p{N}]/u.test(a.charAt(b.length));
+};
 function lvItemHtml(e,charted){
  const refs=(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
  const said=refs.find(r=>{
@@ -2857,9 +2860,9 @@ function lvTickAges(){
 }
 function lvSeries(series){
  const tags=series.series.map(x=>String(x.label||"").split(","));
- const tagged=tags.filter(list=>list.some(t=>t.includes(":")));
+ const tagged=tags.filter(list=>list.every(t=>t.includes(":")));
  const shared=tagged.length>1?tagged[0].filter(t=>tagged.every(list=>list.includes(t))):[];
- return {...series,series:series.series.map((x,i)=>({...x,label:tags[i].filter(t=>!shared.includes(t)).join(",")||x.label}))};
+ return {...series,series:series.series.map((x,i)=>tagged.includes(tags[i])?{...x,label:tags[i].filter(t=>!shared.includes(t)).join(",")||x.label}:x)};
 }
 function lvMountCharts(feed){
  const recs=[...feed.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:lvSeries(monitorOf(host.dataset.mon).series),requests:[]},spec:{height:180}}));
