@@ -34,7 +34,6 @@ here.
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
-| `cover` | no | `{file, digest}`, a picture under the title: `file` a path inside the retro's folder, `digest` its content hash. `live sync` writes it from a `cover.png` beside `state.json`, so the caller can swap the picture and the polling page fetches the new one |
 | `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `remediation`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
 | `ai` | no | `{suggest?: {<sectionId>: ["…"]}}` the questions the assistant offers while a section is on screen; the endpoint and keys live in `ai.json`, never here |
 | `acronyms` | no | words the capitalization lint holds to their own spelling, on top of the built-in list plus `TTD`, `TTE`, `TTM`, `TTR`, `SEV` |
