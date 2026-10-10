@@ -43,14 +43,15 @@ Findings go under ``## Lint findings``.
 With ``--strict``, register, carry, narrative, or standing-rule findings write nothing and exit
 :data:`standing.VIOLATIONS`. Plan findings never block generation.
 
-Output has fields ``{id, file, register, digest, read_first, narrative}``. ``register`` is
-the register doc id or null. ``id`` is the progress doc id. Both are null in folder mode.
-``read_first`` lists the earlier hand-written records, oldest first, as the command or path
-that shows each. ``narrative`` is the short id or file name of the record whose text is the
-root narrative, or null. ``fresh`` says the root wrote that narrative since the last
-generation: a new hand-written record, or the active generated doc's narrative edited in
-place, found by its ``Generated from sources`` stamp in ``ccn doc history``. The digest names the register first when one exists, then each
-read-first record, the progress record, and the plan. Its second line reads
+Output has fields ``{id, file, register, fresh, digest, read_first, narrative}``.
+``register`` is the register doc id or null. ``id`` is the progress doc id. Both are null
+in folder mode. ``fresh`` says the root wrote the narrative since the last generation: a
+new hand-written record, or the active generated doc's narrative edited in place, found
+by its ``Generated from sources`` stamp in ``ccn doc history``. ``read_first`` lists the
+earlier hand-written records, oldest first, as the command or path that shows each.
+``narrative`` is the short id or file name of the record whose text is the root narrative,
+or null. The digest names the register first when one exists, then each read-first record,
+the progress record, and the plan. Its second line reads
 ``Register: N owner-approved rules, M live standing rules.``
 
 ``lint`` checks any handoff and the optional plan. It exits :data:`standing.VIOLATIONS`
