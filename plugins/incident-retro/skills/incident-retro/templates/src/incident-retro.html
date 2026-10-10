@@ -399,23 +399,128 @@ body.asof .xs::after{content:"the final account";display:block;margin-top:var(--
 .livecard dd{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;color:var(--hero-ink)}
 
 .viewsw{margin:var(--s-5) 0 0}
-html[data-view=live] nav#rail,html[data-view=live] #mbar,html[data-view=live] #main .col>:not(.doctop):not(#viewSwitch):not(#liveCard):not(#liveView){display:none!important}
-.lv{margin:var(--s-6) 0 0}
-.lv-links{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-6)}
-.lv-feed{list-style:none;margin:0;padding:0;position:relative}
-.lv-feed::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:var(--line)}
-.lv-item{--tone:var(--ink2);position:relative;padding:var(--s-2) var(--s-3) var(--s-6) 34px;border-radius:var(--r-ctl)}
-.lv-item::before{content:"";position:absolute;left:0;top:10px;width:10px;height:10px;border-radius:50%;background:var(--bg);border:2px solid var(--tone)}
-.lv-item[data-kind=alert]{--tone:var(--crit)}
-.lv-item[data-kind=report]{--tone:var(--warn)}
-.lv-item[data-kind=action]{--tone:var(--accent)}
-.lv-item[data-kind=deploy]{--tone:var(--viz-7)}
-.lv-item[data-kind=mitigation]{--tone:var(--viz-3)}
-.lv-item[data-kind=resolution],.lv-item[data-kind=allclear]{--tone:var(--ok)}
-.lv-meta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink2)}
-.lv-meta time{font-family:var(--mono);color:var(--ink)}
-.lv-meta .actor{font-weight:600;color:var(--ink)}
-.lv-text{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;max-width:var(--measure)}
+html[data-view=live] nav#rail,html[data-view=live] #mbar,html[data-view=live] #main .col>:not(.doctop):not(#viewSwitch):not(#liveView){display:none!important}
+html[data-view=live] #main .col{max-width:1360px}
+html[data-view=live] .doctop{padding:var(--s-6) 0 0}
+html[data-view=live] .docsub,html[data-view=live] #docTags{display:none!important}
+html[data-view=live] .viewsw{margin:var(--s-4) 0 0}
+.lv{--lv-fixer:var(--viz-1);--lv-ic:var(--viz-7);--lv-monitor:var(--viz-2);--lv-human:var(--ink2);--lvtop:0px;margin:var(--s-4) 0 0}
+.lv [data-role=fixer]{--who:var(--lv-fixer)}
+.lv [data-role=ic]{--who:var(--lv-ic)}
+.lv [data-role=monitor]{--who:var(--lv-monitor)}
+.lv [data-role=human]{--who:var(--lv-human)}
+.lv-top{position:sticky;top:0;z-index:30;margin:0 calc(-1 * var(--s-7));padding:var(--s-3) var(--s-7) var(--s-2);background:var(--bg);border-bottom:1px solid var(--line)}
+.lv-bar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-3) var(--s-5);font-size:var(--t-md);color:var(--ink2)}
+.lv-bar .sf{display:inline-flex;align-items:baseline;gap:var(--s-2);white-space:nowrap}
+.lv-bar .sv{color:var(--ink);font-variant-numeric:tabular-nums;font-size:var(--t-base);font-weight:600}
+.lv-bar .sb-stale .sv{color:var(--warn)}
+.lv-who{display:inline-flex;gap:var(--s-3)}
+.lv-ctl{margin-left:auto;display:inline-flex;align-items:center;gap:var(--s-3)}
+.lv-ctl .toggle button{padding:var(--s-1) var(--s-4);font-size:var(--t-sm);background:var(--card);color:var(--ink2)}
+.lv-ctl .toggle button.on{background:var(--accent);color:var(--accent-ink)}
+.lv-btn{display:inline-flex;align-items:center;gap:var(--s-2);min-height:var(--ctl-h);padding:0 var(--s-4);border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--card);color:var(--ink);font-size:var(--t-sm)}
+.lv-btn:hover{border-color:var(--accent);color:var(--accent)}
+.lv-btn kbd,.lv-keys kbd{font-family:var(--mono);font-size:var(--t-xs);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 var(--s-2);color:var(--ink2);background:var(--bg)}
+.lv-stale{margin:var(--s-2) 0 0;padding:var(--s-2) var(--s-4);border-radius:var(--r-ctl);background:var(--warn-soft);color:var(--warn);font-size:var(--t-sm);max-width:none}
+
+.lv-pulse{--tone:var(--line);display:inline-flex;align-items:center;gap:var(--s-2);min-height:var(--chip-h);padding:var(--s-1) var(--s-3);border:1px solid var(--tone);border-radius:var(--r-pill);font-size:var(--t-sm);line-height:1.3;color:var(--tone);white-space:nowrap}
+.lv-pulse i{width:8px;height:8px;border-radius:50%;background:currentColor;flex:0 0 8px}
+.lv-pulse[data-k=alive]{--tone:var(--ok)}
+.lv-pulse[data-k=alive] i{animation:sbpulse 1.6s ease-in-out infinite}
+.lv-pulse[data-k=quiet]{--tone:var(--warn)}
+.lv-pulse[data-k=down]{--tone:var(--crit);background:var(--crit-soft);font-weight:600}
+.lv-pulse[data-k=done],.lv-pulse[data-k=off]{--tone:var(--ink2)}
+.lv-pulse b{color:var(--ink);font-weight:600}
+
+.lv-strip{position:relative;margin:var(--s-3) 0 0;user-select:none}
+.lv-axis{position:relative;height:18px;margin-left:var(--lane-w,0px);font-family:var(--mono);font-size:var(--t-xs);color:var(--ink2)}
+.lv-axis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.lv-axis span.l0{transform:none}
+.lv-axis span.r0{transform:translateX(-100%)}
+.lv-axis .ms{color:var(--ink);font-weight:600}
+.lv-lane{display:grid;grid-template-columns:var(--lane-w,0px) minmax(0,1fr);align-items:stretch;border-top:1px dashed var(--line)}
+.lv-lane:first-of-type{border-top:0}
+.lv-lh{display:flex;align-items:center;gap:var(--s-2);min-width:0;padding:var(--s-1) var(--s-3) var(--s-1) 0;font-size:var(--t-sm);color:var(--ink);overflow:hidden}
+.lv-lh .nm{font-weight:600;color:var(--who)}
+.lv-lh .st{border:0;padding:0;min-height:0;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-track{grid-column:2;position:relative;height:var(--track-h,30px);outline:none}
+.lv-track:focus-visible{box-shadow:inset 0 0 0 2px var(--accent);border-radius:var(--r-node)}
+.lv-gap{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,transparent 0 5px,var(--line) 5px 6px);opacity:.8;border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.lv-gapl{position:absolute;top:2px;transform:translateX(-50%);font-family:var(--mono);font-size:10px;color:var(--ink2);background:var(--bg);padding:0 3px;white-space:nowrap;z-index:1}
+.lv-msl{position:absolute;top:0;bottom:0;width:0;border-left:1px dotted var(--ink2);opacity:.6}
+.lv-nowl{position:absolute;top:-2px;bottom:-2px;width:2px;margin-left:-1px;background:var(--crit);border-radius:1px}
+.lv-nowl::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;background:var(--crit);animation:sbpulse 1.6s ease-in-out infinite}
+.lv-mk{--who:var(--ink2);position:absolute;top:var(--row-y,50%);width:14px;height:14px;margin:-7px 0 0 -7px;padding:0;border-radius:50%;border:2px solid var(--card);background:var(--who);box-shadow:0 0 0 1px var(--who);cursor:pointer;transition:transform .12s,opacity .12s}
+.lv-mk[data-kind=alert]{border-radius:3px;transform:rotate(45deg);box-shadow:0 0 0 2px var(--crit)}
+.lv-mk[data-kind=mitigation],.lv-mk[data-kind=resolution],.lv-mk[data-kind=allclear]{box-shadow:0 0 0 2px var(--ok)}
+.lv-mk[data-kind=deploy]{border-radius:3px}
+.lv-mk:hover,.lv-mk:focus-visible,.lv-mk.on{transform:scale(1.45);z-index:2;outline:none}
+.lv-mk[data-kind=alert]:hover,.lv-mk[data-kind=alert]:focus-visible,.lv-mk[data-kind=alert].on{transform:rotate(45deg) scale(1.45)}
+.lv-mk.dim{opacity:.18}
+.lv-mk.lv-new{animation:lvmk 2.4s ease-out}
+@keyframes lvmk{0%{box-shadow:0 0 0 12px var(--accent-soft)}100%{box-shadow:0 0 0 1px var(--who)}}
+.lv-legend{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-4);margin:var(--s-2) 0 0 var(--lane-w,0px);font-size:var(--t-xs);color:var(--ink2)}
+.lv-legend span{display:inline-flex;align-items:center;gap:var(--s-2)}
+.lv-legend i{width:9px;height:9px;border-radius:50%;background:var(--who)}
+.lv-legend i.dia{border-radius:2px;transform:rotate(45deg);background:none;box-shadow:0 0 0 2px var(--crit)}
+
+.lv-body{display:grid;grid-template-columns:minmax(290px,350px) minmax(0,1fr);gap:var(--s-6) var(--s-7);align-items:start;margin:var(--s-6) 0 0}
+.lv-now{position:sticky;top:calc(var(--lvtop) + var(--s-5));display:flex;flex-direction:column;gap:var(--s-4)}
+.lv-now h3,.lv-main h3{margin:0;font-family:var(--mono);font-size:var(--t-xs);font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--ink2)}
+.lv-sum{margin:0;font-size:var(--t-lg);line-height:1.45;color:var(--ink)}
+.lv-sum span{display:block;color:var(--ink2);font-size:var(--t-md);margin-top:var(--s-2)}
+.lv-agent{--who:var(--ink2);border:1px solid var(--line);border-left:4px solid var(--who);border-radius:var(--r-ctl);background:var(--card);padding:var(--s-4) var(--s-5);box-shadow:var(--lift)}
+.lv-agent[data-k=down]{border-color:var(--crit);border-left-color:var(--crit);background:linear-gradient(var(--crit-soft),var(--crit-soft)),var(--card)}
+.lv-ah{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3)}
+.lv-ah .nm{font-weight:650;font-size:var(--t-lg);color:var(--ink)}
+.lv-ah .lv-pulse{margin-left:auto}
+.lv-step{margin:var(--s-3) 0 0;font-size:var(--t-xl);line-height:1.35;color:var(--ink);max-width:none}
+.lv-am{display:flex;flex-wrap:wrap;gap:var(--s-1) var(--s-3);margin:var(--s-3) 0 0;font-size:var(--t-sm);color:var(--ink2)}
+.lv-am a{color:var(--ink2);text-decoration:underline dotted;text-underline-offset:3px}
+.lv-am .v{color:var(--ink);font-variant-numeric:tabular-nums}
+.lv-steps{display:flex;gap:3px;margin:var(--s-4) 0 0;padding:0;list-style:none}
+.lv-steps li{flex:1;height:6px;border-radius:3px;background:var(--line)}
+.lv-steps li[data-s=done]{background:var(--who)}
+.lv-steps li[data-s=now]{background:var(--who);animation:sbpulse 1.6s ease-in-out infinite}
+.lv-steps li[data-s=bad]{background:var(--crit)}
+.lv-stepl{margin:var(--s-2) 0 0;font-size:var(--t-sm);color:var(--ink2)}
+.lv-stepl b{color:var(--ink);font-weight:600}
+.lv-stepl b.bad{color:var(--crit)}
+.lv-mon{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);font-size:var(--t-md)}
+.lv-mon a{color:var(--ink)}
+
+.lv-main{min-width:0}
+.lv-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);margin:0 0 var(--s-4)}
+.lv-chip{--tone:var(--line);display:inline-flex;align-items:center;gap:var(--s-2);min-height:var(--ctl-h);padding:0 var(--s-4);border:1px solid var(--tone);border-radius:var(--r-pill);background:var(--card);color:var(--ink2);font-size:var(--t-sm)}
+.lv-chip i{width:8px;height:8px;border-radius:50%;background:var(--who,var(--ink2))}
+.lv-chip[aria-pressed=true]{--tone:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:600}
+.lv-chip .n{font-family:var(--mono);font-size:var(--t-xs);color:var(--ink2)}
+.lv-q{min-height:var(--ctl-h);min-width:180px;flex:1 1 180px;max-width:300px;padding:0 var(--s-4);border:1px solid var(--line);border-radius:var(--r-pill);background:var(--card);color:var(--ink);font:inherit;font-size:var(--t-sm)}
+.lv-count{margin-left:auto;font-size:var(--t-sm);color:var(--ink2)}
+.lv-links{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-4)}
+.lv-feed{list-style:none;margin:0;padding:0}
+.lv-row{--who:var(--ink2);display:grid;grid-template-columns:64px 96px minmax(0,1fr) auto;align-items:baseline;gap:var(--s-1) var(--s-4);padding:var(--s-3) var(--s-4);border-left:3px solid transparent;border-radius:0 var(--r-ctl) var(--r-ctl) 0;cursor:pointer;outline:none}
+.lv-row+.lv-row{border-top:1px solid var(--line)}
+.lv-row:hover,.lv-row.on{background:var(--bg2)}
+.lv-row:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.lv-row[data-kind=alert]{border-left-color:var(--crit)}
+.lv-row[data-kind=mitigation],.lv-row[data-kind=resolution],.lv-row[data-kind=allclear]{border-left-color:var(--ok)}
+.lv-row time{font-family:var(--mono);font-size:var(--t-md);color:var(--ink)}
+.lv-row .ago{display:block;font-family:var(--sans);font-size:var(--t-xs);color:var(--ink2)}
+.lv-rb{display:inline-flex;align-items:center;gap:var(--s-2);font-size:var(--t-sm);font-weight:600;color:var(--who);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-rb i{width:8px;height:8px;border-radius:50%;background:var(--who);flex:0 0 8px}
+.lv-rt{min-width:0;font-size:var(--t-lg);line-height:1.45;color:var(--ink)}
+.lv-rt .kpill{margin-right:var(--s-2);vertical-align:1px}
+.lv-row:not(.open) .lv-rt .tx{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.lv-ri{display:inline-flex;gap:var(--s-2);font-size:var(--t-xs);color:var(--ink2);white-space:nowrap}
+.lv-ri .lico{width:13px;height:13px}
+.lv-detail{grid-column:3/-1;cursor:auto}
+.lv-row.open .lv-ri{visibility:hidden}
+.lv-quiet{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);font-family:var(--mono);font-size:var(--t-xs);color:var(--ink2)}
+.lv-quiet::before,.lv-quiet::after{content:"";flex:1;height:0;border-top:1px dashed var(--line)}
+.lv-empty{padding:var(--s-5) var(--s-4);color:var(--ink2)}
+.lv-new{animation:lvflash 3s ease-out}
+@keyframes lvflash{from{background:var(--accent-soft)}to{background:transparent}}
 .lv-previews{display:grid;gap:var(--s-3);margin:var(--s-3) 0 0;max-width:680px}
 .lv-previews .refs{margin:0}
 .lv-card{display:block;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--card);padding:var(--s-3) var(--s-4);color:var(--ink)}
@@ -427,20 +532,54 @@ a.lv-card:hover{border-color:var(--accent);text-decoration:none}
 .lv-tt{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.4}
 .lv-sub{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);margin:var(--s-2) 0 0;font-size:var(--t-sm);color:var(--ink2)}
 .lv-slack .msg{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
-.lv-mon{overflow:hidden}
-.lv-chart{margin:var(--s-3) 0 0;min-height:180px}
-.lv-chart .u-legend{font-size:var(--t-xs)}
+.lv-chart{margin:var(--s-3) 0 0;min-height:160px}
 
-.lv-empty{padding:var(--s-5) 0 var(--s-5) 34px;color:var(--ink2)}
-.lv-new{animation:lvflash 3s ease-out}
-@keyframes lvflash{from{background:var(--accent-soft)}to{background:transparent}}
+.lv-pop{position:fixed;z-index:80;width:min(500px,calc(100vw - 24px));max-height:min(70vh,560px);overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-ctl);box-shadow:0 14px 40px #00000033;padding:var(--s-4) var(--s-5);font-size:var(--t-base)}
+.lv-pop .lv-pm{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink2)}
+.lv-pop .lv-pm time{font-family:var(--mono);color:var(--ink)}
+.lv-pop .lv-pt{margin:var(--s-3) 0 0;font-size:var(--t-lg);line-height:1.45;max-width:none}
+.lv-pop .lv-hint{margin:var(--s-3) 0 0;font-size:var(--t-xs);color:var(--ink2)}
+.lv-jump{position:fixed;left:50%;bottom:var(--s-6);z-index:60;transform:translateX(-50%);display:inline-flex;align-items:center;gap:var(--s-2);min-height:36px;padding:0 var(--s-5);border:0;border-radius:var(--r-pill);background:var(--ink);color:var(--bg);font-size:var(--t-md);font-weight:600;box-shadow:0 8px 24px #0000003d}
+.lv-keys{border:1px solid var(--line);border-radius:var(--r-fig);background:var(--card);color:var(--ink);padding:var(--s-6);max-width:420px}
+.lv-keys::backdrop{background:#0000004d}
+.lv-keys h3{margin:0 0 var(--s-4)}
+.lv-keys dl{display:grid;grid-template-columns:auto 1fr;gap:var(--s-2) var(--s-5);margin:0;font-size:var(--t-base)}
+.lv-keys dt{text-align:right}
+.lv-keys dd{margin:0;color:var(--ink2)}
+.lv-keys form{margin:var(--s-6) 0 0}
+
+.lv[data-layout=b] .lv-body{display:block}
+.lv[data-layout=b] .lv-now{display:none}
+.lv[data-layout=b] .lv-row{grid-template-columns:64px 96px minmax(0,1fr)}
+.lv[data-layout=b] .lv-ri{display:none}
+.lv[data-layout=b] .lv-lh{min-height:34px}
+.lv[data-layout=c] .lv-body{display:block}
+.lv[data-layout=c] .lv-now{position:static;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:var(--s-5)}
+.lv[data-layout=c] .lv-now>h3,.lv[data-layout=c] .lv-sumbox{grid-column:1/-1}
+.lv[data-layout=c] .lv-sum{font-family:var(--display);font-size:clamp(24px,2.6vw,34px);font-weight:600;line-height:1.15}
+.lv[data-layout=c] .lv-sum span{font-family:var(--sans);font-size:var(--t-xl);font-weight:400;line-height:1.4}
+.lv[data-layout=c] .lv-step{font-size:var(--t-2xl)}
+.lv[data-layout=c] .lv-agent{padding:var(--s-5) var(--s-6)}
+.lv[data-layout=c] .lv-main{margin-top:var(--s-7)}
+.lv[data-layout=c] .lv-row.lead .lv-rt{font-size:var(--t-xl)}
+.lv[data-layout=c] .lv-steps li{height:9px}
+
 .lv-toasts{position:fixed;right:var(--s-6);bottom:88px;z-index:70;display:flex;flex-direction:column;gap:var(--s-3);width:min(380px,calc(100vw - 32px));pointer-events:none}
 .lv-toast{--tone:var(--accent);pointer-events:auto;display:block;width:100%;text-align:left;font:inherit;font-size:var(--t-md);line-height:1.4;color:var(--ink);background:var(--card);border:1px solid var(--line);border-left:3px solid var(--tone);border-radius:var(--r-ctl);padding:var(--s-3) var(--s-4);box-shadow:0 8px 28px #0000002e;cursor:pointer;animation:lvin .25s ease-out}
 .lv-toast[data-kind=alert]{--tone:var(--crit)}
 .lv-toast[data-kind=report]{--tone:var(--warn)}
-.lv-toast[data-kind=resolution],.lv-toast[data-kind=allclear]{--tone:var(--ok)}
-.lv-toast .lv-meta{margin:0 0 var(--s-1)}
+.lv-toast[data-kind=resolution],.lv-toast[data-kind=allclear],.lv-toast[data-kind=mitigation]{--tone:var(--ok)}
+.lv-toast .lv-tm{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);margin:0 0 var(--s-1);font-size:var(--t-sm);color:var(--ink2)}
+.lv-toast .lv-tm time{font-family:var(--mono);color:var(--ink)}
 @keyframes lvin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (max-width:900px){
+  .lv-body{display:block}
+  .lv-now{position:static;margin-bottom:var(--s-6)}
+  .lv-row{grid-template-columns:48px minmax(0,1fr)}
+  .lv-rb{grid-column:2}
+  .lv-rt,.lv-detail{grid-column:1/-1}
+  .lv-ri{display:none}
+}
 
 .xs{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:0 clamp(18px,3vw,30px) var(--s-6)}
 .xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
@@ -636,7 +775,7 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 }
 
 @media print{
-  .lv-toasts,.viewsw{display:none!important}
+  .lv-toasts,.viewsw,.lv-top,.lv-tools,.lv-jump,.lv-pop{display:none!important}
   :root{--bg:#fff;--bg2:#F3F1EC;--ink:#111;--ink2:#555;--line:#CFCBC2;--card:#fff;--code-bg:#F3F1EC;--lift:none;--tbox:1px solid var(--line);--tbg:#fff;--hero-bg:#fff;--hero-band:#F1EDE4;--hero-ink:#111;--hero-ink2:#555;--hero-line:#11111133}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html{scroll-behavior:auto}
@@ -750,9 +889,39 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 
 <div class="livecard" id="liveCard" hidden></div>
 
-<div class="lv" id="liveView" aria-label="Live timeline" hidden>
-  <div class="lv-links" id="lvLinks" hidden></div>
-  <ol class="lv-feed" id="lvFeed"></ol>
+<div class="lv" id="liveView" aria-label="Live incident view" hidden>
+  <div class="lv-top" id="lvTop">
+    <div class="lv-bar" id="lvBar"></div>
+    <p class="lv-stale" id="lvStale" role="alert" hidden></p>
+    <div class="lv-strip" id="lvStrip"></div>
+  </div>
+  <div class="lv-body">
+    <aside class="lv-now" id="lvNow" aria-label="Right now"></aside>
+    <div class="lv-main">
+      <div class="lv-tools" id="lvTools" role="toolbar" aria-label="Filter updates"></div>
+      <div class="lv-links" id="lvLinks" hidden></div>
+      <ol class="lv-feed" id="lvFeed" aria-label="Updates, newest first"></ol>
+    </div>
+  </div>
+  <div class="lv-pop" id="lvPop" role="tooltip" hidden></div>
+  <button type="button" class="lv-jump" id="lvJump" hidden></button>
+  <p class="sr-only" id="lvSay" aria-live="polite"></p>
+  <dialog class="lv-keys" id="lvKeys" aria-labelledby="lvKeysH">
+    <h3 id="lvKeysH">Keyboard shortcuts</h3>
+    <dl>
+      <dt><kbd>j</kbd> <kbd>k</kbd></dt><dd>Next or previous update</dd>
+      <dt><kbd>Enter</kbd></dt><dd>Open or close the selected update</dd>
+      <dt><kbd>o</kbd></dt><dd>Open the selected update's first link</dd>
+      <dt><kbd>n</kbd></dt><dd>Jump to the latest update</dd>
+      <dt><kbd>t</kbd></dt><dd>Move to the timeline; <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through it</dd>
+      <dt><kbd>1</kbd>&ndash;<kbd>4</kbd></dt><dd>Show only the fixer, the IC, monitors or people</dd>
+      <dt><kbd>0</kbd></dt><dd>Clear every filter</dd>
+      <dt><kbd>/</kbd></dt><dd>Search updates</dd>
+      <dt><kbd>r</kbd></dt><dd>Switch to the full retro</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close a preview</dd>
+    </dl>
+    <form method="dialog"><button class="lv-btn">Close</button></form>
+  </dialog>
 </div>
 
 <div class="xs" id="execHost" hidden></div>
@@ -2135,7 +2304,16 @@ const VIEW_KEY="ir-view:"+SLUG;
 const MON_TONE={Alert:"p-crit",Warn:"p-warn",OK:"p-ok","No Data":"p-dead"};
 const PR_TONE={open:"p-acc",draft:"p-dead",merged:"p-ok",closed:"p-crit"};
 const LV_PR=Object.create(null);
-const LV_PR_FRESH_MS=60e3,LV_TOASTS=3,LV_TOAST_MS=9e3,LV_AGE_MS=15e3;
+const LV_PR_FRESH_MS=60e3,LV_TOASTS=3,LV_TOAST_MS=9e3,LV_GAP_MS=15*60e3,LV_BEAT_OK_MS=90e3,LV_BEAT_DOWN_MS=5*60e3;
+const LV_ROLES=["fixer","ic","monitor","human"];
+const LV_ROLE_LABEL={fixer:"Fixer",ic:"IC",monitor:"Monitors",human:"People"};
+const LV_ROLE_LONG={fixer:"Fixer",ic:"Incident commander",monitor:"Monitors",human:"People"};
+const LV_FIX_STEPS=[["investigating","Investigating"],["diagnosed","Diagnosed"],["fixing","Fixing"],["pr-opened","PR open"],["pr-merged","Merged"],["hotfixing","Deploying"],["shipped","Shipped"]];
+const LV_FIX_OFF={stuck:"Stuck",refused:"Refused","release-failed":"Release failed",unproven:"Release unproven",muted:"Muted"};
+const LV_FIX_AT={stuck:2,refused:2,"release-failed":5,unproven:5,muted:6};
+const LV_LAYOUTS={a:"Control room",b:"Swimlanes",c:"Status board"};
+const LV_LAYOUT_KEY="ir-lvlayout";
+const LV_FILTER_KEY="ir-lvfilter:"+SLUG;
 const lvKey=e=>e.id||[e.ts,e.kind,e.actor||"",e.h||"",e.text||"",...(e.refs||[]).map(r=>typeof r==="string"?r:(r&&r.url)||"")].join("|");
 const liveViewable=()=>AS_OF==null&&ongoing()&&!!LIVE;
 function viewWanted(){
@@ -2144,6 +2322,12 @@ function viewWanted(){
  try{return sessionStorage.getItem(VIEW_KEY)||"live"}catch(e){return "live"}
 }
 const inLiveView=()=>liveViewable()&&viewWanted()==="live";
+function lvLayout(){
+ const q=new URLSearchParams(location.search).get("layout");
+ if(LV_LAYOUTS[q])return q;
+ try{const s=sessionStorage.getItem(LV_LAYOUT_KEY);if(LV_LAYOUTS[s])return s}catch(e){}
+ return "a";
+}
 function applyView(){
  const live=inLiveView(),sw=$("#viewSwitch");
  sw.hidden=!liveViewable();
@@ -2160,6 +2344,48 @@ function setView(view){
  scrollTo({top:0,behavior:"instant"});
 }
 $("#viewSwitch").addEventListener("click",e=>{const b=e.target.closest("button[data-view]");if(b)setView(b.dataset.view)});
+function lvRole(e){
+ if(LV_ROLES.includes(e.role))return e.role;
+ const a=String(e.actor||"").toLowerCase();
+ if(a==="fixer")return "fixer";
+ if(a==="ic"||a==="ai-oncall")return "ic";
+ if(a==="datadog")return "monitor";
+ return "human";
+}
+const lvSessions=()=>Object.fromEntries(((LIVE&&LIVE.sessions)||[]).map(s=>[s.role,s]));
+function lvPulse(s){
+ if(!s)return {k:"off",label:"Not started"};
+ if(s.state==="drained")return {k:"done",label:"Handed off"};
+ if(s.state==="skipped")return {k:"off",label:"Not running"};
+ if(s.state==="down")return {k:"down",label:"Down"};
+ const age=Date.now()-(tsOf(s.beatAt)||0);
+ if(s.state==="draining")return {k:"quiet",label:"Wrapping up"};
+ if(age<LV_BEAT_OK_MS)return {k:"alive",label:"Working"};
+ if(age<LV_BEAT_DOWN_MS)return {k:"quiet",label:"Quiet"};
+ return {k:"down",label:"Not responding"};
+}
+function lvAgo(iso){
+ const t=tsOf(iso);
+ if(t==null)return "";
+ const s=Math.max(0,Math.round((Date.now()-t)/1000));
+ if(s<60)return s+" s ago";
+ if(s<3600)return Math.floor(s/60)+" min ago";
+ return durMs(s*1000)+" ago";
+}
+const lvAgoHtml=iso=>`<span data-ago="${esc(iso)}">${esc(lvAgo(iso))}</span>`;
+const lvPulseHtml=role=>{const p=lvPulse(lvSessions()[role]);return `<span class="lv-pulse" data-pulse="${role}" data-k="${p.k}"><i aria-hidden="true"></i>${esc(p.label)}</span>`};
+let LV_FILTER={roles:[],kinds:[],q:""};
+try{LV_FILTER={...LV_FILTER,...JSON.parse(sessionStorage.getItem(LV_FILTER_KEY)||"{}")}}catch(e){}
+const lvSaveFilter=()=>{try{sessionStorage.setItem(LV_FILTER_KEY,JSON.stringify(LV_FILTER))}catch(e){}};
+function lvShown(e){
+ if(LV_FILTER.roles.length&&!LV_FILTER.roles.includes(lvRole(e)))return false;
+ if(LV_FILTER.kinds.length&&!LV_FILTER.kinds.includes(e.kind))return false;
+ const q=LV_FILTER.q.trim().toLowerCase();
+ return !q||[e.text,e.h,e.actor].some(v=>String(v||"").toLowerCase().includes(q));
+}
+const LV_OPEN=new Set();
+let LV_SEL=null,LV_UNSEEN=0;
+const lvRows=()=>tlAt().slice().sort((a,b)=>(tsOf(a.ts)||0)-(tsOf(b.ts)||0));
 function lvSlackHtml(hit,url){
  const {snap,msg}=hit,users=slackUsers(snap);
  return `<div class="lv-card lv-slack"><div class="lv-ch"><span class="lv-ck">Slack</span><b>${esc(slackName(msg,users)||"unknown")}</b>`+
@@ -2170,8 +2396,8 @@ function lvMonitorHtml(id,url,charted){
  const mon=monitorOf(id);
  if(!mon)return null;
  const st=mon.overallState||"unknown";
- const chart=!charted.has(id)&&mon.series&&Array.isArray(mon.series.t)&&mon.series.t.length>1;
- charted.add(id);
+ const chart=charted&&!charted.has(id)&&mon.series&&Array.isArray(mon.series.t)&&mon.series.t.length>1;
+ if(charted)charted.add(id);
  const href=mon.url&&safeUrl(mon.url)?mon.url:url;
  return `<div class="lv-card lv-mon"><div class="lv-ch"><span class="lv-ck">Monitor</span><a href="${esc(href)}" target="_blank" rel="noopener">${esc(mon.name||"Monitor "+id)}</a>`+
   `<span class="pill ${MON_TONE[st]||"p-dead"}">${esc(st)}</span></div>`+
@@ -2198,40 +2424,212 @@ function lvPreview(r,charted){
  }
  return {chip:host==="github"?refChipHtml(r):hostChipHtml(r.url,r.label)};
 }
-const lvWords=t=>plain(String(t||"").replace(/(^|\s):[a-z0-9_+'-]+:/g," ")).replace(/…$/,"").replace(/\s+/g," ").trim().toLowerCase();
-const lvSame=(said,text)=>{
- const a=lvWords(said),b=lvWords(text);
- return !!b&&a.startsWith(b)&&!/[\p{L}\p{N}]/u.test(a.charAt(b.length));
-};
-function lvItemHtml(e,charted){
- const refs=(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
- const said=refs.find(r=>{
-  const hit=hostOf(r.url)==="slack"&&slackMessage(r.url);
-  return hit&&(e.kind==="report"||lvSame(plainSlack(hit.msg,slackUsers(hit.snap)),e.text));
- });
+const lvRefs=e=>(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
+function lvDetailHtml(e,charted){
+ const refs=lvRefs(e);
+ const said=e.kind==="report"||lvRole(e)!=="monitor"?refs.find(r=>hostOf(r.url)==="slack"&&slackMessage(r.url)):null;
  const shown=refs.filter(r=>r!==said).map(r=>lvPreview(r,charted));
  const cards=shown.map(x=>x.card).filter(Boolean),chips=shown.map(x=>x.chip).filter(Boolean);
- return `<li class="lv-item" id="lv-${esc(e._id)}" data-kind="${esc(e.kind)}" data-key="${esc(lvKey(e))}">`+
-  `<div class="lv-meta"><time datetime="${esc(e.ts)}" data-tip="${esc(utcStr(e.ts))}">${esc(fmtTime(e.ts))}</time>`+
-  `<span class="lv-ago" data-ts="${esc(e.ts)}"></span>${kpill(e.kind)}${e.actor?`<span class="actor">${esc(e.actor)}</span>`:""}</div>`+
-  (said?`<div class="lv-previews">${lvSlackHtml(slackMessage(said.url),said.url)}</div>`:`<p class="lv-text">${inline(e.text||e.h||"")}</p>`)+
-  (cards.length||chips.length?`<div class="lv-previews">${cards.join("")}${chips.length?`<div class="refs">${chips.join("")}</div>`:""}</div>`:"")+
-  `</li>`;
+ if(said)cards.unshift(lvSlackHtml(slackMessage(said.url),said.url));
+ return cards.length||chips.length?`<div class="lv-previews">${cards.join("")}${chips.length?`<div class="refs">${chips.join("")}</div>`:""}</div>`:"";
 }
-function lvTickAges(){
- document.querySelectorAll("#lvFeed .lv-ago").forEach(n=>{
-  const ms=Date.now()-(tsOf(n.dataset.ts)||0);
-  n.textContent=ms<60e3?"just now":relTime(n.dataset.ts);
+const lvWho=e=>{const r=lvRole(e);return `<span class="lv-rb" data-role="${r}"><i aria-hidden="true"></i>${esc(r==="human"?e.actor||"Someone":LV_ROLE_LABEL[r])}</span>`};
+const lvText=e=>e.text||e.h||"";
+function lvIcons(e){
+ const hosts=lvRefs(e).map(r=>{const l=linkNorm(r);return l&&l.gh?l.gh.kind:hostOf(r.url)});
+ const label={pr:"PR",slack:"Slack","datadog-monitor":"Monitor",datadog:"Datadog",buildkite:"Build"};
+ return [...new Set(hosts)].map(h=>`<span>${esc(label[h]||h)}</span>`).join("");
+}
+function lvRowHtml(e,{open,charted,lead}){
+ const k=esc(lvKey(e));
+ return `<li class="lv-row${open?" open":""}${lead?" lead":""}${LV_SEL===lvKey(e)?" on":""}" tabindex="-1" data-lvk="${k}" data-kind="${esc(e.kind)}" data-role="${lvRole(e)}">`+
+  `<time datetime="${esc(e.ts)}" data-tip="${esc(utcStr(e.ts))}">${esc(fmtTime(e.ts))}<span class="ago" data-ago="${esc(e.ts)}">${esc(lvAgo(e.ts))}</span></time>`+
+  lvWho(e)+
+  `<div class="lv-rt">${e.kind!=="action"?kpill(e.kind):""}<span class="tx">${inline(lvText(e))}</span></div>`+
+  `<span class="lv-ri" aria-hidden="true">${lvIcons(e)}</span>`+
+  (open?`<div class="lv-detail">${lvDetailHtml(e,charted)}</div>`:"")+`</li>`;
+}
+function lvQuietHtml(ms){return `<li class="lv-quiet" aria-hidden="true">${esc(durMs(ms))} with no updates</li>`}
+function lvRenderBar(){
+ const ses=lvSessions(),age=liveAge(),stale=age>STALE_MS;
+ const span=TS.onset?durMs(Date.now()-tsOf(TS.onset)):"";
+ const who=["fixer","ic"].filter(r=>ses[r]).map(r=>`<span class="sf" data-role="${r}">${esc(LV_ROLE_LABEL[r])} ${lvPulseHtml(r)}</span>`).join("");
+ const lay=lvLayout();
+ $("#lvBar").innerHTML=`<span class="pill p-crit sb-live"><i aria-hidden="true"></i>Live</span>`+
+  `<span class="pill ${PHASE[LIVE.phase][0]}">${esc(PHASE[LIVE.phase][1])}</span>`+
+  (span?`<span class="sf"><span class="sv">${esc(span)}</span>open</span>`:"")+
+  (who?`<span class="lv-who">${who}</span>`:"")+
+  `<span class="sf${stale?" sb-stale":""}">synced <span class="sv" data-ago="${esc(LIVE.updatedAt||"")}">${esc(lvAgo(LIVE.updatedAt))}</span></span>`+
+  `<span class="lv-ctl"><span class="toggle" role="group" aria-label="Layout">${Object.entries(LV_LAYOUTS).map(([k,v])=>`<button type="button" data-lvlayout="${k}" class="${k===lay?"on":""}" aria-pressed="${k===lay}">${esc(v)}</button>`).join("")}</span>`+
+  `<button type="button" class="lv-btn" id="lvKeysBtn" aria-haspopup="dialog">Shortcuts <kbd>?</kbd></button></span>`;
+ const warn=$("#lvStale");
+ warn.hidden=!stale;
+ if(stale)warn.textContent=`This page last synced ${lvAgo(LIVE.updatedAt)}. Statuses below may be out of date; check the incident channel.`;
+}
+function lvFixSteps(s){
+ const off=LV_FIX_OFF[s.phase],at=off?LV_FIX_AT[s.phase]:LV_FIX_STEPS.findIndex(([k])=>k===s.phase);
+ const done=s.phase==="shipped";
+ return `<ol class="lv-steps" aria-hidden="true">`+LV_FIX_STEPS.map(([,label],i)=>
+  `<li data-s="${i<at||done?"done":i===at?(off?"bad":"now"):"todo"}" data-tip="${esc(label)}"></li>`).join("")+`</ol>`+
+  `<p class="lv-stepl">Step ${at+1} of ${LV_FIX_STEPS.length}: <b${off?' class="bad"':""}>${esc(off||LV_FIX_STEPS[at][1])}</b>${at+1<LV_FIX_STEPS.length&&!off?` · then ${esc(LV_FIX_STEPS[at+1][1].toLowerCase())}`:""}</p>`;
+}
+function lvAgentHtml(role,s){
+ const p=lvPulse(s);
+ const build=s.build&&safeUrl(s.build)?` · <a href="${esc(s.build)}" target="_blank" rel="noopener">session log</a>`:"";
+ const lead=role==="ic"&&s.commander?`Commanded by ${s.commander}`:role==="ic"?"Running the incident on its own":"";
+ return `<div class="lv-agent" data-role="${role}" data-k="${p.k}"><div class="lv-ah"><span class="nm">${esc(LV_ROLE_LONG[role])}</span>${lvPulseHtml(role)}</div>`+
+  `<p class="lv-step">${inline(s.step||"")}</p>`+
+  (role==="fixer"&&s.phase?lvFixSteps(s):"")+
+  `<div class="lv-am"><span>last heard <span class="v" data-ago="${esc(s.beatAt||"")}">${esc(lvAgo(s.beatAt))}</span></span>`+
+  (s.attempt>1?`<span>attempt <span class="v">${esc(s.attempt)}</span></span>`:"")+
+  (s.since?`<span>running since <span class="v">${esc(fmtTime(s.since))}</span>${build}</span>`:"")+
+  (lead?`<span>${esc(lead)}</span>`:"")+`</div></div>`;
+}
+function lvRenderNow(){
+ const ses=lvSessions();
+ const mons=(EVIDENCE.monitors||[]).map(m=>monitorOf(m.id)).filter(Boolean);
+ const sum=LIVE.currentState||LIVE.headline||"";
+ $("#lvNow").innerHTML=`<h3>Right now</h3>`+
+  (sum?`<div class="lv-sumbox"><p class="lv-sum">${inline(sum)}${LIVE.next?`<span>Next: ${inline(LIVE.next)}</span>`:""}</p></div>`:"")+
+  ["fixer","ic"].filter(r=>ses[r]).map(r=>lvAgentHtml(r,ses[r])).join("")+
+  mons.map(m=>`<div class="lv-mon" data-role="monitor"><span class="lv-rb"><i aria-hidden="true"></i>Monitor</span><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a><span class="pill ${MON_TONE[m.overallState]||"p-dead"}">${esc(m.overallState||"unknown")}</span></div>`).join("");
+}
+function lvScale(times,t0,t1){
+ const pts=[...new Set([t0,...times,t1])].sort((a,b)=>a-b);
+ const segs=[];
+ let busy=0,n=0;
+ for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],gap=b-a>LV_GAP_MS;segs.push({a,b,gap});if(!gap){busy+=b-a;n++}}
+ const floor=busy/Math.max(1,n)/4,gw=Math.max(busy*.08,60e3);
+ let w=0;
+ segs.forEach(s=>{s.w0=w;w+=s.gap?gw:Math.max(s.b-s.a,floor);s.w1=w});
+ const x=t=>{
+  if(t<=t0||!w)return 1.5;
+  if(t>=t1)return 98.5;
+  const s=segs.find(s=>t>=s.a&&t<=s.b);
+  return 1.5+(s.w0+(s.b===s.a?0:(t-s.a)/(s.b-s.a))*(s.w1-s.w0))/w*97;
+ };
+ return {x,gaps:segs.filter(s=>s.gap)};
+}
+function lvTicks(sc,t0,t1){
+ const steps=[1,2,5,10,15,30,60,120,240,480].map(m=>m*60e3);
+ const busy=t=>!sc.gaps.some(g=>t>g.a&&t<g.b);
+ const step=steps.find(st=>{let c=0;for(let t=Math.ceil(t0/st)*st;t<=t1;t+=st)if(busy(t))c++;return c<=10})||steps[steps.length-1];
+ const out=[];
+ let last=-99;
+ for(let t=Math.ceil(t0/step)*step;t<=t1;t+=step){
+  const x=sc.x(t);
+  if(!busy(t)||x-last<7||x>92)continue;
+  out.push([t,x]);last=x;
+ }
+ return out;
+}
+function lvRenderStrip(){
+ const lay=lvLayout(),rows=lvRows(),ses=lvSessions();
+ const now=Date.now(),t0=Math.min(tsOf(TS.onset)||now,...rows.map(e=>tsOf(e.ts))),t1=now;
+ const sc=lvScale(rows.map(e=>tsOf(e.ts)),t0,t1);
+ const lanes=lay==="b"?LV_ROLES.filter(r=>ses[r]||rows.some(e=>lvRole(e)===r)):["all"];
+ const strip=$("#lvStrip");
+ strip.style.setProperty("--lane-w",lay==="b"?"300px":"0px");
+ const ms=[["onset","Onset"],["detected","Detected"],["engaged","Engaged"],["mitigated","Mitigated"],["resolved","Resolved"]].filter(([k])=>tsAt(k));
+ const msAt=new Map();
+ let msLast=null;
+ ms.forEach(([k,l])=>{
+  const x=sc.x(tsOf(TS[k]));
+  if(msLast!=null&&x-msLast<9){msAt.get(msLast).push(l);return}
+  msAt.set(x,[l]);msLast=x;
  });
+ const axis=lvTicks(sc,t0,t1).map(([t,x])=>`<span style="left:${x}%">${esc(fmtTime(isoAt(t)))}</span>`).join("")+
+  `<span class="ms r0" style="left:100%">now</span>`;
+ const gapsHtml=sc.gaps.map(g=>{const a=sc.x(g.a),b=sc.x(g.b);return `<div class="lv-gap" style="left:${a}%;width:${b-a}%"></div>`}).join("");
+ const msHtml=[...msAt.keys()].map(x=>`<div class="lv-msl" style="left:${x}%"></div>`).join("");
+ const laneHtml=lane=>{
+  const evs=rows.filter(e=>lane==="all"||lvRole(e)===lane);
+  const lastX=[-9,-9,-9];
+  const mks=evs.map(e=>{
+   const x=sc.x(tsOf(e.ts));
+   let row=lastX.findIndex(v=>x-v>1.6);
+   if(row<0)row=lastX.indexOf(Math.min(...lastX));
+   lastX[row]=x;
+   const y=lane==="all"?[50,22,78][row]:[50,26,74][row];
+   const k=lvKey(e);
+   return `<button type="button" class="lv-mk${LV_SEL===k?" on":""}${lvShown(e)?"":" dim"}" tabindex="-1" style="left:${x}%;--row-y:${y}%" data-lvk="${esc(k)}" data-kind="${esc(e.kind)}" data-role="${lvRole(e)}" aria-label="${esc(fmtTime(e.ts)+" "+(lvRole(e)==="human"?e.actor||"":LV_ROLE_LABEL[lvRole(e)])+": "+tlName(e))}"></button>`;
+  }).join("");
+  const s=ses[lane];
+  const head=lane==="all"?"":`<div class="lv-lh" data-role="${lane}"><span class="nm">${esc(LV_ROLE_LABEL[lane])}</span>`+
+   (s?lvPulseHtml(lane)+`<span class="st" data-tip="${esc(s.step||"")}">${esc(s.step||"")}</span>`:`<span class="st">${evs.length} update${evs.length===1?"":"s"}</span>`)+`</div>`;
+  return `<div class="lv-lane" data-role="${lane}">${head}<div class="lv-track" style="--track-h:${lane==="all"?"46px":"34px"}">${gapsHtml}${msHtml}${mks}<div class="lv-nowl" style="left:98.5%"></div></div></div>`;
+ };
+ const gapLabels=sc.gaps.map(g=>`<span class="lv-gapl" style="left:${(sc.x(g.a)+sc.x(g.b))/2}%">${esc(durMs(g.b-g.a))}</span>`).join("");
+ const msLabels=[...msAt.entries()].map(([x,l])=>`<span class="ms${x<8?" l0":""}" style="left:${x<8?Math.max(0,x-1.5):x}%">${esc(l.join(" · "))}</span>`).join("");
+ const legend=lay==="b"?"":`<div class="lv-legend">${["fixer","ic","monitor","human"].filter(r=>rows.some(e=>lvRole(e)===r)).map(r=>`<span data-role="${r}"><i></i>${esc(LV_ROLE_LABEL[r])}</span>`).join("")}<span><i class="dia"></i>Alert</span><span>hatched: quiet stretch</span></div>`;
+ strip.innerHTML=`<div class="lv-axis" aria-hidden="true">${msLabels}</div>`+
+  `<div role="group" aria-label="Timeline; arrow keys move between entries">${lanes.map(laneHtml).join("")}</div>`+
+  `<div class="lv-axis" aria-hidden="true">${axis}${gapLabels}</div>`+legend;
+ const first=strip.querySelector(".lv-mk.on")||[...strip.querySelectorAll(".lv-mk")].pop();
+ if(first)first.tabIndex=0;
 }
-function lvSeries(series){
- const tags=series.series.map(x=>String(x.label||"").split(","));
- const tagged=tags.filter(list=>list.every(t=>t.includes(":")));
- const shared=tagged.length>1?tagged[0].filter(t=>tagged.every(list=>list.includes(t))):[];
- return {...series,series:series.series.map((x,i)=>tagged.includes(tags[i])?{...x,label:tags[i].filter(t=>!shared.includes(t)).join(",")||x.label}:x)};
+function lvRenderTools(){
+ const rows=lvRows();
+ const roles=LV_ROLES.filter(r=>rows.some(e=>lvRole(e)===r));
+ const kinds=TL_KINDS.filter(k=>rows.some(e=>e.kind===k));
+ const chip=(group,v,label,n,role)=>`<button type="button" class="lv-chip" data-group="${group}" data-v="${esc(v)}" aria-pressed="${LV_FILTER[group].includes(v)}"${role?` data-role="${role}"`:""}>${role?"<i></i>":""}${esc(label)}<span class="n">${n}</span></button>`;
+ const host=$("#lvTools");
+ const q=host.querySelector(".lv-q");
+ const typing=q&&document.activeElement===q;
+ if(typing){host.querySelectorAll(".lv-chip,.lv-count").forEach(n=>n.remove())}
+ const html=roles.map((r,i)=>chip("roles",r,`${i+1} ${LV_ROLE_LABEL[r]}`,rows.filter(e=>lvRole(e)===r).length,r)).join("")+
+  kinds.map(k=>chip("kinds",k,TL_LABEL[k],rows.filter(e=>e.kind===k).length)).join("");
+ const shown=rows.filter(lvShown).length;
+ const count=`<span class="lv-count">${shown===rows.length?`${rows.length} updates`:`${shown} of ${rows.length} updates · <a href="#" data-lvclear>show all</a>`}</span>`;
+ if(typing){q.insertAdjacentHTML("beforebegin",html);q.insertAdjacentHTML("afterend",count);return}
+ host.innerHTML=html+`<input class="lv-q" type="search" placeholder="Search updates  /" aria-label="Search updates" value="${esc(LV_FILTER.q)}">`+count;
 }
-function lvMountCharts(feed){
- const recs=[...feed.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:lvSeries(monitorOf(host.dataset.mon).series),requests:[]},spec:{height:180}}));
+function lvRenderFeed(){
+ const lay=lvLayout(),feed=$("#lvFeed"),charted=new Set();
+ const rows=lvRows().filter(lvShown).reverse();
+ if(!rows.length){feed.innerHTML=`<li class="lv-empty">${tlAt().length?"No updates match these filters.":"No timeline entries yet. Each one appears here as it lands."}</li>`;return}
+ const out=[];
+ rows.forEach((e,i)=>{
+  if(i){const gap=(tsOf(rows[i-1].ts)||0)-(tsOf(e.ts)||0);if(gap>LV_GAP_MS)out.push(lvQuietHtml(gap))}
+  const k=lvKey(e);
+  out.push(lvRowHtml(e,{open:lay==="b"||LV_OPEN.has(k)||(lay==="c"&&i<3),charted,lead:lay==="c"&&i<5}));
+ });
+ feed.innerHTML=out.join("");
+ const sel=LV_SEL&&lvNode(LV_SEL);
+ (sel||feed.querySelector(".lv-row")).tabIndex=0;
+}
+function lvRenderLinks(){
+ const ch=(META.incident||{}).channel;
+ const links=[
+  ...(ch&&ch.permalink&&safeUrl(ch.permalink)?[hostChipHtml(ch.permalink,"#"+(ch.name||"incident channel"))]:[]),
+  ...(EVIDENCE.notebooks||[]).filter(n=>n.url&&safeUrl(n.url)).map(n=>hostChipHtml(n.url,(notebookOf(n.id)||{}).name||"Incident notebook"))
+ ];
+ const lh=$("#lvLinks");
+ lh.innerHTML=links.join("");
+ lh.hidden=!links.length;
+}
+function lvTick(){
+ document.querySelectorAll("#liveView [data-ago]").forEach(n=>{n.textContent=lvAgo(n.dataset.ago)});
+ const ses=lvSessions();
+ document.querySelectorAll("#liveView [data-pulse]").forEach(n=>{
+  const p=lvPulse(ses[n.dataset.pulse]);
+  if(n.dataset.k===p.k)return;
+  n.dataset.k=p.k;
+  n.lastChild.textContent=p.label;
+  const card=n.closest(".lv-agent");
+  if(card)card.dataset.k=p.k;
+  lvSay(`${LV_ROLE_LONG[n.dataset.pulse]} is ${p.label.toLowerCase()}`);
+ });
+ const stale=liveAge()>STALE_MS;
+ if(stale!==!$("#lvStale").hidden)lvRenderBar();
+}
+function lvSay(text){
+ const n=$("#lvSay");
+ n.textContent="";
+ requestAnimationFrame(()=>{n.textContent=text});
+}
+function lvMountCharts(root){
+ const recs=[...root.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:monitorOf(host.dataset.mon).series,requests:[]},spec:{height:160}}));
  if(!recs.length)return;
  uplotLib().then(()=>recs.forEach(rec=>{
   if(!rec.host.isConnected)return;
@@ -2239,6 +2637,13 @@ function lvMountCharts(feed){
   makeChart(rec);
   chartResize.observe(rec.host);
  }),()=>recs.forEach(rec=>{rec.host.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`}));
+}
+function lvDropCharts(root){
+ CHARTS.filter(rec=>root.contains(rec.host)).forEach(rec=>{
+  if(rec.u)rec.u.destroy();
+  chartResize.unobserve(rec.host);
+  CHARTS.splice(CHARTS.indexOf(rec),1);
+ });
 }
 async function lvResolvePr(gh){
  const base=`/repos/${gh.o}/${gh.r}`;
@@ -2265,53 +2670,197 @@ async function lvResolvePrs(){
  lvResolving=true;
  try{
   const wanted=new Map();
-  document.querySelectorAll("#lvFeed [data-lvpr]").forEach(a=>{const l=linkNorm(a.getAttribute("href"));if(l&&l.gh)wanted.set(l.gh.key,l.gh)});
+  document.querySelectorAll("#liveView [data-lvpr]").forEach(a=>{const l=linkNorm(a.getAttribute("href"));if(l&&l.gh)wanted.set(l.gh.key,l.gh)});
   for(const [key,gh] of wanted){
    const held=LV_PR[key];
    if(held&&(held.state==="merged"||Date.now()-held.at<LV_PR_FRESH_MS))continue;
    try{LV_PR[key]=await lvResolvePr(gh)}
    catch(e){if(e.status===401)return;continue}
-   document.querySelectorAll(`#lvFeed [data-lvpr="${CSS.escape(key)}"]`).forEach(a=>{a.innerHTML=lvPrInner(gh,LV_PR[key])});
+   document.querySelectorAll(`#liveView [data-lvpr="${CSS.escape(key)}"]`).forEach(a=>{a.innerHTML=lvPrInner(gh,LV_PR[key])});
   }
  }finally{lvResolving=false}
 }
 function renderLiveView(){
  applyView();
- const feed=$("#lvFeed");
- CHARTS.filter(rec=>feed.contains(rec.host)).forEach(rec=>{
-  if(rec.u)rec.u.destroy();
-  chartResize.unobserve(rec.host);
-  CHARTS.splice(CHARTS.indexOf(rec),1);
- });
- if(!inLiveView()){feed.innerHTML="";return}
- const ch=(META.incident||{}).channel;
- const links=[
-  ...(ch&&ch.permalink&&safeUrl(ch.permalink)?[hostChipHtml(ch.permalink,"#"+(ch.name||"incident channel"))]:[]),
-  ...(EVIDENCE.notebooks||[]).filter(n=>n.url&&safeUrl(n.url)).map(n=>hostChipHtml(n.url,(notebookOf(n.id)||{}).name||"Incident notebook"))
- ];
- const lh=$("#lvLinks");
- lh.innerHTML=links.join("");
- lh.hidden=!links.length;
- const charted=new Set();
- const rows=tlAt().slice().reverse();
- feed.innerHTML=rows.length?rows.map(e=>lvItemHtml(e,charted)).join(""):'<li class="lv-empty">No timeline entries yet. Each one appears here as it lands.</li>';
- lvMountCharts(feed);
- lvTickAges();
+ const lv=$("#liveView");
+ lvDropCharts($("#lvFeed"));
+ lvHidePop();
+ if(!inLiveView()){$("#lvFeed").innerHTML="";$("#lvStrip").innerHTML="";return}
+ const focused=document.activeElement&&lv.contains(document.activeElement)&&document.activeElement.dataset.lvk;
+ lv.dataset.layout=lvLayout();
+ lvRenderBar();
+ lvRenderNow();
+ lvRenderStrip();
+ lvRenderTools();
+ lvRenderLinks();
+ lvRenderFeed();
+ if(focused){const n=[...lv.querySelectorAll("[data-lvk]")].find(n=>n.dataset.lvk===focused&&n.tagName===document.activeElement.tagName);if(n){n.tabIndex=0;n.focus({preventScroll:true})}}
+ lvMountCharts($("#lvFeed"));
+ lvTick();
  lvResolvePrs();
 }
-const lvNode=key=>[...document.querySelectorAll("#lvFeed .lv-item")].find(n=>n.dataset.key===key)||null;
+const lvNode=key=>[...document.querySelectorAll("#lvFeed .lv-row")].find(n=>n.dataset.lvk===key)||null;
+const lvMark=key=>[...document.querySelectorAll("#lvStrip .lv-mk")].find(n=>n.dataset.lvk===key)||null;
+const lvEntry=key=>TIMELINE.find(e=>lvKey(e)===key)||null;
 function lvFlash(n){
  n.classList.remove("lv-new");
  void n.offsetWidth;
  n.classList.add("lv-new");
 }
+function lvSelect(key){
+ LV_SEL=key;
+ document.querySelectorAll("#liveView .lv-mk.on,#liveView .lv-row.on").forEach(n=>n.classList.remove("on"));
+ [lvNode(key),lvMark(key)].forEach(n=>{if(n)n.classList.add("on")});
+}
+function lvToggle(row,open){
+ const key=row.dataset.lvk,e=lvEntry(key);
+ if(!e)return;
+ const want=open==null?!row.classList.contains("open"):open;
+ if(want)LV_OPEN.add(key);else LV_OPEN.delete(key);
+ lvDropCharts(row);
+ const html=lvRowHtml(e,{open:want||lvLayout()==="b",charted:new Set(),lead:row.classList.contains("lead")});
+ row.outerHTML=html;
+ const n=lvNode(key);
+ n.tabIndex=0;
+ n.focus({preventScroll:true});
+ lvMountCharts(n);
+ lvResolvePrs();
+}
 function lvReveal(e){
  if(liveViewable()&&!inLiveView())setView("live");
- const n=inLiveView()?lvNode(lvKey(e)):document.getElementById(e._id);
+ const key=lvKey(e);
+ if(inLiveView()&&!lvShown(e)){LV_FILTER={roles:[],kinds:[],q:""};lvSaveFilter();renderLiveView()}
+ const n=inLiveView()?lvNode(key):document.getElementById(e._id);
  if(!n)return;
+ if(inLiveView()){
+  lvSelect(key);
+  if(!n.classList.contains("open"))lvToggle(n,true);
+  const m=lvNode(key);
+  m.scrollIntoView({block:"center",behavior:"smooth"});
+  lvFlash(m);
+  return;
+ }
  n.scrollIntoView({block:"center",behavior:"smooth"});
  lvFlash(n);
 }
+let lvPopFor=null,lvPopTimer=0;
+function lvHidePop(){clearTimeout(lvPopTimer);lvPopFor=null;$("#lvPop").hidden=true}
+function lvShowPop(node){
+ const e=lvEntry(node.dataset.lvk);
+ if(!e)return;
+ if(node.classList.contains("lv-row")&&node.classList.contains("open")){lvHidePop();return}
+ clearTimeout(lvPopTimer);
+ lvPopFor=node;
+ const pop=$("#lvPop"),r=lvRole(e);
+ pop.innerHTML=`<div class="lv-pm" data-role="${r}"><time>${esc(fmtTime(e.ts))}</time><span data-ago="${esc(e.ts)}">${esc(lvAgo(e.ts))}</span>${kpill(e.kind)}${lvWho(e)}${r==="human"?"":e.actor&&e.actor!==LV_ROLE_LABEL[r]?`<span>${esc(e.actor)}</span>`:""}</div>`+
+  `<p class="lv-pt">${inline(lvText(e))}</p>${lvDetailHtml(e,null)}`+
+  `<p class="lv-hint">${node.classList.contains("lv-mk")?"Click to jump to it in the feed":"Click or press Enter to keep it open"}</p>`;
+ pop.hidden=false;
+ const a=node.getBoundingClientRect(),b=pop.getBoundingClientRect();
+ const below=a.bottom+8+b.height<=innerHeight-8||a.top-8-b.height<8;
+ pop.style.top=Math.max(8,below?a.bottom+8:a.top-8-b.height)+"px";
+ const x=node.classList.contains("lv-mk")?a.left+a.width/2-b.width/2:Math.max(a.left+160,a.left);
+ pop.style.left=Math.min(Math.max(8,x),innerWidth-b.width-8)+"px";
+ lvResolvePrs();
+}
+function lvArmPop(node){
+ if(node===lvPopFor)return;
+ clearTimeout(lvPopTimer);
+ lvPopTimer=setTimeout(()=>lvShowPop(node),$("#lvPop").hidden?140:40);
+}
+const lvFeedTop=()=>$("#lvFeed").getBoundingClientRect().top+scrollY-parseFloat(getComputedStyle($("#liveView")).getPropertyValue("--lvtop"))-24;
+function lvToNow(){
+ LV_UNSEEN=0;
+ lvJump();
+ scrollTo({top:Math.max(0,lvFeedTop()),behavior:"smooth"});
+ const first=$("#lvFeed .lv-row");
+ if(first){first.tabIndex=0;first.focus({preventScroll:true})}
+}
+function lvJump(){
+ const b=$("#lvJump"),away=inLiveView()&&scrollY>lvFeedTop()+200;
+ if(!away)LV_UNSEEN=0;
+ b.hidden=!away;
+ b.textContent=LV_UNSEEN?`↑ ${LV_UNSEEN} new update${LV_UNSEEN===1?"":"s"}`:"↑ Back to the latest";
+}
+function lvMove(list,from,step){
+ const i=list.indexOf(from);
+ const next=list[i<0?0:Math.min(list.length-1,Math.max(0,i+step))];
+ if(!next)return;
+ list.forEach(n=>{n.tabIndex=-1});
+ next.tabIndex=0;
+ next.focus();
+ lvSelect(next.dataset.lvk);
+ if(next.classList.contains("lv-mk"))lvShowPop(next);
+ else next.scrollIntoView({block:"nearest"});
+}
+function lvFilterToggle(group,v){
+ const set=LV_FILTER[group];
+ LV_FILTER[group]=set.includes(v)?set.filter(x=>x!==v):[...set,v];
+ lvSaveFilter();
+ renderLiveView();
+}
+(function lvWire(){
+ const lv=$("#liveView");
+ new ResizeObserver(()=>lv.style.setProperty("--lvtop",$("#lvTop").offsetHeight+"px")).observe($("#lvTop"));
+ lv.addEventListener("click",e=>{
+  const lay=e.target.closest("[data-lvlayout]");
+  if(lay){try{sessionStorage.setItem(LV_LAYOUT_KEY,lay.dataset.lvlayout)}catch(x){}const u=new URL(location.href);u.searchParams.set("layout",lay.dataset.lvlayout);history.replaceState(history.state,"",u);renderLiveView();return}
+  if(e.target.closest("#lvKeysBtn")){$("#lvKeys").showModal();return}
+  const chip=e.target.closest(".lv-chip");
+  if(chip){lvFilterToggle(chip.dataset.group,chip.dataset.v);return}
+  if(e.target.closest("[data-lvclear]")){e.preventDefault();LV_FILTER={roles:[],kinds:[],q:""};lvSaveFilter();renderLiveView();return}
+  const mk=e.target.closest(".lv-mk");
+  if(mk){const ev=lvEntry(mk.dataset.lvk);lvHidePop();if(ev)lvReveal(ev);return}
+  if(e.target.closest("a,button,input,.lv-detail"))return;
+  const row=e.target.closest(".lv-row");
+  if(row){lvHidePop();lvSelect(row.dataset.lvk);if(lvLayout()!=="b")lvToggle(row)}
+ });
+ lv.addEventListener("input",e=>{if(e.target.matches(".lv-q")){LV_FILTER.q=e.target.value;lvSaveFilter();renderLiveView()}});
+ lv.addEventListener("pointerover",e=>{
+  const n=e.target.closest(".lv-mk,.lv-row");
+  if(n&&!e.target.closest(".lv-detail,a")){lvArmPop(n);if(n.classList.contains("lv-row")){const m=lvMark(n.dataset.lvk);document.querySelectorAll("#lvStrip .lv-mk.hov").forEach(x=>x.classList.remove("hov","on"));if(m&&!m.classList.contains("on"))m.classList.add("on","hov")}return}
+  if(!e.target.closest("#lvPop")){clearTimeout(lvPopTimer);lvPopTimer=setTimeout(lvHidePop,160)}
+ });
+ lv.addEventListener("pointerleave",()=>{clearTimeout(lvPopTimer);lvPopTimer=setTimeout(lvHidePop,160)});
+ $("#lvPop").addEventListener("pointerenter",()=>clearTimeout(lvPopTimer));
+ $("#lvPop").addEventListener("pointerleave",()=>{lvPopTimer=setTimeout(lvHidePop,160)});
+ lv.addEventListener("focusin",e=>{const n=e.target.closest(".lv-mk");if(n)lvShowPop(n)});
+ lv.addEventListener("keydown",e=>{
+  const mk=e.target.closest(".lv-mk");
+  if(mk){
+   const list=[...mk.closest(".lv-lane").parentNode.querySelectorAll(".lv-mk")].sort((a,b)=>parseFloat(a.style.left)-parseFloat(b.style.left));
+   const step={ArrowRight:1,ArrowLeft:-1,Home:-1e9,End:1e9}[e.key];
+   if(step){e.preventDefault();lvMove(list,mk,step);return}
+   if(e.key==="Enter"||e.key===" "){e.preventDefault();const ev=lvEntry(mk.dataset.lvk);lvHidePop();if(ev)lvReveal(ev)}
+   return;
+  }
+  const row=e.target.closest(".lv-row");
+  if(row&&(e.key==="Enter"||e.key===" ")&&!e.target.closest("a,button")){e.preventDefault();lvHidePop();lvSelect(row.dataset.lvk);lvToggle(row)}
+ });
+ document.addEventListener("keydown",e=>{
+  if(!inLiveView()||e.metaKey||e.ctrlKey||e.altKey)return;
+  if(e.key==="Escape"){lvHidePop();if(e.target.matches(".lv-q"))e.target.blur();return}
+  if(e.target.closest("input,textarea,select,[contenteditable]")||$("#lvKeys").open)return;
+  const rows=[...document.querySelectorAll("#lvFeed .lv-row")];
+  const cur=document.activeElement&&document.activeElement.closest(".lv-row");
+  const act={
+   j:()=>lvMove(rows,cur||rows[-1],cur?1:0),
+   k:()=>lvMove(rows,cur||rows[0],cur?-1:0),
+   n:lvToNow,
+   t:()=>{const m=$("#lvStrip .lv-mk[tabindex='0']");if(m)m.focus()},
+   "/":()=>{const q=$("#liveView .lv-q");q.focus();q.select()},
+   "0":()=>{LV_FILTER={roles:[],kinds:[],q:""};lvSaveFilter();renderLiveView()},
+   o:()=>{const a=cur&&cur.querySelector(".lv-detail a[href]")||cur&&lvRefs(lvEntry(cur.dataset.lvk))[0];if(a)open(a.href||a.url,"_blank","noopener")},
+   r:()=>setView("retro"),
+   "?":()=>$("#lvKeys").showModal(),
+  }[e.key];
+  const role=/^[1-4]$/.test(e.key)&&[...document.querySelectorAll("#lvTools .lv-chip[data-group=roles]")][+e.key-1];
+  if(role){e.preventDefault();lvFilterToggle("roles",role.dataset.v);return}
+  if(act){e.preventDefault();act()}
+ });
+ $("#lvJump").addEventListener("click",lvToNow);
+ addEventListener("scroll",()=>{lvJump();if(lvPopFor&&!$("#lvPop").hidden)lvHidePop()},{passive:true});
+})();
 function lvToast(html,kind,onOpen){
  const t=el("button","lv-toast",html);
  t.type="button";
@@ -2322,11 +2871,15 @@ function lvToast(html,kind,onOpen){
 }
 function lvAnnounce(fresh){
  const shown=fresh.slice(-LV_TOASTS),more=fresh.length-shown.length;
- if(more)lvToast(`<b>${more} more update${more===1?"":"s"}</b>`,"",()=>{if(liveViewable()&&!inLiveView())setView("live")});
- shown.forEach(e=>lvToast(`<div class="lv-meta"><time>${esc(fmtTime(e.ts))}</time>${kpill(e.kind)}${e.actor?`<span class="actor">${esc(e.actor)}</span>`:""}</div><div>${esc(tlName(e))}</div>`,e.kind,()=>lvReveal(e)));
- if(inLiveView())fresh.forEach(e=>{const n=lvNode(lvKey(e));if(n)lvFlash(n)});
+ if(more)lvToast(`<b>${more} more update${more===1?"":"s"}</b>`,"",()=>{if(liveViewable()&&!inLiveView())setView("live");lvToNow()});
+ shown.forEach(e=>lvToast(`<div class="lv-tm"><time>${esc(fmtTime(e.ts))}</time>${kpill(e.kind)}${lvWho(e)}</div><div>${esc(tlName(e))}</div>`,e.kind,()=>lvReveal(e)));
+ if(!inLiveView())return;
+ fresh.forEach(e=>{const k=lvKey(e);[lvNode(k),lvMark(k)].forEach(n=>{if(n)lvFlash(n)})});
+ LV_UNSEEN+=fresh.length;
+ lvJump();
 }
-setInterval(lvTickAges,LV_AGE_MS);
+setInterval(()=>{if(inLiveView())lvTick()},1000);
+setInterval(()=>{if(inLiveView()&&!$("#lvStrip").contains(document.activeElement))lvRenderStrip()},60e3);
 setInterval(()=>{if(inLiveView())lvResolvePrs()},LV_PR_FRESH_MS);
 
 let SCRUB={stops:[],t0:0,t1:0,c0:0,c1:0,PRE:0,CORE:100,POST:0};
