@@ -70,8 +70,7 @@ class FakeShell(ledger.Shell):
         self.fail_gh: str | None = None
         self.quota_resets_at: int | None = None
         self.pr_state_error = ""
-        self.orca: dict[tuple[str, ...], dict] = {}
-        self.orca_errors: dict[tuple[str, ...], dict] = {}
+        self.prompt_watch: dict = {}
         self.calls: list[list[str]] = []
         self.foreign: set[str] = set()
         self.cci: list[dict] = []
@@ -101,10 +100,8 @@ class FakeShell(ledger.Shell):
             return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
-        if argv[0] == "orca":
-            if error := self.orca_errors.get(tuple(argv[1:-1])):
-                raise subprocess.CalledProcessError(1, argv, output=json.dumps({"ok": False, "error": error}))
-            return json.dumps({"ok": True, "result": self.orca[tuple(argv[1:-1])]})
+        if argv[1:3] == [str(ledger.PROMPT_WATCH), "show"]:
+            return json.dumps(self.prompt_watch)
         raise AssertionError(f"unexpected command: {argv}")
 
     def _cci(self, argv):
@@ -399,7 +396,7 @@ class FakeShell(ledger.Shell):
 
 @pytest.fixture(autouse=True)
 def outside_orca(monkeypatch) -> None:
-    monkeypatch.delenv(ledger.ORCA_TERMINAL, raising=False)
+    monkeypatch.delenv("ORCA_TERMINAL_HANDLE", raising=False)
 
 
 @pytest.fixture

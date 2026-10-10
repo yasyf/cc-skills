@@ -1,0 +1,33 @@
+{
+  "id": "f54ee1d5-0545-48cf-8f2d-16515da11f14",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_26c4ee5e-61f3-4fac-86aa-40bbdbc87c4e",
+      "ptyId": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app@@9a094a6f",
+      "incarnationId": "ed6ee6c2-aef9-4c46-853e-06005d14ba0a",
+      "orphaned": false,
+      "worktreeId": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app",
+      "worktreePath": "/Users/dev/work/app",
+      "branch": "",
+      "tabId": "dee8654d-3429-4dd0-ba76-ac63ff45b990",
+      "leafId": "7169e50e-c382-4716-8bee-96d2d502991a",
+      "title": "◐ Drive coordinator",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1791628142203,
+      "preview": "✳ Polling the stack…",
+      "executionHostId": "local",
+      "agentIdentity": "claude",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0,
+      "agentWait": {
+        "source": "hook",
+        "since": 1791627768779
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

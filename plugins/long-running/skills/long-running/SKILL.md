@@ -1148,14 +1148,18 @@ fence; this rule must not be reported as an enforced runner guarantee.
 between passes. The landing process uses its configured 180-second interval.
 Model desks retain the 60-second inbox-wait rule.
 
-**O13. A prompt is a desk bug.** The five-minute sweep reads `observation.agentWait`
-and emits `PROMPT` in the pass that sees it. Stale unread mail gets one terminal
-wake per message, typed only when the lane's screen shows the plain empty prompt.
-Completed or failed dispatch mail emits `STALE-MAIL`; no sweep relaunches a worker
-or guesses an answer to its prompt.
+**O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the one
+reader of Orca's `agentWait`, as [Prompt watch](#prompt-watch) describes. It covers the
+coordinator's terminal, every registered desk, and every in-progress worker. It
+answers no prompt and types into no terminal that waits on one. The runner's five-minute sweep reads the watch's last poll and emits
+`PROMPT-WATCH-DOWN` once an hour while that poll is over two minutes old. Stale unread
+mail gets one terminal wake per message, typed only when the lane's screen shows the
+plain empty prompt. Completed or failed dispatch mail emits `STALE-MAIL`; no sweep
+relaunches a worker or guesses an answer to its prompt.
 
 *Prevents lanes sitting for hours on a prompt only their own terminal showed
-(release v3, 2026-09-30).*
+(release v3, 2026-09-30). Also prevents the hook approval that froze a coordinator and
+its in-process lane until the owner pointed at it (orca-remote-managed, 2026-10-10).*
 
 **O14. Hold launches while load exceeds the core count, for a bounded time.** The
 runner reads the 1-minute load before each launch. An incident launch or one submitted with
@@ -1784,6 +1788,7 @@ to join the existing drive. Run `drive.py end` only when the drive is over.
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>]
+drive.py desk --name <desk lane> --terminal <handle> [--environment <name>] [--supervisor]
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
 # on each report: record it and grade the current head; reports are not a gate
@@ -1876,7 +1881,8 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 The drive dashboard is a `/live-dashboard` dir at `<state dir>/dashboard`. `drive.py`
 writes its `context.json` on every registry write, and `drive.py start` and root
 `SessionStart` seed `layout.yaml` from the `drive` preset when none exists, then start
-the server detached. The same hooks print the `live-dashboard url --dir` command; the
+the server detached, and the drive's [prompt watch](#prompt-watch) beside it. The same
+hooks print the `live-dashboard url --dir` command; the
 root gives the owner that link in its first reply of every drive, after every resume
 and compaction, and in the header of each milestone report.
 
@@ -1908,6 +1914,81 @@ and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` 
 main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
 PR's ledger row. The `dashboard-curator` desk closes only what settles in words, briefed
 from `/live-dashboard` `reference/keeping-live.md`.
+
+### Prompt watch
+
+A terminal stopped at a prompt reports nothing. Its transcript goes quiet and its lane
+looks busy. The prompt watch reads Orca instead. `drive.py start` and root `SessionStart`
+run `prompt_watch.py start --drive <id>`, which detaches one `run` per drive beside the
+dashboard server. It polls every 30 seconds, holds `<state dir>/prompt-watch/lock` so a
+second one exits, and ends when `drive.py end` removes the registry file. A plugin
+update restarts nothing; the running watch keeps its code until the next root session
+starts one.
+
+It reads three sets of terminals from the registry.
+
+- The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook
+  record from `ORCA_TERMINAL_HANDLE`. A prompt raised by an in-process lane shows here.
+- Each standing desk is recorded with `drive.py desk --name <lane> --terminal <handle>`,
+  plus `--environment <name>` for a desk on a remote host.
+- The workers are every in-progress dispatch of the drive's Run, local or remote, from
+  `orca orchestration worker-list --include-remote`. With no `orca_run` in the registry
+  the watch takes the Run bound to the coordinator's terminal, and none when that
+  terminal is unbound. While that list fails, no worker's prompt is closed. Each worker
+  keeps its record and reads `unknown` or `unreachable` until the list answers again.
+
+Orca's `agentWait` only says where to look. It stays set after a prompt is answered, so
+it never raises a record and never authorizes an answer. The watch reads the rendered
+screen with `orca terminal read --screen` and puts each terminal in exactly one state.
+
+| State | The screen shows | Record |
+|---|---|---|
+| `approval` | an approval dialog, such as a hook's ask, a tool permission, or a trust check | one, on the first poll that sees it |
+| `question` | a question picker | one, on the first poll that sees it |
+| `stale` | the agent's own input box, with `agentWait` still set | none; it resolves the prompt's record |
+| `unknown` | nothing the watch can read, or a wait whose screen matches no dialog or input box it knows | one `report` to `root` after three polls |
+| `unreachable` | nothing, because the remote host does not answer | one `report` to `root` after three polls |
+| `clear` | a working or idle agent with `agentWait` unset | none |
+
+`unknown` and `unreachable` mean the prompt state is not known. Never read either as
+working, and never as stuck. A host running Orca's managed server installs no agent
+hook, so `agentWait` stays unset there. The watch therefore reads every remote
+worker's screen on every poll, through the `--environment` its `worker-show` names.
+
+Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`,
+never one per poll.
+
+- A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
+  the command in the record and decides.
+- Its own prompt cannot wake the coordinator. Register one independent agent as
+  its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`;
+  the coordinator's prompt is then a `blocker` to that lane, and the watch types the
+  record's line into the supervisor's own terminal with `orca terminal send --enter`.
+  It types that line once per prompt, and only when Orca reads the supervisor
+  `tui-idle` and its screen shows the empty input box; until then each poll looks
+  again. A supervisor that holds a foreground wait is never idle, so it runs
+  `cci watch --drive <cci drive> --to <lane> --for 0` in that wait and the record ends
+  it. `drive.py desk --supervisor` prints that command. The supervisor reads the live
+  screen and answers only within what the owner already authorized. For anything else
+  it posts the owner an `ask`.
+- The owner gets an `ask`, which `lr.needs-owner` shows, in four cases. No supervisor
+  is registered. The supervisor is itself at a prompt, unknown, or unreachable. Orca
+  refuses the wake. The prompt is still open five minutes after the supervisor's
+  record, even if the supervisor was never idle to wake.
+
+When the prompt leaves the screen, or its terminal leaves the watch, the watch posts
+an `unblock` record that resolves each record it raised. The watch answers no prompt
+and types into no terminal that waits on one; the supervisor's wake is the only line
+it types. It never stops, restarts, releases, closes, or signals anything.
+
+`prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line
+per terminal that is not clear. `ledger.py summary` prints the same lines after its
+counts. `PROMPT-WATCH-DOWN` leads them when the last poll is over two minutes old;
+run the `start` command it names.
+
+*Prevents a hook approval sitting on the coordinator's terminal with a lane blocked
+behind it, seen by nothing that reads transcripts, until the owner pointed at it
+(orca-remote-managed, 2026-10-10).*
 
 ### Lane bus
 

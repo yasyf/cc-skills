@@ -54,8 +54,9 @@ LOST once ``asked_at`` is 30 minutes old. ``report --ask`` refuses a second, sti
 ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
 on a stacked follow-up PR instead.
 
-Run inside an Orca terminal, ``summary`` also names every in-progress Orca worker that
-Orca's own ``agentWait`` shows parked on a prompt for five minutes or more.
+``summary`` also prints the prompt watch's last poll for the drive, from ``prompt_watch.py show``:
+one line per coordinator, desk, or worker terminal that is at a prompt, stale, unknown, or
+unreachable, led by ``PROMPT-WATCH-DOWN`` when the watch stopped polling.
 
 When the shared GraphQL quota is spent, ``reconcile`` and ``summary`` skip the PR-state read
 once, land the squashed rows from git alone, and open with a ``pr states: cached`` banner
@@ -124,6 +125,7 @@ AGED_HOURS = 60
 TRAIN_CARS = 6
 TRAIN_TIERS = ("green", "dirty")
 LIVE_KEY = "live"
+PROMPT_WATCH = Path(__file__).resolve().parent / "prompt_watch.py"
 LOST_MINUTES = 30
 ESCALATE_MINUTES = 60
 ASK_LIVE = "LIVE"
@@ -135,9 +137,6 @@ ASK_BACKLOG = "BACKLOG"
 ASK_OPEN = "open"
 ASK_OVERRIDES = {"backlog": ASK_BACKLOG, "live": ASK_LIVE, "lost": ASK_LOST}
 ASK_STATES = (*ASK_OVERRIDES, ASK_OPEN)
-ORCA_TERMINAL = "ORCA_TERMINAL_HANDLE"
-ORCA_IN_PROGRESS = "in_progress"
-PROMPT_MINUTES = 5
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
 UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules", "rules-pending")
@@ -970,47 +969,10 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
     return "\n".join(out)
 
 
-def orca(shell: Shell, *argv: str) -> dict:
-    return json.loads(shell.run(["orca", *argv, "--json"]))["result"]
-
-
-def orca_workers(shell: Shell) -> list[dict]:
-    workers: list[dict] = []
-    cursor: list[str] = []
-    while True:
-        listed = orca(shell, "orchestration", "worker-list", *cursor)
-        workers += listed["workers"]
-        if not listed["page"]["hasMore"]:
-            return workers
-        cursor = ["--cursor", listed["page"]["nextCursor"]]
-
-
-def lane_of(branch: str, lanes: dict[str, dict[str, str]]) -> str:
-    name = branch.removeprefix("refs/heads/")
-    return next((fields["lane"] for fields in lanes.values() if on_prefix(name, fields["branch_prefix"])), name)
-
-
-def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozenset[str] | None, moment: datetime) -> list[str]:
-    """Orca's `agentWait` names a worker parked on a prompt only a human can answer; a wait with no `since` has an unknown age and is named too."""
-    lines = []
-    for worker in orca_workers(shell):
-        if worker["projection"]["outcome"] != ORCA_IN_PROGRESS:
-            continue
-        try:
-            shown = orca(shell, "orchestration", "worker-show", "--dispatch", worker["dispatchId"])
-        except subprocess.CalledProcessError as failure:
-            error = json.loads(failure.stdout)["error"]
-            lines.append(f"WORKER-SHOW-FAILED dispatch={worker['dispatchId']} {error['code']}: {error['message']}")
-            continue
-        if not (wait := shown["observation"].get("agentWait")):
-            continue
-        minutes = int((moment.timestamp() * 1000 - wait["since"]) // 60000) if "since" in wait else None
-        lane = lane_of(shown["terminal"]["branch"], lanes)
-        if (minutes is not None and minutes < PROMPT_MINUTES) or (shard is not None and lane not in shard):
-            continue
-        age = "?" if minutes is None else minutes
-        lines.append(f"WAITING-ON-PROMPT {lane} {age}m dispatch={worker['dispatchId']} via {wait['source']}: {wait.get('reason', 'interactive prompt')}")
-    return lines
+def prompt_lines(shell: Shell, drive: str, shard: frozenset[str] | None) -> list[str]:
+    """The prompt watch's last poll for the cci drive: its own line when it stopped polling, then one per terminal that is not clear."""
+    watch = json.loads(shell.run([sys.executable, str(PROMPT_WATCH), "show", "--cci-drive", drive, "--json"]) or "{}")
+    return [row["line"] for row in watch.get("rows") or [] if shard is None or row["role"] == "watch" or row["name"] in shard]
 
 
 def summary_lines(
@@ -1984,11 +1946,9 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
     cmd_reconcile(args, shell)
     rows = sharded(Notes(shell, args.ledger).rows(), args.shard)
-    moment = now()
-    lanes = {key: fields for key, fields in rows.items() if key.startswith(LANE_PREFIX)}
-    prompts = prompt_lines(shell, lanes, args.shard, moment) if os.environ.get(ORCA_TERMINAL) else []
+    prompts = prompt_lines(shell, args.drive, args.shard)
     messages = Messages(shell, args.drive).read(args.shard)
-    print("\n".join(summary_lines(rows, messages, moment, timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
+    print("\n".join(summary_lines(rows, messages, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
     return 0
 
 

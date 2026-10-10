@@ -1,0 +1,32 @@
+{
+  "id": "11366ef9-168d-46b9-9afc-819f46366c5f",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_7f2d70f5-ca5c-4260-ab60-129bfd2e6ec2",
+      "status": "running",
+      "tail": [
+        "• Ran python3 - <<'PY'",
+        "  │ from pathlib import Path",
+        "  │ … +7 lines",
+        "  └ # semantic (native)",
+        "    # 5 results",
+        "    +53 lines (ctrl+t to view transcript)",
+        "• Waiting for background terminal (7m 07s • esc to interrupt) · 3 background terminals running · /ps to view ·",
+        "  └ python3 -u /Users/dev/state/runtime-input-watch.py",
+        "› Ask Codex to do anything",
+        "  GPT-6.1-Sol high · ~/work/app · Explore Orca workspace environments · Main [d"
+      ],
+      "truncated": true,
+      "limited": true,
+      "oldestCursor": "1449",
+      "nextCursor": "3449",
+      "latestCursor": "3449",
+      "returnedLineCount": 10,
+      "source": "screen"
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

@@ -1,0 +1,257 @@
+{
+  "id": "71433f45-9b42-46cd-95fb-3a4a08d1ddfa",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_25f8965ea0fb",
+        "taskId": "task_8c1d2e3f4a5b",
+        "runId": "run_4104a86f0a03",
+        "workerState": "running",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_cfce7ff3-0976-4032-9d55-22697f68d6ee",
+        "terminalState": "retained",
+        "resource": null,
+        "projection": {
+          "id": "ctx_25f8965ea0fb",
+          "dispatchId": "ctx_25f8965ea0fb",
+          "taskId": "task_8c1d2e3f4a5b",
+          "runId": "run_4104a86f0a03",
+          "role": "worker",
+          "parent": null,
+          "provider": null,
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app-lane",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "unknown"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "unverifiable",
+            "reason": "missing_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "unavailable",
+            "lastObservedAt": null
+          },
+          "resource": {
+            "state": "absent",
+            "reason": "not_materialized"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [
+              "unverifiable",
+              "root_completion"
+            ],
+            "requiresAction": true
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_1e2e970fc485",
+        "taskId": "task_39708dfe4834",
+        "runId": "run_4104a86f0a03",
+        "workerState": "running",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+        "terminalState": "retained",
+        "resource": null,
+        "projection": {
+          "id": "ctx_1e2e970fc485",
+          "dispatchId": "ctx_1e2e970fc485",
+          "taskId": "task_39708dfe4834",
+          "runId": "run_4104a86f0a03",
+          "role": "worker",
+          "parent": null,
+          "provider": null,
+          "host": {
+            "kind": "remote",
+            "id": "4cf25470-2acf-421b-9106-83fefee74ece"
+          },
+          "workspace": {
+            "id": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "unknown"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "unverifiable",
+            "reason": "missing_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "unavailable",
+            "lastObservedAt": null
+          },
+          "resource": {
+            "state": "absent",
+            "reason": "not_materialized"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [
+              "unverifiable",
+              "root_completion"
+            ],
+            "requiresAction": true
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_726698aaa803",
+        "taskId": "task_5b6c7d8e9f01",
+        "runId": "run_4104a86f0a03",
+        "workerState": "running",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_f3c46227-631a-4258-bab8-7798c27795be",
+        "terminalState": "retained",
+        "resource": null,
+        "projection": {
+          "id": "ctx_726698aaa803",
+          "dispatchId": "ctx_726698aaa803",
+          "taskId": "task_5b6c7d8e9f01",
+          "runId": "run_4104a86f0a03",
+          "role": "worker",
+          "parent": null,
+          "provider": null,
+          "host": {
+            "kind": "remote",
+            "id": "c486cf1a-c56f-4bf1-b9e9-5674a64076a3"
+          },
+          "workspace": {
+            "id": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "unknown"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "unverifiable",
+            "reason": "missing_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "unavailable",
+            "lastObservedAt": null
+          },
+          "resource": {
+            "state": "absent",
+            "reason": "not_materialized"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [
+              "unverifiable",
+              "root_completion"
+            ],
+            "requiresAction": true
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_b4e069ef5d36",
+        "taskId": "task_0a1b2c3d4e5f",
+        "runId": "run_4104a86f0a03",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_4f21d3ea-2cd5-4c84-baf3-66cfae5ff754",
+        "terminalState": "retained",
+        "resource": null,
+        "projection": {
+          "id": "ctx_b4e069ef5d36",
+          "dispatchId": "ctx_b4e069ef5d36",
+          "taskId": "task_0a1b2c3d4e5f",
+          "runId": "run_4104a86f0a03",
+          "role": "worker",
+          "parent": null,
+          "provider": null,
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app-lane",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "succeeded",
+            "dispatch": "completed",
+            "detail": "settled",
+            "activity": "unknown"
+          },
+          "outcome": "succeeded",
+          "liveness": {
+            "verdict": "unverifiable",
+            "reason": "missing_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "unavailable",
+            "lastObservedAt": null
+          },
+          "resource": {
+            "state": "absent",
+            "reason": "not_materialized"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [
+              "unverifiable",
+              "root_completion"
+            ],
+            "requiresAction": true
+          }
+        }
+      }
+    ],
+    "counts": {
+      "active": 3,
+      "retained": 1
+    },
+    "page": {
+      "limit": 100,
+      "total": 4,
+      "hasMore": false,
+      "nextCursor": null
+    },
+    "scope": {
+      "run": "run_4104a86f0a03",
+      "source": "bound"
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

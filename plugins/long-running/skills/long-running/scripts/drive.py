@@ -2,6 +2,7 @@
 """The drive registry: which long-running drive, and so which ledger, a session's pull requests belong to.
 
     drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME]
+    drive.py desk    --name NAME (--terminal HANDLE [--environment NAME] [--supervisor] | --remove) [--drive ID]
     drive.py end     [--drive ID]
     drive.py context [--drive ID]
     drive.py current
@@ -16,6 +17,11 @@ drive's ledger, its repository, the git common dir every checkout of that reposi
 the checkout the drive started in, every root session that has run it, its Orca run, and its state
 directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another.
 ``start`` is an upsert: the resumed root of a handoff runs it again and joins ``sessions``.
+Run inside an Orca terminal, it records that terminal as ``root_terminal``, the coordinator's.
+``desk`` records a standing desk's Orca terminal under ``desks``, with ``--environment`` for one on a
+remote host. ``--supervisor`` marks the one desk that hears of the coordinator's own prompts, by
+cci records addressed to its name and one line typed at its idle prompt, and prints the
+``cci watch`` command a desk that holds a wait runs instead; ``--remove`` forgets a desk. ``prompt_watch.py`` reads all three.
 Every registry write also writes ``<state dir>/dashboard/context.json``, the facts the drive's
 live dashboard binds its cards from; ``context`` rewrites it from the registry alone.
 
@@ -52,6 +58,7 @@ import ledger
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
+TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 DRIVE_ID_LENGTH = 8
 WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"
 DASHBOARD_SERVER = Path("dashboard") / "server.json"
@@ -103,6 +110,10 @@ def write_atomic(path: Path, payload: dict) -> Path:
     return path
 
 
+def cci_drive(entry: dict) -> str:
+    return entry.get("cci_drive") or Path(entry["state_dir"]).name
+
+
 def context_of(entry: dict) -> dict:
     program = Path(entry["state_dir"]).name
     return {
@@ -113,7 +124,7 @@ def context_of(entry: dict) -> dict:
         "checkout": entry["checkout"],
         "ledger": entry["ledger"],
         "sessions": entry["sessions"],
-        "cci_drive": entry.get("cci_drive") or program,
+        "cci_drive": cci_drive(entry),
         "orca_run": entry["orca_run"],
         "state_dir": entry["state_dir"],
         "started_at": entry["started_at"],
@@ -166,6 +177,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         "orca_run": args.orca_run or entry["orca_run"],
         "state_dir": str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive),
         "cci_drive": args.cci_drive or entry.get("cci_drive"),
+        "root_terminal": os.environ.get(TERMINAL_ENV) or entry.get("root_terminal"),
         "updated_at": stamp(),
     }
     print(f"drive {drive} on ledger {args.ledger} at {save(entry)}")
@@ -180,6 +192,28 @@ def cmd_end(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"no drive {drive} in {drives_dir()}")
     path.unlink()
     print(f"ended drive {drive}")
+    return 0
+
+
+def cmd_desk(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (drive := args.drive or current_drive()):
+        raise SystemExit("this session runs no drive; pass --drive")
+    if not (entry := find(drive, None)):
+        raise SystemExit(f"no drive {drive} in {drives_dir()}")
+    desks = dict(entry.get("desks") or {})
+    if args.remove:
+        if args.name not in desks:
+            raise SystemExit(f"drive {drive} has no desk {args.name}")
+        del desks[args.name]
+    else:
+        if args.supervisor:
+            desks = {name: desk | {"supervisor": False} for name, desk in desks.items()}
+        desks[args.name] = {"terminal": args.terminal, "environment": args.environment, "supervisor": args.supervisor}
+    save(entry | {"desks": desks, "updated_at": stamp()})
+    listed = [f"{name}={desk['terminal']}{' (supervisor)' if desk['supervisor'] else ''}" for name, desk in sorted(desks.items())]
+    print(f"drive {drive} desks: {', '.join(listed) or 'none'}")
+    if not args.remove and args.supervisor:
+        print(f"{args.name} is woken at its idle prompt; while it holds a wait it hears only through: cci watch --drive {cci_drive(entry)} --to {args.name} --for 0")
     return 0
 
 
@@ -300,6 +334,16 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
     start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
     start.set_defaults(handler=cmd_start)
+
+    desk = subparsers.add_parser("desk", help="record a standing desk's Orca terminal for the prompt watch, or forget one")
+    desk.add_argument("--name", required=True, help="the desk's lane name; a supervisor's cci records are addressed to it")
+    desk.add_argument("--drive")
+    target = desk.add_mutually_exclusive_group(required=True)
+    target.add_argument("--terminal", metavar="HANDLE")
+    target.add_argument("--remove", action="store_true")
+    desk.add_argument("--environment", metavar="NAME", help="the Orca environment of a desk on a remote host")
+    desk.add_argument("--supervisor", action="store_true", help="the one desk told of the coordinator's own prompts")
+    desk.set_defaults(handler=cmd_desk)
 
     end = subparsers.add_parser("end", help="the drive is over; its PRs stop being recorded")
     end.add_argument("--drive")

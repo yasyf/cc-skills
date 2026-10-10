@@ -359,10 +359,12 @@ do not treat it as proof that this rule is enforced.
 **O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
 between passes; the landing process sleeps for its configured interval.
 
-**O13. A prompt is a desk bug.** The sweep reads `observation.agentWait` and
-emits `PROMPT` in the pass that sees it. It never types a guessed answer.
-Stale unread mail gets one terminal wake per message, typed only at the lane's
-plain empty prompt; completed or failed dispatch mail emits `STALE-MAIL`.
+**O13. A prompt is a bug, and the prompt watch finds it.** `prompt_watch.py` is the
+one reader of `agentWait` and posts each prompt to the root itself. The sweep reads its
+last poll and emits `PROMPT-WATCH-DOWN` while that poll is over two minutes old. It
+never types a guessed answer. Stale unread mail gets one terminal wake per message,
+typed only at the lane's plain empty prompt; completed or failed dispatch mail emits
+`STALE-MAIL`.
 
 **O14. Hold launches under load, for a bounded time.** Before each launch, the
 runner reads the 1-minute load average. Incident and `--owner-directed` launches
@@ -428,7 +430,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
 | `FIX-LIVE`, `MECHANISM` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
-| `PROMPT` | Resolve the prompt on the named dispatch and terminal. |
+| `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
 | `RECLAIM` | Run the line's gc command; it closes each idle settled terminal's tab and removes each finished worktree under R195. |
