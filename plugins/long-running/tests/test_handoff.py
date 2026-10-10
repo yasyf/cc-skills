@@ -582,21 +582,21 @@ def test_the_hand_written_handoff_and_its_addendum_survive_a_regenerating_compac
 ) -> None:
     shell = shell_with()
     shell.write("b" * 40, FULL_HANDOFF, "brook: progress 2026-10-10T2210Z (pre-compact handoff, full)", supersedes=("a" * 40,))
-    shell.write("c" * 40, ADDENDUM, "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)", ("b" * 40,) if addendum_supersedes else ())
+    shell.write("9" * 40, ADDENDUM, "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)", ("b" * 40,) if addendum_supersedes else ())
 
     stop = generate(drive_home, shell, capsys=capsys)
     compaction = generate(drive_home, shell, capsys=capsys)
 
-    assert stop["id"] == compaction["id"] == "c" * 40
-    assert shell.active == ["c" * 40] and shell.added == {}
+    assert stop["id"] == compaction["id"] == "9" * 40
+    assert shell.active == ["9" * 40] and shell.added == {}
     assert shell.docs["b" * 40] == FULL_HANDOFF
-    assert shell.titles["c" * 40] == "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)"
-    body = shell.docs["c" * 40]
+    assert shell.titles["9" * 40] == "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)"
+    body = shell.docs["9" * 40]
     assert f"{handoff.READ_FIRST}`ccn doc show bbbbbbb`: brook: progress 2026-10-10T2210Z (pre-compact handoff, full)\n" in body
-    assert body.split("\n## Root narrative\n")[1] == f"\n_From doc ccccccc, carried forward._\n\n{ADDENDUM.strip()}\n"
+    assert body.split("\n## Root narrative\n")[1] == f"\n_From doc 9999999, carried forward._\n\n{ADDENDUM.strip()}\n"
     for out in (stop, compaction):
-        assert (out["read_first"], out["narrative"]) == (["ccn doc show bbbbbbb"], "ccccccc")
-        assert "Then read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show ccccccc`, then " in out["digest"]
+        assert (out["read_first"], out["narrative"]) == (["ccn doc show bbbbbbb"], "9999999")
+        assert "Then read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show 9999999`, then " in out["digest"]
 
 
 def test_open_tasks_list_only_in_progress_and_lanes_only_running_ten(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

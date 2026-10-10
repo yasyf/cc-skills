@@ -377,11 +377,12 @@ def uncited_inbox_rules(handoff: Handoff, live: set[str]) -> list[str]:
 
 
 def uncited_narrative_lines(handoff: Handoff, live: set[str]) -> list[str]:
+    carried = [(handoff.narrative_from, handoff.narrative, "in your next progress record")] if handoff.narrative else []
     return [
-        f"narrative ({record.source}) line {number}: owner-gate line cites no live answer id: "
-        f"{clip(line, RULING_CHARS)}; end that line with `(answer <id>)` {record.edit}"
-        for record in handoff.records
-        for number, line in enumerate(narrative_of(record.body).splitlines(), 1)
+        f"narrative ({source}) line {number}: owner-gate line cites no live answer id: "
+        f"{clip(line, RULING_CHARS)}; end that line with `(answer <id>)` {edit}"
+        for source, narrative, edit in [(record.source, narrative_of(record.body), record.edit) for record in handoff.records] or carried
+        for number, line in enumerate(narrative.splitlines(), 1)
         if standing.gated(line, live)
     ]
 

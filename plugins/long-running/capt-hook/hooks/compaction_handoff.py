@@ -437,16 +437,17 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
 
 def added_title(arguments: Arguments) -> str:
     words = arguments.values.get("words", ())
-    return str((arguments.values.get("title") or words[2:3] or ("",))[0])
+    return str((arguments.values.get("title") or words[2:3] or ("",))[0] or "")
 
 
 def doc_adds(evt: BaseHookEvent) -> list[tuple[str, list[str]]]:
     if evt.tool_name == DOC_ADD_TOOL:
         return [(evt._tool_input.get("title") or "", list(evt._tool_input.get("labels") or []))]
     return [
-        (added_title(arguments), [str(label) for label in arguments.values.get("label", ())])
+        (added_title(arguments), [str(label) for label in labels])
         for call in evt.cmd.calls("ccn")
         if (arguments := CCN_DOC_ADD.bind(call)).values.get("words", ())[:2] == ("doc", "add")
+        and None not in (labels := arguments.values.get("label", ()))
     ]
 
 
@@ -480,6 +481,10 @@ def unlabelled(title: str, labels: list[str], slug: str) -> bool:
             state=[CompactionState(active=True, slug="brook")],
         ): Allow(),
         Input(command='ccn doc add "Release notes" --label release --body -', state=[CompactionState(active=True, slug="brook")]): Allow(),
+        Input(
+            command='slug=brook; ccn doc add "brook: progress" --label "progress:$slug" --body -',
+            state=[CompactionState(active=True, slug="brook")],
+        ): Allow(),
         Input(command='ccn doc add "brook: progress" --body -', state=[CompactionState(slug="brook")]): Allow(),
         Input(
             command='ccn doc add "lane-a progress" --body -', agent_id="a1b2c3", state=[CompactionState(active=True, slug="brook")]
