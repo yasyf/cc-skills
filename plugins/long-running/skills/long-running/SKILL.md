@@ -2440,9 +2440,9 @@ Earlier binding sections move under `## Carried binding sections` once, byte for
 byte, with identical copies deduplicated. A standalone binding `##` heading becomes
 `###` there.
 
-The remaining text from each earlier dump becomes one dated line under
-`## Folded narrative`: its label and each part's opening sentence, at most 240
-characters total. One pointer line names the full text at
+Every earlier dump keeps its heading, as `###` under `## Folded narrative`, over one
+dated line naming each remaining part and its opening sentence, at most 240 characters.
+A section headed as owner rules or open items is binding and carried verbatim. One pointer line names the full text at
 `ccn doc history <id7> --json --full`, or the progress folder in file mode.
 A `#` title before the first section is dropped; other leading text folds as an
 earlier dump. Folding twice changes nothing.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -286,6 +287,33 @@ def test_a_hand_written_pre_compact_handoff_stays_verbatim_under_the_generated_s
     assert body.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb._\n\n{PRE_COMPACT}\n"
     assert progress.FOLDED not in body and progress.CARRIED not in body
     assert standing.section(body)[:1] == [
+        "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
+    ]
+
+
+def test_a_carried_hand_written_handoff_keeps_every_section_heading_and_its_rules_and_open_items_verbatim(
+    drive_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shell = shell_with(register=False)
+    record = handwritten(shell, "s-root", timedelta(minutes=1))
+    shell.docs[record] = PRE_COMPACT
+    generate(drive_home, shell, capsys=capsys)
+    shell.created[record]["time"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+
+    carried = generate(drive_home, shell, capsys=capsys)
+    again = generate(drive_home, shell, "--generated-doc", carried["id"], capsys=capsys)
+
+    assert carried["id"] == again["id"] != record
+    narrative = shell.docs[carried["id"]].split(f"{handoff.NARRATIVE}\n")[1]
+    for heading in re.findall(r"^## (.+)$", PRE_COMPACT, re.MULTILINE):
+        assert re.search(rf"^###? {re.escape(heading)}$", narrative, re.MULTILINE), heading
+    for verbatim in ("## Standing owner rules", "### Earlier windows", "## G. Open owner-facing items"):
+        section = PRE_COMPACT.split(f"{verbatim}")[1].split("\n\n#")[0]
+        assert f"{verbatim.lstrip('#')}{section}" in narrative
+    assert narrative.endswith("## F. Lessons\n- Verify an Orca launch actually produced a lane within a minute.\n")
+    assert re.search(r"^### B\. .+\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}Z, Timeline: .+; Impact: 8,421 mint 503s\.\n\n###", narrative, re.MULTILINE)
+    assert shell.docs[again["id"]].split(f"{handoff.NARRATIVE}\n")[1] == narrative
+    assert standing.section(shell.docs[carried["id"]])[:1] == [
         "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
     ]
 

@@ -15,7 +15,7 @@ from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
 
-from hooks import nudges
+from hooks import installed, nudges
 from hooks import compaction_handoff as handoff
 
 FIXTURES = Path(handoff.__file__).parent / "tests" / "fixtures"
@@ -706,3 +706,15 @@ def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home:
 def test_a_subagent_compaction_generates_nothing(tmp_path: Path) -> None:
     entry = next(h for h in _state.hooks if h.handler is handoff.compaction_instructions)
     assert not matches_conditions(entry.spec, precompact(tmp_path, agent_id="a1b2c3"))
+
+
+def test_an_installed_hook_runs_the_newest_live_release_of_its_scripts(tmp_path: Path) -> None:
+    cache = tmp_path / "long-running"
+    for version in ("0.7.9", "0.7.46", "0.7.48", "0.7.50"):
+        (cache / version / installed.SCRIPTS).mkdir(parents=True)
+    (cache / "0.7.50" / installed.ORPHANED).touch()
+    (cache / "0.7.47").mkdir()
+
+    assert installed.newest(cache / "0.7.46") == cache / "0.7.48"
+    assert installed.newest(tmp_path / "long-running-worktree") == tmp_path / "long-running-worktree"
+    assert installed.script("handoff.py") == Path(handoff.__file__).parents[2] / installed.SCRIPTS / "handoff.py"

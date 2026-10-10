@@ -6,14 +6,15 @@ import sys
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import RULINGS, CompactionState, register_context, register_of
+from .compaction_handoff import CompactionState, register_context, register_of
+from .installed import script
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup"})
 HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:pr-style-scout")
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
-FOUND = {f"{sys.executable} {RULINGS} register": json.dumps(REGISTER)}
-NONE_FOUND = {f"{sys.executable} {RULINGS} register": "null"}
+FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
+NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
 ACTIVE = CompactionState(active=True, slug="brook")
 
 

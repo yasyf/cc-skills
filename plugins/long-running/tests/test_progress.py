@@ -77,19 +77,21 @@ def test_the_newest_dump_stays_whole_and_each_binding_section_is_carried_once_ve
         assert gone not in folded
 
 
-def test_each_earlier_dump_folds_into_one_dated_line_naming_its_parts() -> None:
+def test_each_earlier_dump_keeps_its_heading_over_one_dated_line_naming_its_parts() -> None:
     folded = progress.fold(TONIGHT, FIRST, HISTORY)
-    lines = folded.split(f"{progress.FOLDED}\n\n", 1)[1].split("\n\n", 2)
+    blocks = folded.split(f"{progress.FOLDED}\n\n", 1)[1].split(f"\n\n{DUMP_4.splitlines()[0]}", 1)[0].split("\n\n")
 
-    assert lines[0] == f"Full text of each folded dump: {HISTORY}."
-    digest = lines[1].splitlines()
-    assert len(digest) == 5
+    assert blocks[0] == f"Full text of each folded dump: {HISTORY}."
+    assert blocks[1] == "- 2026-10-05 09:30Z, untitled narrative: Generated from sources by the long-running compaction hook at 2026-10-05T00:58:00Z."
+    assert [block.splitlines()[0] for block in blocks[2:]] == [
+        "### 2:38 PM PT (real clock) pre-compact delta — read this section first after compaction",
+        "### 6:00 PM PT (real clock) pre-compact delta",
+        "### 9:2x PM PT pre-compact delta + STANDING RULINGS (verbatim; read this section FIRST)",
+        "### 10:17 PM PT pre-compact dump 2 (READ THIS SECTION FIRST; the 30-rule register is doc 0cf17c9)",
+    ]
+    digest = [block.splitlines()[1] for block in blocks[2:]]
     assert all(line.startswith("- 2026-10-05 09:30Z, ") and len(line) <= progress.DIGEST_CHARS for line in digest)
-    assert digest[0] == "- 2026-10-05 09:30Z, untitled narrative: Generated from sources by the long-running compaction hook at 2026-10-05T00:58:00Z."
-    assert digest[3] == (
-        "- 2026-10-05 09:30Z, 9:2x PM PT pre-compact delta + STANDING RULINGS: "
-        "Program state at 9:2x PM PT: Census 224/293 at 09e61e6."
-    )
+    assert digest[2] == "- 2026-10-05 09:30Z, Program state at 9:2x PM PT: Census 224/293 at 09e61e6."
 
 
 def test_folding_twice_changes_nothing() -> None:
@@ -115,7 +117,10 @@ def test_a_new_dump_replaces_the_last_instead_of_appending() -> None:
     assert "Census 251/293" not in twice
     assert "Forward fix in #30612" not in twice
     assert twice.count("\n- 2026-10-05 ") == 6
-    assert "\n- 2026-10-05 12:05Z, 1:13 AM PT Oct 5 pre-compact dump 4: Resume protocol: Read the register, then this section.; HSBC incident" in twice
+    assert (
+        "\n### 1:13 AM PT Oct 5 pre-compact dump 4 (READ THIS SECTION FIRST after any compaction)\n"
+        "- 2026-10-05 12:05Z, Resume protocol: Read the register, then this section.; HSBC incident"
+    ) in twice
 
 
 def test_a_narrative_without_sections_is_left_alone() -> None:

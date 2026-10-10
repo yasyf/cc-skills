@@ -10,10 +10,10 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, on
 from captain_hook.util import reqenv
 
+from .installed import script
 from .session_tree import own_name
 from .tests.ledger_fixtures import FIXTURES
 
-DRIVE = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
 OPENERS = (
     ("ccx", "vcs", "ship"),
     ("ccx", "vcs", "stack", "submit"),
@@ -81,7 +81,7 @@ UNSETTLED = (
     "The landed or closed PRs {prs} were not settled in the drive ledger: {reason}. "
     "Rerun `{retry}`; it reads the ledger id and checkout from the drive registry."
 )
-LANDED = f"{sys.executable} {DRIVE} landed"
+LANDED = f"{sys.executable} {script('drive.py')} landed"
 
 
 def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, str]:
@@ -108,14 +108,14 @@ def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None,
             output=(FIXTURES / "ccx-ship-gt.txt").read_text(),
             session_id="900424b6-0000",
             cwd="/",
-            commands={f"{sys.executable} {DRIVE} record": "registered deploy-experience #28534"},
+            commands={f"{sys.executable} {script('drive.py')} record": "registered deploy-experience #28534"},
         ): Allow(),
         Input(
             command="ccx vcs stack submit",
             output=(FIXTURES / "ccx-stack-submit.txt").read_text(),
             session_id="5e55-0000",
             cwd="/",
-            commands={f"{sys.executable} {DRIVE} record": ""},
+            commands={f"{sys.executable} {script('drive.py')} record": ""},
         ): Allow(),
         Input(command="gh pr view 28534", output="https://github.com/Forge-AI/monorepo/pull/28534"): Allow(),
         Input(command="ccx vcs ship -m 'ci: ✨ x' --no-push", output="committed 1caa098d30 \"ci: ✨ x\""): Allow(),
@@ -124,7 +124,7 @@ def run_drive(argv: list[str]) -> tuple[subprocess.CompletedProcess[str] | None,
 def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if not (prs := opened_prs(response_text(evt.tool_response))):
         return None
-    argv = [sys.executable, str(DRIVE), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt))]
+    argv = [sys.executable, str(script("drive.py")), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt))]
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr.spec]
@@ -188,7 +188,7 @@ def settled_prs(evt: BaseHookEvent) -> list[str]:
 def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
     if not (prs := settled_prs(evt)):
         return None
-    argv = [sys.executable, str(DRIVE), "landed", "--session", evt.session_id]
+    argv = [sys.executable, str(script("drive.py")), "landed", "--session", evt.session_id]
     argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr]

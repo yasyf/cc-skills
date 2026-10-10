@@ -28,6 +28,7 @@ from captain_hook import (
 from captain_hook.conditions import skill_name_matches
 from captain_hook.util import reqenv
 
+from .installed import script
 from .nudges import queue_nudge
 from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
 from .turns import threshold, turn_of
@@ -36,11 +37,7 @@ SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
-SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
-COMPACT_JOB = SCRIPTS / "compact_job.py"
-HANDOFF = SCRIPTS / "handoff.py"
-RULINGS = SCRIPTS / "rulings.py"
-NO_REGISTER = {f"{sys.executable} {RULINGS} register": "null"}
+NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null"}
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
 OVERSIZED = 5
@@ -131,7 +128,7 @@ def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
 
 
 def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subprocess.CompletedProcess[str]:
-    argv = [sys.executable, str(HANDOFF), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
+    argv = [sys.executable, str(script("handoff.py")), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
     if state.generated_doc:
         argv += ["--generated-doc", state.generated_doc]
@@ -231,7 +228,7 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
 
 
 def rulings(cwd: str, *args: str, stdin: str = "") -> str:
-    argv = [sys.executable, str(RULINGS), *args, "--repo", cwd]
+    argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
     return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True, cwd=cwd).stdout
 
 
@@ -551,7 +548,7 @@ def deliver_register(evt: BaseHookEvent) -> HookResult | None:
 
 def send_compact(handle: str, instructions: str, transcript: Path) -> None:
     subprocess.Popen(
-        [sys.executable, str(COMPACT_JOB), handle, f"/compact {instructions}", str(transcript)],
+        [sys.executable, str(script("compact_job.py")), handle, f"/compact {instructions}", str(transcript)],
         env=dict(reqenv.env_map()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -619,7 +616,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
             state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
-            commands={f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
+            commands={f"{sys.executable} {script('handoff.py')} generate": GENERATED_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
             r"Quote: active progress doc: dddddddd; "

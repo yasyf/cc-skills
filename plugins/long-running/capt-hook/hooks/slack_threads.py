@@ -10,7 +10,8 @@ from urllib.parse import parse_qs, urlparse
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .pr_ledger import DRIVE, RECORD_TIMEOUT_SECONDS, lane_name
+from .installed import script
+from .pr_ledger import RECORD_TIMEOUT_SECONDS, lane_name
 
 POST_TOOLS = (
     "mcp__plugin_cc-slack_cc-slack__slack_send",
@@ -24,7 +25,7 @@ CC_SLACK_REPLY = (
 )
 CC_SLACK_SEND = '{"channel_id":"C0BBBBBBBB2","ts":"1790875497.353829","permalink":"https://example.slack.com/archives/C0BBBBBBBB2/p1790875497353829","posted":true}'
 MCP_SENT = '{\n  "status": "sent",\n  "channel": "C0AAAAAAAA1",\n  "ts": "1790902074.413409",\n  "thread_ts": "1790901035.467689",\n  "message": "x"\n}'
-THREAD = f"{sys.executable} {DRIVE} thread"
+THREAD = f"{sys.executable} {script('drive.py')} thread"
 UNWATCHED = "The Slack thread {thread} was not added to the drive's watch list. Run `drive.py thread` for it by hand."
 
 
@@ -118,7 +119,7 @@ def posts_to_slack(evt: BaseHookEvent) -> bool:
 def register_posted_thread(evt: BaseHookEvent) -> HookResult | None:
     if not posts_to_slack(evt) or not (threads := posted_threads(evt.tool_response)):
         return None
-    base = [sys.executable, str(DRIVE), "thread", "--session", evt.session_id, "--lane", lane_name(evt)]
+    base = [sys.executable, str(script("drive.py")), "thread", "--session", evt.session_id, "--lane", lane_name(evt)]
     base += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     lines = []
     for thread in threads:
