@@ -58,9 +58,11 @@ repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load, w
 fewer than `orca.sprite.limit` Sprites are running or warm, counting the runner's own
 Sprite launches still in flight. `place=local` keeps a `cpu=high` launch on the Mac.
 Fable, incident, and a `role=desk` or `role=watch` brief stay local whatever the line
-says. A lane name a Sprite refuses, a full count, a failed count, or a Sprite launch
-whose receipts prove worker-start never ran starts the same launch locally, and the
-fallback logs `SPRITE-FALLBACK`. The proof is read from the brief's `.worker`
+says. The count fails when the list cannot be read, or reads every Sprite cold with no
+`last_running_at` or `last_warming_at`, which the provider sometimes answers while
+Sprites run. A lane name a Sprite refuses, a full count, a failed count, or a Sprite
+launch whose receipts prove worker-start never ran starts the same launch locally, and
+the fallback logs `SPRITE-FALLBACK`. The proof is read from the brief's `.worker`
 directory: no `<lane>.json`, and a nonzero exit in `prepare.status` or `attach.status`,
 or no `prepare.status` when the runner itself saw the launcher exit. A runner that
 restarted mid-launch saw no exit. Any other Sprite launch that prints no ready line
@@ -179,6 +181,7 @@ SPRITE_EXITS = ("prepare.status", "attach.status")
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
 SPRITES_API = "/v1/sprites?max_results=1000"
+SPRITE_ACTIVITY = ("last_running_at", "last_warming_at")
 SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
@@ -283,6 +286,11 @@ def sprite_never_started(attempt: Path, lane: str, exited: bool) -> bool:
         return False
     prepared, attached = (exit_status(attempt / step) for step in SPRITE_EXITS)
     return prepared not in ("", "0") or attached not in ("", "0") or (exited and not prepared)
+
+
+def sprite_list_blanked(listed: list[dict]) -> bool:
+    """Whether a Sprite list is the one the provider sometimes returns while Sprites run: every Sprite cold with no `last_running_at` or `last_warming_at`, where a real list stamps each one."""
+    return bool(listed) and all(sprite.get("status") == "cold" and not any(sprite.get(stamp) for stamp in SPRITE_ACTIVITY) for sprite in listed)
 
 
 def sprite_started_as(receipt: Path) -> str:
@@ -1046,6 +1054,8 @@ class Runner:
         try:
             listed = json.loads(done.out)["data"]
         except (json.JSONDecodeError, KeyError, TypeError):
+            return None
+        if sprite_list_blanked(listed):
             return None
         return sum(1 for sprite in listed if sprite.get("status") != "cold")
 

@@ -1201,7 +1201,10 @@ Sprites before each one, adding its own Sprite launches in flight, and at
 `orca.sprite.limit` (16 unless the config sets it; the account allows 20 running
 and 20 warm) it launches locally.
 That limit, a failed count, and a lane name a Sprite refuses start the same lane
-locally under O14's load hold. A failed Sprite launch starts it locally at once only
+locally under O14's load hold. The count fails when the list cannot be read, or reads
+every Sprite cold with no `last_running_at` or `last_warming_at`: the provider
+sometimes answers that way while Sprites run. A failed Sprite launch starts it
+locally at once only
 when its receipts prove worker-start never ran: the brief's `.worker` directory holds
 no `<lane>.json`, and `prepare.status` or `attach.status` records a nonzero exit, or
 the runner saw the launcher exit with no prepare exit recorded. Each logs

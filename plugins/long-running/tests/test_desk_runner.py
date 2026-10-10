@@ -26,6 +26,41 @@ IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass perm
 PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
 
 
+def sprite_list(states: list[str], blanked: bool) -> dict:
+    rows = [
+        {
+            "id": f"sprite-{index:08x}-0000-4000-8000-000000000000",
+            "name": f"s{index}",
+            "status": "cold" if blanked else state,
+            "version": "0.0.2-beta.5",
+            "url": f"https://s{index}-abcde.sprites.example",
+            "url_settings": {"auth": "sprite", "private_access": "admins"},
+            "updated_at": "2026-10-10T09:59:00.868191Z",
+            "created_at": "2026-10-10T09:59:00.868191Z",
+            "organization": "example-org",
+            "last_running_at": None if blanked else "2026-10-10T09:59:02Z",
+            "last_warming_at": None if blanked or state == "running" else "2026-10-10T11:23:24Z",
+            "environment_version": None,
+        }
+        for index, state in enumerate(states)
+    ]
+    shown = [row["status"] for row in rows]
+    return {
+        "data": rows,
+        "name": "example-org",
+        "running": shown.count("running"),
+        "sprites": rows,
+        "cold": shown.count("cold"),
+        "next_continuation_token": None,
+        "org": {"name": "example-org", "running_limit": 20, "warm_limit": 20},
+        "warm": shown.count("warm"),
+        "running_limit": 20,
+        "warm_limit": 20,
+        "has_more": False,
+        "pagination": {"page_size": 500, "next_page_token": None},
+    }
+
+
 class Process:
     def poll(self):
         return 0
@@ -78,6 +113,7 @@ class FakeShell(runner_module.Shell):
         self.post_error = ""
         self.judge_process: Running | None = None
         self.sprite_states: list[str] | None = []
+        self.sprites_blanked = False
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
@@ -154,7 +190,7 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["sprite", "api", runner_module.SPRITES_API]:
             if self.sprite_states is None:
                 return runner_module.Done(1, "", "Error: not logged in")
-            return runner_module.Done(0, json.dumps({"data": [{"name": f"s{index}", "status": state} for index, state in enumerate(self.sprite_states)]}), "")
+            return runner_module.Done(0, json.dumps(sprite_list(self.sprite_states, self.sprites_blanked)), "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -1887,11 +1923,12 @@ PREPARED, ATTACHED, ATTACH_FAILED = {"prepare.status": "0\n"}, {"attach.status":
 
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote", "ccx: place=remote role=build cpu=high"])
-def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path, header):
+@pytest.mark.parametrize("states", [["running", "cold", "cold"], ["cold", "cold", "cold"]])
+def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path, header, states):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
     shell.cpu_load = 140
-    shell.sprite_states = ["running", "cold", "cold"]
+    shell.sprite_states = states
     shell.sprite_line = SPRITE_READY
     shell.sprite_receipts = {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}
     shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
@@ -1909,11 +1946,18 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
 
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
-@pytest.mark.parametrize(("states", "why"), [(["running", "warm", "cold", "running"], "3 Sprites live and 0 launching, at the limit of 3"), (None, "the Sprite count failed")])
-def test_a_remote_placed_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, why, header):
+@pytest.mark.parametrize(
+    ("states", "blanked", "why"),
+    [
+        (["running", "warm", "cold", "running"], False, "3 Sprites live and 0 launching, at the limit of 3"),
+        (None, False, "the Sprite count failed"),
+        (["running"] * 8 + ["warm"] * 2, True, "the Sprite count failed"),
+    ],
+)
+def test_a_remote_placed_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, blanked, why, header):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
-    shell.sprite_states = states
+    shell.sprite_states, shell.sprites_blanked = states, blanked
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
@@ -1937,6 +1981,23 @@ def test_a_sprite_config_naming_no_limit_launches_locally_at_sixteen_live_sprite
     orca_pass(shell, config)
     assert sprite_launches(shell) == []
     assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: 16 Sprites live and 0 launching, at the limit of 16" in escalations(shell)
+
+
+@pytest.mark.parametrize(
+    ("states", "blanked", "live"),
+    [
+        (["running"] * 8 + ["warm"] * 2, False, 10),
+        (["running", "warm", "cold"], False, 2),
+        (["cold"] * 10, False, 0),
+        ([], False, 0),
+        (["running"] * 8 + ["warm"] * 2, True, None),
+    ],
+)
+def test_a_sprite_list_reading_every_sprite_cold_and_never_active_is_a_failed_count(shell, config, tmp_path, states, blanked, live):
+    with_sprites(config)
+    shell.sprite_states, shell.sprites_blanked = states, blanked
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert runner.live_sprites() == live
 
 
 def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: bool) -> None:
