@@ -1191,7 +1191,8 @@ A Sprite launch needs `orca.sprite` configured; without it every lane launches
 locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
 while a lane placed local still waits under O14. The runner counts running and warm
 Sprites before each one, adding its own Sprite launches in flight, and at
-`orca.sprite.limit` (10 while the account caps Sprites at 10) it launches locally.
+`orca.sprite.limit` (16 unless the config sets it; the account allows 20 running
+and 20 warm) it launches locally.
 That limit, a failed count, and a lane name a Sprite refuses start the same lane
 locally under O14's load hold. A Sprite launch that prints a failure or a malformed
 result starts it locally at once. Each logs `SPRITE-FALLBACK` with the reason. A
