@@ -555,35 +555,6 @@ class PushGate(unittest.TestCase):
         self.assertEqual(staged.strip(), "")
 
 
-class Cover(unittest.TestCase):
-    """A cover drawn beside the state rides to the branch, and a new picture moves the record."""
-
-    def setUp(self):
-        self.incident, self.docs = incident_dir(), git_docs()
-        run(retro_live.init, args(self.incident, self.docs, forbidden_terms="Northwind|Contoso EU"))
-        self.root = self.docs / retro_live.RETRO_DIR / SLUG
-
-    def sync(self, picture: bytes) -> dict:
-        (self.incident / retro_live.COVER).write_bytes(picture)
-        self.assertEqual(run(retro_live.sync, args(self.incident, self.docs, no_push=False, forbidden_terms="Northwind|Contoso EU")), 0)
-        return json.loads((self.root / "retro.json").read_text())["meta"]["cover"]
-
-    def test_the_cover_is_pushed_and_a_new_picture_changes_its_digest(self):
-        plain = self.sync(b"plain picture")
-        pushed = subprocess.run(["git", "-C", str(self.docs), "show", f"{pushed_ref(self.docs, f'live/{SLUG}').split()[0]}:{retro_live.RETRO_DIR}/{SLUG}/{retro_live.COVER}"],
-                                capture_output=True, check=True).stdout
-        self.assertEqual((plain["file"], pushed), (retro_live.COVER, b"plain picture"))
-        styled = self.sync(b"styled picture")
-        self.assertNotEqual(styled["digest"], plain["digest"])
-        self.assertEqual((self.root / retro_live.COVER).read_bytes(), b"styled picture")
-
-    def test_a_cover_outside_the_folder_fails_check(self):
-        record = json.loads((self.root / "retro.json").read_text())
-        record["meta"]["cover"] = {"file": "../other/cover.png", "digest": "abc"}
-        (self.root / "retro.json").write_text(json.dumps(record))
-        self.assertNotEqual(run(retro_live.run_check, retro, self.root, None), 0)
-
-
 class FinalizePush(unittest.TestCase):
     """An unattended updater has nobody to reload the shell, so the draft reaches the branch the page polls."""
 

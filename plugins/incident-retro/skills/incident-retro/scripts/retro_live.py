@@ -19,7 +19,7 @@ snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
 Stdlib only.
 """
-import argparse, datetime, hashlib, json, os, re, subprocess, sys, tempfile
+import argparse, datetime, json, os, re, subprocess, sys, tempfile
 from pathlib import Path
 
 RETRO_DIR = "incident-retros"
@@ -27,7 +27,6 @@ LIVE_BRANCH = "live/{slug}"
 STATE = "state.json"
 SLACK_LOG = "slack-log.jsonl"
 SLACK_DIR = "evidence/slack"
-COVER = "cover.png"
 DATADOG_DIR = "evidence/datadog"
 INDEX = "index.html"
 INDEX_SCRIPT = Path(".claude/skills/update-design-docs/scripts/sync-index.sh")
@@ -545,17 +544,6 @@ def sync(args) -> int:
         return 1
 
 
-def adopt_cover(incident: Path, root: Path, R: dict):
-    """A cover the caller drew beside the state rides with the record, and its digest changes the
-    record whenever the picture does, so a polling page fetches the new one."""
-    drawn = incident / COVER
-    if not drawn.exists():
-        return
-    body = drawn.read_bytes()
-    (root / COVER).write_bytes(body)
-    R["meta"]["cover"] = {"file": COVER, "digest": hashlib.sha256(body).hexdigest()[:12]}
-
-
 def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: Path) -> int:
     """The record is read under the claim, so a sync that waited does not publish the state it
     read before waiting and append a transition that never happened."""
@@ -586,7 +574,6 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
         (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
         prose.write_atomic(root / notebook_file(notebook),
                            json.dumps(scrub_tree(snapshot, scrub), ensure_ascii=False) + "\n")
-    adopt_cover(incident, root, R)
     prose.write_atomic(root / "retro.json", json.dumps(R, indent=2, ensure_ascii=False) + "\n")
     if run_check(retro, root, args.forbidden_terms):
         print("live sync: check failed; the branch was not pushed", file=sys.stderr)
@@ -609,7 +596,7 @@ def publish(args, retro, docs: Path, raw: dict, slug: str, root: Path, branch: s
         return 1
     message = f"live: {slug} as of {at}"
     tree, commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}",
-                                       f"{RETRO_DIR}/{slug}/{DATADOG_DIR}", f"{RETRO_DIR}/{slug}/{COVER}"], message)
+                                       f"{RETRO_DIR}/{slug}/{DATADOG_DIR}"], message)
     named = {"the branch name": branch, "the slug": slug, "the commit message": message}
     hits = artifact_hits(docs, tree, named, patterns)
     if hits:
