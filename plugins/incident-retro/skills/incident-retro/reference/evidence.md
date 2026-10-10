@@ -9,14 +9,13 @@ The authoring agent writes Slack files through its own Slack tooling, then
 
 While the incident is ongoing, `retro.py live sync` builds Slack snapshots
 from `<incident-dir>/slack-log.jsonl` in `--docs <checkout>` without calling a
-model. It groups messages by channel and thread, replaces customer names
-through `state.teams[].aliases`, and registers the files in `evidence.slack`.
-When `state.notebook` names a notebook, each sync refetches it with
-`DD_API_KEY` and `DD_APP_KEY` into `evidence/datadog/notebook-<id>.json`, scrubbed
-the same way, and registers it with its `file`; the page marks a registered
-notebook with no file as failed. `--notebook-snapshot <path>` takes an
-existing `ir.notebook/1` snapshot in place of the fetch and scrubs it the same
-way. Each sync checks and force-pushes `retro.json`,
+model. It groups messages by channel and thread and registers the files in
+`evidence.slack`. When `state.notebook` names a notebook, each sync refetches
+it with `DD_API_KEY` and `DD_APP_KEY` into
+`evidence/datadog/notebook-<id>.json` and registers it with its `file`; the
+page marks a registered notebook with no file as failed.
+`--notebook-snapshot <path>` takes an existing `ir.notebook/1` snapshot in
+place of the fetch. Each sync checks and force-pushes `retro.json`,
 `evidence/slack/` and `evidence/datadog/` to `live/<slug>`. Monitor snapshots
 still use `evidence fetch` after all-clear.
 
@@ -165,7 +164,7 @@ first.
 retro.py evidence fetch <dir> [--notebook ID|URL]… [--monitor ID|URL]…
     [--from-ssm --ssm-api-key-path P --ssm-app-key-path P [--aws-profile NAME] [--aws-region R]]
     [--site datadoghq.com] [--logs-limit 25] [--interval SECONDS]
-    [--no-register] [--allow-terms] [--forbidden-terms REGEX] [--dry-run]
+    [--no-register] [--dry-run]
 ```
 
 Notebooks and monitors are accepted as bare ids or as their
@@ -232,33 +231,6 @@ It adds `--region` and `--profile` when `--aws-region` and `--aws-profile`
 are given. Both `--ssm-api-key-path` and
 `--ssm-app-key-path` are required with `--from-ssm`; the plugin ships no
 default parameter paths.
-
-## The forbidden-terms grep
-
-Log and monitor messages can carry customer names or tenant identifiers.
-Notebook titles can carry hostnames. These values must not reach a published
-retro.
-
-Before writing any snapshot, the fetcher serialises the payload and greps it
-for a regex. It checks `--forbidden-terms` first, then the `FORBIDDEN_TERMS`
-environment variable. If neither supplies a regex, it walks up from the retro
-directory to find the nearest `.customer-names` file. The file carries one
-regex alternative per line.
-
-The fetcher ignores lines starting with `#`. It joins the remaining
-alternatives with `|` and matches them case-insensitively. A match aborts the
-write and names the matched terms. `--allow-terms` writes anyway and prints the
-same terms as a warning. When no source is configured, the fetcher warns that
-it did not screen the payload.
-
-`retro.py check` repeats this screening across the authored record. It scans
-`retro.json` and `NOTES.md`. It also scans every text file under `evidence/`,
-so a snapshot written with `--allow-terms` still fails the check until the
-terms are removed or the list is updated.
-
-Every push to `live/<slug>` passes this check after the codename scrub.
-No CI guards that branch. Configure the forbidden-terms source before
-syncing; resolve a warning about unchecked names before publishing.
 
 ## Write Slack snapshots
 

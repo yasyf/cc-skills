@@ -60,11 +60,12 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    ```bash
    $TOOL new --incident "<source>" --docs "<design-docs-checkout>" \
      --title "<working headline>" --date YYYY-MM-DD \
-     --tags "migration,release-pipeline" --team "CODENAME=alias,alias" \
+     --tags "migration,release-pipeline" --team "<customer name>" \
      --since 8h --tz America/Los_Angeles
    ```
 
-   Repeat `--incident` for each source and `--team` for each codename.
+   Repeat `--incident` for each source and `--team` for each affected
+   customer.
    A source is an incident directory, `cci:<regex>`, or a cc-notes id for
    a note, answer, investigation, or log. A directory's `state.json` is
    rebuilt as live sync does; each `*.md` file contributes time-led bullets
@@ -72,8 +73,7 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    each reply is capped at 16000 bytes, newest first. A full page prints a
    warning; narrow the pattern or `--since` when records are missing.
 
-   The command lifts links into `refs`, replaces aliases with codenames,
-   stores times with the display zone's offset, and guesses event kinds
+   The command lifts links into `refs`, stores times with the display zone's offset, and guesses event kinds
    from markers such as `FIX-LIVE`, `INCIDENT`, `MECHANISM`, `OPENED`, and
    release builds. It stamps detected, engaged, and mitigated times from
    the first matching rows, marks up to eight alert, mitigation, or deploy
@@ -112,9 +112,7 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
 
 At intake, use the incident skill's `state.json` and `slack-log.jsonl` under
 `<incident-dir>`. Set `state.retro_slug` to the incident date plus three to
-six plain words and use codenames in the title and slug before scaffolding.
-Configure `--forbidden-terms`, `FORBIDDEN_TERMS`, or `.customer-names` in the
-design-docs checkout before publishing.
+six plain words before scaffolding.
 
 ```bash
 $TOOL live init <incident-dir> --docs <design-docs-checkout>
@@ -142,15 +140,12 @@ snapshots the `state.notebook` Datadog notebook with `DD_API_KEY` and
 `commander`, and `status`, updates `live.updatedAt`, and force-pushes
 `retro.json`, `evidence/slack/` and `evidence/datadog/` to `live/<slug>`. The checkout's HEAD and index stay in place. Use
 `--no-push` to write and check locally. `--notebook-snapshot <path>` publishes
-an existing `ir.notebook/1` snapshot of that notebook, scrubbed, instead of
+an existing `ir.notebook/1` snapshot of that notebook instead of
 fetching it, so a sync with no Datadog keys still works. No live command calls a model;
 do not run `prose` or draft narrative while the incident is ongoing.
 
-Every live push must pass the codename scrub and forbidden-terms check.
-`sync` replaces names through `teams[].aliases`, then runs `check`; an
-error blocks the push. Keep the aliases and forbidden-terms source complete.
-No CI guards `live/<slug>`, so a missing terms source is a publishing block
-even though `check` only warns about it.
+Every live push must pass `check`; `sync` runs it first, and an error
+blocks the push.
 
 While status is `ongoing` and `live.source` is set, the page polls that
 branch through the GitHub contents API every 30 seconds. It uses the token
@@ -193,7 +188,7 @@ a muted "no time data" mark. See [reference/components.md](reference/components.
 
 - Complete the scaffolded `retro.json` from the records. Do not infer a missing event, cause, owner, or outcome.
 - Opus writes `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. Opus writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
-- Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep team codenames in `meta.teams`.
+- Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep the affected customers' names in `meta.teams`.
 - For a retro written before 0.3.0, move the old `meta.title` into `meta.subtitle`, clear `meta.title`, and run `prose --quick` to write the newly required prose through Opus. Supply the tags yourself. Replace the old subtitle's browser-title suffix value.
 - Once the causes and actions are settled, prepare one `summary.html` panel per question; its wording is a prose field like the rest.
 - Fetch only Slack snapshots missing from the records with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
@@ -201,7 +196,7 @@ a muted "no time data" mark. See [reference/components.md](reference/components.
 - Leave each plain twin `p` empty for Opus to write in 30 words or fewer. The twin keeps every fact from the precise wording, with no register id or file path.
 - Leave `h` empty for Opus on every window, timeline entry, cause, action, decision, hypothesis, prevention question, unknown, sub-incident, and notebook, monitor, build, or PR evidence entry. Each needs a distinct noun phrase of two to six words. A nonempty handle outside that range errors even without strict mode. Missing handles and register ids draw strict warnings; trailing periods warn. Evidence labels do not waive the handle requirement.
 - Keep Slack snapshots as verbatim evidence; never pass them through a language model. The renderer derives their row labels mechanically.
-- Use deployment or service codenames in public prose. Never publish the name of a customer, company, workspace, or account.
+- Name customers by their real names in prose, `meta.teams`, and `impact.teams`.
 
 ## Phase 1: Gather
 

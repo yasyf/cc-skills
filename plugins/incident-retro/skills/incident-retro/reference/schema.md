@@ -22,14 +22,14 @@ here.
 |---|---|---|
 | `title` | yes | Opus-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
 | `subtitle` | yes | Opus-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
-| `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team codename warns |
+| `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team name warns |
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
 | `status` | yes | `ongoing`, `draft`, `in-review`, `reviewed`, `resolved`; rendered Ongoing, Draft, Under review, Reviewed, Closed out. `ongoing` and `draft` are the statuses that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped`. An `ongoing` retro is one `retro.py live sync` writes while the incident runs, so it carries a `live` block, skips the prose-provenance gate, and takes the tag count as a strict warning rather than an error |
 | `incident` | no | `{number?, severity?, severityLink?, channel?}`; `number` a positive integer, `severity` matches `sev-N`, `severityLink` an https URL. `channel` is the incident's Slack channel, `{name, id, permalink}`: `name` without the leading `#`, `id` a Slack channel id such as `C0909AD1458`, `permalink` `https://<workspace>.slack.com/archives/<id>` naming that id. The page shows it as a `#name` chip linking the permalink. `live sync` copies it from `state.json` `incident_channel` |
 | `authors`, `attendees` | no | lists of people's names; never an email or `mailto:` (`check` errors on `@`). A retro past `draft` names its authors |
 | `commander` | no | the incident commander's name |
-| `teams` | no | team codenames the retro concerns, as strings |
+| `teams` | no | names of the customers the retro concerns, as strings |
 | `repo`, `ref` | no | as design-doc: `owner/repo` and a Git ref; the page renders a link into `repo` as `#1234` and others as `owner/repo#1234` |
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
@@ -51,7 +51,7 @@ For a retro written before 0.3.0, move the old `meta.title` into
 `retro.py prose <dir> --quick` to write the newly required prose through
 Opus. Replace the old subtitle value, including
 "Incident retrospective"; it no longer supplies a browser-title suffix.
-Add topical tags separately from the codenames in `meta.teams`.
+Add topical tags separately from the team names in `meta.teams`.
 
 `scaffold --subtitle "…" --tags "migration,release-pipeline" fills these
 fields. Without those flags, the subtitle copies the title and tags are
@@ -170,7 +170,7 @@ the first sync that saw a cause is the one the page shows.
 
 Each block contains `text` and `p` plus section-specific fields. `text` is the wording the team stands behind. `p` is the plain twin a reader outside the team sees first: 30 words or fewer, or a third of the original, excluding ids and file paths. `check --strict` errors on a missing twin or one that breaks those rules. It also errors when `text` changes after a snapshot but `p` does not. Every cause carries the same pair.
 
-- `impact.teams`: `[{codename, text}]`, one row per team and what it saw.
+- `impact.teams`: `[{codename, text}]`, one row per team and what it saw; `codename` holds the customer's name.
 - `impact.metrics`: `[{label, value, unit?, delta?, measured, cites?}]`. `value` is a display string (`"3 180"`); `measured` is a boolean, so every number is measured or tagged estimated; `cites` names windows or causes.
 - `resolution.links`: links as below, `closes` refused.
 - `detection.monitors`: `[{id, file?, role, fired?, recovered?}]` with `role` in `caught`, `missed`, `added`. `fired` and `recovered` are timestamps; the page derives "fired N after onset" from `fired` and `timestamps.onset`.
@@ -708,28 +708,11 @@ all-clear or now. `causes` come from `diagnoses`, carrying `identifiedAt`.
 matching `prs` as links, and a `history` entry appended only on a change.
 `incident_channel`, when present, becomes `meta.incident.channel`. The
 `evidence/slack/` set is rebuilt from the log on every sync rather than added
-to, so a thread the log no longer carries leaves with it and an alias added
-today reaches a snapshot captured yesterday.
+to, so a thread the log no longer carries leaves with it.
 
-Scrubbing happens once, at the source: `state.json` is scrubbed through
-`teams[].aliases` before anything derives from it, so the slug, the title, the
-card and every register are scrubbed by construction rather than after the
-fact. Matching is case-insensitive on word boundaries, longest alias first, so
-the alias `Box` rewrites `Box` and leaves `Sandbox` alone. Slack messages are
-scrubbed the same way, including the channel name that reaches snapshot
-metadata and the snapshot's own file name.
-
-The push gate then reads the artifact itself rather than a copy of part of it.
-`sync` builds the orphan commit first, through a temporary index so the
-checkout's HEAD and index never move, and holds against it: every path and
-every blob in that tree whatever the file type, plus the branch name, the slug
-and the commit message. Terms come from two independent sources, the aliases
-and the configured forbidden terms, and a hit from either refuses the push with
-the term masked. A `check` error refuses it too. When neither source resolves —
-no `--forbidden-terms`, no `FORBIDDEN_TERMS`, no `.customer-names` up the tree,
-and no aliases in `state.teams` — nothing can check the branch, so `sync`
-refuses to push and says so. There is no flag to proceed anyway.
-`--no-push` writes and checks the retro without building or pushing anything.
+A `check` error refuses the push. `sync` builds an orphan commit through a
+temporary index, so the checkout's HEAD and index never move, and
+force-pushes it to `live/<slug>`. `--no-push` writes and checks the retro without building or pushing anything.
 
 `finalize` drops `live.source`, moves the status to `draft`, fills
 `timestamps.resolved` from `all_clear_at`, and hands the retro to the existing
@@ -817,14 +800,13 @@ Errors unless noted; `--strict` promotes the strict warnings.
 11. Prose stating a derived duration warns.
 12. Capitalization over titles, handles and labels.
 13. Component schemas and their hosts.
-14. Forbidden terms: the check scans `retro.json`, `NOTES.md` and every text file under `evidence/`. It loads terms from `--forbidden-terms`, `FORBIDDEN_TERMS`, or the nearest `.customer-names`, and warns when none is configured.
-15. Library pins against this file warn.
-16. Template freshness against `plugins/_shared` when that source tree is present.
-17. `ai.json` beside the retro or in its parent directory.
-18. Revision history integrity.
-19. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
-20. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
-21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
-22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
-23. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. A supplied `picked` value must be boolean; a picked option requires a nonempty owner. Option links follow the link schema without `closes`. Missing pros, cons, and facts or an option label over eight words draw strict warnings.
-24. Remediation is an object with `done` and `lanes` lists. Entries require nonempty text, lanes require names, and links follow the link schema without `closes`. Remediation, prevention, and picks are optional at every status. Each pick that is present requires an owner and PR links or a lane present in `remediation.lanes`. These errors apply without `--strict`.
+14. Library pins against this file warn.
+15. Template freshness against `plugins/_shared` when that source tree is present.
+16. `ai.json` beside the retro or in its parent directory.
+17. Revision history integrity.
+18. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
+19. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
+20. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
+21. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
+22. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. A supplied `picked` value must be boolean; a picked option requires a nonempty owner. Option links follow the link schema without `closes`. Missing pros, cons, and facts or an option label over eight words draw strict warnings.
+23. Remediation is an object with `done` and `lanes` lists. Entries require nonempty text, lanes require names, and links follow the link schema without `closes`. Remediation, prevention, and picks are optional at every status. Each pick that is present requires an owner and PR links or a lane present in `remediation.lanes`. These errors apply without `--strict`.
