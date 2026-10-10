@@ -1,0 +1,152 @@
+{
+  "id": "c7e82c05-0099-45fc-83bd-8c526259a022",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_25f8965ea0fb",
+      "runId": "run_4104a86f0a03",
+      "taskId": "task_8c1d2e3f4a5b",
+      "task_id": "task_8c1d2e3f4a5b",
+      "contractVersion": 1,
+      "assigneeHandle": null,
+      "assigneePaneKey": null,
+      "processIncarnation": null,
+      "capabilityRevokedAt": null,
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": null,
+      "status": "dispatched",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-10-10 10:05:33",
+      "completedAt": null,
+      "createdAt": "2026-10-10 10:05:33",
+      "lastHeartbeatAt": "2026-10-10T10:07:58.029Z"
+    },
+    "worker": {
+      "dispatchId": "ctx_25f8965ea0fb",
+      "runtimeEpoch": "3a3659aa-ea2a-4b73-873c-c6133da9f754",
+      "state": "running",
+      "stage": "input_accepted",
+      "worktreeId": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app-lane",
+      "agentTerminalHandle": "term_cfce7ff3-0976-4032-9d55-22697f68d6ee",
+      "setupState": "not_applicable",
+      "effects": [],
+      "residualResources": [],
+      "startOptions": {
+        "on": "4cf25470-2acf-421b-9106-83fefee74ece",
+        "serverName": "codex-hooks-proof",
+        "worktree": "id:433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+        "name": null,
+        "repo": null,
+        "baseBranch": null,
+        "terminal": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+        "agent": null,
+        "launch": {
+          "requested": {
+            "agent": null,
+            "model": null,
+            "effort": null
+          },
+          "effective": null
+        },
+        "timeoutMs": 60000,
+        "setup": "not_applicable",
+        "setupSource": "existing_worktree"
+      },
+      "lastError": null,
+      "createdAt": "2026-10-10 10:05:33",
+      "updatedAt": "2026-10-10T10:10:00.013Z"
+    },
+    "projection": {
+      "id": "ctx_25f8965ea0fb",
+      "dispatchId": "ctx_25f8965ea0fb",
+      "taskId": "task_8c1d2e3f4a5b",
+      "runId": "run_4104a86f0a03",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "433506a7-0897-484c-ab62-f06990247987::/home/sprite/app",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "live",
+        "observedAt": 1791628209173,
+        "source": "execution_host"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "fresh",
+        "lastObservedAt": 1791628209173
+      },
+      "resource": {
+        "state": "absent",
+        "reason": "not_materialized"
+      },
+      "nextAction": {
+        "kind": "inspect",
+        "argv": [
+          "orchestration",
+          "worker-show",
+          "--dispatch",
+          "ctx_1e2e970fc485"
+        ]
+      },
+      "attention": {
+        "categories": [],
+        "requiresAction": false
+      }
+    },
+    "server": null,
+    "remoteRuntimeEpoch": null,
+    "terminal": {
+      "handle": "term_cfce7ff3-0976-4032-9d55-22697f68d6ee",
+      "ptyId": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app-lane@@1c2d3e4f",
+      "incarnationId": "bd53de06-6abd-4a94-aa80-6edc592bb28e",
+      "orphaned": false,
+      "worktreeId": "71ae0557-90f0-462f-9c2d-32ed95fe5334::/Users/dev/work/app-lane",
+      "worktreePath": "/Users/dev/work/app-lane",
+      "branch": "refs/heads/dev/bake",
+      "tabId": "294705ad-62bb-4d29-943a-f44f74153353",
+      "leafId": "efcc4086-f7b3-45f9-a225-9fd87b5a3e12",
+      "title": "✳ Bake the image",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1791627011331,
+      "preview": "✳ Baking…",
+      "executionHostId": "local",
+      "agentIdentity": "claude",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0,
+      "agentWait": {
+        "source": "hook",
+        "since": 1791627768779
+      }
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": {
+        "source": "hook",
+        "since": 1791627768779
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

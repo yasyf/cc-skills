@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1892,65 +1893,41 @@ def test_summary_never_reports_a_landed_row_as_waiting(capsys):
     assert not [line for line in lines if line.startswith("waiting")]
 
 
-def orca_worker(dispatch: str, outcome: str = "in_progress") -> dict:
-    return {"dispatchId": dispatch, "projection": {"outcome": outcome}}
+def watch_row(name: str, role: str, state: str, line: str) -> dict:
+    return {"name": name, "role": role, "state": state, "detail": "", "line": line}
 
 
-def minutes_ago(minutes: int) -> float:
-    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).timestamp() * 1000
+DOWN_ROW = watch_row("900424b6", "watch", "down", "PROMPT-WATCH-DOWN 900424b6: last poll 7m ago, so the states below are old; start it with `prompt_watch.py start --drive 900424b6`")
+APPROVAL_ROW = watch_row(LANE, "worker", "approval", f"WAITING-ON-PROMPT {LANE} worker approval 3m terminal=term_a: This shell -c script runs rm and could not be checked / Do you want to proceed?")
+UNREACHABLE_ROW = watch_row("ssql-bake", "worker", "unreachable", "PROMPT-UNREACHABLE ssql-bake worker 2m terminal=term_b environment=pool-a: remote_runtime_unavailable: Could not connect to the remote Orca runtime.")
+COORDINATOR_ROW = watch_row("coordinator", "coordinator", "stale", "PROMPT-STALE coordinator coordinator 1m terminal=term_root: agentWait via hook is set and the input box is back")
 
 
-def shown(branch: str, wait: dict | None) -> dict:
-    return {"observation": {"agentWait": wait}, "terminal": {"branch": f"refs/heads/{branch}"}}
-
-
-def test_summary_inside_orca_names_every_worker_parked_on_a_prompt_for_five_minutes(capsys, monkeypatch):
-    monkeypatch.setenv(ledger.ORCA_TERMINAL, "term_root")
-    shell = FakeShell(rows=[{"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "yasyf/lightning/"}}])
-    shell.orca = {
-        ("orchestration", "worker-list"): {"workers": [orca_worker("ctx_old"), orca_worker("ctx_new"), orca_worker("ctx_done", "succeeded")], "page": {"hasMore": True, "nextCursor": "c2"}},
-        ("orchestration", "worker-list", "--cursor", "c2"): {"workers": [orca_worker("ctx_busy"), orca_worker("ctx_title")], "page": {"hasMore": False}},
-        ("orchestration", "worker-show", "--dispatch", "ctx_old"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(7)}),
-        ("orchestration", "worker-show", "--dispatch", "ctx_new"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(2)}),
-        ("orchestration", "worker-show", "--dispatch", "ctx_busy"): shown("yasyf/lightning/bake", None),
-        ("orchestration", "worker-show", "--dispatch", "ctx_title"): shown("yasyf/v3-other", {"source": "prompt-text", "reason": "plan approval"}),
-    }
-
-    lines = summarize(shell, capsys)
-
-    assert lines[1:3] == [
-        f"WAITING-ON-PROMPT {LANE} 7m dispatch=ctx_old via hook: interactive prompt",
-        "WAITING-ON-PROMPT yasyf/v3-other ?m dispatch=ctx_title via prompt-text: plan approval",
-    ]
-    assert ["orca", "orchestration", "worker-show", "--dispatch", "ctx_done", "--json"] not in shell.calls
-
-
-def test_summary_inside_orca_names_a_worker_it_cannot_show_and_still_renders(capsys, monkeypatch):
-    monkeypatch.setenv(ledger.ORCA_TERMINAL, "term_root")
-    shell = FakeShell(rows=[{"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "yasyf/lightning/"}}])
-    shell.orca = {
-        ("orchestration", "worker-list"): {"workers": [orca_worker("ctx_remote"), orca_worker("ctx_old")], "page": {"hasMore": False}},
-        ("orchestration", "worker-show", "--dispatch", "ctx_old"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(7)}),
-    }
-    shell.orca_errors = {
-        ("orchestration", "worker-show", "--dispatch", "ctx_remote"): {"code": "remote_runtime_unavailable", "message": "Remote runtime is not reachable."},
-    }
-
-    lines = summarize(shell, capsys)
-
-    assert lines[0].startswith("desk ")
-    assert lines[1:3] == [
-        "WORKER-SHOW-FAILED dispatch=ctx_remote remote_runtime_unavailable: Remote runtime is not reachable.",
-        f"WAITING-ON-PROMPT {LANE} 7m dispatch=ctx_old via hook: interactive prompt",
-    ]
-
-
-def test_summary_outside_orca_reads_no_orca_state(capsys):
+def test_summary_prints_the_prompt_watch_rows_right_after_the_counts(capsys):
     shell = FakeShell()
+    shell.prompt_watch = {"drive": "900424b6", "header": "prompt-watch 900424b6 polled 420s ago", "rows": [DOWN_ROW, APPROVAL_ROW, UNREACHABLE_ROW, COORDINATOR_ROW]}
 
-    summarize(shell, capsys)
+    lines = summarize(shell, capsys)
 
+    assert lines[1:5] == [DOWN_ROW["line"], APPROVAL_ROW["line"], UNREACHABLE_ROW["line"], COORDINATOR_ROW["line"]]
+    assert [sys.executable, str(ledger.PROMPT_WATCH), "show", "--cci-drive", DRIVE, "--json"] in shell.calls
     assert not [call for call in shell.calls if call[0] == "orca"]
+
+
+def test_a_sharded_summary_keeps_its_own_lanes_prompt_rows_and_the_down_row(capsys):
+    shell = FakeShell()
+    shell.prompt_watch = {"drive": "900424b6", "header": "", "rows": [DOWN_ROW, APPROVAL_ROW, UNREACHABLE_ROW, COORDINATOR_ROW]}
+
+    lines = summarize(shell, capsys, "--shard", LANE)
+
+    assert lines[1:3] == [DOWN_ROW["line"], APPROVAL_ROW["line"]]
+    assert UNREACHABLE_ROW["line"] not in lines and COORDINATOR_ROW["line"] not in lines
+
+
+def test_summary_of_a_drive_with_no_registry_entry_prints_no_prompt_rows(capsys):
+    lines = summarize(FakeShell(), capsys)
+
+    assert not [line for line in lines if "PROMPT" in line]
 
 
 def test_register_refuses_a_prefix_that_names_no_branch():

@@ -52,6 +52,7 @@ class FakeShell(runner_module.Shell):
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
         self.stale_out = ""
+        self.prompt_watch: dict = {}
         self.screens: dict[str, list[str]] = {}
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
@@ -137,6 +138,9 @@ class FakeShell(runner_module.Shell):
         if name == "orca-check.sh":
             assert argv[1:] == ["--stale"]
             return runner_module.Done(0, self.stale_out, "")
+        if argv[:2] == [sys.executable, str(runner_module.SCRIPTS / "prompt_watch.py")]:
+            assert argv[2:] == ["show", "--cci-drive", "d1", "--json"]
+            return runner_module.Done(0, json.dumps(self.prompt_watch), "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -435,6 +439,25 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
 
 def wakes(shell: FakeShell) -> list[str]:
     return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
+
+
+def test_the_sweep_names_a_prompt_watch_that_stopped_polling_and_leaves_prompts_to_it(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    waiting = {"name": LANE, "role": "worker", "state": "approval", "detail": "Do you want to proceed?", "line": f"WAITING-ON-PROMPT {LANE} worker approval 9m terminal=term_ctx_a: Do you want to proceed?"}
+    down = {"name": "900424b6", "role": "watch", "state": "down", "detail": "last poll 9m ago, so the states below are old; start it with `prompt_watch.py start --drive 900424b6`", "line": ""}
+    shell.prompt_watch = {"drive": "900424b6", "header": "", "rows": [down, waiting]}
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("PROMPT-WATCH-DOWN prompt-watch:2026-10-01T18 runner: last poll 9m ago, so the states below are old; start it with")
+    assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
+
+
+def test_a_polling_prompt_watch_keeps_the_sweep_quiet_about_prompts(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.prompt_watch = {"drive": "900424b6", "header": "", "rows": [{"name": LANE, "role": "worker", "state": "approval", "detail": "Do you want to proceed?", "line": ""}]}
+    orca_pass(shell, config)
+    assert escalations(shell) == []
 
 
 def test_stale_mail_wakes_a_lane_once_and_only_at_its_idle_prompt(shell, config, tmp_path):

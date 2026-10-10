@@ -1,0 +1,44 @@
+{
+  "id": "7d34dd9c-2755-4e10-8700-f64aa57b0233",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_26c4ee5e-61f3-4fac-86aa-40bbdbc87c4e",
+      "status": "running",
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "53524",
+      "nextCursor": "55524",
+      "latestCursor": "55524",
+      "returnedLineCount": 22,
+      "source": "screen",
+      "tail": [
+        "⏺ Two lanes report in; the third is still measuring.",
+        "  ⎿  3 in progress, 6 pending, 23 completed",
+        "",
+        "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+        " ☐ Test page",
+        "",
+        "Should I kick off the end-to-end test page now?",
+        "",
+        "❯ 1. Kick it off now (Recommended)",
+        "     Starts the page against the current build.",
+        "  2. After release starts work again",
+        "     Waits for the next release window.",
+        "  3. Type something.",
+        "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+        "  4. Chat about this",
+        "",
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+        "",
+        "  ⏺ main",
+        "  ◯ startup-speed             Speed up remote lane startup                                                    ",
+        "  ◯ sprite-tools-fix          Repair Sprite payload tooling                                                   ",
+        "  ↓ 3 more"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "c05185ed-5f91-4a22-ade0-5317625bb4fd"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "e0428a24-a82b-4555-bb44-488c218f8bc2",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_5cfcad9a-6928-47d6-88e3-f04749533661",
+      "status": "running",
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "0",
+      "nextCursor": "1",
+      "latestCursor": "1",
+      "returnedLineCount": 13,
+      "source": "screen",
+      "tail": [
+        "• I need to clear the stale build directory before the bake can rerun.",
+        "",
+        "  Would you like to run the following command?",
+        "",
+        "  Reason: the bake left a partial output directory",
+        "",
+        "  $ rm -rf build/out",
+        "",
+        "› 1. Yes, proceed (y)",
+        "  2. Yes, and don't ask again for commands that start with `rm -rf build/out` (p)",
+        "  3. No, and tell Codex what to do differently (esc)",
+        "",
+        "  Press enter to confirm or esc to cancel"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "f18dbbcf-4cec-4040-b08e-130cf3c7fd54"
+  }
+}

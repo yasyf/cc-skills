@@ -181,6 +181,21 @@ def test_the_hook_recognizes_drive_start(calls, starts):
     assert hook.starts_drive(evt) is starts
 
 
+def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root_session(monkeypatch):
+    spawned = []
+    monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))
+    monkeypatch.setattr(hook.reqenv, "getenv", {"ORCA_TERMINAL_HANDLE": "term_root"}.get)
+    monkeypatch.setattr(hook.reqenv, "env_map", dict)
+    entry = {"drive": "900424b6", "sessions": ["900424b6-0000"]}
+
+    hook.watch_prompts(SimpleNamespace(session_id="900424b6-0000"), entry)
+    hook.watch_prompts(SimpleNamespace(session_id="0dd0bead-0000"), entry)
+
+    start = ["python3", str(hook.PROMPT_WATCH), "start", "--drive", "900424b6"]
+    assert spawned == [([*start, "--root-terminal", "term_root"], True), (start, True)]
+    assert hook.PROMPT_WATCH.is_file()
+
+
 def test_inbox_files_include_rotated_archives(tmp_path):
     (tmp_path / "deploy-go.md").write_text("x\n")
     (tmp_path / "deploy-go.md.archive").mkdir()

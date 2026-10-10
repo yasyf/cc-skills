@@ -22,8 +22,10 @@ A relay is accepted, then started and completed by the lane itself: it replies
 never resent blindly. An accepted relay to a lane with no live dispatch and no launch in
 flight fails at once as `RELAY-FAILED`.
 
-`run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
-prompts, and checks relay deadlines. It also reads the drive's desk inbox stream and turns
+`run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail, and
+checks relay deadlines. Prompts belong to `prompt_watch.py`, the one reader of Orca's
+agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
+while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question when it has one, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
@@ -395,7 +397,6 @@ class Dispatch:
     terminal: str
     status: str
     live: bool
-    wait: dict | None
 
 
 class Orca:
@@ -441,7 +442,6 @@ class Orca:
             terminal=(result.get("terminal") or {}).get("handle") or self.terminal(lane),
             status=result["dispatch"]["status"],
             live=observation.get("status") == "live",
-            wait=observation.get("agentWait"),
         )
 
     def thread_message(self, terminal: str, thread: str) -> dict | None:
@@ -1163,7 +1163,7 @@ class Runner:
         action, created = self.book.accept(container, notice, "reply", json.dumps({"text": text, "reply_to": message}), notice, None)
         dispatch = self.orca.show(container.removeprefix(LANE_PREFIX))
         if created and dispatch:
-            self.send(container, Dispatch(dispatch.lane, sender, dispatch.terminal, dispatch.status, dispatch.live, None), action)
+            self.send(container, Dispatch(dispatch.lane, sender, dispatch.terminal, dispatch.status, dispatch.live), action)
 
     def brief_for(self, lane: str) -> Path | None:
         container = lane_container(lane)
@@ -1257,7 +1257,7 @@ class Runner:
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
-        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
+        """Unread mail on a live dispatch gets one wake, typed only at its idle prompt; mail a settled dispatch never read, a dispatch that is not live, or a prompt watch that stopped polling escalates once."""
         done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
         for line in done.out.splitlines():
             parts = line.split()
@@ -1285,12 +1285,14 @@ class Runner:
             if dispatch.status in INACTIVE:
                 settled.append(dispatch)
                 continue
-            if dispatch.wait:
-                self.escalate(f"prompt:{dispatch.id}:{dispatch.wait.get('since', '')}", "PROMPT", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} parked on {dispatch.wait.get('reason', 'a prompt')}")
-            elif not dispatch.live:
+            if not dispatch.live:
                 self.escalate(f"liveness:{dispatch.id}:{hour}", "LIVENESS", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} is not live; resume it in place, never relaunch on this alone")
         if settled:
             self.reclaim(settled)
+        watch = json.loads(self.shell.run([sys.executable, str(SCRIPTS / "prompt_watch.py"), "show", "--cci-drive", self.config.drive, "--json"]).out or "{}")
+        for row in watch.get("rows") or []:
+            if row["state"] == "down":
+                self.escalate(f"prompt-watch:{hour}", "PROMPT-WATCH-DOWN", "runner", row["detail"])
 
     def reclaim(self, settled: list[Dispatch]) -> None:
         named = " ".join(f"{dispatch.lane}={dispatch.id}:{dispatch.terminal}" for dispatch in settled[:RECLAIM_NAMED])

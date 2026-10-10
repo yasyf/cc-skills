@@ -12,6 +12,7 @@ from .compaction_handoff import CompactionState
 from .lane_rotation import DriveActive
 
 DRIVE_SCRIPT = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
+PROMPT_WATCH = DRIVE_SCRIPT.with_name("prompt_watch.py")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 LIVE_DASHBOARD = "live-dashboard@skills"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
@@ -56,6 +57,13 @@ def serve(entry: dict) -> None:
     subprocess.Popen(["sh", "-c", script], env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
+def watch_prompts(evt: BaseHookEvent, entry: dict) -> None:
+    argv = ["python3", str(PROMPT_WATCH), "start", "--drive", entry["drive"]]
+    if evt.session_id in entry["sessions"] and (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
+        argv += ["--root-terminal", handle]
+    subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def share_link(evt: BaseHookEvent, entry: dict) -> HookResult:
     command = shlex.join([str(dashboard_bin()), "url", "--dir", str(dashboard_dir(entry))])
     return evt.context(
@@ -90,6 +98,7 @@ def starts_drive(evt: BaseHookEvent) -> bool:
 def serve_on_session_start(evt: BaseHookEvent) -> HookResult | None:
     if entry := entry_of(evt):
         serve(entry)
+        watch_prompts(evt, entry)
     return None
 
 
@@ -109,6 +118,7 @@ def serve_on_session_start(evt: BaseHookEvent) -> HookResult | None:
 def serve_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
     if starts_drive(evt) and (entry := entry_of(evt)):
         serve(entry)
+        watch_prompts(evt, entry)
     return None
 
 

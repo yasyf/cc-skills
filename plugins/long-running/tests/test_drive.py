@@ -54,10 +54,44 @@ def test_start_registers_the_drive_by_its_root_session(repo, capsys):
         "orca_run": "run_7715a23a5657",
         "state_dir": str(Path.home() / ".claude" / "scratch" / "900424b6"),
         "cci_drive": None,
+        "root_terminal": None,
         "started_at": "",
         "updated_at": "",
     }
     assert capsys.readouterr().out.startswith(f"drive 900424b6 on ledger {LEDGER} at ")
+
+
+def test_start_inside_an_orca_terminal_records_it_as_the_coordinators_and_a_start_outside_keeps_it(repo, monkeypatch):
+    monkeypatch.setenv(drive.TERMINAL_ENV, "term_root")
+    assert started(repo)["root_terminal"] == "term_root"
+    monkeypatch.delenv(drive.TERMINAL_ENV)
+    monkeypatch.setenv(drive.SESSION_ENV, RESUMED_SESSION)
+
+    assert started(repo, "--drive", "900424b6")["root_terminal"] == "term_root"
+
+
+def test_desk_records_standing_desks_and_keeps_one_supervisor(repo, capsys):
+    started(repo)
+    assert drive.main(["desk", "--name", "landing", "--terminal", "term_landing", "--supervisor"]) == 0
+    assert drive.main(["desk", "--name", "codex-supervisor", "--terminal", "term_codex", "--environment", "pool-a", "--supervisor"]) == 0
+
+    entry = json.loads((drive.drives_dir() / "900424b6.json").read_text())
+
+    assert entry["desks"] == {
+        "landing": {"terminal": "term_landing", "environment": None, "supervisor": False},
+        "codex-supervisor": {"terminal": "term_codex", "environment": "pool-a", "supervisor": True},
+    }
+    assert capsys.readouterr().out.splitlines()[-1] == "drive 900424b6 desks: codex-supervisor=term_codex (supervisor), landing=term_landing"
+
+
+def test_desk_remove_forgets_a_desk_and_refuses_one_it_never_held(repo, capsys):
+    started(repo)
+    drive.main(["desk", "--name", "landing", "--terminal", "term_landing"])
+
+    assert drive.main(["desk", "--name", "landing", "--remove"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "drive 900424b6 desks: none"
+    with pytest.raises(SystemExit, match="drive 900424b6 has no desk landing"):
+        drive.main(["desk", "--name", "landing", "--remove"])
 
 
 def test_a_handoff_joins_the_drive_and_keeps_its_orca_run(repo, monkeypatch):

@@ -197,17 +197,25 @@ them all unchanged. The root dispatches each `LOST` ask in that turn. For each
 `LANDED-NOT-LIVE` or `IN-PR` ask, it checks whether it can advance the pipeline or PR
 before the next sweep.
 
-Inside an Orca terminal (`ORCA_TERMINAL_HANDLE` set), a `WAITING-ON-PROMPT <lane> <n>m
-dispatch=<id> via <source>: <reason>` line precedes the ask lines for every
-in-progress Orca worker whose `worker-show` `observation.agentWait` has stood five
-minutes or more; a wait with no `since` prints `?m`. The lane is the registered lane
-whose branch prefix holds the worker's branch, else that branch. Forward each line
-unchanged; the runner emits `PROMPT` in the sweep that sees it. Submit any
-worker-directed ruling with `desk-runner.py relay --config C --key R<n> --lane L
---text T`; never send it to an orca-desk lane.
-A worker whose `worker-show` exits non-zero prints `WORKER-SHOW-FAILED
-dispatch=<id> <code>: <message>` with Orca's error in its place, and the rest of the
-summary still renders.
+The prompt watch's last poll precedes the ask lines, one line per terminal that is not
+clear, read from `prompt_watch.py show`:
+
+```text
+WAITING-ON-PROMPT <name> <role> approval|question <n>m terminal=<handle>: <what the dialog asks>
+PROMPT-STALE <name> <role> <n>m terminal=<handle>: <detail>
+PROMPT-UNKNOWN <name> <role> <n>m terminal=<handle>: <detail>
+PROMPT-UNREACHABLE <name> <role> <n>m terminal=<handle> environment=<name>: <detail>
+PROMPT-WATCH-DOWN <drive>: <detail>; start it with `<command>`
+```
+
+`<role>` is `coordinator`, `supervisor`, `desk`, or `worker`, and `<n>m` counts from the
+poll that first saw the state. A sharded summary keeps its own lanes' lines and
+`PROMPT-WATCH-DOWN`. Forward each line unchanged. The watch already posted every prompt
+to the root, the supervisor, or the owner, so a `WAITING-ON-PROMPT` line is a second
+look, never the alert. `PROMPT-UNKNOWN` and `PROMPT-UNREACHABLE` say the prompt state is
+not known; never fold either into a working or a stuck count. Submit any worker-directed
+ruling with `desk-runner.py relay --config C --key R<n> --lane L --text T`; never send it
+to an orca-desk lane.
 
 `ledger.py summary --ledger <id> --drive <drive>` settles landings before printing. `--checkout`
 defaults to the working directory and `--repo` to that checkout's origin. The `waiting:` line
