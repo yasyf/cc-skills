@@ -32,9 +32,13 @@ MONITOR_ID = 312516332
 MONITOR_FILE = f"evidence/datadog/monitor-{MONITOR_ID}.json"
 DATADOG = {
     ("GET", f"/api/v1/monitor/{MONITOR_ID}"): {
-        "name": "Browser pool exhausted", "type": "query alert", "overall_state": "Alert",
+        "name": "Browser pool exhausted \u2014 {{team.name}}", "type": "query alert", "overall_state": "Alert",
         "query": "avg(last_5m):sum:browsers.free{*} by {team} < 1",
-        "options": {"thresholds": {"critical": 1, "warning": 3}}},
+        "options": {"thresholds": {"critical": 1, "warning": 3}},
+        "state": {"groups": {
+            "team:northwind": {"name": "team:northwind", "status": "Alert", "last_triggered_ts": 1788390000},
+            "team:acme": {"name": "team:acme", "status": "OK", "last_triggered_ts": 1788390600},
+            "team:globex": {"name": "team:globex", "status": "OK", "last_triggered_ts": 1700000000}}}},
     ("GET", "/api/v1/query"): {"series": [
         {"scope": "team:northwind", "expression": "sum:browsers.free{team:northwind}",
          "pointlist": [[1788386400000, 4.0], [1788390000000, 0.0]]},
@@ -246,6 +250,43 @@ class Sync(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class LiveFeeds(unittest.TestCase):
+    """The keeper's chapters and session heartbeats reach the page's live block, scrubbed like the rest of state."""
+
+    CHAPTERS = [{"start": "2026-09-02T14:05:00-07:00", "title": "Northwind runs stall",
+                 "summary": "Northwind runs stalled waiting for browsers."}]
+    SESSIONS = [{"role": "fixer", "state": "running", "phase": "fixing", "step": "Patching the Northwind pool",
+                 "since": "2026-09-02T14:06:00-07:00", "beatAt": "2026-09-02T14:40:00-07:00", "attempt": 1}]
+
+    def live(self, **feeds) -> dict:
+        incident, docs = incident_dir(), docs_checkout()
+        state = json.loads((incident / "state.json").read_text())
+        state.update(feeds)
+        (incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.init, args(incident, docs))
+        self.assertEqual(run(retro_live.sync, args(incident, docs)), 0)
+        return json.loads((docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())["live"]
+
+    def test_chapters_and_sessions_are_copied_with_customer_names_scrubbed(self):
+        live = self.live(chapters=self.CHAPTERS, sessions=self.SESSIONS)
+        self.assertEqual(live["chapters"][0]["title"], "Polar runs stall")
+        self.assertEqual(live["sessions"][0]["step"], "Patching the Polar pool")
+        self.assertEqual(live["sessions"][0]["beatAt"], self.SESSIONS[0]["beatAt"])
+
+    def test_chapters_out_of_time_order_fail_the_check(self):
+        incident, docs = incident_dir(), docs_checkout()
+        state = json.loads((incident / "state.json").read_text())
+        state["chapters"] = [{**self.CHAPTERS[0], "start": "2026-09-02T14:20:00-07:00"}, self.CHAPTERS[0]]
+        (incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.init, args(incident, docs))
+        self.assertEqual(run(retro_live.sync, args(incident, docs)), 1)
+
+    def test_a_sync_without_them_writes_neither(self):
+        live = self.live()
+        self.assertNotIn("chapters", live)
+        self.assertNotIn("sessions", live)
+
+
 class MonitorSnapshot(unittest.TestCase):
     """The live view previews each paging monitor's state and the series it alerts on."""
 
@@ -270,6 +311,17 @@ class MonitorSnapshot(unittest.TestCase):
     def test_a_group_the_gate_forbids_is_relabelled_instead_of_refusing_the_push(self):
         snapshot = self.sync(forbidden_terms="acme")
         self.assertEqual([row["label"] for row in snapshot["series"]["series"]], ["team:Polar", "group 2"])
+
+    def test_the_name_fills_its_template_from_groups_triggered_since_onset_scrubbed(self):
+        self.assertEqual(self.sync()["name"], "Browser pool exhausted \u2014 Polar, acme")
+
+    def test_a_group_value_the_gate_forbids_is_left_out_of_the_name(self):
+        self.assertEqual(self.sync(forbidden_terms="acme")["name"], "Browser pool exhausted \u2014 Polar")
+
+    def test_a_template_no_triggered_group_fills_is_dropped_with_its_separator(self):
+        monitor = {**DATADOG[("GET", f"/api/v1/monitor/{MONITOR_ID}")], "state": {"groups": {}}}
+        with mock.patch.dict(DATADOG, {("GET", f"/api/v1/monitor/{MONITOR_ID}"): monitor}):
+            self.assertEqual(self.sync()["name"], "Browser pool exhausted")
 
     def test_a_monitor_with_no_metric_query_carries_no_series(self):
         monitor = {**DATADOG[("GET", f"/api/v1/monitor/{MONITOR_ID}")], "type": "log alert"}

@@ -40,6 +40,9 @@ ISSUE_NUMBER = re.compile(r"(\d+)$")
 CHARTED_TYPES = {"metric alert", "query alert"}
 MONITOR_EXPRESSION = re.compile(r"^\s*\w+\(last_\w+\):(?P<expression>.+?)\s*(?:>=|<=|==|!=|>|<)\s*-?[\d.]+\s*$", re.S)
 SERIES_LEAD = datetime.timedelta(hours=1)
+TEMPLATE_VAR = re.compile(r"\{\{\s*([\w.-]+?)\.name\s*\}\}")
+TEMPLATE_LEFT = re.compile(r"\s*[\u2014\u2013:-]?\s*\{\{[^}]*\}\}")
+LIVE_FEEDS = ("chapters", "sessions")
 WORD = re.compile(r"\S+")
 
 
@@ -226,6 +229,7 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
     block = {"updatedAt": stamp(now), "phase": live_phase(state, retro),
              "headline": clip(state.get("title") or "", retro.XS_HEAD_WORDS),
              "currentState": clip(counts, retro.STATEMENT_WORDS), "next": nxt}
+    block.update({feed: state[feed] for feed in LIVE_FEEDS if state.get(feed)})
     if source is not None:
         block["source"] = source
     return block
@@ -452,18 +456,32 @@ def monitor_series(dd, query: str, start: datetime.datetime, end: datetime.datet
     return {"t": times, "series": series}
 
 
+def monitor_name(name: str, groups: dict, since: float, scrub, forbidden) -> str:
+    """Datadog titles a multi-alert monitor with template variables such as {{cluster.name}}. The page fills
+    them with the scrubbed values of the groups alerting now or triggered since onset, and drops a variable
+    no such group fills or whose values the push gate would refuse."""
+    hit = [g["name"] for g in groups.values() if g["status"] != "OK" or (g.get("last_triggered_ts") or 0) >= since]
+    tags = [part.partition(":") for group in hit for part in group.split(",")]
+
+    def fill(m):
+        values = sorted({scrub(value) for key, _, value in tags if key == m[1] and value})
+        return ", ".join(v for v in values if not forbidden(v)) or m[0]
+
+    return TEMPLATE_LEFT.sub("", TEMPLATE_VAR.sub(fill, scrub(name))).strip()
+
+
 def monitor_snapshot(monitor: dict, onset, evidence, scrub, patterns: list, now: datetime.datetime) -> dict:
     """What the live view previews: the monitor's state now and, for a metric monitor, the series it
     alerts on. A name or group the push gate would still refuse once scrubbed is replaced, so one
     series label never stops the whole page from updating."""
     site = evidence.MONITOR_URL.match(monitor["url"]).group(1)
     dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
-    m = dd.get(f"/api/v1/monitor/{monitor['id']}")
+    m = dd.get(f"/api/v1/monitor/{monitor['id']}?group_states=all")
 
     def forbidden(text) -> bool:
         return any(pattern.search(text or "") for _, pattern in patterns)
 
-    name = scrub(m["name"])
+    name = monitor_name(m["name"], m["state"]["groups"], (onset or now).timestamp(), scrub, forbidden)
     th = m["options"].get("thresholds") or {}
     snapshot = {"schema": "ir.monitor/1", "id": monitor["id"], "url": monitor["url"], "site": site, "fetchedAt": stamp(now),
                 "name": f"Monitor {monitor['id']}" if forbidden(name) else name, "type": m["type"],

@@ -84,14 +84,20 @@ LIVE_VIEW = """JSON.stringify({
   view: document.documentElement.dataset.view || "retro",
   switchShown: !document.getElementById("viewSwitch").hidden,
   overviewShown: getComputedStyle(document.getElementById("overview")).display !== "none",
-  feed: [...document.querySelectorAll("#lvFeed .lv-item")].map(n => n.dataset.kind),
-  slackCards: [...document.querySelectorAll("#lvFeed .lv-slack .msg")].map(n => n.textContent),
-  monitor: [...document.querySelectorAll("#lvFeed .lv-mon .pill")].map(n => n.textContent),
-  charts: document.querySelectorAll("#lvFeed .lv-chart").length,
-  prCards: [...document.querySelectorAll("#lvFeed .lv-pr")].map(a => a.dataset.lvpr),
+  chapters: [...document.querySelectorAll("#lvChs .lv-chap")].map(n => [n.querySelector(".lv-chh b").textContent,
+    n.classList.contains("open"), [...n.querySelectorAll(".lv-row")].map(r => r.dataset.kind)]),
+  feed: [...document.querySelectorAll("#lvChs .lv-row")].map(n => n.dataset.kind),
+  slackCards: [...document.querySelectorAll("#lvChs .lv-slack .msg")].map(n => n.textContent),
+  monitor: [...document.querySelectorAll("#lvChs .lv-mon .pill")].map(n => n.textContent),
+  charts: document.querySelectorAll("#lvChs .lv-chart").length,
+  prCards: [...document.querySelectorAll("#lvChs .lv-pr")].map(a => a.dataset.lvpr),
+  cards: [...document.querySelectorAll("#lvNow .lv-card2")].map(n => [n.dataset.role,
+    (n.querySelector(".lv-pulse, .pill") || {}).textContent, n.querySelector(".lv-step").textContent]),
+  bands: [...document.querySelectorAll("#lvStrip .lv-band")].map(n => n.textContent),
   toasts: [...document.querySelectorAll("#lvToasts .lv-toast")].map(t => t.textContent),
-  flashed: [...document.querySelectorAll("#lvFeed .lv-new")].map(n => n.dataset.kind),
+  flashed: [...document.querySelectorAll("#lvChs .lv-row.lv-new")].map(n => n.dataset.kind),
 })"""
+OPEN_ROWS = "(document.querySelectorAll('#lvChs .lv-row:not(.open)').forEach(r => r.click()), 1)"
 MONITOR_URL = "https://app.datadoghq.com/monitors/4242"
 PR_URL = "https://github.com/Forge-AI/monorepo/pull/34474"
 MONITOR_SNAPSHOT = {
@@ -181,6 +187,8 @@ class LivePollRebuildsThePage(unittest.TestCase):
             self.assertTrue(first["switchShown"])
             self.assertFalse(first["overviewShown"], "the live view left the retro sections showing")
             self.assertEqual(first["feed"], ["alert", "deploy"], "the feed is not newest first")
+            self.assertEqual(first["chapters"], [["Before detection", True, ["alert", "deploy"]]],
+                             "without chapters from the keeper the page did not group the timeline itself")
             self.assertEqual(first["toasts"], [], "the entries already there on open were toasted")
 
             cited = [dict(e, refs=[PR_URL]) if e["id"] == "T1" else
@@ -191,6 +199,9 @@ class LivePollRebuildsThePage(unittest.TestCase):
                 with_slack=True)
             grown = self.live_view(chrome, session, poll=True)
             self.assertEqual(grown["feed"], ["report", "alert", "deploy"])
+            self.assertEqual(grown["slackCards"], [], "an update showed its previews before it was opened")
+            B.evaluate(chrome, session, OPEN_ROWS)
+            grown = {**self.live_view(chrome, session), "toasts": grown["toasts"], "flashed": grown["flashed"]}
             self.assertEqual(grown["slackCards"], ["Run creation is failing."], "the report did not show its message")
             self.assertEqual(grown["monitor"], ["Alert"], "the monitor preview lost its state")
             self.assertEqual(grown["charts"], 1, "the monitor preview drew no chart slot")
@@ -213,6 +224,44 @@ class LivePollRebuildsThePage(unittest.TestCase):
             closed = self.live_view(chrome, session, poll=True)
             self.assertEqual(closed["view"], "retro", "the live view outlived the incident")
             self.assertFalse(closed["switchShown"])
+            self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
+        finally:
+            server.shutdown()
+            server.server_close()
+            chrome.close()
+
+    def test_the_keepers_chapters_sessions_and_monitor_lead_the_live_view(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            now = time.time()
+            stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - ago))
+            timeline = [dict(e, ts=stamp(ago)) for e, ago in zip(TIMELINE, (1800, 1500, 300))]
+            timeline[1]["refs"] = [MONITOR_URL]
+            rec = record(timeline=timeline, timestamps={"onset": stamp(1800)}, evidence={
+                "monitors": [{"id": 4242, "url": MONITOR_URL, "file": "evidence/datadog/monitor-4242.json"}]})
+            rec["live"].update(updatedAt=stamp(10), chapters=[
+                {"start": timeline[0]["ts"], "title": "Migration breaks runs", "summary": "The migration ran and the alert fired."},
+                {"start": timeline[2]["ts"], "title": "Reports come in", "summary": "A report came in."}],
+                sessions=[{"role": "fixer", "state": "running", "phase": "fixing", "step": "Rolling the workers",
+                           "beatAt": stamp(20), "attempt": 1},
+                          {"role": "ic", "state": "running", "step": "Updating #outage", "beatAt": stamp(600)}])
+            self.publish(rec, with_slack=True)
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            view = self.live_view(chrome, session)
+            self.assertEqual(view["chapters"], [["Reports come in", True, ["report"]],
+                                                ["Migration breaks runs", False, []]],
+                             "the keeper's chapters did not group the rows, newest first with only the current one open")
+            self.assertEqual(view["bands"], ["Migration breaks runs", "Reports come in"])
+            self.assertEqual(view["cards"], [["fixer", "Working", "Rolling the workers"],
+                                             ["ic", "Not responding", "Updating #outage"],
+                                             ["monitor", "Alert", "Run creation errors"]])
+            B.evaluate(chrome, session, "(document.querySelector('#lvChs .lv-chap:last-child .lv-chh').click(), 1)")
+            B.evaluate(chrome, session, OPEN_ROWS)
+            opened = self.live_view(chrome, session)
+            self.assertEqual(opened["chapters"][1], ["Migration breaks runs", True, ["alert", "deploy"]])
+            self.assertEqual(opened["monitor"], ["Alert"])
             self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
         finally:
             server.shutdown()
