@@ -25,8 +25,12 @@ same markdown at ``<plan-stem>-progress/<UTC>-generated.md``. It augments
 doc. Generation exits :data:`SEVERAL_ACTIVE` if another remains active.
 
 The root narrative comes last. It comes verbatim from the chosen record or ``--narrative-file``,
-else from the newest progress doc, folded by :func:`progress.fold`: the last dump stays
-whole, binding sections are carried once, and earlier dumps become dated digest lines.
+else from the newest progress doc. A narrative that differs from the one the doc's last
+generation wrote, found by its ``Generated from sources`` stamp in ``ccn doc history``,
+was edited into the doc in place and is fresh like a record; an unchanged one is carried
+forward. Both are folded by :func:`progress.fold`: every dump the last generation did not
+write stays whole, else the last dump, binding sections are carried once, and the rest
+become dated digest lines.
 A record over :data:`progress.CAP` bytes writes nothing and exits :data:`OVERSIZED`
 naming its largest section. ``fold`` folds an existing record in place under the same cap. ``--folder`` skips cc-notes and writes only the
 progress file. ``--session`` reads the hook's JSON fields ``session_id``, ``tasks``,
@@ -40,10 +44,11 @@ Findings go under ``## Lint findings``.
 With ``--strict``, register, carry, narrative, or standing-rule findings write nothing and exit
 :data:`standing.VIOLATIONS`. Plan findings never block generation.
 
-Output has fields ``{id, file, register, digest}``. ``register`` is the register doc id
-or null. ``id`` is the progress doc id. Both are null in folder mode. The digest names
-the register first when one exists, then the progress record and plan. Its second line
-reads ``Register: N owner-approved rules, M live standing rules.``
+Output has fields ``{id, file, register, fresh, digest}``. ``register`` is the register
+doc id or null. ``id`` is the progress doc id. Both are null in folder mode. ``fresh`` says
+the root wrote the narrative for this compaction rather than generation carrying it
+forward. The digest names the register first when one exists, then the progress record
+and plan. Its second line reads ``Register: N owner-approved rules, M live standing rules.``
 
 ``lint`` checks any handoff and the optional plan. It exits :data:`standing.VIOLATIONS`
 on a finding. Both commands use only the Python standard library.
@@ -80,6 +85,8 @@ NARRATIVE = "## Root narrative"
 FINDINGS = "## Lint findings"
 GENERATED_MARK = "(generated)"
 PROVENANCE = re.compile(r"^_From (.+?)(?:, carried forward)?\._\n\n")
+GENERATED_BY = "Generated from sources by the long-running compaction hook at "
+STAMP = re.compile(rf"^{GENERATED_BY}(\S+?)\.", re.MULTILINE)
 CLOSED_ASKS = (ledger.ASK_DROPPED, ledger.ASK_ANSWERED, ledger.ASK_LIVE)
 LANE_TYPES = ("subagent", "teammate", "workflow", "cloud session")
 
@@ -117,6 +124,7 @@ class Handoff:
     narrative_edit: str = "in your next progress record"
     record: str | None = None
     generated: str | None = None
+    fresh: bool = False
     stale: list[str] = field(default_factory=list)
 
     @property
@@ -193,9 +201,10 @@ def narrative_of(body: str) -> str:
 def folded(body: str, at: datetime, history: str) -> str:
     head, marker, rest = body.partition(f"\n{NARRATIVE}\n")
     if not marker:
-        return f"{progress.fold(body, at, history)}\n"
+        return f"{progress.fold(body, at, history, body)}\n"
     provenance = match[0] if (match := PROVENANCE.match(rest.strip())) else ""
-    return f"{head}\n{NARRATIVE}\n\n{provenance}{progress.fold(narrative_of(body), at, history)}\n"
+    narrative = narrative_of(body)
+    return f"{head}\n{NARRATIVE}\n\n{provenance}{progress.fold(narrative, at, history, narrative)}\n"
 
 
 def doc_history(doc_id: str) -> str:
@@ -213,6 +222,18 @@ def active_progress(shell: ledger.Shell, repo: str, program: str) -> list[dict]:
 
 def doc_body(shell: ledger.Shell, repo: str, doc_id: str) -> str:
     return ccn_json(shell, repo, "doc", "show", doc_id)["body"]
+
+
+def stamp(body: str | None) -> str | None:
+    return match[1] if body and (match := STAMP.search(body)) else None
+
+
+def generation(shell: ledger.Shell, repo: str, doc_id: str) -> str | None:
+    for entry in ccn_json(shell, repo, "doc", "history", doc_id, "--full"):
+        for change in entry["changes"]:
+            if change["field"] == "body" and (made := stamp(change["to"])) and made != stamp(change.get("from")):
+                return change["to"]
+    return None
 
 
 def creation(shell: ledger.Shell, repo: str, doc_id: str) -> dict:
@@ -257,7 +278,7 @@ def render(handoff: Handoff) -> str:
     out = [
         f"# {handoff.title}",
         "",
-        f"Generated from sources by the long-running compaction hook at {handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
+        f"{GENERATED_BY}{handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
         f"Every section above `{NARRATIVE}` is rebuilt at each handoff; change the sources, never this doc.",
         "",
         standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative),
@@ -376,6 +397,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
         handoff.narrative_edit = f"in `{args.narrative_file}`"
+        handoff.fresh = True
     if args.folder:
         files = sorted(progress_folder(plan).glob("*-generated.md"), key=lambda path: path.stat().st_mtime)
         previous = files[-1].read_text() if files else None
@@ -383,7 +405,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
             handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"file {files[-1].name}")
             handoff.history = f"the earlier records in `{progress_folder(plan)}`"
         check(handoff, previous, set())
-        handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.history else handoff.narrative
+        handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history, handoff.narrative) if handoff.history else handoff.narrative
         return handoff, previous
     handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
@@ -395,16 +417,26 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     handoff.generated = next((doc["id"] for doc in docs if doc["id"] == args.generated_doc), None)
     handoff.stale = [doc["id"] for doc in docs if doc["id"] != (handoff.record or handoff.generated)]
     active = [doc for doc in docs if doc["id"] != handoff.record or doc["id"] == handoff.generated]
-    previous = doc_body(shell, args.repo, max(active, key=lambda doc: doc["updated_at"])["id"]) if active else None
+    newest = max(active, key=lambda doc: doc["updated_at"]) if active else None
+    previous = doc_body(shell, args.repo, newest["id"]) if newest else None
+    earlier = ""
     if handoff.record and not args.narrative_file:
         handoff.narrative, handoff.narrative_from = narrative_of(doc_body(shell, args.repo, handoff.record)), f"doc {handoff.record[:SHORT]}"
         handoff.narrative_edit = f"via `ccn doc edit {handoff.record[:8]} --body -`"
-    elif previous and not args.narrative_file:
-        newest = max(active, key=lambda doc: doc["updated_at"])
-        handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"doc {newest['id'][:SHORT]}")
+        handoff.fresh = True
+    elif previous and newest and not args.narrative_file:
+        generated = generation(shell, args.repo, newest["id"])
+        handoff.narrative = narrative_of(previous)
+        earlier = narrative_of(generated) if generated else handoff.narrative
+        handoff.fresh = handoff.narrative != earlier
+        if handoff.fresh:
+            handoff.narrative_from = f"doc {newest['id'][:SHORT]}"
+            handoff.narrative_edit = f"via `ccn doc edit {newest['id'][:8]} --body -`"
+        else:
+            handoff.narrative_from = carried_from(previous, f"doc {newest['id'][:SHORT]}")
         handoff.history = doc_history(newest["id"])
     check(handoff, previous, live_answer_ids(shell, args.repo))
-    handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.history else handoff.narrative
+    handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history, earlier) if handoff.history else handoff.narrative
     return handoff, previous
 
 
@@ -421,7 +453,7 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown)
     if args.folder:
-        print(json.dumps({"id": None, "file": str(path), "register": None, "digest": digest(handoff, f"the generated handoff `{path}`")}))
+        print(json.dumps({"id": None, "file": str(path), "register": None, "fresh": handoff.fresh, "digest": digest(handoff, f"the generated handoff `{path}`")}))
         return 0
     written = write_progress(handoff, shell, args.repo, markdown)
     for stale in handoff.stale:
@@ -434,7 +466,7 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return SEVERAL_ACTIVE
     doc = f"the progress doc `ccn doc show {written[:SHORT]}`"
     register = handoff.register["id"] if handoff.register else None
-    print(json.dumps({"id": written, "file": str(path), "register": register, "digest": digest(handoff, doc)}))
+    print(json.dumps({"id": written, "file": str(path), "register": register, "fresh": handoff.fresh, "digest": digest(handoff, doc)}))
     return 0
 
 

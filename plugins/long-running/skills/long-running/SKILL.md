@@ -2425,17 +2425,32 @@ The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`
 Without cc-notes, `--folder` writes only that progress file. The hook caps generation
 at 120 seconds.
 
-Generation prints JSON `{id, file, register, digest}` with the active progress doc id
+Generation prints JSON `{id, file, register, fresh, digest}` with the active progress doc id
 in `id` and the register doc id in `register`. `register` is null when no register
-exists. Both ids are null in folder mode.
+exists. Both ids are null in folder mode. `fresh` is true when the root wrote the
+narrative for this compaction.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
 becomes the last section, `## Root narrative`, under `_From doc <id>._`, verbatim and never folded.
-A generated doc is never taken as the root's narrative. With no fresh narrative, the newest
+A generated doc is never taken as the root's new doc. With no fresh narrative, the newest
 progress record's narrative is folded and carried forward with one provenance line.
 
-The last non-binding `##` dump stays whole, including its `###` addenda.
+A narrative the root edits into the active doc in place is fresh too. When that doc
+changed after the hook's last generation, the `Stop` path runs `generate --strict`
+without `--narrative-doc`, and `PreCompact` regenerates even inside its five-minute
+window. `generate` compares the doc's narrative with the one its last generation wrote,
+found in `ccn doc history`. A changed narrative goes under `_From doc <id>._` with the
+text the last generation did not write kept whole and the rest folded, and the restore
+counts it as written.
+
+*Prevents a repeat of the release-v3 handoff at 3:10 PM PT on 2026-10-10, where the root
+wrote a 21 KB pre-compact handoff into generated doc 29751a1 in place, `PreCompact` folded
+it into one 240-character digest line, and the restore said no narrative was written.*
+
+When a narrative folds, every dump the last generation did not write stays whole,
+including its `###` addenda. Text before the first `##` heading goes first and `##`
+dumps go last. With none, the last non-binding `##` dump stays whole.
 Earlier binding sections move under `## Carried binding sections` once, byte for
 byte, with identical copies deduplicated. A standalone binding `##` heading becomes
 `###` there.
@@ -2444,8 +2459,8 @@ Every earlier dump keeps its heading, as `###` under `## Folded narrative`, over
 dated line naming each remaining part and its opening sentence, at most 240 characters.
 A section headed as owner rules or open items is binding and carried verbatim. One pointer line names the full text at
 `ccn doc history <id7> --json --full`, or the progress folder in file mode.
-A `#` title before the first section is dropped; other leading text folds as an
-earlier dump. Folding twice changes nothing.
+A `#` title before the first section is dropped; other leading text is a dump like
+any other. Folding twice changes nothing.
 
 `fold` applies the same folding to an existing doc or file in place and prints
 `folded <id>: <before> -> <after> bytes`, with the file path in place of the id in
@@ -2567,8 +2582,8 @@ for touched records. At `2026-10-01 13:55Z`, the root's merged restore was 20,59
 The long-running pointer, printed last, never reached context.
 
 If generation failed, `SessionStart` gives the reason and asks the root to write the
-progress record now. If the root wrote no narrative before compaction, it adds that
-the root should write one when convenient. The skill stays active across compaction.
+progress record now. If the root wrote no narrative before compaction, as a new doc or
+an in-place edit, it adds that the root should write one when convenient. The skill stays active across compaction.
 
 On `SessionStart` with source `resume`, an active drive's newest progress record, by
 `ccn doc list --label progress:<program>` or the newest file in the progress folder,
