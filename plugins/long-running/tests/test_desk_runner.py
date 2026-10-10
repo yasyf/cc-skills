@@ -77,6 +77,7 @@ class FakeShell(runner_module.Shell):
         self.judge_process: Running | None = None
         self.sprite_states: list[str] | None = []
         self.sprite_line = ""
+        self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
 
     def env(self, name):
@@ -100,11 +101,10 @@ class FakeShell(runner_module.Shell):
         out.parent.mkdir(parents=True, exist_ok=True)
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
-            if self.sprite_line.startswith("{"):
-                attempt = runner_module.sprite_attempt(Path(argv[4]))
+            attempt = runner_module.sprite_attempt(Path(argv[4]))
+            for name, text in self.sprite_receipts.items():
                 attempt.mkdir(exist_ok=True)
-                ready = json.loads(self.sprite_line)
-                (attempt / f"{argv[1]}.json").write_text(json.dumps({"ok": True, "result": {"state": "ready", "taskId": ready["task"], "dispatchId": ready["dispatch"]}}))
+                (attempt / name).write_text(text)
             return Process()
         if argv[0] == "claude" and self.judge_process:
             out.write_text("")
@@ -1849,6 +1849,10 @@ def lane_brief(tmp_path: Path, header: str) -> Path:
 
 
 SPRITE_READY = json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s", "terminal": "term_s", "worktree": "/home/sprite/repo", "lane": LANE, "workspace": LANE, "allocation": "created"}) + "\n"
+SPRITE_STARTED = json.dumps({"ok": True, "result": {"state": "ready", "taskId": "task_s", "dispatchId": "ctx_s"}})
+SPRITE_UNKNOWN = json.dumps({"ok": True, "result": {"state": "outcome_unknown", "stage": "turn_start_unobserved", "taskId": "task_s", "dispatchId": "ctx_s"}})
+SPRITE_KEPT = f"kept {LANE}.json and {LANE}.worker.err, sent nothing more, and cleaned up nothing"
+PREPARED, ATTACHED, ATTACH_FAILED = {"prepare.status": "0\n"}, {"attach.status": "0\n"}, {"attach.status": "1\n"}
 
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote", "ccx: place=remote role=build cpu=high"])
@@ -1858,6 +1862,7 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
     shell.cpu_load = 140
     shell.sprite_states = ["running", "cold", "cold"]
     shell.sprite_line = SPRITE_READY
+    shell.sprite_receipts = {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}
     shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
@@ -1905,13 +1910,19 @@ def test_a_sprite_config_naming_no_limit_launches_locally_at_sixteen_live_sprite
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
 @pytest.mark.parametrize(
-    "printed",
-    ["cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried", json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s"})],
+    ("printed", "receipts"),
+    [
+        ("no cc-remote command at /repo/tools/cc-remote/bin/cc-remote; set WORKER_CC_REMOTE to cc-remote 0.26.0 or newer; nothing was prepared", {}),
+        ("cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried", {"prepare.status": "1\n"}),
+        (f"orca-remote-attach.sh exited 1: {LANE} failed status: environment sprite-a exited 1 with an error, not reachable runtime rt-1 with orchestration.contract.v1 and orchestration.federation.v1", {**PREPARED, **ATTACH_FAILED}),
+    ],
+    ids=["nothing-prepared", "prepare-failed", "attach-refused"],
 )
-def test_a_failed_or_malformed_sprite_launch_starts_the_same_launch_locally(shell, config, tmp_path, printed, header):
+def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch_locally(shell, config, tmp_path, printed, receipts, header):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
     shell.sprite_line = f"{printed}\n"
+    shell.sprite_receipts = receipts
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     for _ in range(3):
@@ -1920,6 +1931,65 @@ def test_a_failed_or_malformed_sprite_launch_starts_the_same_launch_locally(shel
     assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "sol", "xhigh", str(brief)]]
     assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: {printed}" in escalations(shell)
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+
+
+@pytest.mark.parametrize(
+    ("printed", "receipts", "named"),
+    [
+        (
+            f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 1 state=outcome_unknown task=task_s dispatch=ctx_s; {SPRITE_KEPT}",
+            {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": SPRITE_UNKNOWN},
+            " as task=task_s dispatch=ctx_s",
+        ),
+        (f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 143; {SPRITE_KEPT}", {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": '{"ok": true, "result": {"taskId": "task_s"'}, ""),
+        (
+            f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 1 code=invalid_argument; {SPRITE_KEPT}",
+            {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "sk-synthetic-credential-0000"}})},
+            "",
+        ),
+        (
+            f"orca-remote-attach.sh exited 1: {LANE} failed worker-start returned no printable task and dispatch IDs, not a matching ready receipt; {SPRITE_KEPT}",
+            {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": json.dumps({"ok": True, "result": {"state": "ready", "taskId": "task s\nUNOWNED", "dispatchId": "ctx_s"}})},
+            " as dispatch=ctx_s",
+        ),
+        (json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s"}), {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}, " as task=task_s dispatch=ctx_s"),
+        ("/x.worker/allocation.json holds prepared is not true, so the prepared worker stays idle and unattached", PREPARED, ""),
+        ("jq: error: cannot write request.json", {"request.json": "{}"}, ""),
+    ],
+    ids=["outcome-unknown", "lost-response", "error-envelope", "unprintable-task", "malformed-ready-line", "prepared-unattached", "prepare-unrecorded"],
+)
+def test_a_sprite_launch_that_may_have_reached_worker_start_is_unverifiable_and_never_launches_locally(shell, config, tmp_path, printed, receipts, named):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    attempt = runner_module.sprite_attempt(brief)
+    shell.sprite_line = f"{printed}\n"
+    shell.sprite_receipts = receipts
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "gpt-6.1-sol", "xhigh", str(brief)]]
+    assert launches(shell) == []
+    assert escalations(shell) == [
+        f"SPRITE-UNVERIFIABLE desk-lane-{LANE}/R638:sprite {LANE}: R638 does not launch locally: its Sprite launch is unverified and a remote worker may be running{named}; "
+        f"receipts in {attempt}, nothing retried or cleaned up: {printed}"
+    ]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "unverifiable"
+    assert {path.name: path.read_text() for path in attempt.iterdir()} == receipts
+    assert not (shell.receipts / f"{LANE}.json").exists()
+    assert not FORBIDDEN & {word for call in shell.calls for word in call}
+
+
+def test_a_sprite_launch_that_prints_nothing_is_unverifiable_and_never_relaunched(shell, config, tmp_path):
+    with_sprites(config)
+    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "gpt-6.1-sol", "xhigh", str(brief)]]
+    assert launches(shell) == []
+    assert escalations(shell) == [f"UNVERIFIABLE desk-lane-{LANE}/R638 {LANE}: launch outcome unknown: no launch line and no new receipt; it was not relaunched"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "unverifiable"
 
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])

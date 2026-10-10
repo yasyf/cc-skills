@@ -59,8 +59,14 @@ fewer than `orca.sprite.limit` Sprites are running or warm, counting the runner'
 Sprite launches still in flight. `place=local` keeps a `cpu=high` launch on the Mac.
 Fable, incident, and a `role=desk` or `role=watch` brief stay local whatever the line
 says. A lane name a Sprite refuses, a full count, a failed count, or a Sprite launch
-that fails starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
-A Sprite launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
+whose receipts prove worker-start never ran starts the same launch locally, and the
+fallback logs `SPRITE-FALLBACK`. The proof is the brief's `.worker` directory: none
+was made, or `prepare.status` or `attach.status` records a nonzero exit and no
+`<lane>.json` exists. Any other Sprite launch that prints no ready line may have left
+a remote worker: it becomes `unverifiable` and logs `SPRITE-UNVERIFIABLE` with that
+directory and the Task and Dispatch its `<lane>.json` names, and nothing is launched
+locally, retried, or cleaned up. A ready Sprite launch's receipts are copied beside
+the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
@@ -165,6 +171,9 @@ CPU_HIGH = re.compile(CCX_KEY.format("cpu=high"), re.MULTILINE)
 PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
 STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
+SPRITE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
+SPRITE_EXITS = ("prepare.status", "attach.status")
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
 SPRITES_API = "/v1/sprites?max_results=1000"
@@ -260,6 +269,30 @@ def sprite_model(model: str) -> str:
 
 def sprite_attempt(brief: Path) -> Path:
     return brief.parent / f"{brief.name.rpartition('.')[0] or brief.name}.worker"
+
+
+def exit_status(path: Path) -> str:
+    return path.read_text().strip() if path.is_file() else ""
+
+
+def sprite_never_started(attempt: Path, lane: str) -> bool:
+    """Whether a Sprite attempt's receipts prove worker-start never ran: no attempt directory, or a nonzero prepare or attach exit with no `<lane>.json` claimed."""
+    if not attempt.exists():
+        return True
+    if (attempt / f"{lane}.json").exists():
+        return False
+    return any(exit_status(attempt / step) not in ("", "0") for step in SPRITE_EXITS)
+
+
+def sprite_started_as(receipt: Path) -> str:
+    """` as task=<id> dispatch=<id>` for the plain ids a worker-start receipt names, empty when it names none."""
+    try:
+        result = json.loads(receipt.read_text())["result"]
+        named = {name: result[key] for name, key in SPRITE_IDS.items() if key in result}
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
+        return ""
+    ids = [f"{name}={value}" for name, value in named.items() if isinstance(value, str) and SPRITE_ID.fullmatch(value)]
+    return f" as {' '.join(ids)}" if ids else ""
 
 
 def pacific(moment: datetime) -> str:
@@ -1032,8 +1065,9 @@ class Runner:
                 self.settle_launch(container, lane, action)
 
     def settle_sprite(self, container: str, lane: str, action: actions.Action) -> None:
-        """Copy a Sprite launch's receipts beside the local ones and settle it, or start the same launch locally."""
-        out = self.sprite_log(container, action.action_id).read_text().strip()
+        """Copy a ready Sprite launch's receipts beside the local ones and settle it; start the same launch locally only when its receipts prove worker-start never ran."""
+        key = action.action_id
+        out = self.sprite_log(container, key).read_text().strip()
         if not out:
             self.settle_launch(container, lane, action)
             return
@@ -1042,15 +1076,25 @@ class Runner:
             ready = json.loads(out.splitlines()[-1])
             line = f"{lane} ready task={ready['task']} dispatch={ready['dispatch']} terminal={ready['terminal']} worktree={ready['worktree']}"
             receipt = (attempt / f"{lane}.json").read_text()
-        except (IndexError, json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
+        except (json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
             reason = " ".join(out.split())[:300]
-            self.escalate(f"{container}/{action.action_id}:sprite", "SPRITE-FALLBACK", lane, f"{action.action_id} launches locally: {reason}")
-            self.launch_local(container, lane, action)
+            if sprite_never_started(attempt, lane):
+                self.escalate(f"{container}/{key}:sprite", "SPRITE-FALLBACK", lane, f"{key} launches locally: {reason}")
+                self.launch_local(container, lane, action)
+                return
+            self.book.attempt(container, lambda incident: incident.lose(key))
+            started = sprite_started_as(attempt / f"{lane}.json")
+            self.escalate(
+                f"{container}/{key}:sprite",
+                "SPRITE-UNVERIFIABLE",
+                lane,
+                f"{key} does not launch locally: its Sprite launch is unverified and a remote worker may be running{started}; receipts in {attempt}, nothing retried or cleaned up: {reason}",
+            )
             return
         self.config.receipts.mkdir(parents=True, exist_ok=True)
         (self.config.receipts / f"{lane}.json").write_text(receipt)
         (self.config.receipts / f"{lane}.terminal").write_text(f"{ready['terminal']}\n")
-        self.launch_log(container, action.action_id).write_text(f"{line}\n")
+        self.launch_log(container, key).write_text(f"{line}\n")
         self.settle_launch(container, lane, action)
 
     def settle_launch(self, container: str, lane: str, action: actions.Action) -> None:

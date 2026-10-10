@@ -183,8 +183,10 @@ line says, and so does every launch when `orca.sprite` is absent.
 Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
 `~/.config/cc-remote/config.yaml`, and every Sprite launch falls back to local. The
 runner reads its config only at start. A Sprite limit reached, a failed count, a lane
-name a Sprite refuses, and a failed or malformed Sprite launch each start the same
-launch locally and log `SPRITE-FALLBACK` with the reason.
+name a Sprite refuses, and a Sprite launch whose receipts prove worker-start never ran
+each start the same launch locally and log `SPRITE-FALLBACK` with the reason. A Sprite
+launch with no ready line and no such proof logs `SPRITE-UNVERIFIABLE` and launches
+nothing locally.
 A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
 
 Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
@@ -428,6 +430,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
+| `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
 | `FIX-LIVE`, `MECHANISM` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
 | `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
