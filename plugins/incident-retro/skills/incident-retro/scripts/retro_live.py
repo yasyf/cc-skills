@@ -14,12 +14,13 @@ actions and the `live` block, appends to `actions[].history` and
 `hypotheses[].history` when a state changed since the last sync, replaces every
 raw customer name with its codename, snapshots the incident's Datadog notebook
 with DD_API_KEY and DD_APP_KEY or takes the snapshot `--notebook-snapshot`
-names, runs `check`, and force-pushes retro.json and the Slack and Datadog
+names, snapshots each paging monitor's state and, for a metric monitor, its
+series since an hour before onset, runs `check`, and force-pushes retro.json and the Slack and Datadog
 snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
 Stdlib only.
 """
-import argparse, datetime, json, os, re, subprocess, sys, tempfile
+import argparse, datetime, json, os, re, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
 
 RETRO_DIR = "incident-retros"
@@ -36,6 +37,9 @@ DISPOSITION_NOTE = {"deferred": "Deferred during the response.", "not_reproducib
 PR_KIND_ENTRY = {"hotfix": "mitigation", "monitor": "action", "long_term": "action"}
 KEY_KINDS = {"alert", "deploy", "mitigation", "resolution", "allclear"}
 ISSUE_NUMBER = re.compile(r"(\d+)$")
+CHARTED_TYPES = {"metric alert", "query alert"}
+MONITOR_EXPRESSION = re.compile(r"^\s*\w+\(last_\w+\):(?P<expression>.+?)\s*(?:>=|<=|==|!=|>|<)\s*-?[\d.]+\s*$", re.S)
+SERIES_LEAD = datetime.timedelta(hours=1)
 WORD = re.compile(r"\S+")
 
 
@@ -410,7 +414,7 @@ def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime,
     if notebook.get("id"):
         evidence["notebooks"] = [{"id": notebook["id"], "url": notebook["url"], "file": notebook_file(notebook),
                                   "h": "the incident notebook"}]
-    evidence["monitors"] = [{"id": m["id"], "url": m["url"], "h": f"monitor {m['id']}"}
+    evidence["monitors"] = [{"id": m["id"], "url": m["url"], "file": monitor_file(m), "h": f"monitor {m['id']}"}
                             for m in state.get("monitors") or [] if m.get("id")]
     R["detection"] = {"text": "", "p": "",
                       "monitors": [{"id": m["id"], "role": "caught", "fired": m["fired_at"]}
@@ -428,6 +432,51 @@ def notebook_snapshot(notebook: dict, evidence, now: datetime.datetime) -> dict:
     dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
     options = argparse.Namespace(interval=None, logs_limit=evidence.LOGS_LIMIT)
     return evidence.fetch_notebook(dd, notebook["id"], options, now, False)
+
+
+def monitor_file(monitor: dict) -> str:
+    return f"{DATADOG_DIR}/monitor-{monitor['id']}.json"
+
+
+def monitor_series(dd, query: str, start: datetime.datetime, end: datetime.datetime):
+    found = MONITOR_EXPRESSION.match(query)
+    if found is None:
+        return None
+    window = {"from": int(start.timestamp()), "to": int(end.timestamp()), "query": found["expression"]}
+    rows = dd.get("/api/v1/query?" + urllib.parse.urlencode(window)).get("series") or []
+    times = sorted({int(point[0]) // 1000 for row in rows for point in row["pointlist"]})
+    series = []
+    for row in rows:
+        values = {int(point[0]) // 1000: point[1] for point in row["pointlist"]}
+        series.append({"label": row.get("scope") or row.get("expression"), "v": [values.get(t) for t in times]})
+    return {"t": times, "series": series}
+
+
+def monitor_snapshot(monitor: dict, onset, evidence, scrub, patterns: list, now: datetime.datetime) -> dict:
+    """What the live view previews: the monitor's state now and, for a metric monitor, the series it
+    alerts on. A name or group the push gate would still refuse once scrubbed is replaced, so one
+    series label never stops the whole page from updating."""
+    site = evidence.MONITOR_URL.match(monitor["url"]).group(1)
+    dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
+    m = dd.get(f"/api/v1/monitor/{monitor['id']}")
+
+    def forbidden(text) -> bool:
+        return any(pattern.search(text or "") for _, pattern in patterns)
+
+    name = scrub(m["name"])
+    th = m["options"].get("thresholds") or {}
+    snapshot = {"schema": "ir.monitor/1", "id": monitor["id"], "url": monitor["url"], "site": site, "fetchedAt": stamp(now),
+                "name": f"Monitor {monitor['id']}" if forbidden(name) else name, "type": m["type"],
+                "overallState": m["overall_state"],
+                "thresholds": {"critical": th.get("critical"), "warning": th.get("warning")}}
+    series = monitor_series(dd, m["query"], (onset or now) - SERIES_LEAD, now) if m["type"] in CHARTED_TYPES else None
+    if series is not None:
+        series = scrub_tree(series, scrub)
+        for at, row in enumerate(series["series"]):
+            if forbidden(row["label"]):
+                row["label"] = f"group {at + 1}"
+        snapshot["series"] = series
+    return snapshot
 
 
 def incident_title(state: dict, slug: str, retro) -> str:
@@ -567,6 +616,13 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     R["evidence"]["slack"] = [{"url": snapshot["permalink"], "file": f"{SLACK_DIR}/{name}",
                                "h": f"the {snapshot['channel_name']} thread"}
                               for name, snapshot in sorted(snapshots.items())]
+    patterns = gate_patterns(raw, args.forbidden_terms, root, retro)
+    onset = retro.try_ts((R.get("timestamps") or {}).get("onset"))
+    for monitor in state.get("monitors") or []:
+        if monitor.get("id"):
+            (root / DATADOG_DIR).mkdir(parents=True, exist_ok=True)
+            snapshot = monitor_snapshot(monitor, onset, retro.sibling_module("retro_evidence"), scrub, patterns, now)
+            prose.write_atomic(root / monitor_file(monitor), json.dumps(snapshot, ensure_ascii=False) + "\n")
     notebook = state.get("notebook") or {}
     if notebook.get("id"):
         snapshot = (json.loads(Path(args.notebook_snapshot).read_text()) if args.notebook_snapshot

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:ae71dacccb95 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:5a14948b4402 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -434,6 +434,47 @@ body.asof .xs::after{content:"the final account";display:block;margin-top:var(--
 .livecard dt{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.09em;text-transform:uppercase;color:var(--hero-ink2)}
 .livecard dd{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;color:var(--hero-ink)}
 
+.viewsw{margin:var(--s-5) 0 0}
+html[data-view=live] nav#rail,html[data-view=live] #mbar,html[data-view=live] #main .col>:not(.doctop):not(#viewSwitch):not(#liveCard):not(#liveView){display:none!important}
+.lv{margin:var(--s-6) 0 0}
+.lv-links{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-6)}
+.lv-feed{list-style:none;margin:0;padding:0;position:relative}
+.lv-feed::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.lv-item{--tone:var(--ink2);position:relative;padding:var(--s-2) var(--s-3) var(--s-6) 34px;border-radius:var(--r-ctl)}
+.lv-item::before{content:"";position:absolute;left:0;top:10px;width:10px;height:10px;border-radius:50%;background:var(--bg);border:2px solid var(--tone)}
+.lv-item[data-kind=alert]{--tone:var(--crit)}
+.lv-item[data-kind=report]{--tone:var(--warn)}
+.lv-item[data-kind=action]{--tone:var(--accent)}
+.lv-item[data-kind=deploy]{--tone:var(--viz-7)}
+.lv-item[data-kind=mitigation]{--tone:var(--viz-3)}
+.lv-item[data-kind=resolution],.lv-item[data-kind=allclear]{--tone:var(--ok)}
+.lv-meta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink2)}
+.lv-meta time{font-family:var(--mono);color:var(--ink)}
+.lv-meta .actor{font-weight:600;color:var(--ink)}
+.lv-text{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;max-width:var(--measure)}
+.lv-previews{display:grid;gap:var(--s-3);margin:var(--s-3) 0 0;max-width:680px}
+.lv-previews .refs{margin:0}
+.lv-card{display:block;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--card);padding:var(--s-3) var(--s-4);color:var(--ink)}
+a.lv-card:hover{border-color:var(--accent);text-decoration:none}
+.lv-ch{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3)}
+.lv-ck{display:inline-flex;align-items:center;gap:var(--s-2);font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.lv-ck .lico{width:13px;height:13px}
+.lv-open{margin-left:auto;font-size:var(--t-sm)}
+.lv-tt{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.4}
+.lv-sub{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);margin:var(--s-2) 0 0;font-size:var(--t-sm);color:var(--ink2)}
+.lv-slack .msg{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.lv-chart{margin:var(--s-3) 0 0;min-height:180px}
+.lv-empty{padding:var(--s-5) 0 var(--s-5) 34px;color:var(--ink2)}
+.lv-new{animation:lvflash 3s ease-out}
+@keyframes lvflash{from{background:var(--accent-soft)}to{background:transparent}}
+.lv-toasts{position:fixed;right:var(--s-6);bottom:88px;z-index:70;display:flex;flex-direction:column;gap:var(--s-3);width:min(380px,calc(100vw - 32px));pointer-events:none}
+.lv-toast{--tone:var(--accent);pointer-events:auto;display:block;width:100%;text-align:left;font:inherit;font-size:var(--t-md);line-height:1.4;color:var(--ink);background:var(--card);border:1px solid var(--line);border-left:3px solid var(--tone);border-radius:var(--r-ctl);padding:var(--s-3) var(--s-4);box-shadow:0 8px 28px #0000002e;cursor:pointer;animation:lvin .25s ease-out}
+.lv-toast[data-kind=alert]{--tone:var(--crit)}
+.lv-toast[data-kind=report]{--tone:var(--warn)}
+.lv-toast[data-kind=resolution],.lv-toast[data-kind=allclear]{--tone:var(--ok)}
+.lv-toast .lv-meta{margin:0 0 var(--s-1)}
+@keyframes lvin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
 .xs{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:0 clamp(18px,3vw,30px) var(--s-6)}
 .xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
 .xs-steps::-webkit-scrollbar{display:none}
@@ -628,6 +669,7 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 }
 
 @media print{
+  .lv-toasts,.viewsw{display:none!important}
   :root{--bg:#fff;--bg2:#F3F1EC;--ink:#111;--ink2:#555;--line:#CFCBC2;--card:#fff;--code-bg:#F3F1EC;--lift:none;--tbox:1px solid var(--line);--tbg:#fff;--hero-bg:#fff;--hero-band:#F1EDE4;--hero-ink:#111;--hero-ink2:#555;--hero-line:#11111133}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html{scroll-behavior:auto}
@@ -1028,6 +1070,11 @@ html[data-theme=dark]:not([data-print]){
   <p class="draftnote" id="draftNote" hidden></p>
 </header>
 
+<div class="toggle viewsw" id="viewSwitch" role="group" aria-label="How to read this page" hidden>
+  <button type="button" data-view="live" aria-pressed="false">Live timeline</button>
+  <button type="button" data-view="retro" aria-pressed="false">Full retro</button>
+</div>
+
 <div id="statusBar" hidden>
   <div class="sb-state" id="sbState"></div>
   <div class="sb-scrub" id="sbScrub" hidden>
@@ -1045,6 +1092,11 @@ html[data-theme=dark]:not([data-print]){
 </div>
 
 <div class="livecard" id="liveCard" hidden></div>
+
+<div class="lv" id="liveView" aria-label="Live timeline" hidden>
+  <div class="lv-links" id="lvLinks" hidden></div>
+  <ol class="lv-feed" id="lvFeed"></ol>
+</div>
 
 <div class="xs" id="execHost" hidden></div>
 
@@ -1194,6 +1246,7 @@ html[data-theme=dark]:not([data-print]){
   <button type="button" id="mbarSections" aria-expanded="false">Sections</button>
 </nav>
 <div id="secsheet" hidden aria-label="Sections"></div>
+<div class="lv-toasts" id="lvToasts" role="status" aria-live="polite"></div>
 
 <div class="mback" id="mback" role="dialog" aria-modal="true" aria-labelledby="mtitle">
   <div class="modal">
@@ -2709,6 +2762,190 @@ function renderLiveCard(){
  tickAge();
 }
 
+const VIEW_KEY="ir-view:"+SLUG;
+const MON_TONE={Alert:"p-crit",Warn:"p-warn",OK:"p-ok","No Data":"p-dead"};
+const PR_TONE={open:"p-acc",draft:"p-dead",merged:"p-ok",closed:"p-crit"};
+const LV_PR=Object.create(null);
+const LV_PR_FRESH_MS=60e3,LV_TOASTS=3,LV_TOAST_MS=9e3,LV_AGE_MS=15e3;
+const lvKey=e=>e.id||[e.ts,e.kind,e.actor||"",e.h||"",e.text||"",...(e.refs||[]).map(r=>typeof r==="string"?r:(r&&r.url)||"")].join("|");
+const liveViewable=()=>AS_OF==null&&ongoing()&&!!LIVE;
+function viewWanted(){
+ const q=new URLSearchParams(location.search).get("view");
+ if(q==="live"||q==="retro")return q;
+ try{return sessionStorage.getItem(VIEW_KEY)||"live"}catch(e){return "live"}
+}
+const inLiveView=()=>liveViewable()&&viewWanted()==="live";
+function applyView(){
+ const live=inLiveView(),sw=$("#viewSwitch");
+ sw.hidden=!liveViewable();
+ if(live)HTML.dataset.view="live";else delete HTML.dataset.view;
+ $("#liveView").hidden=!live;
+ sw.querySelectorAll("button").forEach(b=>{const on=b.dataset.view===(live?"live":"retro");b.classList.toggle("on",on);b.setAttribute("aria-pressed",String(on))});
+}
+function setView(view){
+ try{sessionStorage.setItem(VIEW_KEY,view)}catch(e){}
+ const u=new URL(location.href);
+ u.searchParams.delete("view");
+ history.replaceState(history.state,"",u);
+ renderLiveView();
+ scrollTo({top:0,behavior:"instant"});
+}
+$("#viewSwitch").addEventListener("click",e=>{const b=e.target.closest("button[data-view]");if(b)setView(b.dataset.view)});
+function lvSlackHtml(hit,url){
+ const {snap,msg}=hit,users=slackUsers(snap);
+ return `<div class="lv-card lv-slack"><div class="lv-ch"><span class="lv-ck">Slack</span><b>${esc(slackName(msg,users)||"unknown")}</b>`+
+  `<span>#${esc(snap.channel_name||snap.channel_id||"")}</span><span data-tip="${esc(msgUtc(msg))}">${esc(msgTime(msg))}</span>`+
+  `<a class="lv-open" href="${esc(url)}" target="_blank" rel="noopener">Open in Slack</a></div><div class="msg">${mrkdwn(msg.text,users)}</div></div>`;
+}
+function lvMonitorHtml(id,url,charted){
+ const mon=monitorOf(id);
+ if(!mon)return null;
+ const st=mon.overallState||"unknown";
+ const chart=!charted.has(id)&&mon.series&&Array.isArray(mon.series.t)&&mon.series.t.length>1;
+ charted.add(id);
+ const href=mon.url&&safeUrl(mon.url)?mon.url:url;
+ return `<div class="lv-card lv-mon"><div class="lv-ch"><span class="lv-ck">Monitor</span><a href="${esc(href)}" target="_blank" rel="noopener">${esc(mon.name||"Monitor "+id)}</a>`+
+  `<span class="pill ${MON_TONE[st]||"p-dead"}">${esc(st)}</span></div>`+
+  (chart?`<div class="lv-chart" data-mon="${esc(id)}"></div>`:"")+
+  (mon.fetchedAt?`<div class="lv-sub">state as of ${esc(fmtTime(mon.fetchedAt))}</div>`:"")+`</div>`;
+}
+function lvPrInner(gh,rec){
+ const st=rec?rec.state:"unknown";
+ return `<div class="lv-ch"><span class="lv-ck">${linkIcon("pr")}Pull request</span><b>${esc(ghRef(gh))}</b>`+
+  `<span class="pill ${PR_TONE[st]||"p-dead"}">${esc(GH_STATE_LABEL[st]||st)}</span></div>`+
+  (rec&&rec.title?`<div class="lv-tt">${esc(rec.title)}</div>`:"")+
+  (rec&&rec.checks?`<div class="lv-sub">${esc(rec.checks)}</div>`:"");
+}
+const lvPrHtml=l=>`<a class="lv-card lv-pr" data-lvpr="${esc(l.gh.key)}" href="${esc(l.url)}" target="_blank" rel="noopener">${lvPrInner(l.gh,LV_PR[l.gh.key])}</a>`;
+function lvPreview(r,charted){
+ const l=linkNorm(r);
+ if(l&&l.gh&&l.gh.kind==="pr")return {card:lvPrHtml(l)};
+ const host=hostOf(r.url);
+ if(host==="slack"){const hit=slackMessage(r.url);if(hit)return {card:lvSlackHtml(hit,r.url)}}
+ if(host==="datadog-monitor"){
+  const m=/\/monitors\/(\d+)/.exec(r.url);
+  const card=m&&lvMonitorHtml(m[1],r.url,charted);
+  if(card)return {card};
+ }
+ return {chip:host==="github"?refChipHtml(r):hostChipHtml(r.url,r.label)};
+}
+function lvItemHtml(e,charted){
+ const refs=(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
+ const said=e.kind==="report"?refs.find(r=>hostOf(r.url)==="slack"&&slackMessage(r.url)):null;
+ const shown=refs.filter(r=>r!==said).map(r=>lvPreview(r,charted));
+ const cards=shown.map(x=>x.card).filter(Boolean),chips=shown.map(x=>x.chip).filter(Boolean);
+ return `<li class="lv-item" id="lv-${esc(e._id)}" data-kind="${esc(e.kind)}" data-key="${esc(lvKey(e))}">`+
+  `<div class="lv-meta"><time datetime="${esc(e.ts)}" data-tip="${esc(utcStr(e.ts))}">${esc(fmtTime(e.ts))}</time>`+
+  `<span class="lv-ago" data-ts="${esc(e.ts)}"></span>${kpill(e.kind)}${e.actor?`<span class="actor">${esc(e.actor)}</span>`:""}</div>`+
+  (said?`<div class="lv-previews">${lvSlackHtml(slackMessage(said.url),said.url)}</div>`:`<p class="lv-text">${inline(e.text||e.h||"")}</p>`)+
+  (cards.length||chips.length?`<div class="lv-previews">${cards.join("")}${chips.length?`<div class="refs">${chips.join("")}</div>`:""}</div>`:"")+
+  `</li>`;
+}
+function lvTickAges(){
+ document.querySelectorAll("#lvFeed .lv-ago").forEach(n=>{
+  const ms=Date.now()-(tsOf(n.dataset.ts)||0);
+  n.textContent=ms<60e3?"just now":relTime(n.dataset.ts);
+ });
+}
+function lvMountCharts(feed){
+ const recs=[...feed.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:monitorOf(host.dataset.mon).series,requests:[]},spec:{height:180}}));
+ if(!recs.length)return;
+ uplotLib().then(()=>recs.forEach(rec=>{
+  if(!rec.host.isConnected)return;
+  CHARTS.push(rec);
+  makeChart(rec);
+  chartResize.observe(rec.host);
+ }),()=>recs.forEach(rec=>{rec.host.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`}));
+}
+async function lvResolvePr(gh){
+ const base=`/repos/${gh.o}/${gh.r}`;
+ const pr=await ghGet(`${base}/pulls/${gh.ref}`);
+ if(!pr)return {state:"unknown",at:Date.now()};
+ const runs=[];
+ for(let page=1;;page++){
+  const got=await ghGet(`${base}/commits/${pr.head.sha}/check-runs?per_page=100&page=${page}`).catch(()=>null);
+  if(!got)break;
+  runs.push(...got.check_runs);
+  if(runs.length>=got.total_count||!got.check_runs.length)break;
+ }
+ const status=await ghGet(`${base}/commits/${pr.head.sha}/status?per_page=100`).catch(()=>null);
+ const checks=[...runs.map(c=>c.status==="completed"?c.conclusion:"pending"),...(status?status.statuses.map(c=>c.state):[])];
+ const count=states=>checks.filter(c=>states.includes(c)).length;
+ const ok=count(["success","neutral","skipped"]),bad=count(["failure","error","timed_out","cancelled","action_required","startup_failure"]);
+ const wait=checks.length-ok-bad;
+ return {state:pr.merged_at?"merged":pr.draft?"draft":pr.state,title:pr.title,at:Date.now(),
+  checks:checks.length?[`${ok} of ${checks.length} checks passed`,bad?`${bad} failing`:"",wait?`${wait} running`:""].filter(Boolean).join(" · "):""};
+}
+let lvResolving=false,lvPrimed=false;
+async function lvResolvePrs(){
+ if(!GH_TOKEN||lvResolving)return;
+ lvResolving=true;
+ try{
+  const wanted=new Map();
+  document.querySelectorAll("#lvFeed [data-lvpr]").forEach(a=>{const l=linkNorm(a.getAttribute("href"));if(l&&l.gh)wanted.set(l.gh.key,l.gh)});
+  for(const [key,gh] of wanted){
+   const held=LV_PR[key];
+   if(held&&(held.state==="merged"||Date.now()-held.at<LV_PR_FRESH_MS))continue;
+   try{LV_PR[key]=await lvResolvePr(gh)}
+   catch(e){if(e.status===401)return;continue}
+   document.querySelectorAll(`#lvFeed [data-lvpr="${CSS.escape(key)}"]`).forEach(a=>{a.innerHTML=lvPrInner(gh,LV_PR[key])});
+  }
+ }finally{lvResolving=false}
+}
+function renderLiveView(){
+ applyView();
+ const feed=$("#lvFeed");
+ CHARTS.filter(rec=>feed.contains(rec.host)).forEach(rec=>{
+  if(rec.u)rec.u.destroy();
+  chartResize.unobserve(rec.host);
+  CHARTS.splice(CHARTS.indexOf(rec),1);
+ });
+ if(!inLiveView()){feed.innerHTML="";return}
+ const ch=(META.incident||{}).channel;
+ const links=[
+  ...(ch&&ch.permalink&&safeUrl(ch.permalink)?[hostChipHtml(ch.permalink,"#"+(ch.name||"incident channel"))]:[]),
+  ...(EVIDENCE.notebooks||[]).filter(n=>n.url&&safeUrl(n.url)).map(n=>hostChipHtml(n.url,(notebookOf(n.id)||{}).name||"Incident notebook"))
+ ];
+ const lh=$("#lvLinks");
+ lh.innerHTML=links.join("");
+ lh.hidden=!links.length;
+ const charted=new Set();
+ const rows=tlAt().slice().reverse();
+ feed.innerHTML=rows.length?rows.map(e=>lvItemHtml(e,charted)).join(""):'<li class="lv-empty">No timeline entries yet. Each one appears here as it lands.</li>';
+ lvMountCharts(feed);
+ lvTickAges();
+ lvResolvePrs();
+}
+const lvNode=key=>[...document.querySelectorAll("#lvFeed .lv-item")].find(n=>n.dataset.key===key)||null;
+function lvFlash(n){
+ n.classList.remove("lv-new");
+ void n.offsetWidth;
+ n.classList.add("lv-new");
+}
+function lvReveal(e){
+ if(liveViewable()&&!inLiveView())setView("live");
+ const n=inLiveView()?lvNode(lvKey(e)):document.getElementById(e._id);
+ if(!n)return;
+ n.scrollIntoView({block:"center",behavior:"smooth"});
+ lvFlash(n);
+}
+function lvToast(html,kind,onOpen){
+ const t=el("button","lv-toast",html);
+ t.type="button";
+ if(kind)t.dataset.kind=kind;
+ t.onclick=()=>{t.remove();onOpen()};
+ $("#lvToasts").append(t);
+ setTimeout(()=>t.remove(),LV_TOAST_MS);
+}
+function lvAnnounce(fresh){
+ const shown=fresh.slice(-LV_TOASTS),more=fresh.length-shown.length;
+ if(more)lvToast(`<b>${more} more update${more===1?"":"s"}</b>`,"",()=>{if(liveViewable()&&!inLiveView())setView("live")});
+ shown.forEach(e=>lvToast(`<div class="lv-meta"><time>${esc(fmtTime(e.ts))}</time>${kpill(e.kind)}${e.actor?`<span class="actor">${esc(e.actor)}</span>`:""}</div><div>${esc(tlName(e))}</div>`,e.kind,()=>lvReveal(e)));
+ if(inLiveView())fresh.forEach(e=>{const n=lvNode(lvKey(e));if(n)lvFlash(n)});
+}
+setInterval(lvTickAges,LV_AGE_MS);
+setInterval(()=>{if(inLiveView())lvResolvePrs()},LV_PR_FRESH_MS);
+
 let SCRUB={stops:[],t0:0,t1:0,c0:0,c1:0,PRE:0,CORE:100,POST:0};
 function computeScrub(){
  const set=new Set();
@@ -2938,6 +3175,7 @@ function renderAll({evidence=true}={}){
  renderRevisions();
  renderTakeaways();
  renderLiveCard();
+ renderLiveView();
  renderStatusState();
  reconcileSections();
  termify($("#main"));
@@ -4605,6 +4843,7 @@ const LIVE_LISTS={windows:WINDOWS,timeline:TIMELINE,causes:CAUSES,actions:ACTION
  hypotheses:HYPOTHESES,recognize:RECOGNIZE,prevention:PREVENTION,unknowns:UNKNOWNS,glossary:GLOSSARY,notes:NOTES,footnotes:FOOTNOTES};
 const LIVE_MAPS={meta:META,summary:SUMMARY,timestamps:TS,impact:IMPACT,resolution:RESOLUTION,detection:DETECTION,lessons:LESSONS,evidence:EVIDENCE,remediation:REMEDIATION};
 async function adoptLive(next){
+ const before=new Set(TIMELINE.map(lvKey));
  Object.entries(LIVE_LISTS).forEach(([k,list])=>{
   list.splice(0,list.length,...(Array.isArray(next[k])?next[k]:[]));
  });
@@ -4617,6 +4856,9 @@ async function adoptLive(next){
  await loadEvidence();
  await renderAll();
  if(window.irRefreshScrub)irRefreshScrub();
+ const fresh=TIMELINE.filter(e=>!before.has(lvKey(e)));
+ if(fresh.length&&lvPrimed)lvAnnounce(fresh);
+ lvPrimed=true;
 }
 const liveSource=()=>{
  const src=LIVE&&LIVE.source;

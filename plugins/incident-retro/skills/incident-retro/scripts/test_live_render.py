@@ -80,6 +80,27 @@ SLACK_SNAPSHOT = {
                   "user_id": "U1", "user_name": "Ada", "text": "Run creation is failing."}],
 }
 
+LIVE_VIEW = """JSON.stringify({
+  view: document.documentElement.dataset.view || "retro",
+  switchShown: !document.getElementById("viewSwitch").hidden,
+  overviewShown: getComputedStyle(document.getElementById("overview")).display !== "none",
+  feed: [...document.querySelectorAll("#lvFeed .lv-item")].map(n => n.dataset.kind),
+  slackCards: [...document.querySelectorAll("#lvFeed .lv-slack .msg")].map(n => n.textContent),
+  monitor: [...document.querySelectorAll("#lvFeed .lv-mon .pill")].map(n => n.textContent),
+  charts: document.querySelectorAll("#lvFeed .lv-chart").length,
+  prCards: [...document.querySelectorAll("#lvFeed .lv-pr")].map(a => a.dataset.lvpr),
+  toasts: [...document.querySelectorAll("#lvToasts .lv-toast")].map(t => t.textContent),
+  flashed: [...document.querySelectorAll("#lvFeed .lv-new")].map(n => n.dataset.kind),
+})"""
+MONITOR_URL = "https://app.datadoghq.com/monitors/4242"
+PR_URL = "https://github.com/Forge-AI/monorepo/pull/34474"
+MONITOR_SNAPSHOT = {
+    "schema": "ir.monitor/1", "id": 4242, "url": MONITOR_URL, "site": "datadoghq.com",
+    "fetchedAt": "2026-09-18T19:52:00Z", "name": "Run creation errors", "type": "query alert",
+    "overallState": "Alert", "thresholds": {"critical": 5, "warning": None},
+    "series": {"t": [1789760000, 1789760600, 1789761200], "series": [{"label": "team:polar", "v": [0, 3, 9]}]},
+}
+
 
 def record(**over):
     base = {
@@ -126,6 +147,77 @@ class LivePollRebuildsThePage(unittest.TestCase):
             slack = live / "evidence" / "slack"
             slack.mkdir(parents=True, exist_ok=True)
             (slack / "thread.json").write_text(json.dumps(SLACK_SNAPSHOT))
+            datadog = live / "evidence" / "datadog"
+            datadog.mkdir(parents=True, exist_ok=True)
+            (datadog / "monitor-4242.json").write_text(json.dumps(MONITOR_SNAPSHOT))
+
+    def open_page(self, chrome, base):
+        target = chrome.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+        session = chrome.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
+        for domain in ("Page", "Runtime", "Log"):
+            chrome.call(domain + ".enable", session=session)
+        chrome.call("Page.addScriptToEvaluateOnNewDocument", {"source": POLL_STUB}, session=session)
+        chrome.call("Emulation.setDeviceMetricsOverride",
+                    {"width": 1440, "height": 980, "deviceScaleFactor": 1, "mobile": False}, session=session)
+        chrome.call("Page.navigate", {"url": base + "/index.html"}, session=session)
+        self.assertEqual(B.settle(chrome, session, 40).get("ready"), "1", "the empty shell never became ready")
+        return session
+
+    def live_view(self, chrome, session, poll=False):
+        if poll:
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+        return json.loads(B.evaluate(chrome, session, LIVE_VIEW))
+
+    def test_the_live_view_leads_while_the_incident_runs_and_toasts_each_new_entry(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            self.publish(record(timeline=TIMELINE[:2]))
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            first = self.live_view(chrome, session)
+            self.assertEqual(first["view"], "live", "an ongoing incident did not open on the live view")
+            self.assertTrue(first["switchShown"])
+            self.assertFalse(first["overviewShown"], "the live view left the retro sections showing")
+            self.assertEqual(first["feed"], ["alert", "deploy"], "the feed is not newest first")
+            self.assertEqual(first["toasts"], [], "the entries already there on open were toasted")
+
+            cited = [dict(e, refs=[PR_URL]) if e["id"] == "T1" else
+                     dict(e, refs=[MONITOR_URL]) if e["id"] == "T2" else dict(e, refs=[SLACK_URL]) for e in TIMELINE]
+            self.publish(record(timeline=cited, evidence={
+                "slack": [{"url": SLACK_URL, "file": "evidence/slack/thread.json"}],
+                "monitors": [{"id": 4242, "url": MONITOR_URL, "file": "evidence/datadog/monitor-4242.json"}]}),
+                with_slack=True)
+            grown = self.live_view(chrome, session, poll=True)
+            self.assertEqual(grown["feed"], ["report", "alert", "deploy"])
+            self.assertEqual(grown["slackCards"], ["Run creation is failing."], "the report did not show its message")
+            self.assertEqual(grown["monitor"], ["Alert"], "the monitor preview lost its state")
+            self.assertEqual(grown["charts"], 1, "the monitor preview drew no chart slot")
+            self.assertEqual(grown["prCards"], ["Forge-AI/monorepo#34474"])
+            self.assertEqual(len(grown["toasts"]), 1, "the new entry was not toasted exactly once")
+            self.assertIn("Report came in", grown["toasts"][0])
+            self.assertEqual(grown["flashed"], ["report"], "the new entry was not highlighted in the feed")
+
+            B.evaluate(chrome, session, "(document.querySelector('#viewSwitch [data-view=retro]').click(),1)")
+            retro_view = self.live_view(chrome, session)
+            self.assertEqual(retro_view["view"], "retro")
+            self.assertTrue(retro_view["overviewShown"], "the full retro stayed hidden after the switch")
+            B.evaluate(chrome, session, "(document.querySelector('#viewSwitch [data-view=live]').click(),1)")
+            self.assertEqual(self.live_view(chrome, session)["view"], "live")
+
+            final = record(timeline=cited)
+            final["meta"]["status"] = "draft"
+            final.pop("live")
+            self.publish(final)
+            closed = self.live_view(chrome, session, poll=True)
+            self.assertEqual(closed["view"], "retro", "the live view outlived the incident")
+            self.assertFalse(closed["switchShown"])
+            self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
+        finally:
+            server.shutdown()
+            server.server_close()
+            chrome.close()
 
     def page_state(self, chrome, session):
         return json.loads(B.evaluate(chrome, session, PAGE_STATE))
