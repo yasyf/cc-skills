@@ -185,7 +185,11 @@ CAUSE_BODY_WORDS = 90
 DECISION_BODY_WORDS = 60
 UNKNOWN_BODY_WORDS = 45
 LIVE_PHASES = ("detected", "investigating", "identified", "mitigated", "resolved")
-LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "source")
+LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "chapters", "sessions", "source")
+CHAPTER_FIELDS = {"start", "title", "summary"}
+SESSION_ROLES = ("fixer", "ic")
+SESSION_STATES = ("running", "draining", "drained", "skipped", "down")
+SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander"}
 PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
                 "mitigated": ("engaged", "mitigated"),
                 "resolved": ("engaged", "mitigated", "resolved", "allClear")}
@@ -969,6 +973,8 @@ def check_live(rep, R, status: str):
             rep.err(f"live.{key} is missing or empty; the status strip reads it while the incident runs")
         elif words(value) > budget:
             rep.strict_warn(f"live.{key} is {words(value)} words; the strip shows {budget} or fewer")
+    check_chapters(rep, live.get("chapters"))
+    check_sessions(rep, live.get("sessions"))
     source = live.get("source")
     if source is None:
         if status == "ongoing":
@@ -986,6 +992,54 @@ def check_live(rep, R, status: str):
         rep.err(f"live.source.branch {source.get('branch')!r} is not a branch name")
     for extra in sorted(set(source) - {"repo", "branch"}):
         rep.err(f"live.source.{extra} is not one of repo, branch")
+
+
+def check_chapters(rep, chapters):
+    if chapters is None:
+        return
+    if not isinstance(chapters, list) or not all(isinstance(c, dict) for c in chapters):
+        rep.err("live.chapters must be a list of {start, title, summary}")
+        return
+    last = None
+    for at, chapter in enumerate(chapters):
+        where = f"live.chapters[{at}]"
+        for extra in sorted(set(chapter) - CHAPTER_FIELDS):
+            rep.err(f"{where}.{extra} is not one of {', '.join(sorted(CHAPTER_FIELDS))}")
+        for key in ("title", "summary"):
+            if not (isinstance(chapter.get(key), str) and chapter[key].strip()):
+                rep.err(f"{where}.{key} is missing or empty")
+        try:
+            start = parse_ts(chapter.get("start"))
+        except ValueError as e:
+            rep.err(f"{where}.start {chapter.get('start')!r} {e}")
+            continue
+        if last is not None and start <= last:
+            rep.err(f"{where}.start is not after the chapter before it; chapters run in time order")
+        last = start
+
+
+def check_sessions(rep, sessions):
+    if sessions is None:
+        return
+    if not isinstance(sessions, list) or not all(isinstance(x, dict) for x in sessions):
+        rep.err("live.sessions must be a list of {role, state, phase?, step?, since?, beatAt?, build?, attempt?, commander?}")
+        return
+    for at, session in enumerate(sessions):
+        where = f"live.sessions[{at}]"
+        for extra in sorted(set(session) - SESSION_FIELDS):
+            rep.err(f"{where}.{extra} is not one of {', '.join(sorted(SESSION_FIELDS))}")
+        if session.get("role") not in SESSION_ROLES:
+            rep.err(f"{where}.role {session.get('role')!r} not in {', '.join(SESSION_ROLES)}")
+        if session.get("state") not in SESSION_STATES:
+            rep.err(f"{where}.state {session.get('state')!r} not in {', '.join(SESSION_STATES)}")
+        for key in ("since", "beatAt"):
+            if session.get(key) is not None:
+                try:
+                    parse_ts(session[key])
+                except ValueError as e:
+                    rep.err(f"{where}.{key} {session[key]!r} {e}")
+        if session.get("build") is not None and not (isinstance(session["build"], str) and session["build"].startswith("https://")):
+            rep.err(f"{where}.build {session['build']!r} is not an https URL")
 
 
 def check_link_list(rep, where, entry, closes_ok: bool, field: str = "links") -> list:
