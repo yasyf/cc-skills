@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from hooks import dashboard as hook
+from hooks import installed
 from livedash import registry
 from livedash.context import Context
 
@@ -191,9 +192,9 @@ def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root
     hook.watch_prompts(SimpleNamespace(session_id="900424b6-0000"), entry)
     hook.watch_prompts(SimpleNamespace(session_id="0dd0bead-0000"), entry)
 
-    start = ["python3", str(hook.PROMPT_WATCH), "start", "--drive", "900424b6"]
+    start = ["python3", str(installed.script("prompt_watch.py")), "start", "--drive", "900424b6"]
     assert spawned == [([*start, "--root-terminal", "term_root"], True), (start, True)]
-    assert hook.PROMPT_WATCH.is_file()
+    assert installed.script("prompt_watch.py").is_file()
 
 
 def test_inbox_files_include_rotated_archives(tmp_path):

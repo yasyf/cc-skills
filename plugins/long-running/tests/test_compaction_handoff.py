@@ -408,7 +408,7 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
     argv, kw = spawned[0]
     assert argv == [
         sys.executable,
-        str(handoff.COMPACT_JOB),
+        str(installed.script("compact_job.py")),
         "term-7",
         "/compact Resume the drive from `/p/brook.md` and its progress record: read the plan, "
         "then the progress doc: `ccn doc list --label progress:brook`, then "
