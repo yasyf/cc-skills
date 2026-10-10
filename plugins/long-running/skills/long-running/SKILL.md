@@ -1196,15 +1196,15 @@ says what a Sprite holds and when to choose each.
 
 A Sprite launch needs `orca.sprite` configured; without it every lane launches
 locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
-while a lane placed local still waits under O14. The runner counts running and warm
-Sprites before each one, adding its own Sprite launches in flight, and at
-`orca.sprite.limit` (16 unless the config sets it; the account allows 20 running
-and 20 warm) it launches locally.
-That limit, a failed count, and a lane name a Sprite refuses start the same lane
-locally under O14's load hold. A failed Sprite launch starts it locally at once only
-when its receipts prove worker-start never ran: the brief's `.worker` directory holds
+while a lane placed local still waits under O14. The runner counts no Sprites and
+sets no limit of its own: the provider admits or refuses each one.
+A lane name a Sprite refuses starts the same lane locally under O14's load hold. A
+failed Sprite launch starts it locally at once only when its receipts prove
+worker-start never ran: the brief's `.worker` directory holds
 no `<lane>.json`, and `prepare.status` or `attach.status` records a nonzero exit, or
-the runner saw the launcher exit with no prepare exit recorded. Each logs
+the runner saw the launcher exit with no prepare exit recorded. A Sprite the provider
+refuses for capacity is such a launch: `cc-remote orca prepare` exits nonzero at the
+create, before it provisions or attaches anything. Each logs
 `SPRITE-FALLBACK` with the reason. Any other Sprite launch without a ready line may
 have left a remote worker. The runner launches nothing locally, marks the launch
 `unverifiable`, and logs `SPRITE-UNVERIFIABLE` with the receipt directory and any Task

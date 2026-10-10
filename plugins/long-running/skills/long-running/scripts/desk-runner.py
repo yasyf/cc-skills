@@ -54,14 +54,14 @@ the load; any other launch waits while the 1-minute load is above the core count
 at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
 and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
 says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
-repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load, while
-fewer than `orca.sprite.limit` Sprites are running or warm, counting the runner's own
-Sprite launches still in flight. `place=local` keeps a `cpu=high` launch on the Mac.
-Fable, incident, and a `role=desk` or `role=watch` brief stay local whatever the line
-says. A lane name a Sprite refuses, a full count, a failed count, or a Sprite launch
-whose receipts prove worker-start never ran starts the same launch locally, and the
-fallback logs `SPRITE-FALLBACK`. The proof is read from the brief's `.worker`
-directory: no `<lane>.json`, and a nonzero exit in `prepare.status` or `attach.status`,
+repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load. The
+runner counts no Sprites and sets no limit: the provider admits or refuses each one.
+`place=local` keeps a `cpu=high` launch on the Mac. Fable, incident, and a `role=desk`
+or `role=watch` brief stay local whatever the line says. A lane name a Sprite refuses,
+or a Sprite launch whose receipts prove worker-start never ran, a provider refusal
+among them, starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
+The proof is read from the brief's `.worker` directory: no `<lane>.json`,
+and a nonzero exit in `prepare.status` or `attach.status`,
 or no `prepare.status` when the runner itself saw the launcher exit. A runner that
 restarted mid-launch saw no exit. Any other Sprite launch that prints no ready line
 may have left a remote worker: it becomes `unverifiable` and logs
@@ -178,7 +178,6 @@ SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
 SPRITE_EXITS = ("prepare.status", "attach.status")
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
-SPRITES_API = "/v1/sprites?max_results=1000"
 SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
@@ -1033,21 +1032,7 @@ class Runner:
             return ""
         if not SPRITE_LANE.fullmatch(lane):
             return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
-        live = self.live_sprites()
-        if live is None:
-            return "the Sprite count failed"
-        limit = self.config.sprite.get("limit", 16)
-        if live + len(self.sprites) >= limit:
-            return f"{live} Sprites live and {len(self.sprites)} launching, at the limit of {limit}"
         return None
-
-    def live_sprites(self) -> int | None:
-        done = self.shell.run(["sprite", "api", SPRITES_API])
-        try:
-            listed = json.loads(done.out)["data"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            return None
-        return sum(1 for sprite in listed if sprite.get("status") != "cold")
 
     def load_hold(self, action: actions.Action) -> str:
         """Why an accepted launch is waiting on load, or empty when it may start; incident and owner-directed launches never wait."""

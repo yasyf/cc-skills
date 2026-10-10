@@ -77,7 +77,6 @@ class FakeShell(runner_module.Shell):
         self.tail_error = ""
         self.post_error = ""
         self.judge_process: Running | None = None
-        self.sprite_states: list[str] | None = []
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
@@ -151,10 +150,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]) if verb == "list" else f"{verb} ok\n", "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
-        if argv[:3] == ["sprite", "api", runner_module.SPRITES_API]:
-            if self.sprite_states is None:
-                return runner_module.Done(1, "", "Error: not logged in")
-            return runner_module.Done(0, json.dumps({"data": [{"name": f"s{index}", "status": state} for index, state in enumerate(self.sprite_states)]}), "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -1865,7 +1860,7 @@ LAUNCHER = "/repo/.agents/skills/orca/scripts/worker-launch.sh"
 def with_sprites(config: Path) -> None:
     raw = json.loads(config.read_text())
     raw["orca"]["launch_env"] = {"ORCA_LAUNCH_RUN": "run_1"}
-    raw["orca"]["sprite"] = {"launcher": LAUNCHER, "limit": 3, "env": {"WORKER_CC_REMOTE": "/repo/tools/cc-remote/bin/cc-remote", "WORKER_REF": "dev"}}
+    raw["orca"]["sprite"] = {"launcher": LAUNCHER, "env": {"WORKER_CC_REMOTE": "/repo/tools/cc-remote/bin/cc-remote", "WORKER_REF": "dev"}}
     config.write_text(json.dumps(raw))
 
 
@@ -1891,7 +1886,6 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
     shell.cpu_load = 140
-    shell.sprite_states = ["running", "cold", "cold"]
     shell.sprite_line = SPRITE_READY
     shell.sprite_receipts = {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}
     shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
@@ -1900,43 +1894,13 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
     orca_pass(shell, config)
     assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
     assert launches(shell) == []
+    assert not [call for call in shell.calls if call[0] == "sprite"]
     env = shell.spawned_env["worker-launch.sh"]
     assert (env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_REMOTE_ATTACH"]) == ("run_1", "dev", str(runner_module.SPRITE_ATTACH))
     assert runner_module.SPRITE_ATTACH.is_file()
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
-
-
-@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
-@pytest.mark.parametrize(("states", "why"), [(["running", "warm", "cold", "running"], "3 Sprites live and 0 launching, at the limit of 3"), (None, "the Sprite count failed")])
-def test_a_remote_placed_lane_launches_locally_when_no_sprite_is_free(shell, config, tmp_path, states, why, header):
-    with_sprites(config)
-    brief = lane_brief(tmp_path, header)
-    shell.sprite_states = states
-    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert sprite_launches(shell) == []
-    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "opus", "xhigh", str(brief)]]
-    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: {why}" in escalations(shell)
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
-
-
-def test_a_sprite_config_naming_no_limit_launches_locally_at_sixteen_live_sprites(shell, config, tmp_path):
-    with_sprites(config)
-    raw = json.loads(config.read_text())
-    del raw["orca"]["sprite"]["limit"]
-    config.write_text(json.dumps(raw))
-    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
-    shell.sprite_states = ["running"] * 12 + ["warm"] * 4 + ["cold"]
-    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert sprite_launches(shell) == []
-    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: 16 Sprites live and 0 launching, at the limit of 16" in escalations(shell)
 
 
 def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: bool) -> None:
@@ -1951,6 +1915,13 @@ def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: boo
 NOTHING_PREPARED = ("no cc-remote command at /repo/tools/cc-remote/bin/cc-remote; set WORKER_CC_REMOTE to cc-remote 0.26.0 or newer; nothing was prepared", {})
 PREPARE_UNRECORDED = ("jq: error: cannot write request.json", {"request.json": "{}"})
 PREPARE_FAILED = ("cc-remote orca prepare exited 1; /x.worker keeps its output, and nothing was attached or retried", {"prepare.status": "1\n"})
+PROVIDER_REFUSED = (
+    PREPARE_FAILED[0],
+    {
+        "prepare.status": "1\n",
+        "prepare.err": f"Error: sprite {LANE}: whether the create allocated it is unknown: max sprites per org exceeded; {LANE} was allocated as {LANE} but not provisioned, so its record is kept: run destroy {LANE} once the provider answers\n",
+    },
+)
 ATTACH_REFUSED = (
     f"orca-remote-attach.sh exited 1: {LANE} failed status: environment sprite-a exited 1 with an error, not reachable runtime rt-1 with orchestration.contract.v1 and orchestration.federation.v1",
     {**PREPARED, **ATTACH_FAILED},
@@ -1968,8 +1939,17 @@ def test_a_sprite_attempt_is_the_directory_worker_launch_names(tmp_path, name, e
 
 @pytest.mark.parametrize(
     ("printed", "receipts", "restarted"),
-    [(*NOTHING_PREPARED, False), (*PREPARE_UNRECORDED, False), (*PREPARE_FAILED, False), (*PREPARE_FAILED, True), (*ATTACH_REFUSED, False), (*ATTACH_REFUSED, True)],
-    ids=["nothing-prepared", "prepare-unrecorded", "prepare-failed", "prepare-failed-restarted", "attach-refused", "attach-refused-restarted"],
+    [
+        (*NOTHING_PREPARED, False),
+        (*PREPARE_UNRECORDED, False),
+        (*PREPARE_FAILED, False),
+        (*PREPARE_FAILED, True),
+        (*PROVIDER_REFUSED, False),
+        (*PROVIDER_REFUSED, True),
+        (*ATTACH_REFUSED, False),
+        (*ATTACH_REFUSED, True),
+    ],
+    ids=["nothing-prepared", "prepare-unrecorded", "prepare-failed", "prepare-failed-restarted", "provider-refused", "provider-refused-restarted", "attach-refused", "attach-refused-restarted"],
 )
 def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch_locally(shell, config, tmp_path, printed, receipts, restarted):
     with_sprites(config)
