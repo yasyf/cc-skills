@@ -427,7 +427,10 @@ a.lv-card:hover{border-color:var(--accent);text-decoration:none}
 .lv-tt{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.4}
 .lv-sub{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);margin:var(--s-2) 0 0;font-size:var(--t-sm);color:var(--ink2)}
 .lv-slack .msg{margin:var(--s-2) 0 0;font-size:var(--t-base);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.lv-mon{overflow:hidden}
 .lv-chart{margin:var(--s-3) 0 0;min-height:180px}
+.lv-chart .u-legend{font-size:var(--t-xs)}
+
 .lv-empty{padding:var(--s-5) 0 var(--s-5) 34px;color:var(--ink2)}
 .lv-new{animation:lvflash 3s ease-out}
 @keyframes lvflash{from{background:var(--accent-soft)}to{background:transparent}}
@@ -2195,9 +2198,17 @@ function lvPreview(r,charted){
  }
  return {chip:host==="github"?refChipHtml(r):hostChipHtml(r.url,r.label)};
 }
+const lvWords=t=>plain(String(t||"").replace(/(^|\s):[a-z0-9_+'-]+:/g," ")).replace(/…$/,"").replace(/\s+/g," ").trim().toLowerCase();
+const lvSame=(said,text)=>{
+ const a=lvWords(said),b=lvWords(text);
+ return !!b&&a.startsWith(b)&&!/[\p{L}\p{N}]/u.test(a.charAt(b.length));
+};
 function lvItemHtml(e,charted){
  const refs=(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
- const said=e.kind==="report"?refs.find(r=>hostOf(r.url)==="slack"&&slackMessage(r.url)):null;
+ const said=refs.find(r=>{
+  const hit=hostOf(r.url)==="slack"&&slackMessage(r.url);
+  return hit&&(e.kind==="report"||lvSame(plainSlack(hit.msg,slackUsers(hit.snap)),e.text));
+ });
  const shown=refs.filter(r=>r!==said).map(r=>lvPreview(r,charted));
  const cards=shown.map(x=>x.card).filter(Boolean),chips=shown.map(x=>x.chip).filter(Boolean);
  return `<li class="lv-item" id="lv-${esc(e._id)}" data-kind="${esc(e.kind)}" data-key="${esc(lvKey(e))}">`+
@@ -2213,8 +2224,14 @@ function lvTickAges(){
   n.textContent=ms<60e3?"just now":relTime(n.dataset.ts);
  });
 }
+function lvSeries(series){
+ const tags=series.series.map(x=>String(x.label||"").split(","));
+ const tagged=tags.filter(list=>list.every(t=>t.includes(":")));
+ const shared=tagged.length>1?tagged[0].filter(t=>tagged.every(list=>list.includes(t))):[];
+ return {...series,series:series.series.map((x,i)=>tagged.includes(tags[i])?{...x,label:tags[i].filter(t=>!shared.includes(t)).join(",")||x.label}:x)};
+}
 function lvMountCharts(feed){
- const recs=[...feed.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:monitorOf(host.dataset.mon).series,requests:[]},spec:{height:180}}));
+ const recs=[...feed.querySelectorAll(".lv-chart[data-mon]")].map(host=>({host,cell:{data:lvSeries(monitorOf(host.dataset.mon).series),requests:[]},spec:{height:180}}));
  if(!recs.length)return;
  uplotLib().then(()=>recs.forEach(rec=>{
   if(!rec.host.isConnected)return;
