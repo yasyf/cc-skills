@@ -496,7 +496,8 @@ html[data-view=live] .viewsw{margin:var(--s-4) 0 0}
 .lv-count{font-size:var(--t-sm);color:var(--ink2)}
 .lv-links{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-5)}
 .lv-chs{list-style:none;margin:0;padding:0;--rail:84px}
-.lv-chap{position:relative;padding:0 0 var(--s-5)}
+.lv-chap{position:relative;padding:0 0 var(--s-5);scroll-margin-top:calc(var(--lvtop) + var(--s-5))}
+.lv-row{scroll-margin-top:calc(var(--lvtop) + var(--s-5))}
 .lv-chap::before{content:"";position:absolute;left:calc(var(--rail) + 7px);top:18px;bottom:0;width:2px;background:var(--line)}
 .lv-chap:last-child::before{display:none}
 .lv-chh{display:grid;grid-template-columns:var(--rail) 16px minmax(0,1fr);gap:0 var(--s-4);align-items:start;width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer}
@@ -2598,8 +2599,8 @@ function lvRenderStrip(){
  if(first)first.tabIndex=0;
 }
 function lvChapterOpen(c,current){
- if(lvFiltered())return c.rows.some(lvShown);
- return LV_CH_OPEN.has(c.key)?LV_CH_OPEN.get(c.key):current;
+ if(LV_CH_OPEN.has(c.key))return LV_CH_OPEN.get(c.key);
+ return lvFiltered()?c.rows.some(lvShown):current;
 }
 function lvChapterHtml(c,current,charted){
  const open=lvChapterOpen(c,current),rows=c.rows.filter(lvShown);
@@ -2731,6 +2732,7 @@ function renderLiveView(){
  if(!inLiveView()){$("#lvChs").innerHTML="";$("#lvStrip").innerHTML="";return}
  const focused=document.activeElement&&lv.contains(document.activeElement)?document.activeElement:null;
  const fkey=focused&&(focused.dataset.lvk||(focused.closest("[data-lvch]")||{dataset:{}}).dataset.lvch);
+ const fctl=focused&&!focused.matches(".lv-q")&&(focused.id?"#"+CSS.escape(focused.id):["lvlanes","lvrole"].filter(k=>k in focused.dataset).map(k=>`[data-${k}="${CSS.escape(focused.dataset[k])}"]`)[0]);
  lvRenderBar();
  lvRenderNow();
  lvRenderStrip();
@@ -2741,6 +2743,7 @@ function renderLiveView(){
   const n=lv.querySelector(sel);
   if(n){n.tabIndex=0;n.focus({preventScroll:true})}
  }
+ else if(fctl){const n=lv.querySelector(fctl);if(n)n.focus({preventScroll:true})}
  lvMountCharts($("#lvChs"));
  lvTick();
  lvResolvePrs();
@@ -2764,7 +2767,8 @@ function lvToggle(row,open){
  const want=open==null?!row.classList.contains("open"):open;
  if(want)LV_OPEN.add(key);else LV_OPEN.delete(key);
  lvDropCharts(row);
- row.outerHTML=lvRowHtml(e,{open:want,charted:new Set()});
+ const charted=new Set([...document.querySelectorAll("#lvChs .lv-chart[data-mon]")].filter(c=>!row.contains(c)).map(c=>c.dataset.mon));
+ row.outerHTML=lvRowHtml(e,{open:want,charted});
  const n=lvNode(key);
  n.tabIndex=0;
  n.focus({preventScroll:true});
@@ -2914,7 +2918,7 @@ function lvClear(){
   if(row&&(e.key==="Enter"||e.key===" ")&&!e.target.closest("a,button")){e.preventDefault();lvHidePop();lvSelect(row.dataset.lvk);lvToggle(row)}
  });
  document.addEventListener("keydown",e=>{
-  if(!inLiveView()||e.metaKey||e.ctrlKey||e.altKey)return;
+  if(!inLiveView()||e.metaKey||e.ctrlKey||e.altKey||document.querySelector("dialog[open]:not(#lvKeys)"))return;
   if(e.key==="Escape"){lvHidePop();if(e.target.matches(".lv-q"))e.target.blur();return}
   if(e.target.closest("input,textarea,select,[contenteditable]")||$("#lvKeys").open)return;
   const rows=[...document.querySelectorAll("#lvChs .lv-row")];
@@ -2938,9 +2942,9 @@ function lvClear(){
    "?":()=>$("#lvKeys").showModal(),
   }[e.key];
   const role=/^[1-4]$/.test(e.key)&&[...document.querySelectorAll("#lvTlHead [data-lvrole]:not([data-lvrole=''])")][+e.key-1];
-  if(role){e.preventDefault();role.click();return}
-  if(act){e.preventDefault();act()}
- });
+  if(role){e.preventDefault();e.stopPropagation();role.click();return}
+  if(act){e.preventDefault();e.stopPropagation();act()}
+ },true);
  $("#lvJump").addEventListener("click",lvToNow);
  addEventListener("scroll",()=>{lvJump();if(lvPopFor&&!$("#lvPop").hidden)lvHidePop()},{passive:true});
 })();

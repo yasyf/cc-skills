@@ -190,6 +190,8 @@ CHAPTER_FIELDS = {"start", "title", "summary"}
 SESSION_ROLES = ("fixer", "ic")
 SESSION_STATES = ("running", "draining", "drained", "skipped", "down")
 SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander"}
+FIXER_PHASES = ("investigating", "diagnosed", "fixing", "pr-opened", "pr-merged", "hotfixing", "shipped",
+                "stuck", "refused", "release-failed", "unproven", "muted")
 PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
                 "mitigated": ("engaged", "mitigated"),
                 "resolved": ("engaged", "mitigated", "resolved", "allClear")}
@@ -1032,6 +1034,8 @@ def check_sessions(rep, sessions):
             rep.err(f"{where}.role {session.get('role')!r} not in {', '.join(SESSION_ROLES)}")
         if session.get("state") not in SESSION_STATES:
             rep.err(f"{where}.state {session.get('state')!r} not in {', '.join(SESSION_STATES)}")
+        if session.get("role") == "fixer" and session.get("phase") is not None and session["phase"] not in FIXER_PHASES:
+            rep.err(f"{where}.phase {session['phase']!r} not in {', '.join(FIXER_PHASES)}")
         for key in ("since", "beatAt"):
             if session.get(key) is not None:
                 try:
