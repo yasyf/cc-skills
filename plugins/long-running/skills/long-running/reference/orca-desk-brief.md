@@ -215,7 +215,7 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     },
     "sprite": {
       "launcher": "/absolute/drive/checkout/.agents/skills/orca/scripts/worker-launch.sh",
-      "limit": 10,
+      "limit": 16,
       "env": {
         "WORKER_CC_REMOTE": "/absolute/drive/checkout/tools/cc-remote/bin/cc-remote",
         "CC_REMOTE_CONFIG": "/absolute/drive/checkout/tools/cc-remote/config.yaml",

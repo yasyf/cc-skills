@@ -988,7 +988,7 @@ class Runner:
         live = self.live_sprites()
         if live is None:
             return "the Sprite count failed"
-        limit = self.config.sprite.get("limit", 10)
+        limit = self.config.sprite.get("limit", 16)
         if live + len(self.sprites) >= limit:
             return f"{live} Sprites live and {len(self.sprites)} launching, at the limit of {limit}"
         return None

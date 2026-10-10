@@ -1888,6 +1888,21 @@ def test_a_remote_placed_lane_launches_locally_when_no_sprite_is_free(shell, con
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
 
 
+def test_a_sprite_config_naming_no_limit_launches_locally_at_sixteen_live_sprites(shell, config, tmp_path):
+    with_sprites(config)
+    raw = json.loads(config.read_text())
+    del raw["orca"]["sprite"]["limit"]
+    config.write_text(json.dumps(raw))
+    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    shell.sprite_states = ["running"] * 12 + ["warm"] * 4 + ["cold"]
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == []
+    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: 16 Sprites live and 0 launching, at the limit of 16" in escalations(shell)
+
+
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
 @pytest.mark.parametrize(
     "printed",
