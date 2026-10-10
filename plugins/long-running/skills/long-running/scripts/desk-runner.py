@@ -60,13 +60,14 @@ Sprite launches still in flight. `place=local` keeps a `cpu=high` launch on the 
 Fable, incident, and a `role=desk` or `role=watch` brief stay local whatever the line
 says. A lane name a Sprite refuses, a full count, a failed count, or a Sprite launch
 whose receipts prove worker-start never ran starts the same launch locally, and the
-fallback logs `SPRITE-FALLBACK`. The proof is the brief's `.worker` directory: none
-was made, or `prepare.status` or `attach.status` records a nonzero exit and no
-`<lane>.json` exists. Any other Sprite launch that prints no ready line may have left
-a remote worker: it becomes `unverifiable` and logs `SPRITE-UNVERIFIABLE` with that
-directory and the Task and Dispatch its `<lane>.json` names, and nothing is launched
-locally, retried, or cleaned up. A ready Sprite launch's receipts are copied beside
-the local ones. `run --desk landing` gates and enqueues ready
+fallback logs `SPRITE-FALLBACK`. The proof is read from the brief's `.worker`
+directory: no `<lane>.json`, and a nonzero exit in `prepare.status` or `attach.status`,
+or no `prepare.status` when the runner itself saw the launcher exit. A runner that
+restarted mid-launch saw no exit. Any other Sprite launch that prints no ready line
+may have left a remote worker: it becomes `unverifiable` and logs
+`SPRITE-UNVERIFIABLE` with that directory and the Task and Dispatch its `<lane>.json`
+names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
+launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
@@ -268,20 +269,19 @@ def sprite_model(model: str) -> str:
 
 
 def sprite_attempt(brief: Path) -> Path:
-    return brief.parent / f"{brief.name.rpartition('.')[0] or brief.name}.worker"
+    return brief.parent / f"{brief.name.rsplit('.', 1)[0]}.worker"
 
 
 def exit_status(path: Path) -> str:
     return path.read_text().strip() if path.is_file() else ""
 
 
-def sprite_never_started(attempt: Path, lane: str) -> bool:
-    """Whether a Sprite attempt's receipts prove worker-start never ran: no attempt directory, or a nonzero prepare or attach exit with no `<lane>.json` claimed."""
-    if not attempt.exists():
-        return True
+def sprite_never_started(attempt: Path, lane: str, exited: bool) -> bool:
+    """Whether a Sprite attempt's receipts prove worker-start never ran: no `<lane>.json` was claimed, and prepare or attach exited nonzero or the launcher exited with no prepare exit recorded."""
     if (attempt / f"{lane}.json").exists():
         return False
-    return any(exit_status(attempt / step) not in ("", "0") for step in SPRITE_EXITS)
+    prepared, attached = (exit_status(attempt / step) for step in SPRITE_EXITS)
+    return prepared not in ("", "0") or attached not in ("", "0") or (exited and not prepared)
 
 
 def sprite_started_as(receipt: Path) -> str:
@@ -1060,11 +1060,11 @@ class Runner:
                 self.launching.pop(f"{container}/{action.action_id}", None)
                 if f"{container}/{action.action_id}" in self.sprites or (self.sprite_log(container, action.action_id).is_file() and not self.launch_log(container, action.action_id).is_file()):
                     self.sprites.discard(f"{container}/{action.action_id}")
-                    self.settle_sprite(container, lane, action)
+                    self.settle_sprite(container, lane, action, exited=process is not None)
                     continue
                 self.settle_launch(container, lane, action)
 
-    def settle_sprite(self, container: str, lane: str, action: actions.Action) -> None:
+    def settle_sprite(self, container: str, lane: str, action: actions.Action, exited: bool) -> None:
         """Copy a ready Sprite launch's receipts beside the local ones and settle it; start the same launch locally only when its receipts prove worker-start never ran."""
         key = action.action_id
         out = self.sprite_log(container, key).read_text().strip()
@@ -1078,7 +1078,7 @@ class Runner:
             receipt = (attempt / f"{lane}.json").read_text()
         except (json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
             reason = " ".join(out.split())[:300]
-            if sprite_never_started(attempt, lane):
+            if sprite_never_started(attempt, lane, exited):
                 self.escalate(f"{container}/{key}:sprite", "SPRITE-FALLBACK", lane, f"{key} launches locally: {reason}")
                 self.launch_local(container, lane, action)
                 return

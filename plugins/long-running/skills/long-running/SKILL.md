@@ -1195,13 +1195,14 @@ Sprites before each one, adding its own Sprite launches in flight, and at
 and 20 warm) it launches locally.
 That limit, a failed count, and a lane name a Sprite refuses start the same lane
 locally under O14's load hold. A failed Sprite launch starts it locally at once only
-when its receipts prove worker-start never ran: the brief's `.worker` directory was
-never made, or `prepare.status` or `attach.status` records a nonzero exit and no
-`<lane>.json` exists. Each logs `SPRITE-FALLBACK` with the reason. Any other Sprite
-launch without a ready line may have left a remote worker. The runner launches
-nothing locally, marks the launch `unverifiable`, and logs `SPRITE-UNVERIFIABLE` with
-the receipt directory and any Task and Dispatch; inspect them before relaunching. A
-Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
+when its receipts prove worker-start never ran: the brief's `.worker` directory holds
+no `<lane>.json`, and `prepare.status` or `attach.status` records a nonzero exit, or
+the runner saw the launcher exit with no prepare exit recorded. Each logs
+`SPRITE-FALLBACK` with the reason. Any other Sprite launch without a ready line may
+have left a remote worker. The runner launches nothing locally, marks the launch
+`unverifiable`, and logs `SPRITE-UNVERIFIABLE` with the receipt directory and any Task
+and Dispatch; inspect them before relaunching. A Sprite launch that prints nothing is
+`UNVERIFIABLE` and is never relaunched.
 
 Model and effort are the same on either route, and the runner sets no Codex service
 tier on either. Remote API keys travel only to the worker process.
