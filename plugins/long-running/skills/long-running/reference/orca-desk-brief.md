@@ -263,6 +263,10 @@ nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-run
 Restarting either process uses the same records and is idempotent. Keep one process
 per desk. Restarting a runner never means relaunching its workers.
 
+The orca process rewrites `orca-runner.heartbeat.json` beside the desk inbox every
+pass, and its `restart` field is the command to run from the bound terminal when the
+`desk_liveness` hook reports `LAUNCH-FAILED`.
+
 For the cci cutover, the root adds `drive` to the runner config, confirms
 `orca.desk_inbox`, and restarts both runners. Its records keep arriving over the
 `cci` channel. The root owns that cutover.

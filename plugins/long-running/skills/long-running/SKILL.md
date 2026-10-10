@@ -1043,6 +1043,13 @@ let an existing desk finish its pass and end its loop before starting it. Keep
 the old session open. The landing process runs D3, D14, and D16 where the
 checkout carries `stack-enqueue`.
 
+Each orca pass writes `orca-runner.heartbeat.json` beside `orca.desk_inbox` with its
+pid, pass time, and restart command. A `cci post` that fails stays queued for the next
+pass instead of stopping the runner. When a Bash append to `orca-desk.md` finds that
+heartbeat missing, more than 30 seconds old, or its process gone, the `desk_liveness`
+hook answers `LAUNCH-FAILED` with the restart command, and the restarted runner reads
+the appended line from its saved cursor.
+
 The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 `inbox-rotate.py` records time and stream-end marks and archives through the newest
 mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first

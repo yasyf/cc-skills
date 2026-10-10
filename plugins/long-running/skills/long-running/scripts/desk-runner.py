@@ -138,6 +138,7 @@ PASS_SECONDS = 10
 WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
 ROTATE_EVERY = timedelta(hours=1)
+HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
@@ -534,15 +535,29 @@ class Runner:
             text = text[: CCI_TEXT - 1] + "…"
         return self.shell.run([*argv, "--text", text])
 
-    def flush(self) -> None:
+    def flush(self) -> bool:
+        failures = []
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
             label, topic = action.target.split()[:2]
             kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
             message = self.message_file(topic)
             done = self.cci_post(kind, action.target, "root", topic, action.action_id, message.read_text() if message.is_file() else "")
             if done.code != 0:
-                raise RuntimeError(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                continue
             self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+        if failures:
+            print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
+        return not failures
+
+    def beat(self) -> None:
+        drive = self.config.desk_inbox.parent
+        restart = f"nohup desk-runner.py run --config {self.config.source} --desk orca > {drive.parent / 'orca-runner.log'} 2>&1 < /dev/null &"
+        beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": restart}
+        drive.mkdir(parents=True, exist_ok=True)
+        staged = drive / f".{HEARTBEAT}"
+        staged.write_text(json.dumps(beat) + "\n")
+        staged.replace(drive / HEARTBEAT)
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether this process's terminal coordinates the Run, and record the answer, with how it was obtained, in the runner's state."""
@@ -1648,6 +1663,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.aged_holds()
         runner.flush()
         runner.write_view()
+        runner.beat()
         if once:
             return 0
         runner.idle(PASS_SECONDS)
@@ -1721,9 +1737,9 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()), args.owner_directed)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
-    runner.flush()
+    posted = runner.flush()
     print(f"{action.action_id} {action.kind} {action.status}{'' if created else ' (already accepted)'}")
-    return 0
+    return 0 if posted else 1
 
 
 if __name__ == "__main__":
