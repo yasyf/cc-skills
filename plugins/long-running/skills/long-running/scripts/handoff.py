@@ -24,7 +24,7 @@ same markdown at ``<plan-stem>-progress/<UTC>-generated.md``. It augments
 ``--generated-doc`` or adds a doc. The written doc supersedes every other active progress
 doc. Generation exits :data:`SEVERAL_ACTIVE` if another remains active.
 
-The root narrative comes last. It comes from the chosen record or ``--narrative-file``,
+The root narrative comes last. It comes verbatim from the chosen record or ``--narrative-file``,
 else from the newest progress doc, folded by :func:`progress.fold`: the last dump stays
 whole, binding sections are carried once, and earlier dumps become dated digest lines.
 A record over :data:`progress.CAP` bytes writes nothing and exits :data:`OVERSIZED`
@@ -260,7 +260,7 @@ def render(handoff: Handoff) -> str:
         f"Generated from sources by the long-running compaction hook at {handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
         f"Every section above `{NARRATIVE}` is rebuilt at each handoff; change the sources, never this doc.",
         "",
-        standing.section_of(handoff.register, rule_lines(handoff)),
+        standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative),
         "## Read first",
         f"- Plan: `{handoff.plan}`",
     ]
@@ -376,7 +376,6 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
         handoff.narrative_edit = f"in `{args.narrative_file}`"
-        handoff.history = f"the earlier records in `{Path(args.narrative_file).parent}`"
     if args.folder:
         files = sorted(progress_folder(plan).glob("*-generated.md"), key=lambda path: path.stat().st_mtime)
         previous = files[-1].read_text() if files else None
@@ -384,7 +383,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
             handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"file {files[-1].name}")
             handoff.history = f"the earlier records in `{progress_folder(plan)}`"
         check(handoff, previous, set())
-        handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.narrative else ""
+        handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.history else handoff.narrative
         return handoff, previous
     handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
@@ -400,13 +399,12 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if handoff.record and not args.narrative_file:
         handoff.narrative, handoff.narrative_from = narrative_of(doc_body(shell, args.repo, handoff.record)), f"doc {handoff.record[:SHORT]}"
         handoff.narrative_edit = f"via `ccn doc edit {handoff.record[:8]} --body -`"
-        handoff.history = doc_history(handoff.record)
     elif previous and not args.narrative_file:
         newest = max(active, key=lambda doc: doc["updated_at"])
         handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"doc {newest['id'][:SHORT]}")
         handoff.history = doc_history(newest["id"])
     check(handoff, previous, live_answer_ids(shell, args.repo))
-    handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.narrative else ""
+    handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.history else handoff.narrative
     return handoff, previous
 
 
