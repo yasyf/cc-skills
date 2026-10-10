@@ -1926,10 +1926,12 @@ process, so a closed dashboard or a stuck session does not stop it. It polls eve
 seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends when
 `drive.py end` removes the registry file.
 
-A plugin update signals nothing. The next `start` from the new version names itself in
-`<state dir>/prompt-watch/successor` and waits on the lock. The running watch exits
-after the poll that sees that file, and the new one takes over. A watch older than
-0.7.43 never looks for a successor. Stop it once by hand, and the waiting one takes over.
+A plugin update signals nothing. The next `start` from the new version locks
+`<state dir>/prompt-watch/successor` and waits on the watch's own lock. The running
+watch exits after the poll that finds `successor` locked, and the new one takes over.
+One watch waits at a time, and one that dies while waiting leaves no lock behind. A
+watch older than 0.7.43 never looks at `successor`. Stop it once by hand, and the
+waiting one takes over.
 
 The registry names the terminals it polls.
 
@@ -1968,8 +1970,10 @@ dialog's class, and the command that reads the live screen. None of them carries
 dialog's text.
 
 Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`,
-never one per poll. The dialog's class and rows identify a prompt. Orca rewrites
-`agentWait.since` every few seconds while one dialog stays open, so it identifies nothing.
+never one per poll. The terminal, the dialog's class, and every row of text in the
+dialog identify a prompt, so a second command behind the same warning is a second
+prompt. Orca rewrites `agentWait.since` every few seconds while one dialog stays open,
+so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.
