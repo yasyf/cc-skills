@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from cc_transcript import Session, parse
 from captain_hook.app import _state
-from captain_hook.events import PostToolUseEvent, StopEvent
+from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.transcripts import lift_session
 from fire import fire
@@ -951,3 +951,75 @@ def test_numbered_sibling_without_a_handoff_is_still_asked(tree: Tree, clock: li
     rotate_lanes(evt)
 
     assert [len(tree.inbox(name)) for name in ("memdoc-disposition-1", "memdoc-disposition-2")] == [1, 1]
+
+
+def tool_use(tree: Tree, event: type[PreToolUseEvent | PostToolUseEvent], tool: str, tool_input: dict, agent_id: str | None = None) -> list:
+    raw = {"session_id": "0123456789abcdef", "transcript_path": str(tree.root), "cwd": str(tree.claude.parent)}
+    ctx = build_context(transcript=Session.from_path(tree.root), session_dir=tree.claude / "session")
+    raw |= {"tool_name": tool, "tool_input": tool_input} | ({"agent_id": agent_id} if agent_id else {})
+    return fire(lane_rotation, event(_raw=raw, ctx=ctx))
+
+
+def spawn(tree: Tree, name: str) -> None:
+    tree.lane(name, 80_000)
+    assert tool_use(tree, PostToolUseEvent, "Agent", {"name": name, "prompt": "go"}) == []
+
+
+def send(tree: Tree, to: str, message: str = "status?", sender: str | None = "aoncall-dedupe-fix-2") -> str | None:
+    [result] = tool_use(tree, PreToolUseEvent, "SendMessage", {"to": to, "message": message}, sender) or [None]
+    return result and result.message
+
+
+def test_rotated_lane_redirects_every_sender_to_its_successor(tree: Tree) -> None:
+    tree.lane("oncall-connect", 450_000)
+    tree.lane("oncall-connect-handoff", 80_000, team=None, status=None)
+    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": "oncall-connect@session-rot"}) == []
+    spawn(tree, "oncall-connect-2")
+
+    assert send(tree, "oncall-connect") == (
+        "`oncall-connect` rotated to `oncall-connect-2`, which owns its work now, and a message to `oncall-connect` "
+        "resumes the old lane on its stale brief. Send this to `oncall-connect-2` instead."
+    )
+    assert send(tree, "oncall-connect", sender=None) is not None
+    assert send(tree, "oncall-connect", "STAND-DOWN: oncall-connect-2 owns the work.", sender=None) is None
+    assert send(tree, "oncall-connect-2") is None
+
+
+def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
+    tree.lane("desk-3", 450_000)
+    tree.lane("desk-3-handoff", 80_000, team=None, status=None)
+    spawn(tree, "desk-4")
+    tree.lane("desk-4-handoff", 80_000, team=None, status=None)
+    spawn(tree, "desk-5")
+
+    assert "Send this to `desk-5` instead." in (send(tree, "desk-3") or "")
+
+
+def test_stopped_lane_without_a_successor_redirects_lanes_to_main(tree: Tree) -> None:
+    reviewer = tree.lane("reviewer", 120_000, team=None)
+    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": reviewer["id"]}) == []
+
+    assert "Send this to `main` instead." in (send(tree, "reviewer") or "")
+    assert send(tree, "reviewer", sender=None) is None
+
+
+def test_stand_down_without_a_handoff_retires_the_lane(tree: Tree) -> None:
+    tree.lane("alerts-watch", 450_000)
+    assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "alerts-watch", "message": "STAND-DOWN: done."}) == []
+
+    assert "Send this to `main` instead." in (send(tree, "alerts-watch") or "")
+
+
+def test_numbered_sibling_without_a_handoff_retires_nothing(tree: Tree) -> None:
+    tree.lane("memdoc-disposition-1", 450_000)
+    spawn(tree, "memdoc-disposition-2")
+
+    assert send(tree, "memdoc-disposition-1") is None
+
+
+def test_respawn_under_a_retired_name_clears_it(tree: Tree) -> None:
+    tree.lane("oncall-watch", 450_000)
+    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": "oncall-watch@session-rot"}) == []
+    spawn(tree, "oncall-watch")
+
+    assert send(tree, "oncall-watch") is None
