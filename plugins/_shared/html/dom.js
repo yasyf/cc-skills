@@ -1,4 +1,4 @@
-// @requires 
+// @requires
 // @defines $,URL_ATTR,el,esc,fmt,railLink,reduced,safeUrl,scrub
 const $=s=>document.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e};
