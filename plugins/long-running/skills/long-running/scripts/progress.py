@@ -4,9 +4,10 @@ The narrative is a run of ``##`` sections. The last one that is not binding is t
 current dump and stays whole, ``###`` addenda included. A ``#`` title before the first
 section is dropped; other text there folds like an earlier dump. A ``##`` section without
 ``###`` parts, or a ``###`` part, whose heading says ``binding`` or ``byte-for-byte``,
-or names rulings ``verbatim``, is binding: it moves under
-:data:`CARRIED` once, byte for byte. The rest of every earlier dump folds into one
-dated line under :data:`FOLDED` that names its parts and their opening sentences.
+names rulings ``verbatim``, or names owner rules or open items, is binding: it moves under
+:data:`CARRIED` once, byte for byte. Every earlier dump keeps its heading, as ``###``
+under :data:`FOLDED`, over one dated line that names the rest of its parts and their
+opening sentences.
 
 A record over :data:`CAP` bytes is refused with the largest section named.
 Only the Python standard library is used.
@@ -20,7 +21,7 @@ from datetime import datetime
 
 CARRIED = "## Carried binding sections"
 FOLDED = "## Folded narrative"
-BINDING = re.compile(r"binding|byte-for-byte|ruling.*verbatim|verbatim.*ruling", re.IGNORECASE)
+BINDING = re.compile(r"binding|byte-for-byte|ruling.*verbatim|verbatim.*ruling|owner rules|\bopen\b.*\bitems\b", re.IGNORECASE)
 CAP = 40_000
 DIGEST_CHARS = 240
 OPENING_CHARS = 120
@@ -86,9 +87,9 @@ def opening(text: str) -> str:
     return first if len(first) <= OPENING_CHARS else first[: OPENING_CHARS - 1] + "…"
 
 
-def digest(dump: Section, parts: list[Section], lead: str, when: datetime) -> str:
+def digest(parts: list[Section], lead: str, when: datetime, label: str = "") -> str:
     named = ([opening(lead)] if lead.strip() else []) + [f"{part.label}: {opening(part.body)}" for part in parts]
-    line = f"- {when:%Y-%m-%d %H:%MZ}, {dump.label or 'untitled narrative'}: {'; '.join(named)}"
+    line = f"- {when:%Y-%m-%d %H:%MZ}, {label}{'; '.join(named)}"
     return line if len(line) <= DIGEST_CHARS else line[: DIGEST_CHARS - 1] + "…"
 
 
@@ -97,14 +98,17 @@ def fold(narrative: str, when: datetime, history: str) -> str:
     if not sections:
         return narrative.strip("\n")
     carried: list[Section] = []
-    folded: list[str] = []
+    digests: list[str] = []
+    folded: list[Section] = []
     preamble = TITLE.sub("", preamble)
     dumps = [Section("", preamble)] if preamble.strip() else []
     for section in sections:
         if section.heading == CARRIED:
             carried += split(section.body, 3)[1]
         elif section.heading == FOLDED:
-            folded += [line for line in section.body.splitlines() if line.startswith("- ")]
+            lead, parts = split(section.body, 3)
+            digests += [line for line in lead.splitlines() if line.startswith("- ")]
+            folded += parts
         elif binding(section) and not split(section.body, 3)[1]:
             carried.append(Section(f"#{section.heading}", section.body))
         else:
@@ -113,8 +117,11 @@ def fold(narrative: str, when: datetime, history: str) -> str:
     for dump in dumps:
         lead, parts = split(dump.body, 3)
         carried += [part for part in parts if binding(part)]
-        if not binding(dump) or lead.strip() or any(not binding(part) for part in parts):
-            folded.append(digest(dump, [part for part in parts if not binding(part)], lead, when))
+        rest = [part for part in parts if not binding(part)]
+        if dump.heading:
+            folded.append(Section(f"#{dump.heading}", f"{digest(rest, lead, when)}\n" if lead.strip() or rest else ""))
+        else:
+            digests.append(digest(rest, lead, when, "untitled narrative: "))
     kept = {part.text for part in split(current.body, 3)[1]} if current else set()
     unique = []
     for part in carried:
@@ -124,8 +131,9 @@ def fold(narrative: str, when: datetime, history: str) -> str:
     out = [current.text] if current and not current.heading else []
     if unique:
         out.append("\n\n".join([CARRIED, *(part.text for part in unique)]))
-    if folded:
-        out.append("\n\n".join([FOLDED, f"Full text of each folded dump: {history}.", "\n".join(folded)]))
+    if digests or folded:
+        listed = ["\n".join(digests)] if digests else []
+        out.append("\n\n".join([FOLDED, f"Full text of each folded dump: {history}.", *listed, *(part.text for part in folded)]))
     if current and current.heading:
         out.append(current.text)
     return "\n\n".join(out)

@@ -8,7 +8,8 @@ from typing import Literal
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on, workflow_state
 from pydantic import BaseModel, create_model
 
-from .compaction_handoff import REGISTER_FENCE, RULINGS, CompactionState, rulings
+from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings
+from .installed import script
 from .register_injection import drive_args
 
 CANDIDATES = 5
@@ -27,7 +28,7 @@ These durable owner answers are the nearest by semantic search:
 Return the id of the one answer that this action clearly bears on or would violate, or "none" when no answer clearly applies.
 Sharing a word, a system, or a topic is not enough: the action must make the very decision that answer settled, or contradict it."""
 CANDIDATE = "- 1984bf6 May a migration ship behind a flag?\n  > No. Delete or replace.\n"
-MATCH = {f"{sys.executable} {RULINGS} match": CANDIDATE}
+MATCH = {f"{sys.executable} {script('rulings.py')} match": CANDIDATE}
 ACTIVE = CompactionState(active=True, slug="brook")
 
 

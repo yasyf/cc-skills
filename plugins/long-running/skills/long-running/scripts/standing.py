@@ -37,6 +37,7 @@ import rulings
 
 ID = r"(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)"
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
+OWN_RULES = re.compile(r"^#{2,3}\s+standing owner rules\b", re.IGNORECASE | re.MULTILINE)
 NEXT_SECTION = re.compile(r"^#{1,2}\s", re.MULTILINE)
 BULLET_ID = re.compile(rf"^\s*[-*]\s+`?({ID})`?\b")
 OWNER_GATE = re.compile(
@@ -140,7 +141,7 @@ def section_of(register: dict | None, lines: list[str], narrative: str = "") -> 
     out = [REGISTER_HEADING, ""]
     if register:
         out += [pointer(register), ""]
-    elif section(narrative) is not None:
+    elif OWN_RULES.search(narrative):
         out += [f"- no `standing-rules` register doc; the root's own `{REGISTER_HEADING}` follows verbatim under `## Root narrative`", ""]
     else:
         out += ["- no `standing-rules` register doc", ""]

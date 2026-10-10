@@ -9,10 +9,9 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
+from .installed import script
 from .lane_rotation import DriveActive
 
-DRIVE_SCRIPT = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
-PROMPT_WATCH = DRIVE_SCRIPT.with_name("prompt_watch.py")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 LIVE_DASHBOARD = "live-dashboard@skills"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
@@ -50,7 +49,7 @@ def serve(entry: dict) -> None:
     cli, directory = shlex.quote(str(dashboard_bin())), dashboard_dir(entry)
     quoted = shlex.quote(str(directory))
     script = (
-        f"python3 {shlex.quote(str(DRIVE_SCRIPT))} context --drive {shlex.quote(entry['drive'])}"
+        f"python3 {shlex.quote(str(script("drive.py")))} context --drive {shlex.quote(entry['drive'])}"
         f" && {{ [ -e {shlex.quote(str(directory / 'layout.yaml'))} ] || {cli} init --dir {quoted} --preset drive; }}"
         f" && exec {cli} start --dir {quoted}"
     )
@@ -58,7 +57,7 @@ def serve(entry: dict) -> None:
 
 
 def watch_prompts(evt: BaseHookEvent, entry: dict) -> None:
-    argv = ["python3", str(PROMPT_WATCH), "start", "--drive", entry["drive"]]
+    argv = ["python3", str(script("prompt_watch.py")), "start", "--drive", entry["drive"]]
     if evt.session_id in entry["sessions"] and (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
         argv += ["--root-terminal", handle]
     subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
