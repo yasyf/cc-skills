@@ -95,20 +95,36 @@ CODEX_WORKING = ("• Working (12s • esc to interrupt)", "› Ask Codex to do 
 PRINTED_DIALOG = (" Do you want to proceed?", " ❯ 1. Yes", "   2. No", " Esc to cancel · Tab to amend")
 
 
+HOOK_ASKED = "Bash command · from the startup-speed agent / Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed? / ❯ 1. Yes / 2. No"
+
+
 @pytest.mark.parametrize(
-    ("terminal", "kind", "excerpt"),
+    ("terminal", "kind", "asked"),
     [
-        (screen(*HOOK_APPROVAL), "approval", "Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed?"),
-        (screen("⏺ Two lanes report in.", *HOOK_APPROVAL, *AGENT_PANEL), "approval", "Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed?"),
-        (screen(*ASK_USER_QUESTION), "question", "Test page / Should I kick off the end-to-end test page now?"),
-        (screen(RULE, " ☐ Rebase", "  1. Rebase now", "❯ 2. Wait", RULE, "Enter to select · ↑/↓ to navigate · Esc to cancel"), "question", "Rebase"),
-        (screen(*PERMISSION), "approval", "Computer Use wants to control these apps / ◉ Slack"),
-        (screen(*TRUST), "approval", "Accessing workspace: / Quick safety check: Is this a project you created or one you trust?"),
-        (screen(*CODEX_APPROVAL), "approval", "Would you like to run the following command? / $ rm -rf build/out"),
+        (screen(*HOOK_APPROVAL), "approval", HOOK_ASKED),
+        (screen("⏺ Two lanes report in.", *HOOK_APPROVAL, *AGENT_PANEL), "approval", HOOK_ASKED),
+        (screen(*ASK_USER_QUESTION), "question", "Test page / Should I kick off the end-to-end test page now? / ❯ 1. Kick it off now (Recommended) / 2. After release starts work again / 3. Type something. / 4. Chat about this"),
+        (screen(RULE, " ☐ Rebase", "  1. Rebase now", "❯ 2. Wait", RULE, "Enter to select · ↑/↓ to navigate · Esc to cancel"), "question", "Rebase / 1. Rebase now / ❯ 2. Wait"),
+        (screen(*PERMISSION), "approval", "Computer Use wants to control these apps / ◉ Slack / ❯ Deny, and tell Claude what to do differently (esc) / Allow for this session (1 app)"),
+        (screen(*TRUST), "approval", "Accessing workspace: / Quick safety check: Is this a project you created or one you trust? / ❯ No, exit / Yes, I trust this folder"),
+        (screen(*CODEX_APPROVAL), "approval", "Would you like to run the following command? / $ rm -rf build/out / › 1. Yes, proceed (y) / 2. No, and tell Codex what to do differently (esc)"),
     ],
 )
-def test_a_dialog_is_a_cancel_footer_under_a_selection_cursor(terminal: dict, kind: str, excerpt: str) -> None:
-    assert prompt_screen.dialog(terminal) == prompt_screen.Dialog(kind, excerpt)
+def test_a_dialog_is_a_cancel_footer_under_a_selection_cursor(terminal: dict, kind: str, asked: str) -> None:
+    assert prompt_screen.dialog(terminal) == prompt_screen.Dialog(kind, asked)
+
+
+def test_two_commands_behind_one_warning_ask_two_different_things() -> None:
+    other = tuple(line.replace("single-stream fetch", "eight-stream fetch") for line in HOOK_APPROVAL)
+
+    assert prompt_screen.dialog(screen(*other)).asked == HOOK_ASKED.replace("single-stream fetch", "eight-stream fetch")
+    assert prompt_screen.dialog(screen(*CODEX_APPROVAL)) != prompt_screen.dialog(screen(*(line.replace("build/out", "build/cache") for line in CODEX_APPROVAL)))
+
+
+def test_a_timer_ticking_above_an_unruled_dialog_leaves_what_it_asks_unchanged() -> None:
+    asked = {prompt_screen.dialog(screen(f"• Working ({elapsed} • esc to interrupt)", *CODEX_APPROVAL)) for elapsed in ("12s", "1m 42s")}
+
+    assert asked == {prompt_screen.dialog(screen(*CODEX_APPROVAL))}
 
 
 @pytest.mark.parametrize(

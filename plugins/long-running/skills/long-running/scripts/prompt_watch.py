@@ -28,7 +28,9 @@ screen the watch could not classify. A record, a wake, and `show` name that file
 class, and the read command; none carries the dialog's text. A record over cci's 400 characters
 is clipped and its whole line rides as `--path` from `<state dir>/prompt-watch/notices/`.
 
-One cci record per prompt, from lane `prompt-watch`, keyed by the dialog and its `since`:
+One cci record per prompt, from lane `prompt-watch`, keyed by the terminal, the dialog's class,
+and every row of the dialog. Orca rewrites `agentWait.since` every few seconds while one dialog
+stays open, so it keys nothing:
 a worker's or desk's prompt is a `blocker` to `root`. The coordinator cannot be woken by its
 own prompt, so its prompt is a `blocker` to the registered supervisor desk while that desk's
 own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
@@ -50,8 +52,12 @@ again. The row keeps what the send reached: `turn_started` when Orca saw the tur
 refuses, by an error or by `accepted: false`, is an owner `ask` at once.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
-restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
-exits at once, and it ends when the drive's registry file is gone. A poll that raises is
+restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock` and writes its own script
+path there, so a second `run` of the same script exits at once. A `run` from another script, as
+after a plugin update, locks `<state dir>/prompt-watch/successor` and waits on the watch's lock;
+the running watch exits after the poll that finds `successor` locked, and the newer one takes
+over with no process signalled. One `run` waits at a time, and one that dies leaves no lock
+behind. `run` ends when the drive's registry file is gone. A poll that raises is
 logged and the next one runs, so the state file ages and `show` reports the watch down.
 `start` detaches a `run` and logs to `<state dir>/prompt-watch/watch.log`; with `--root-terminal` it first records the
 coordinator's terminal. `show` prints the last poll from `<state dir>/prompt-watch/state.json`:
@@ -118,6 +124,7 @@ SCREENS = "screens"
 NOTICES = "notices"
 OWNER_ONLY = 0o600
 LOCK_FILE = "lock"
+SUCCESSOR_FILE = "successor"
 LOG_FILE = "watch.log"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 
@@ -277,7 +284,7 @@ class Watch:
         if screen.get("source") != "screen":
             return Seen(subject, UNKNOWN, f"no rendered screen (source {screen.get('source', 'absent')})", since)
         if found := prompt_screen.dialog(screen):
-            return Seen(subject, found.kind, "", since, found.excerpt, screen)
+            return Seen(subject, found.kind, "", since, found.asked, screen)
         if not wait:
             return Seen(subject, CLEAR)
         if prompt_screen.composer([line.rstrip() for line in screen.get("tail") or []]) is not None:
@@ -411,7 +418,7 @@ class Watch:
         if seen.state not in PROMPTS:
             self.close(entry, row)
             return
-        episode = hashlib.sha1(f"{seen.state}|{seen.since}|{seen.asked}".encode()).hexdigest()[:12]
+        episode = hashlib.sha1(f"{subject.key}|{seen.state}|{seen.asked}".encode()).hexdigest()[:12]
         if row.get("episode") != episode:
             self.close(entry, row)
             if row["alerts"]:
@@ -493,16 +500,34 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def free(lock) -> bool:
+    """Take a file's exclusive lock without waiting; False while another open file holds it."""
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
 def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
     if not (entry := drive.find(args.drive, None)):
         raise SystemExit(f"no drive {args.drive} in {drive.drives_dir()}")
     watch_dir(entry).mkdir(parents=True, exist_ok=True)
-    with (watch_dir(entry) / LOCK_FILE).open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            print(f"prompt-watch {args.drive}: another watch holds {lock.name}")
-            return 0
+    successor = watch_dir(entry) / SUCCESSOR_FILE
+    with (watch_dir(entry) / LOCK_FILE).open("a+") as lock:
+        if not free(lock):
+            lock.seek(0)
+            holder = lock.read().strip()
+            with successor.open("a+") as queue:
+                if args.once or holder == str(SCRIPT) or not free(queue):
+                    print(f"prompt-watch {args.drive}: another watch holds or awaits {lock.name}")
+                    return 0
+                print(f"prompt-watch {args.drive}: waiting to take over from {holder or 'a watch that names no script'}", flush=True)
+                fcntl.flock(lock, fcntl.LOCK_EX)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(SCRIPT))
+        lock.flush()
         watch = Watch(shell, args.drive)
         if args.once:
             watch.poll()
@@ -513,6 +538,10 @@ def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
                     break
             except Exception:
                 traceback.print_exc()
+            with successor.open("a+") as queue:
+                if not free(queue):
+                    print(f"prompt-watch {args.drive}: handing over to the watch that holds {successor}")
+                    return 0
             shell.sleep(POLL_SECONDS)
     print(f"prompt-watch {args.drive}: the drive ended")
     return 0

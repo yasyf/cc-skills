@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,7 +24,7 @@ ENVIRONMENT = "codex-hooks-proof"
 READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("terminal", "wait"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
 TUI_IDLE = ("terminal", "wait", "--terminal", SUPERVISOR, "--for", "tui-idle", "--timeout-ms", "1000")
 DIALOG_WORDS = ("runs rm", "Do you want to proceed", "Kick it off", "Would you like to run", "rm -rf")
-ASKED = "Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed?"
+ASKED = "Bash command · from the startup-speed agent / Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed? / ❯ 1. Yes / 2. No"
 
 
 def fixture(name: str) -> dict:
@@ -379,21 +380,58 @@ def test_a_stale_wait_alone_never_raises_a_record(home, shell):
     assert shell.posts == []
 
 
-def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell):
+def test_one_dialog_whose_since_orca_keeps_rewriting_stays_one_record_one_line_and_one_owner_ask(home, shell):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.question")
+    supervisor(shell, "managed-server.working", idle=True)
+    captures = set()
+
+    for since in (1791631247002, 1791631259279, 1791631280162, 1791631294557, 1791631308001, 1791631321440, 1791631335912, 1791631349077, 1791631362530, 1791631376218, 1791631390644, 1791631404189):
+        churned = fixture("terminal-show.coordinator.waiting")
+        churned["result"]["terminal"]["agentWait"]["since"] = since
+        shell.orca[show(ROOT)] = churned
+        row = poll(shell)[ROOT]
+        captures.add(row["capture"])
+        assert row["since"] == since
+
+    assert [post["--kind"] for post in shell.posts] == ["blocker", "ask"] and [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"]
+    assert len(shell.sends) == 1 and len(captures) == 1
+    assert json.loads(Path(captures.pop()).read_text())["since"] == 1791631247002
+    assert "supervisor codex-supervisor got the line 5m ago, its turn started, and it is still open" in whole(shell.posts[1])
+
+
+def another_command() -> dict:
+    screen = fixture("screen.coordinator.approval")
+    screen["result"]["terminal"]["tail"] = [line.replace("single-stream fetch", "eight-stream fetch") for line in screen["result"]["terminal"]["tail"]]
+    return screen
+
+
+@pytest.mark.parametrize(("second_screen", "waits"), [(lambda: fixture("screen.coordinator.question"), "a question dialog"), (another_command, "an approval dialog")])
+def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell, second_screen, waits):
     register(home)
     unbound(shell)
     coordinator(shell, "waiting", "coordinator.approval")
-    poll(shell)
-    later = fixture("terminal-show.coordinator.waiting")
-    later["result"]["terminal"]["agentWait"]["since"] = 1791627999000
-    shell.orca[show(ROOT)] = later
-    shell.orca[read(ROOT)] = fixture("screen.coordinator.question")
+    earlier = poll(shell)[ROOT]["capture"]
+    shell.orca[read(ROOT)] = second_screen()
 
     poll(shell)
 
     first, cleared, second = shell.posts
     assert (first["--kind"], cleared["--kind"], second["--kind"]) == ("ask", "unblock", "ask")
-    assert "waits on a question dialog. Screen: " in whole(second) and state()[ROOT]["capture"] in whole(second)
+    assert f"waits on {waits}. Screen: " in whole(second) and state()[ROOT]["capture"] in whole(second) and state()[ROOT]["capture"] != earlier
+
+
+def test_two_terminals_at_the_same_dialog_keep_a_screen_each(home, shell):
+    workers(home, shell, "waiting")
+    coordinator(shell, "waiting", "coordinator.approval")
+    shell.orca[read(LOCAL_TERMINAL)] = fixture("screen.coordinator.approval")
+
+    rows = poll(shell)
+
+    saved = {key: json.loads(Path(rows[key]["capture"]).read_text()) for key in (ROOT, f"dispatch:{LOCAL}")}
+    assert saved[ROOT]["asked"] == saved[f"dispatch:{LOCAL}"]["asked"] == ASKED
+    assert (saved[ROOT]["terminal"], saved[f"dispatch:{LOCAL}"]["terminal"]) == (ROOT, LOCAL_TERMINAL)
 
 
 def test_a_wait_with_a_screen_that_shows_no_known_prompt_is_unknown_and_reported_once_after_three_polls(home, shell, capsys):
@@ -687,16 +725,95 @@ def test_a_poll_that_raises_is_logged_and_the_next_one_runs(home, shell, capsys)
     assert json.loads(state_file.read_text())["subjects"][ROOT]["state"] == "clear"
 
 
-def test_a_second_watch_on_the_same_drive_exits_at_once(home, shell, capsys):
+def held_lock(entry: dict, holder: str):
+    prompt_watch.watch_dir(entry).mkdir(parents=True, exist_ok=True)
+    held = (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).open("a+")
+    prompt_watch.fcntl.flock(held, prompt_watch.fcntl.LOCK_EX)
+    held.write(holder)
+    held.flush()
+    return held
+
+
+def test_a_second_watch_from_the_same_script_exits_at_once(home, shell, capsys):
+    with held_lock(register(home), str(prompt_watch.SCRIPT)):
+        assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+
+    assert "another watch holds or awaits" in capsys.readouterr().out
+    assert shell.calls == []
+
+
+def successor(entry: dict):
+    prompt_watch.watch_dir(entry).mkdir(parents=True, exist_ok=True)
+    return (prompt_watch.watch_dir(entry) / prompt_watch.SUCCESSOR_FILE).open("a+")
+
+
+def waited_on(entry: dict) -> bool:
+    with successor(entry) as queue:
+        return not prompt_watch.free(queue)
+
+
+@pytest.mark.parametrize("holder", ["", "/plugins/cache/skills/long-running/0.7.42/skills/long-running/scripts/prompt_watch.py"])
+def test_a_watch_from_another_script_locks_the_successor_file_waits_and_takes_over(home, shell, capsys, holder):
     entry = register(home)
-    prompt_watch.watch_dir(entry).mkdir(parents=True)
-    with (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).open("w") as held:
-        prompt_watch.fcntl.flock(held, prompt_watch.fcntl.LOCK_EX)
+    unbound(shell)
+    coordinator(shell, "clear", "coordinator.answered")
+    held = held_lock(entry, holder)
+    seen = []
+
+    def release():
+        seen.append(waited_on(entry))
+        held.close()
+
+    shell.sleep = lambda seconds: (drive.drives_dir() / f"{DRIVE}.json").unlink()
+    timer = threading.Timer(0.3, release)
+    timer.start()
+
+    assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+    timer.join()
+
+    assert seen == [True] and not waited_on(entry)
+    assert (prompt_watch.watch_dir(entry) / prompt_watch.LOCK_FILE).read_text() == str(prompt_watch.SCRIPT)
+    assert json.loads((prompt_watch.watch_dir(entry) / prompt_watch.STATE_FILE).read_text())["subjects"][ROOT]["state"] == "clear"
+    assert "waiting to take over from" in capsys.readouterr().out
+
+
+def test_a_second_watch_does_not_wait_behind_one_that_already_waits(home, shell, capsys):
+    entry = register(home)
+    with held_lock(entry, ""), successor(entry) as waiting:
+        prompt_watch.fcntl.flock(waiting, prompt_watch.fcntl.LOCK_EX)
 
         assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
 
-    assert "another watch holds" in capsys.readouterr().out
-    assert shell.calls == []
+    assert "another watch holds or awaits" in capsys.readouterr().out
+
+
+def test_a_running_watch_exits_after_the_poll_that_finds_another_waiting(home, shell, capsys):
+    entry = register(home)
+    unbound(shell)
+    coordinator(shell, "clear", "coordinator.answered")
+    waiting = successor(entry)
+    shell.sleep = lambda seconds: prompt_watch.fcntl.flock(waiting, prompt_watch.fcntl.LOCK_EX)
+
+    assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+    waiting.close()
+
+    assert capsys.readouterr().out == f"prompt-watch {DRIVE}: handing over to the watch that holds {prompt_watch.watch_dir(entry) / prompt_watch.SUCCESSOR_FILE}\n"
+    assert len([call for call in shell.calls if call[:3] == ["orca", "terminal", "show"]]) == 2
+
+
+def test_a_waiting_watch_that_died_leaves_nothing_the_running_one_hands_over_to(home, shell, capsys):
+    entry = register(home)
+    unbound(shell)
+    coordinator(shell, "clear", "coordinator.answered")
+    with successor(entry) as died:
+        prompt_watch.fcntl.flock(died, prompt_watch.fcntl.LOCK_EX)
+    ticks = iter(range(2))
+    shell.sleep = lambda seconds: next(ticks) and (drive.drives_dir() / f"{DRIVE}.json").unlink()
+
+    assert prompt_watch.main(["run", "--drive", DRIVE], shell) == 0
+
+    assert capsys.readouterr().out == f"prompt-watch {DRIVE}: the drive ended\n"
+    assert len([call for call in shell.calls if call[:3] == ["orca", "terminal", "show"]]) == 2
 
 
 def test_start_records_the_coordinators_terminal_and_detaches_one_run(home, shell, capsys, monkeypatch):

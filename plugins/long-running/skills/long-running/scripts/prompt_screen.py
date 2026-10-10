@@ -11,7 +11,6 @@ APPROVAL = "approval"
 QUESTION = "question"
 DIALOG_ROWS = 30
 CODEX_ROWS = 4
-EXCERPT_ROWS = 3
 KEY_HINT = r"[\w↑↓/+ ]+ to [\w ]+"
 FOOTER = re.compile(rf"^\s*{KEY_HINT}(?:\s*·\s*{KEY_HINT})*\s*$")
 CANCEL = re.compile(r"\besc to cancel\b", re.IGNORECASE)
@@ -25,12 +24,13 @@ WAITING = "waiting"
 RUNNING = re.compile(r"\besc to interrupt\b|\((?:\d+h )?(?:\d+m )?\d+s [·•]", re.IGNORECASE)
 RUNNING_ROWS = 12
 FRAME = "│☐ "
+WORD = re.compile(r"\w")
 
 
 @dataclass(frozen=True)
 class Dialog:
     kind: str
-    excerpt: str
+    asked: str
 
 
 def indent(line: str) -> int:
@@ -76,8 +76,9 @@ def dialog(terminal: dict) -> Dialog | None:
 
     A dialog is a key-hint footer naming `Esc to cancel` with a selection cursor above it and no input
     box below it; a footer followed by the agent's input box is scrollback. A picker's footer offers to
-    select or navigate and makes a question; any other footer makes an approval. The excerpt is the
-    dialog's last rows above its options, where it says what it asks.
+    select or navigate and makes a question; any other footer makes an approval. What it asks is every
+    row of text from the dialog's top to its footer, less a row that shows a running timer, so two
+    dialogs read alike only when their text and options match.
     """
     if terminal.get("source") != "screen":
         return None
@@ -89,9 +90,8 @@ def dialog(terminal: dict) -> Dialog | None:
     if (cursor := next((i for i in reversed(range(start, footer)) if CURSOR.match(tail[i])), None)) is None:
         return None
     top = next((i + 1 for i in reversed(range(start, cursor)) if is_rule(tail[i])), start)
-    options = next(i for i in range(top, cursor + 1) if CURSOR.match(tail[i]) or NUMBERED.match(tail[i]))
-    head = [line.strip(FRAME) for line in tail[top:options] if line.strip(FRAME)]
-    return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(head[-EXCERPT_ROWS:]))
+    rows = [line.strip(FRAME) for line in tail[top:footer] if WORD.search(line) and not RUNNING.search(line)]
+    return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(rows))
 
 
 def input_state(terminal: dict) -> str | None:
