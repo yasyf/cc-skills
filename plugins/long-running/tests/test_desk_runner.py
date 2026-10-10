@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import itertools
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -74,6 +75,7 @@ class FakeShell(runner_module.Shell):
         self.posts: list[dict] = []
         self.records: list[dict] = []
         self.tail_error = ""
+        self.post_error = ""
         self.judge_process: Running | None = None
         self.sprite_states: list[str] | None = []
         self.sprite_line = ""
@@ -156,6 +158,8 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
+            if self.post_error:
+                return runner_module.Done(1, "", self.post_error)
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
             return runner_module.Done(0, f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
@@ -1335,6 +1339,33 @@ def test_an_inbox_relay_line_reaches_every_named_lane_once(shell, config, tmp_pa
         f"RELAYED R2 {LANE}: relay to dispatch ctx_a",
         "RELAYED R2 walker: relay to dispatch ctx_w",
     ]
+
+
+def test_a_refused_cci_post_keeps_the_desk_relaying_and_posts_on_a_later_pass(shell, config, tmp_path, capsys):
+    shell.launch(LANE, "ctx_a")
+    desk_inbox(tmp_path, "R1 orca-desk: relay to nobody: history")
+    orca_pass(shell, config)
+    shell.post_error = "cci: store schema 9 is newer than this cci 0.9.3 (schema 6)"
+    desk_inbox(tmp_path, f"R2 orca-desk: relay to {LANE}: rebase onto dev")
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1 and escalations(shell) == []
+    assert "1 escalation(s) left for the next pass; cci post exited 1: cci: store schema 9" in capsys.readouterr().err
+    assert cli(shell, config, "relay", "--key", "R3", "--lane", LANE, "--text", "rebase again") == 1
+    shell.post_error = ""
+    orca_pass(shell, config)
+    assert escalations(shell) == [f"RELAYED R2 {LANE}: relay to dispatch ctx_a"]
+
+
+def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
+    orca_pass(shell, config)
+    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEAT).read_text())
+    assert beat == {
+        "pid": os.getpid(),
+        "at": shell.clock.isoformat(),
+        "config": str(config.resolve()),
+        "terminal": "term_root",
+        "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca > {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
+    }
 
 
 def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config, tmp_path):
