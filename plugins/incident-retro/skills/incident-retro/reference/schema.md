@@ -263,8 +263,7 @@ page renders Prevention options after Remediation.
 | `links` | PR links for the option, using the link shape below |
 | `lane` | Name of the follow-up lane carrying the option, matching `remediation.lanes[].name` |
 
-Opus writes every prose string in the question and its options through
-`prose`; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
+Opus writes every prose string in the question and its options; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
 `check` errors on fewer than
 two or more than four options, or more than one recommended option.
 An option id other than its question's id plus one lowercase letter also
@@ -280,8 +279,8 @@ Each question becomes a card and each answer an option. `buys`, `costs`,
 `loses`, `first`, and `alternatives` become facts, with `first` labeled
 "must land first" on the board. `pros`, `cons`, and `text` become detail, and
 `recommended` carries through. The root presents the file without a
-second writing pass, then records the owner's picks before the prose pass
-and publication.
+second writing pass, then records the owner's picks before the prose is written
+and published.
 
 ## `remediation`: what was done and who carries the picks
 
@@ -428,7 +427,7 @@ an action's link.
 
 ## `prose`: authored fields and provenance
 
-`retro.py prose <dir>` routes the fields below through `claude -p --model claude-opus-5-5`.
+An Opus lane writes the fields below in place and stamps them with `retro.py prose <dir> --record`, calling no other model; from a lane on another model, `retro.py prose <dir>` routes them through `claude -p --model claude-opus-5-5`.
 `targets()` enumerates `meta.title` as `headline` and `meta.subtitle` as
 `subtitle`; both are addressable with `--field`. `meta.tags` stays
 operator-chosen data: tags are a controlled vocabulary for filtering, not
@@ -593,8 +592,9 @@ an earlier model stays valid as history.
 
 `check --strict` also errors when a required short name is absent or a
 nonempty enumerated field lacks a matching digest. A hand edit or another
-model's rewrite changes that digest; run
-`retro.py prose <dir> --field <address>` to restore provenance. The check
+model's rewrite changes that digest; an Opus lane restores provenance with
+`retro.py prose <dir> --record --field <address>`, and a lane on another
+model with `retro.py prose <dir> --field <address>`. The check
 compares text hashes only; it does not authenticate the model, run, or log.
 
 ### `--quick`: migrate a retro written before 0.3.0
@@ -687,7 +687,7 @@ writes it back to `state.retro_slug`, scaffolds
 `live.source`, and runs the checkout's `sync-index.sh`, which regenerates the
 `data-retro` cards on both `index.html` pages from every `retro.json`. It
 deletes the starter `summary.html`, so the page opens on the live summary
-instead of the scaffold's placeholder deck; the prose pass writes the deck
+instead of the scaffold's placeholder deck; Opus writes the deck
 after the incident. As `scaffold` does, it refuses a destination that already
 holds files and writes into an existing empty directory, so a path the
 checkout created in advance is usable. A second `init` over a scaffolded retro

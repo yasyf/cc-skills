@@ -77,7 +77,7 @@ class RecordIsReadUnderTheClaim(unittest.TestCase):
         retro_prose.read_record = watching
         retro_prose.write_prose = lambda *a, **k: 0
         try:
-            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "write": None, "field": None,
+            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "record": False, "write": None, "field": None,
                                      "stale": False, "quick": False, "dry_run": False, "batch": 4,
                                      "detach": False, "await_run": False})()
             retro_prose.prose(args)
@@ -151,6 +151,28 @@ class Grandfathering(unittest.TestCase):
         self.assertNotIn("kind", lock["fields"]["C1.text"])
 
 
+class RecordInPlace(unittest.TestCase):
+    """An Opus lane that wrote its own fields stamps them without a second model pass."""
+
+    def test_written_fields_are_stamped_with_the_lanes_model(self):
+        store = {"C1.text": {"kind": "prose", "text": "The column rename broke inserts."},
+                 "T1.h": {"kind": "short name", "text": ""}}
+        lock = {"fields": {}}
+        with patch.object(retro_prose, "lint", return_value={}):
+            retro_prose.record(store, ["C1.text", "T1.h"], lock, "claude-opus-5-5")
+        entry = lock["fields"]["C1.text"]
+        self.assertEqual(entry["sha256"], retro_prose.digest("The column rename broke inserts."))
+        self.assertEqual((entry["model"], entry["writer"], entry["slop"]), ("claude-opus-5-5", "session", 0))
+        self.assertNotIn("T1.h", lock["fields"], "an empty field has nothing to stamp")
+
+    def test_slop_findings_are_counted_against_the_budget(self):
+        store = {"C1.text": {"kind": "prose", "text": "We leverage a robust solution."}}
+        lock = {"fields": {"C2.text": {"sha256": "x", "slop": 1}}}
+        with patch.object(retro_prose, "lint", return_value={"C1.text": [{"ruleId": "a"}, {"ruleId": "b"}]}):
+            retro_prose.record(store, ["C1.text"], lock, "claude-opus-5-5")
+        self.assertEqual((lock["fields"]["C1.text"]["slop"], lock["slop"]), (2, 3))
+
+
 class HeadlineAndSubtitle(unittest.TestCase):
     """0.3.0 required a compact title but gave no way to write one. Both are prose fields now."""
 
@@ -212,7 +234,7 @@ class OperatorNotes(unittest.TestCase):
         retro_prose.write_prose = lambda retro, R, root, args, store, *a, **k: seen.append(
             store["meta.title"].get("note")) or 0
         try:
-            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "write": None,
+            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "record": False, "write": None,
                                      "field": ["meta.title"], "stale": False, "quick": False,
                                      "dry_run": False, "batch": 4, "note": ["meta.title=name the cause"],
                                      "detach": False, "await_run": False})()
