@@ -69,6 +69,10 @@ Read first after the plan. Drive ssql-hacks, root session b577ef71.
 ## G. Open owner-facing items
 - #23 reply to Andrew: the copy is drafted and unsent."""
 
+def creation_entry(body: str) -> dict:
+    return {"kind": "create", "time": "2026-09-01T00:00:00Z", "changes": [{"field": "body", "to": body}]}
+
+
 class FakeCcn(ledger.Shell):
     def __init__(self, answers: list[dict], docs: dict[str, str], rows: list[dict]) -> None:
         self.answers = answers
@@ -80,6 +84,7 @@ class FakeCcn(ledger.Shell):
         self.titles: dict[str, str] = {}
         self.stuck: set[str] = set()
         self.created: dict[str, dict] = {}
+        self.history: dict[str, list[dict]] = {}
         self.registers: list[str] = []
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
 
@@ -109,15 +114,19 @@ class FakeCcn(ledger.Shell):
         if verb == ["doc", "show"]:
             return json.dumps({"id": argv[5], "body": self.docs[argv[5]]})
         if verb == ["doc", "history"]:
-            return json.dumps([{"kind": "edit", "time": "2026-10-01T00:00:00Z"}, {"kind": "create", "time": "2026-09-01T00:00:00Z"} | self.created.get(argv[5], {})])
+            *edits, create = self.history.get(argv[5]) or [creation_entry(self.docs[argv[5]])]
+            return json.dumps([*edits, create | self.created.get(argv[5], {})])
         if verb == ["doc", "add"]:
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
+            self.history[doc] = [creation_entry(self.docs[doc])]
             (self.registers if REGISTER in labels else self.active).append(doc)
             self.added[doc] = argv[5]
             self.titles[doc] = argv[5]
             return json.dumps({"id": doc[:40]})
         if verb == ["doc", "edit"]:
+            change = {"field": "body", "from": self.docs[argv[5]], "to": stdin or ""}
+            self.history.setdefault(argv[5], [creation_entry(self.docs[argv[5]])]).insert(0, {"kind": "edit", "time": "2026-10-01T00:00:00Z", "changes": [change]})
             self.docs[argv[5]] = stdin or ""
             if "--title" in argv:
                 self.titles[argv[5]] = argv[argv.index("--title") + 1]
@@ -264,6 +273,7 @@ def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_augmented_and_the_
     second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
 
     assert first["id"] == second["id"] == record
+    assert (first["fresh"], second["fresh"]) == (True, False)
     assert shell.active == [record]
     assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", record] in shell.calls
     assert shell.titles.get(record, "brook: progress") == "brook: progress"
@@ -624,3 +634,42 @@ def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_cci(drive_home: Pa
 
     assert "\n".join(standing.section(body)).endswith("- #2 [cci #2]")
     assert "every landed PR is deployed" not in body
+
+
+class MinuteClock(datetime):
+    ticks = 0
+
+    @classmethod
+    def now(cls, tz: timezone | None = None) -> datetime:
+        cls.ticks += 1
+        return datetime(2026, 10, 10, 22, cls.ticks, tzinfo=tz)
+
+
+@pytest.mark.parametrize("above", [True, False])
+def test_a_narrative_the_root_edits_into_the_generated_doc_stays_whole_and_the_carried_one_folds(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, above: bool
+) -> None:
+    monkeypatch.setattr(handoff, "datetime", MinuteClock)
+    shell = shell_with("## 10:00 PM dump 1\n\n### Program state\nCensus 200/293. Lanes a, b.\n")
+    first = generate(drive_home, shell, capsys=capsys)
+    doc = first["id"]
+    head, carried = shell.docs[doc].split(f"{handoff.NARRATIVE}\n\n")
+    carried = handoff.PROVENANCE.sub("", carried)
+    if above:
+        dump = "Pre-compact handoff written by main at 3:10 PM. Read all of it.\n\n### A. Current state\nReleases are paused.\n"
+        edited = f"{head}{handoff.NARRATIVE}\n\n{dump}\n{carried}"
+    else:
+        dump = "## 3:10 PM dump 2\n\n### Current state\nReleases are paused.\n"
+        edited = f"{head}{handoff.NARRATIVE}\n\n{carried}\n{dump}"
+    shell.run(["ccn", "-R", REPO, "doc", "edit", doc, "--body", "-"], stdin=edited)
+
+    second = generate(drive_home, shell, "--generated-doc", doc, capsys=capsys)
+    third = generate(drive_home, shell, "--generated-doc", doc, capsys=capsys)
+
+    assert (first["fresh"], second["fresh"], third["fresh"]) == (False, True, False)
+    assert first["id"] == second["id"] == third["id"]
+    narrative = shell.docs[doc].split(f"{handoff.NARRATIVE}\n")[1]
+    assert narrative.startswith(f"\n_From doc {doc[:7]}, carried forward._\n\n")
+    assert narrative.count(dump.strip("\n")) == 1
+    assert "\n## 10:00 PM dump 1" not in narrative and "Lanes a, b." not in narrative
+    assert "\n- 20" in narrative.split(progress.FOLDED)[1]

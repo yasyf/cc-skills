@@ -109,8 +109,15 @@ def test_slash_command_records_plan_path(home: Path, prompt: str) -> None:
 
 FAKE_CCN = """#!/usr/bin/env python3
 import json, os, sys
+from datetime import datetime, timezone
 state = os.environ["FAKE_CCN"]
 args = sys.argv[3:]
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def history(doc):
+    path = os.path.join(state, doc + ".history.json")
+    return json.load(open(path)) if os.path.exists(path) else []
+def record(doc, entry):
+    json.dump([entry] + history(doc), open(os.path.join(state, doc + ".history.json"), "w"))
 with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 listed = os.path.join(state, "docs.json")
@@ -121,16 +128,24 @@ if args[:2] == ["doc", "add"]:
     docs = json.load(open(listed))
     label = args[args.index("--label") + 1]
     added = "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
-    open(os.path.join(state, added + ".md"), "w").write(sys.stdin.read())
-    json.dump(docs + [{"id": added, "title": args[2], "tags": [label], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
+    body = sys.stdin.read()
+    open(os.path.join(state, added + ".md"), "w").write(body)
+    record(added, {"kind": "create", "time": now, "changes": [{"field": "body", "to": body}]})
+    json.dump(docs + [{"id": added, "title": args[2], "tags": [label], "updated_at": now}], open(listed, "w"))
     print(json.dumps({"id": added}))
 if args[:2] == ["doc", "edit"]:
-    open(os.path.join(state, args[2] + ".md"), "w").write(sys.stdin.read())
+    path = os.path.join(state, args[2] + ".md")
+    before, body = open(path).read() if os.path.exists(path) else "", sys.stdin.read()
+    open(path, "w").write(body)
+    record(args[2], {"kind": "edit", "time": now, "changes": [{"field": "body", "from": before, "to": body}]})
     title = {"title": args[args.index("--title") + 1]} if "--title" in args else {}
-    json.dump([d | title if d["id"] == args[2] else d for d in json.load(open(listed))], open(listed, "w"))
+    json.dump([d | title | {"updated_at": now} if d["id"] == args[2] else d for d in json.load(open(listed))], open(listed, "w"))
 if args[:2] in (["doc", "history"], ["answer", "history"]):
     created = json.load(open(os.path.join(state, "created.json"))).get(args[2], {})
-    print(json.dumps([{"kind": "create", "time": "2026-09-01T00:00:00Z"} | created]))
+    entries = history(args[2])
+    if not entries or entries[-1]["kind"] != "create":
+        entries.append({"kind": "create", "time": "2026-09-01T00:00:00Z", "changes": []})
+    print(json.dumps(entries[:-1] + [entries[-1] | created]))
 if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != "fail":
     json.dump([d for d in json.load(open(listed)) if d["id"] != args[2]], open(listed, "w"))
 if args[:2] == ["doc", "show"]:
@@ -700,6 +715,50 @@ def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home:
     assert "now `bbbbbbbb`" in pointer
     assert handoff.reground(session_start(session, "resume")).message.startswith(
         "Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`"
+    )
+
+
+def edit_in_place(docs: Path, doc_id: str, dump: str) -> None:
+    head, carried = (docs / f"{doc_id}.md").read_text().split("## Root narrative\n\n")
+    edited = f"{head}## Root narrative\n\n{dump}\n{carried.split('\n\n', 1)[1]}"
+    subprocess.run(["ccn", "-R", str(FIXTURES / "project-600k"), "doc", "edit", doc_id, "--body", "-"], input=edited, text=True, check=True)
+
+
+DUMP_1510 = "Pre-compact handoff written by main at 3:10 PM. Read all of it.\n\n### A. Current state\nReleases are paused.\n"
+
+
+@pytest.mark.parametrize("stop", [True, False])
+def test_a_narrative_edited_into_the_generated_doc_is_the_written_narrative(home: Path, plan: Path, docs: Path, stop: bool) -> None:
+    session = home / "session"
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
+    (docs / ("a" * 40 + ".md")).write_text("## 10:00 PM dump 1\n\n### Program state\nCensus 200/293.\n")
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+    handoff.compaction_instructions(precompact(session))
+    handoff.reground(session_start(session, "compact"))
+    with handoff.CompactionState.mutate(bash(session)) as saved:
+        saved.phase, saved.generated_at = "due", handoff.time.time() - 60
+    edit_in_place(docs, "d" * 40, DUMP_1510)
+
+    if stop:
+        assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
+    handoff.compaction_instructions(precompact(session))
+    restored = handoff.reground(session_start(session, "compact")).message
+
+    generated = (docs / ("d" * 40 + ".md")).read_text()
+    assert generated.split("## Root narrative\n")[1].startswith(f"\n_From doc ddddddd._\n\n{DUMP_1510.strip()}\n\n## Folded narrative\n")
+    assert "\n## 10:00 PM dump 1" not in generated
+    assert sum(call[:3] == ["doc", "edit", "d" * 40] for call in ccn_calls(docs)) == 2
+    assert "not written" not in restored
+
+
+def test_without_a_narrative_the_restore_asks_for_one(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+
+    assert handoff.reground(session_start(session, "compact")).message.endswith(
+        "Your narrative was not written before compaction; write a progress record when convenient."
     )
 
 

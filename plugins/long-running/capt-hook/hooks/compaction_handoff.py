@@ -52,6 +52,7 @@ GENERATED_STUB = json.dumps(
         "id": "d" * 40,
         "file": "/p/brook-progress/x-generated.md",
         "register": "e" * 40,
+        "fresh": False,
         "digest": "Compacted long-running drive `brook`.",
     }
 )
@@ -165,6 +166,8 @@ def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -
         return
     result = json.loads(generated.stdout)
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
+    if result["fresh"] and state.phase == "due":
+        state.phase = "written"
     state.active_doc = result["id"]
     state.register_doc = result["register"]
     if result["id"]:
@@ -187,11 +190,15 @@ def newest_doc(state: CompactionState, cwd: str) -> dict | None:
     return max(progress_docs(state, cwd) or [], key=lambda doc: doc["updated_at"], default=None)
 
 
+def edited_since_generation(doc: dict, generated_at: float) -> bool:
+    return datetime.fromisoformat(doc["updated_at"]).timestamp() > generated_at
+
+
 def handed_off(state: CompactionState, cwd: str) -> bool:
     if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
         return False
     newest = newest_doc(state, cwd) if state.store == "ccn" else None
-    return newest is None or newest["id"] == state.active_doc
+    return newest is None or (newest["id"] == state.active_doc and not edited_since_generation(newest, state.generated_at))
 
 
 def newest_record(state: CompactionState, cwd: str) -> tuple[str, str] | None:
@@ -311,9 +318,12 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
         narrative = ["--narrative-file", str(max(fresh, key=lambda path: path.stat().st_mtime))]
     else:
         docs = progress_docs(state, evt.cwd) or []
-        if not (fresh := [doc for doc in docs if doc["id"] not in state.prior and not doc["title"].endswith(GENERATED_TITLE)]):
+        if fresh := [doc for doc in docs if doc["id"] not in state.prior and not doc["title"].endswith(GENERATED_TITLE)]:
+            narrative = ["--narrative-doc", max(fresh, key=lambda doc: doc["updated_at"])["id"]]
+        elif state.generated_at and any(doc["id"] == state.active_doc and edited_since_generation(doc, state.generated_at) for doc in docs):
+            narrative = []
+        else:
             return False
-        narrative = ["--narrative-doc", max(fresh, key=lambda doc: doc["updated_at"])["id"]]
     generated = generate(evt, state, *narrative, "--strict")
     if generated.returncode == VIOLATIONS:
         return (
@@ -325,7 +335,7 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
     if generated.returncode == OVERSIZED:
         return f"The drive's progress record is over its size cap. Trim the section it names, then stop again:\n{generated.stdout.strip()}"
     adopt(state, generated)
-    return generated.returncode == 0
+    return state.phase == "written"
 
 
 @on(
