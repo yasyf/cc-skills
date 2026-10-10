@@ -463,10 +463,10 @@ def monitor_snapshot(monitor: dict, onset, evidence, scrub, patterns: list, now:
     def forbidden(text) -> bool:
         return any(pattern.search(text or "") for _, pattern in patterns)
 
-    m = scrub_tree(m, scrub)
+    name = scrub(m["name"])
     th = m["options"].get("thresholds") or {}
     snapshot = {"schema": "ir.monitor/1", "id": monitor["id"], "url": monitor["url"], "site": site, "fetchedAt": stamp(now),
-                "name": f"Monitor {monitor['id']}" if forbidden(m["name"]) else m["name"], "type": m["type"],
+                "name": f"Monitor {monitor['id']}" if forbidden(name) else name, "type": m["type"],
                 "overallState": m["overall_state"],
                 "thresholds": {"critical": th.get("critical"), "warning": th.get("warning")}}
     series = monitor_series(dd, m["query"], (onset or now) - SERIES_LEAD, now) if m["type"] in CHARTED_TYPES else None

@@ -2133,7 +2133,7 @@ const MON_TONE={Alert:"p-crit",Warn:"p-warn",OK:"p-ok","No Data":"p-dead"};
 const PR_TONE={open:"p-acc",draft:"p-dead",merged:"p-ok",closed:"p-crit"};
 const LV_PR=Object.create(null);
 const LV_PR_FRESH_MS=60e3,LV_TOASTS=3,LV_TOAST_MS=9e3,LV_AGE_MS=15e3;
-const lvKey=e=>e.id||[e.ts,e.kind,e.actor||"",e.h||e.text||""].join("|");
+const lvKey=e=>e.id||[e.ts,e.kind,e.actor||"",e.h||"",e.text||"",...(e.refs||[]).map(r=>typeof r==="string"?r:(r&&r.url)||"")].join("|");
 const liveViewable=()=>AS_OF==null&&ongoing()&&!!LIVE;
 function viewWanted(){
  const q=new URLSearchParams(location.search).get("view");
@@ -2193,7 +2193,7 @@ function lvPreview(r,charted){
   const card=m&&lvMonitorHtml(m[1],r.url,charted);
   if(card)return {card};
  }
- return {chip:refChipHtml(r)};
+ return {chip:host==="github"?refChipHtml(r):hostChipHtml(r.url,r.label)};
 }
 function lvItemHtml(e,charted){
  const refs=(e.refs||[]).map(refNorm).filter(r=>r&&safeUrl(r.url));
@@ -2227,8 +2227,15 @@ async function lvResolvePr(gh){
  const base=`/repos/${gh.o}/${gh.r}`;
  const pr=await ghGet(`${base}/pulls/${gh.ref}`);
  if(!pr)return {state:"unknown",at:Date.now()};
- const [runs,status]=await Promise.all([ghGet(`${base}/commits/${pr.head.sha}/check-runs?per_page=100`),ghGet(`${base}/commits/${pr.head.sha}/status`)]);
- const checks=[...(runs?runs.check_runs.map(c=>c.status==="completed"?c.conclusion:"pending"):[]),...(status?status.statuses.map(c=>c.state):[])];
+ const runs=[];
+ for(let page=1;;page++){
+  const got=await ghGet(`${base}/commits/${pr.head.sha}/check-runs?per_page=100&page=${page}`).catch(()=>null);
+  if(!got)break;
+  runs.push(...got.check_runs);
+  if(runs.length>=got.total_count||!got.check_runs.length)break;
+ }
+ const status=await ghGet(`${base}/commits/${pr.head.sha}/status?per_page=100`).catch(()=>null);
+ const checks=[...runs.map(c=>c.status==="completed"?c.conclusion:"pending"),...(status?status.statuses.map(c=>c.state):[])];
  const count=states=>checks.filter(c=>states.includes(c)).length;
  const ok=count(["success","neutral","skipped"]),bad=count(["failure","error","timed_out","cancelled","action_required","startup_failure"]);
  const wait=checks.length-ok-bad;
@@ -2244,7 +2251,7 @@ async function lvResolvePrs(){
   document.querySelectorAll("#lvFeed [data-lvpr]").forEach(a=>{const l=linkNorm(a.getAttribute("href"));if(l&&l.gh)wanted.set(l.gh.key,l.gh)});
   for(const [key,gh] of wanted){
    const held=LV_PR[key];
-   if(held&&(LANDED[held.state]||Date.now()-held.at<LV_PR_FRESH_MS))continue;
+   if(held&&(held.state==="merged"||Date.now()-held.at<LV_PR_FRESH_MS))continue;
    try{LV_PR[key]=await lvResolvePr(gh)}
    catch(e){if(e.status===401)return;continue}
    document.querySelectorAll(`#lvFeed [data-lvpr="${CSS.escape(key)}"]`).forEach(a=>{a.innerHTML=lvPrInner(gh,LV_PR[key])});
