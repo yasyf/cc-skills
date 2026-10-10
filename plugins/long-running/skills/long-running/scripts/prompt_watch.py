@@ -47,7 +47,7 @@ terminal `tui-idle` and `prompt_screen.input_state` reads its screen `idle`, Cla
 Codex's. A `busy` or `waiting` supervisor gets no line, the row says which, and each poll looks
 again. The row keeps what the send reached: `turn_started` when Orca saw the turn start,
 `input_accepted` when it only took the line. A line is never typed twice, and a send Orca
-refuses is an owner `ask` at once.
+refuses, by an error or by `accepted: false`, is an owner `ask` at once.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
 restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock`, so a second one
@@ -99,6 +99,7 @@ WAITS_ON = {prompt_screen.APPROVAL: "an approval dialog", prompt_screen.QUESTION
 REACHED = {"turn_started": "its turn started", "input_accepted": "Orca accepted it and saw no turn start"}
 UNREACHABLE_CODES = frozenset({"remote_runtime_unavailable"})
 UNPARSEABLE = "unparseable"
+REFUSED = "input_refused"
 TIMED_OUT = 124
 IN_PROGRESS = "in_progress"
 POLL_SECONDS = 30
@@ -337,7 +338,10 @@ class Watch:
         at = stamp(self.shell.now())
         if not sent.get("ok"):
             return {"at": at, "error": unseen(sent["error"])[1]}
-        prompt = sent["result"]["send"].get("prompt") or {}
+        send = sent["result"]["send"]
+        if not send.get("accepted"):
+            return {"at": at, "error": f"{REFUSED}: {send.get('refusedReason') or 'Orca gave no reason'}"}
+        prompt = send.get("prompt") or {}
         stages = prompt.get("stages") or []
         return {"at": at, "request": prompt.get("requestId", ""), "stages": stages, "reached": "turn_started" if "turn_started" in stages else "input_accepted"}
 

@@ -320,18 +320,25 @@ def test_a_busy_supervisor_is_woken_on_the_first_poll_that_finds_it_idle(home, s
     assert len(shell.sends) == 1 and len(shell.posts) == 1 and "supervisor_input" not in state()[ROOT]
 
 
-def test_a_wake_orca_refuses_is_an_owner_ask_at_once_and_is_not_typed_again(home, shell):
+@pytest.mark.parametrize(
+    ("reply", "failure"),
+    [
+        ("error.terminal-handle-stale", "terminal_handle_stale: terminal_handle_stale"),
+        ("terminal-send.refused", "input_refused: Orca gave no reason"),
+    ],
+)
+def test_a_wake_orca_refuses_is_an_owner_ask_at_once_and_is_not_typed_again(home, shell, reply, failure):
     supervised(home)
     unbound(shell)
     coordinator(shell, "waiting", "coordinator.approval")
     supervisor(shell, "managed-server.working", idle=True)
-    shell.send_reply = fixture("error.terminal-handle-stale")
+    shell.send_reply = fixture(reply)
 
     rows = poll(shell, 3)
 
-    assert rows[ROOT]["wake"]["error"] == "terminal_handle_stale: terminal_handle_stale"
+    assert rows[ROOT]["wake"] | {"at": ""} == {"at": "", "error": failure}
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor", "owner"] and len(shell.sends) == 1
-    assert "the wake to supervisor codex-supervisor failed with terminal_handle_stale: terminal_handle_stale" in whole(shell.posts[1])
+    assert f"the wake to supervisor codex-supervisor failed with {failure}" in whole(shell.posts[1])
 
 
 def test_no_line_is_ever_typed_into_a_terminal_that_waits_or_for_a_workers_prompt(home, shell):
