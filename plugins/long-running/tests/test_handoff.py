@@ -30,6 +30,43 @@ OTHER = {"id": "abcdef1" + "0" * 33, "title": "Unrelated", "body": "elsewhere", 
 REGISTER = "standing-rules:brook"
 REGISTER_DOC = "c" * 40
 REGISTER_BODY = "# brook register\n\n1. Release as it merges, never on the owner's word (4ffc9a5).\n2. Pulumi state is the only truth (ec2881e).\n"
+PRE_COMPACT = """# ssql drive: pre-compact handoff 2026-10-10T2215Z (supersedes a3f05a3)
+
+Read first after the plan. Drive ssql-hacks, root session b577ef71.
+
+## Standing owner rules
+
+- Never cancel a release build (answer 4cd6a3d).
+- Dormant reads wake and migrate on every target (answer b70e998).
+
+## A. Every owner instruction, with receipts
+
+### Earlier windows (from 7033e8a, still binding)
+1. Overview of ssql migrations vs plan. DONE earlier.
+2. "what is a squash". ANSWERED.
+
+### This window (2026-10-10)
+1. "are you waiting for anything from me?" ANSWERED: no.
+
+## B. Today's incident: release 5177 SandSQL outage (retro, IN PROGRESS)
+
+### Timeline (Pacific)
+- 7:56 AM: release 5117 stuck at approve blocks.
+
+### Impact
+8,421 mint 503s.
+
+## C. Other in-flight work
+
+| item | state | owner / next |
+|---|---|---|
+| Registry stack R2 | green | landing-desk |
+
+## F. Lessons
+- Verify an Orca launch actually produced a lane within a minute.
+
+## G. Open owner-facing items
+- #23 reply to Andrew: the copy is drafted and unsent."""
 
 class FakeCcn(ledger.Shell):
     def __init__(self, answers: list[dict], docs: dict[str, str], rows: list[dict]) -> None:
@@ -232,6 +269,25 @@ def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_augmented_and_the_
     body = shell.docs[record]
     assert body.count("## Standing owner rules") == 1 and body.count("_From ") == 1
     assert body.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+
+
+def test_a_hand_written_pre_compact_handoff_stays_verbatim_under_the_generated_sections(
+    drive_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shell = shell_with(register=False)
+    record = handwritten(shell, "s-root", timedelta(minutes=1))
+    shell.docs[record] = PRE_COMPACT
+
+    first = generate(drive_home, shell, capsys=capsys)
+    second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
+
+    assert first["id"] == second["id"] == record
+    body = shell.docs[record]
+    assert body.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb._\n\n{PRE_COMPACT}\n"
+    assert progress.FOLDED not in body and progress.CARRIED not in body
+    assert standing.section(body)[:1] == [
+        "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
+    ]
 
 
 @pytest.mark.parametrize(

@@ -2431,7 +2431,7 @@ exists. Both ids are null in folder mode.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
-becomes the last section, `## Root narrative`, under `_From doc <id>._`, after folding.
+becomes the last section, `## Root narrative`, under `_From doc <id>._`, verbatim and never folded.
 A generated doc is never taken as the root's narrative. With no fresh narrative, the newest
 progress record's narrative is folded and carried forward with one provenance line.
 
@@ -2488,7 +2488,8 @@ or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 wrote a hand-written progress doc for the coming compaction, `generate` augments that
 doc in place: it is the `--narrative-doc`, or the newest hand-written doc this session
 created in the last 30 minutes or since the previous compaction (`--fresh-since`). Its
-body becomes the generated sections with its folded narrative under `_From doc <id>._`.
+body becomes the generated sections with its whole hand-written body under `_From doc <id>._`;
+with no register, its own `## Standing owner rules` is named as the rules source.
 Otherwise `generate` edits the session's generated doc, passed as `--generated-doc`,
 in place while it is active, or adds one. The doc it wrote supersedes every other
 active `progress:<slug>` doc. If the label still lists another, `generate` exits 4

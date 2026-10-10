@@ -136,10 +136,12 @@ def rule_count(register: dict | None) -> int:
     return len(RULE_LINE.findall(register["body"])) if register else 0
 
 
-def section_of(register: dict | None, lines: list[str]) -> str:
+def section_of(register: dict | None, lines: list[str], narrative: str = "") -> str:
     out = [REGISTER_HEADING, ""]
     if register:
         out += [pointer(register), ""]
+    elif section(narrative) is not None:
+        out += [f"- no `standing-rules` register doc; the root's own `{REGISTER_HEADING}` follows verbatim under `## Root narrative`", ""]
     else:
         out += ["- no `standing-rules` register doc", ""]
     return "\n".join(out + lines) + "\n"
