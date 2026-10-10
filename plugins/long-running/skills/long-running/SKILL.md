@@ -1185,13 +1185,16 @@ says what a Sprite holds and when to choose each.
 
 A Sprite launch needs `orca.sprite` configured; without it every lane launches
 locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
-while a local launch still waits under O14. The runner counts running and warm
+while a lane placed local still waits under O14. The runner counts running and warm
 Sprites before each one, adding its own Sprite launches in flight, and at
 `orca.sprite.limit` (10 while the account caps Sprites at 10) it launches locally.
-That limit, a failed count, a lane name a Sprite refuses, and a failed or malformed
-Sprite launch all start the same lane locally, logged `SPRITE-FALLBACK` with the
-reason. Model, effort, and Codex service tier are the same on either route. Remote
-API keys travel only to the worker process.
+That limit, a failed count, and a lane name a Sprite refuses start the same lane
+locally under O14's load hold. A Sprite launch that prints a failure or a malformed
+result starts it locally at once. Each logs `SPRITE-FALLBACK` with the reason. A
+Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
+
+Model and effort are the same on either route, and the runner sets no Codex service
+tier on either. Remote API keys travel only to the worker process.
 
 *Prevents the 01:00 cohort's 152-202 s launches at load 54-63 on 32 cores
 (release-v3, 2026-10-09).*

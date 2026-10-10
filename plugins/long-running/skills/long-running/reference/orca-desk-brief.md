@@ -185,6 +185,7 @@ Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
 runner reads its config only at start. A Sprite limit reached, a failed count, a lane
 name a Sprite refuses, and a failed or malformed Sprite launch each start the same
 launch locally and log `SPRITE-FALLBACK` with the reason.
+A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
 
 Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
 the file whose contents go into each brief: drive checkout, apply authority,
