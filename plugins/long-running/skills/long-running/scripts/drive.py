@@ -213,7 +213,7 @@ def cmd_desk(args: argparse.Namespace, shell: ledger.Shell) -> int:
     listed = [f"{name}={desk['terminal']}{' (supervisor)' if desk['supervisor'] else ''}" for name, desk in sorted(desks.items())]
     print(f"drive {drive} desks: {', '.join(listed) or 'none'}")
     if not args.remove and args.supervisor:
-        print(f"{args.name} is woken at its idle prompt; while it holds a wait it hears only through: cci watch --drive {cci_drive(entry)} --to {args.name} --for 0")
+        print(f"{args.name} gets one typed line at its idle prompt; while it holds a wait it reads busy and hears only through: cci watch --drive {cci_drive(entry)} --to {args.name} --for 0")
     return 0
 
 

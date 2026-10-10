@@ -1918,14 +1918,16 @@ from `/live-dashboard` `reference/keeping-live.md`.
 ### Prompt watch
 
 A terminal stopped at a prompt reports nothing. Its transcript goes quiet and its lane
-looks busy. The prompt watch reads Orca instead. `drive.py start` and root `SessionStart`
-run `prompt_watch.py start --drive <id>`, which detaches one `run` per drive beside the
-dashboard server. It polls every 30 seconds, holds `<state dir>/prompt-watch/lock` so a
-second one exits, and ends when `drive.py end` removes the registry file. A plugin
-update restarts nothing; the running watch keeps its code until the next root session
-starts one.
+looks busy. The prompt watch reads Orca instead.
 
-It reads three sets of terminals from the registry.
+`drive.py start` and root `SessionStart` run `prompt_watch.py start --drive <id>`,
+which detaches one `run` per drive beside the dashboard server. The watch is its own
+process, so a closed dashboard or a stuck session does not stop it. It polls every 30
+seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends when
+`drive.py end` removes the registry file. A plugin update restarts nothing; the running
+watch keeps its code until the next root session starts one.
+
+The registry names the terminals it polls.
 
 - The coordinator's terminal is `root_terminal`, which `drive.py start` and the hook
   record from `ORCA_TERMINAL_HANDLE`. A prompt raised by an in-process lane shows here.
@@ -1955,26 +1957,44 @@ working, and never as stuck. A host running Orca's managed server installs no ag
 hook, so `agentWait` stays unset there. The watch therefore reads every remote
 worker's screen on every poll, through the `--environment` its `worker-show` names.
 
+A dialog's text can hold a command or a secret, so it stays on disk. The watch saves
+the screen of each prompt, and of each screen it could not classify, owner-only under
+`<state dir>/prompt-watch/screens/`. A record, a wake, and `show` name that file, the
+dialog's class, and the command that reads the live screen. None of them carries the
+dialog's text.
+
 Each prompt raises one cci record from lane `prompt-watch` on topic `prompt:<name>`,
 never one per poll.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.
-- Its own prompt cannot wake the coordinator. Register one independent agent as
-  its supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`;
-  the coordinator's prompt is then a `blocker` to that lane, and the watch types the
+- Its own prompt cannot wake the coordinator. Register one independent agent as its
+  supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
+  coordinator's prompt is then a `blocker` to that lane, and the watch types the
   record's line into the supervisor's own terminal with `orca terminal send --enter`.
-  It types that line once per prompt, and only when Orca reads the supervisor
-  `tui-idle` and its screen shows the empty input box; until then each poll looks
-  again. A supervisor that holds a foreground wait is never idle, so it runs
-  `cci watch --drive <cci drive> --to <lane> --for 0` in that wait and the record ends
-  it. `drive.py desk --supervisor` prints that command. The supervisor reads the live
-  screen and answers only within what the owner already authorized. For anything else
-  it posts the owner an `ask`.
-- The owner gets an `ask`, which `lr.needs-owner` shows, in four cases. No supervisor
-  is registered. The supervisor is itself at a prompt, unknown, or unreachable. Orca
-  refuses the wake. The prompt is still open five minutes after the supervisor's
-  record, even if the supervisor was never idle to wake.
+- The owner gets an `ask`, which `lr.needs-owner` shows, when no supervisor can take
+  the prompt. That covers a drive with no supervisor, a supervisor that is itself at a
+  prompt, unknown, or unreachable, and a wake Orca refuses. A prompt still open five
+  minutes after the supervisor's record gets one too.
+
+The wake goes out once per prompt, and only to a supervisor that can take it. Orca has
+to read the terminal `tui-idle`, and the screen has to read `idle`.
+
+| Supervisor's screen | Claude Code | Codex | The watch |
+|---|---|---|---|
+| `idle` | the plain empty `❯` box, nothing running | the `›` line with no draft, nothing running | types the line |
+| `busy` | a turn running, a draft, or a list under the box | a turn running or a draft | types nothing and looks again next poll |
+| `waiting` | a dialog | a dialog | types nothing; the owner gets the `ask` |
+
+The row keeps what Orca reported for the line. `turn_started` means Orca saw the turn
+start. `input_accepted` means Orca took the line and saw no turn start, which is
+delivery and nothing more. The watch never types a line twice.
+
+A supervisor that holds a foreground wait reads `busy` for as long as it waits, so it runs
+`cci watch --drive <cci drive> --to <lane> --for 0` in that wait and the record ends
+it; `drive.py desk --supervisor` prints that command. The supervisor reads the live
+screen and answers only within what the owner already authorized. For anything else
+it posts the owner an `ask`.
 
 When the prompt leaves the screen, or its terminal leaves the watch, the watch posts
 an `unblock` record that resolves each record it raised. The watch answers no prompt

@@ -201,7 +201,7 @@ The prompt watch's last poll precedes the ask lines, one line per terminal that 
 clear, read from `prompt_watch.py show`:
 
 ```text
-WAITING-ON-PROMPT <name> <role> approval|question <n>m terminal=<handle>: <what the dialog asks>
+WAITING-ON-PROMPT <name> <role> approval|question <n>m terminal=<handle>: screen saved at <path>[; supervisor <state>]
 PROMPT-STALE <name> <role> <n>m terminal=<handle>: <detail>
 PROMPT-UNKNOWN <name> <role> <n>m terminal=<handle>: <detail>
 PROMPT-UNREACHABLE <name> <role> <n>m terminal=<handle> environment=<name>: <detail>
@@ -209,7 +209,7 @@ PROMPT-WATCH-DOWN <drive>: <detail>; start it with `<command>`
 ```
 
 `<role>` is `coordinator`, `supervisor`, `desk`, or `worker`, and `<n>m` counts from the
-poll that first saw the state. A sharded summary keeps its own lanes' lines and
+poll that first saw the state. No line carries a dialog's text; the saved screen holds it. A sharded summary keeps its own lanes' lines and
 `PROMPT-WATCH-DOWN`. Forward each line unchanged. The watch already posted every prompt
 to the root, the supervisor, or the owner, so a `WAITING-ON-PROMPT` line is a second
 look, never the alert. `PROMPT-UNKNOWN` and `PROMPT-UNREACHABLE` say the prompt state is
