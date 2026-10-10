@@ -4,6 +4,7 @@
   retro.py prose <dir> [--field ADDR]… [--stale] [--batch N] [--dry-run] [--detach]
   retro.py prose <dir> --await
   retro.py prose <dir> --list
+  retro.py prose <dir> --record [--field ADDR]… [--model MODEL]
 
 The command enumerates the prose a writer authors, builds one work order
 pointing the model at the writing contract rather than restating it, calls
@@ -11,7 +12,8 @@ pointing the model at the writing contract rather than restating it, calls
 the returned text straight into retro.json and summary.html, and records the
 model, run directory, log and per-field digest in prose.lock.json. `check
 --strict` reads that lock, so a hand edit or another model's rewrite fails the
-gate until this command runs again.
+gate until this command runs again. An Opus lane writes the fields in place itself and runs
+--record, which lints them and stamps the lane's model without calling another model.
 """
 import fcntl, hashlib, json, os, re, shlex, shutil, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
@@ -497,6 +499,33 @@ def grandfather(retro, R: dict, root: Path, store: dict, wanted: set, lock: dict
     return stamped
 
 
+def record(store: dict, wanted: list, lock: dict, model: str) -> dict:
+    """Stamp the lane's own in-place writing with its model; returns address -> slop-cop violations."""
+    texts = {a: store[a]["text"] for a in wanted if store[a]["text"].strip()}
+    findings = lint(texts, False)
+    at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for addr, text in texts.items():
+        lock["fields"][addr] = {"sha256": digest(text), "model": model, "writer": "session",
+                                "slop": len(findings.get(addr) or []), "at": at}
+    lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values() if isinstance(f, dict))
+    return findings
+
+
+def record_prose(root: Path, store: dict, wanted: list, model: str) -> int:
+    lock = load_lock(root)
+    empty = [a for a in wanted if not store[a]["text"].strip()]
+    findings = record(store, wanted, lock, model)
+    write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+    print(f"prose: stamped {len(wanted) - len(empty)} field(s) as written by {model} in {PROSE_LOCK}")
+    for addr in empty:
+        print(f"warn:  {addr} is empty; write it in place and record it again")
+    for addr, violations in sorted(findings.items()):
+        for v in violations:
+            print(f"slop:  {addr}: {v.get('ruleId')}: {v.get('matchedText', '')!r}")
+    print(f"prose: {lock['slop']} slop-cop finding(s) across every locked field, budget {SLOP_BUDGET}")
+    return 0
+
+
 def unlocked(retro, R: dict, root: Path) -> list:
     """Addresses whose current text carries no provenance from this command."""
     lock = load_lock(root)["fields"]
@@ -525,7 +554,8 @@ def check_lock(retro, rep, R: dict, root: Path):
     if missing:
         shown = ", ".join(missing[:6]) + (f" and {len(missing) - 6} more" if len(missing) > 6 else "")
         rep.strict_warn(f"{len(missing)} prose field(s) carry no writer provenance in {PROSE_LOCK} ({shown}); every "
-                        f"sentence on the page is written by {PROSE_MODEL}, so run retro.py prose to write them there")
+                        f"sentence on the page is written by Opus: an Opus lane writes them in place and runs retro.py prose "
+                        f"--record, and a lane on another model runs retro.py prose")
     findings = sum(f.get("slop", 0) for f in lock["fields"].values() if isinstance(f, dict))
     if findings > SLOP_BUDGET:
         worst = sorted(((f.get("slop", 0), a) for a, f in lock["fields"].items() if isinstance(f, dict)), reverse=True)
@@ -617,6 +647,8 @@ def prose(args) -> int:
             if f not in store:
                 print(f"prose: {f} is not a prose field; retro.py prose {root} --list names them", file=sys.stderr)
                 return 1
+    elif args.record:
+        wanted = unlocked(retro, R, root)
     elif args.quick:
         wanted = [a for a in newly_required(retro, R, root, store) if a in unlocked(retro, R, root)]
     elif args.stale:
@@ -626,6 +658,16 @@ def prose(args) -> int:
     if not wanted and not args.quick:
         print("prose: every field already carries writer provenance")
         return 0
+    if args.record:
+        try:
+            with Owner(root):
+                R, store = read_record(retro, root)
+                if R is None:
+                    return 1
+                return record_prose(root, store, [a for a in wanted if a in store], args.model)
+        except Busy as held:
+            print(f"prose: {held} is already writing {root}; record after it finishes", file=sys.stderr)
+            return 1
     rules_file = rule_catalogue(lane_root)
     if args.dry_run:
         print(work_order(retro, R, root, wanted[:args.batch or len(wanted)], store, rules_file))
@@ -804,6 +846,9 @@ def add_prose_parser(sub, retro):
     p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask the model only for what this "
                    "version newly requires, skip the model lint rounds, and pin the rest as legacy provenance")
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
+    p.add_argument("--record", action="store_true", help="an Opus lane wrote the fields in place: lint them and "
+                   "stamp them with --model in prose.lock.json, calling no model; the unlocked fields by default")
+    p.add_argument("--model", default=PROSE_MODEL, help="the writing lane's model, recorded by --record")
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call, the calls running side by "
                    "side; the default 0 sends every field in one call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")

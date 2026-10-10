@@ -10,10 +10,12 @@ While `meta.status` is `ongoing`, the live commands derive the record from
 incident state without producing LLM-authored prose. After `live finalize`,
 Claude Opus 5.5 (`claude-opus-5-5`) writes and revises all new prose,
 including headlines, subtitles, summaries, plain twins, handles, revision
-notes, and publication text. Use `retro.py prose` for its enumerated fields
-in `retro.json` and `summary.html`; it calls `claude -p --model
-claude-opus-5-5 --json-schema` and records their provenance in
-`prose.lock.json`. `check` accepts every writer model a lock records, so a
+notes, and publication text. An Opus lane writes the enumerated fields in
+`retro.json` and `summary.html` in place itself, then runs `retro.py prose
+--record`, which lints them with slop-cop and stamps their digests and the
+lane's model in `prose.lock.json` without calling another model. Only a lane
+on another model runs `retro.py prose --detach`, which calls `claude -p
+--model claude-opus-5-5 --json-schema` and records the same provenance. `check` accepts every writer model a lock records, so a
 lock written by an earlier model stays valid as history. For a retro written
 before 0.3.0, use the `--quick` migration below to retain eligible existing
 prose.
@@ -91,10 +93,11 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    with what stops the incident and `remediation.lanes` with the follow-up
    lanes carrying the picks. The initial retro PR includes this Remediation
    section and the owner's picks.
-4. Finish every fact, then run one `$TOOL prose <dir> --detach` and await it with the printed
-   `AWAIT:` command. The default sends every field in one call. Fields
-   reach disk when the run ends. A later fact edit sends the affected fields
-   back through Opus.
+4. Finish every fact. An Opus lane then writes every prose field in place and
+   runs `$TOOL prose <dir> --record`. A lane on another model instead runs one
+   `$TOOL prose <dir> --detach` and awaits it with the printed `AWAIT:`
+   command. A later fact edit means rewriting the affected fields and
+   recording them again.
 5. Run `$TOOL publish <dir>`. It runs the gates before pushing, refreshes
    both cards, opens or updates a ready PR, merges it once it is clean and green with the
    merge method the repository allows, and waits for a successful Pages
@@ -166,8 +169,9 @@ $TOOL live finalize <incident-dir> --docs <design-docs-checkout> \
 unset `timestamps.resolved` from `state.all_clear_at`. Supply two to six topical
 tags; the draft requires them. It changes local files and runs `check`.
 Continue through Gather, Draft, Evidence, Check, and Publish in the same
-directory and at the same URL. Opus writes all prose from this point on,
-using `retro.py prose` for its enumerated fields. The published draft no
+directory and at the same URL. Opus writes all prose from this point on:
+an Opus lane writes the enumerated fields in place and runs `retro.py prose
+--record`, and a lane on another model runs `retro.py prose --detach`. The published draft no
 longer polls the live branch.
 
 An unattended updater adds `--push` to finalize. Nobody reloads the merged
@@ -185,13 +189,13 @@ a muted "no time data" mark. See [reference/components.md](reference/components.
 
 ## What the agent writes after all-clear
 
-`retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then runs the prose command:
+`retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then writes or routes the prose:
 
 - Complete the scaffolded `retro.json` from the records. Do not infer a missing event, cause, owner, or outcome.
-- Run `prose` to have Opus write `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. Opus writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
+- Opus writes `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. Opus writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
 - Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep team codenames in `meta.teams`.
 - For a retro written before 0.3.0, move the old `meta.title` into `meta.subtitle`, clear `meta.title`, and run `prose --quick` to write the newly required prose through Opus. Supply the tags yourself. Replace the old subtitle's browser-title suffix value.
-- Once the causes and actions are settled, prepare one `summary.html` panel per question and run its wording through `prose`.
+- Once the causes and actions are settled, prepare one `summary.html` panel per question; its wording is a prose field like the rest.
 - Fetch only Slack snapshots missing from the records with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
 - Write every timestamp as ISO 8601 with a UTC offset. `meta.timezone` controls display only.
 - Leave each plain twin `p` empty for Opus to write in 30 words or fewer. The twin keeps every fact from the precise wording, with no register id or file path.
@@ -242,11 +246,12 @@ Then draft in reading order:
 10. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
 11. Leave plain twins and handles empty for Opus to write from each entry. Fill one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
 12. Prepare `summary.html` last with one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
-13. Finish every fact, then run `prose --list` to inspect the field addresses and one `prose --detach` to write them through Opus. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
-14. Run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Fields are written to disk after all calls finish.
+13. Finish every fact, then run `prose --list` to inspect the field addresses. An Opus lane writes every field in place and runs `prose --record`; that is the whole prose step, with no second model pass. A lane on another model runs one `prose --detach` to write them through Opus. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
+14. After `--detach`, run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Fields are written to disk after all calls finish.
 
-Review refused fields and lint findings, and rerun affected addresses with
-`--field`. A fact edited after prose also needs its affected fields rewritten.
+Review refused fields and lint findings, and rewrite affected addresses,
+then record them again with `--record --field`, or rerun them with `--field`
+from a lane on another model. A fact edited after prose also needs its affected fields rewritten.
 Keep `prose.lock.json` beside the record.
 
 > Never background `prose` or wait on a `Monitor`: neither notification wakes an idle in-process teammate.
@@ -255,6 +260,8 @@ Follow [reference/writing.md](reference/writing.md). Mark a required answer as n
 
 ```bash
 $TOOL prose <dir> --list
+$TOOL prose <dir> --record
+$TOOL prose <dir> --record --field C1.text --field C1.p
 $TOOL prose <dir> --detach
 $TOOL prose <dir> --await
 $TOOL prose <dir> --field C1.text --field C1.p
@@ -287,8 +294,8 @@ work order without calling the model. The field list and token-preservation
 limits are in
 [reference/schema.md](reference/schema.md#prose-authored-fields-and-provenance).
 The command writes accepted fields even when it refuses others, so inspect
-the report before continuing. After a later edit, rerun the affected field
-through `prose`; a changed hash fails `check --strict`.
+the report before continuing. After a later edit, record the affected field
+again with `prose --record --field`; a changed hash fails `check --strict`.
 
 The work order names the writing contract and the full rule catalog from
 `slop-cop rules --pretty`, so Opus writes to the rules in the first draft.
@@ -405,7 +412,7 @@ $TOOL evidence slack check <dir>
 count with `--llm-effort=off` before refreshing the cards, committing, or
 pushing. It prints the check timings and lint count. A failed check exits 1
 and pushes nothing. Use `publish` for these checks once the owner's picks
-and Remediation are recorded and the prose pass finishes.
+and Remediation are recorded and the prose is recorded in the lock.
 
 Generate the PDF separately:
 
@@ -420,7 +427,8 @@ Fix every structural error. Triage every prose finding against [reference/writin
 The lock records per-field `slop` counts and a total; strict mode sums those
 counts and fails above `SLOP_BUDGET = 3`, naming the fields with the most
 findings. The prose gate covers the landed prose fields, not the whole rendered
-document. Revise failed prose through `prose --field`, then rerun
+document. Revise failed prose in place and record it with
+`prose --record --field`, then rerun
 `publish`.
 
 `render-check` measures the initial page, with disclosures closed by default. Its visible-word budget is 1500 unless `--words` overrides it. It rejects visible Slack messages and the notebook, monitor, and transcript body selectors documented in the schema. Height and open-disclosure count are reported without a limit. It does not force `open: true` components closed.
@@ -432,7 +440,7 @@ rule is counted and can fail these gates.
 
 Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
 
-When changing the prose pipeline, run its 26 tests from this skill
+When changing the prose pipeline, run its tests from this skill
 directory:
 
 ```bash
@@ -463,7 +471,7 @@ Write the snapshot note for a returning reader. Name what changed and why it mat
 The initial retro PR includes what stops the incident, the owner's prevention
 picks with owners and PR links or named follow-up lanes, and the follow-up
 lanes themselves. Complete the board and Remediation in Phase 2 before
-the prose pass and publication.
+the prose and publication.
 
 ```bash
 $TOOL publish <dir>

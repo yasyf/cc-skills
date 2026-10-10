@@ -7,8 +7,9 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 # design-doc
 
 Claude Opus 5.5 (`claude-opus-5-5`) writes and revises all prose, including
-summaries, plain twins, handles, revision notes, and publication text. A
-session on another model delegates the writing to an Opus 5.5 author
+summaries, plain twins, handles, revision notes, and publication text. An
+Opus session writes its own prose in place, with no separate writer or prose
+pass. Only a session on another model delegates the writing to an Opus 5.5 author
 (`Agent` with `model: opus`) and may collect evidence and publish the result
 itself. Prose helpers call Opus 5.5 through `claude -p`, with no fallback
 model.

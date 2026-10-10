@@ -11,7 +11,7 @@ changes that reduce recurrence. It does not grade the people involved.
 
 ## The headline names the failure and the subtitle states the mechanism
 
-Opus writes `meta.title` and `meta.subtitle` through `retro.py prose`.
+Opus writes `meta.title` and `meta.subtitle`.
 The headline names the failure. The subtitle states what changed, what
 that change caused, and what broke in one sentence. Both must make sense
 to someone who was not in the response.
@@ -267,7 +267,11 @@ the command's warning about a missing source does not clear the push.
 
 ## Prose gate
 
-Run `retro.py prose <dir>` after assembling the record. It sends the authored
+An Opus lane writes the authored fields in place after assembling the record
+and runs `retro.py prose <dir> --record`. That lints them with
+`slop-cop check --llm-effort=off`, stamps their hashes and the lane's model in
+`prose.lock.json`, and calls no other model. A lane on another model runs
+`retro.py prose <dir>` instead. It sends the authored
 fields listed in [reference/schema.md](schema.md#prose-authored-fields-and-provenance)
 through `claude -p --model claude-opus-5-5`, writes accepted wording directly, and records
 its hashes in `prose.lock.json`. These fields include the headline and
@@ -303,8 +307,9 @@ The lock records each field's remaining `slop` count and their total.
 findings.
 This gate covers the landed prose fields; the rendered document still needs
 the separate check below. Inspect the refused-field and lint reports.
-Do not hand-edit accepted text: `check --strict` rejects a changed field
-until `retro.py prose <dir> --field <address>` writes it again.
+`check --strict` rejects a changed field until it is recorded again with
+`retro.py prose <dir> --record --field <address>`, or rewritten with
+`--field` from a lane on another model.
 
 Preserve numbers, times, identifiers, URLs, code-span contents, names,
 citations, and footnotes in fields other than the headline and subtitle.

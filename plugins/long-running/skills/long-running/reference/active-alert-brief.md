@@ -224,8 +224,10 @@ Do:
      `retro.py board <dir> --out <board.json>` and present it to the owner.
      Record the picks with picked, owner, and PR links or a named lane. Fill
      Remediation with what stops the incident and the follow-up lanes before
-     the prose pass. The first retro PR includes these records.
-  6. Run the skill's prose pass, then `retro.py publish <dir>`. It runs the
+     writing prose. The first retro PR includes these records.
+  6. You run on Opus, so write every prose field in place yourself, run
+     `retro.py prose <dir> --record` with no separate prose pass, then
+     `retro.py publish <dir>`. It runs the
      gates, opens a ready PR, enables squash auto-merge, and waits for merge
      and the rendered-URL check. On exit 75, resume the printed AWAIT: command.
      Hand only the URL from the final RENDERED: line to <root agent name> and
