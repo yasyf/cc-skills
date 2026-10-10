@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 import compact_job
@@ -113,6 +112,7 @@ from datetime import datetime, timezone
 state = os.environ["FAKE_CCN"]
 args = sys.argv[3:]
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+GENERATED = "Generated from sources by the long-running compaction hook at 2026-09-30T00:00:00Z.\\n\\n"
 def history(doc):
     path = os.path.join(state, doc + ".history.json")
     return json.load(open(path)) if os.path.exists(path) else []
@@ -123,7 +123,7 @@ with open(os.path.join(state, "calls"), "a") as calls:
 listed = os.path.join(state, "docs.json")
 if args[:2] == ["doc", "list"]:
     labels = [args[i + 1] for i, arg in enumerate(args) if arg == "--label"]
-    print(json.dumps([d for d in json.load(open(listed)) if all(label in d["tags"] for label in labels)]))
+    print(json.dumps([d for d in json.load(open(listed)) if not d.get("superseded_by") and all(label in d["tags"] for label in labels)]))
 if args[:2] == ["doc", "add"]:
     docs = json.load(open(listed))
     label = args[args.index("--label") + 1]
@@ -141,16 +141,24 @@ if args[:2] == ["doc", "edit"]:
     title = {"title": args[args.index("--title") + 1]} if "--title" in args else {}
     json.dump([d | title | {"updated_at": now} if d["id"] == args[2] else d for d in json.load(open(listed))], open(listed, "w"))
 if args[:2] in (["doc", "history"], ["answer", "history"]):
-    created = json.load(open(os.path.join(state, "created.json"))).get(args[2], {})
     entries = history(args[2])
     if not entries or entries[-1]["kind"] != "create":
         entries.append({"kind": "create", "time": "2026-09-01T00:00:00Z", "changes": []})
-    print(json.dumps(entries[:-1] + [entries[-1] | created]))
+    print(json.dumps(entries))
 if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != "fail":
-    json.dump([d for d in json.load(open(listed)) if d["id"] != args[2]], open(listed, "w"))
+    docs = json.load(open(listed))
+    for d in docs:
+        if d["id"] == args[2]:
+            d["superseded_by"] = args[4]
+        if d["id"] == args[4]:
+            d["supersedes"] = d.get("supersedes", []) + [args[2]]
+    json.dump(docs, open(listed, "w"))
 if args[:2] == ["doc", "show"]:
-    body = os.path.join(state, args[2] + ".md")
-    print(json.dumps({"id": args[2], "body": open(body).read() if os.path.exists(body) else "## Standing owner rules\\n- none\\n"}))
+    entry = next((d for d in json.load(open(listed)) if d["id"] == args[2]), {})
+    path = os.path.join(state, args[2] + ".md")
+    body = open(path).read() if os.path.exists(path) else GENERATED + "## Standing owner rules\\n- none\\n"
+    fields = {key: entry.get(key, []) for key in ("tags", "supersedes")} | {"title": entry.get("title", "")}
+    print(json.dumps({"id": args[2], "body": body, "created_at": entry.get("updated_at", ""), "updated_at": entry.get("updated_at", "")} | fields))
 if args[:2] == ["answer", "list"]:
     answers = json.load(open(os.path.join(state, "answers.json")))
     print(json.dumps([a for a in answers if all(l in a["tags"] for l in args[3:-3:2])]))
@@ -187,7 +195,6 @@ def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (bin_dir / "cci").chmod(0o755)
     (state_dir / "docs.json").write_text("[]")
     (state_dir / "answers.json").write_text("[]")
-    (state_dir / "created.json").write_text("{}")
     monkeypatch.setenv("FAKE_CCN", str(state_dir))
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return state_dir
@@ -200,6 +207,10 @@ def ccn_calls(docs: Path) -> list[list[str]]:
 
 def doc(doc_id: str, updated: str) -> dict:
     return {"id": doc_id, "title": f"brook: progress {updated}", "tags": ["progress:brook"], "updated_at": updated}
+
+
+def active(docs: Path) -> list[str]:
+    return [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"] and not entry.get("superseded_by")]
 
 
 REGISTER_ID = "9" * 40
@@ -260,12 +271,12 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     assert result.system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
-    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["b" * 40]
+    assert active(docs) == ["b" * 40]
     augmented = (docs / ("b" * 40 + ".md")).read_text()
     assert augmented.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
     assert "- teammate: orca-desk-6" in augmented
     assert "read the progress doc `ccn doc show bbbbbbb`, then " in state(session).digest
-    assert (state(session).active_doc, state(session).generated_doc) == ("b" * 40, "b" * 40)
+    assert (state(session).active_doc, state(session).read_first, state(session).narrative) == ("b" * 40, [], "bbbbbbb")
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
     assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
@@ -544,15 +555,15 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     handoff.compaction_instructions(precompact(session))
 
-    generated = (docs / ("d" * 40 + ".md")).read_text()
+    generated = (docs / ("a" * 40 + ".md")).read_text()
     assert "- #1 [cci #1]" in generated
-    assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
-    assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    assert generated.endswith("_From doc aaaaaaa._\n\n## Root's next actions\n1. watch SoFi\n")
+    assert not any(call[:2] in (["doc", "add"], ["doc", "supersede"]) and "standing-rules:brook" not in call for call in ccn_calls(docs))
 
     restored = handoff.reground(session_start(session, "compact")).message
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show 9999999`")
-    assert "Then read the progress doc `ccn doc show ddddddd`" in restored
+    assert "Then read the progress doc `ccn doc show aaaaaaa`" in restored
     assert "\nRegister: 1 owner-approved rules, 1 live standing rules.\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
@@ -617,7 +628,7 @@ def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, 
     )
 
 
-def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_summary_names_it(
+def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_it(
     home: Path, plan: Path, docs: Path
 ) -> None:
     session = home / "session"
@@ -625,15 +636,13 @@ def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_sum
     record = doc("6" * 40, "2026-10-03T00:42:16Z")
     (docs / "docs.json").write_text(json.dumps([old_generated, record]))
     (docs / ("6" * 40 + ".md")).write_text("## Root's next actions\n1. 12-item plan\n")
-    minutes_ago = datetime.fromtimestamp(handoff.time.time() - 480, timezone.utc).isoformat()
-    (docs / "created.json").write_text(json.dumps({"6" * 40: {"session": SESSION, "time": minutes_ago}}))
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", generated_doc="4" * 40).save(bash(session))
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     instructions = handoff.compaction_instructions(precompact(session)).message
 
     assert ["doc", "supersede", "4" * 40, "--by", "6" * 40] in ccn_calls(docs)
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
-    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["6" * 40]
+    assert active(docs) == ["6" * 40]
     augmented = (docs / ("6" * 40 + ".md")).read_text()
     assert augmented.count("## Standing owner rules") == 1
     assert augmented.endswith("_From doc 6666666._\n\n## Root's next actions\n1. 12-item plan\n")
@@ -651,10 +660,10 @@ def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_sum
 
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert [call[:3] for call in ccn_calls(docs) if call[:2] == ["doc", "edit"]] == [["doc", "edit", "6" * 40]] * 2
-    assert state(session).active_doc == state(session).generated_doc == "6" * 40
+    assert state(session).active_doc == "6" * 40
     augmented = (docs / ("6" * 40 + ".md")).read_text()
     assert augmented.count("## Standing owner rules") == 1 and augmented.count("_From ") == 1
-    assert augmented.endswith("_From doc 6666666._\n\n## Root's next actions\n1. 12-item plan\n")
+    assert augmented.endswith("_From doc 6666666, carried forward._\n\n## Root's next actions\n1. 12-item plan\n")
 
 
 def test_a_second_active_doc_after_generation_blocks_the_stop_and_names_the_failure_at_compaction(
@@ -677,7 +686,7 @@ def test_a_second_active_doc_after_generation_blocks_the_stop_and_names_the_fail
 
     instructions = handoff.compaction_instructions(precompact(session)).message
 
-    assert instructions.startswith("The generated handoff failed: 3 active progress:brook docs after generation, expected only ddddddd: ")
+    assert instructions.startswith("The generated handoff failed: 2 active progress:brook docs after generation, expected only bbbbbbb: ")
 
 
 def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, plan: Path, docs: Path) -> None:
@@ -694,15 +703,12 @@ def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-10-07T16:03:15Z"), doc("b" * 40, "2026-10-07T16:06:13Z")]))
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. dump 30\n")
-    minutes_ago = datetime.fromtimestamp(handoff.time.time() - 60, timezone.utc).isoformat()
-    (docs / "created.json").write_text(json.dumps({"b" * 40: {"session": SESSION, "time": minutes_ago}}))
     handoff.CompactionState(
         active=True,
         plan_path=str(plan),
         slug="brook",
         phase="compacting",
         active_doc="a" * 40,
-        generated_doc="a" * 40,
         generated_at=handoff.time.time() - 180,
     ).save(bash(session))
 
@@ -710,7 +716,7 @@ def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home:
 
     assert instructions.startswith(f"Resume from `{plan}`, then `ccn doc show bbbbbbbb`; ")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
-    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["b" * 40]
+    assert active(docs) == ["b" * 40]
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
     assert "now `bbbbbbbb`" in pointer
     assert handoff.reground(session_start(session, "resume")).message.startswith(
@@ -737,17 +743,19 @@ def test_a_narrative_edited_into_the_generated_doc_is_the_written_narrative(home
     handoff.reground(session_start(session, "compact"))
     with handoff.CompactionState.mutate(bash(session)) as saved:
         saved.phase, saved.generated_at = "due", handoff.time.time() - 60
-    edit_in_place(docs, "d" * 40, DUMP_1510)
+    edit_in_place(docs, "a" * 40, DUMP_1510)
 
     if stop:
         assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
     handoff.compaction_instructions(precompact(session))
     restored = handoff.reground(session_start(session, "compact")).message
 
-    generated = (docs / ("d" * 40 + ".md")).read_text()
-    assert generated.split("## Root narrative\n")[1].startswith(f"\n_From doc ddddddd._\n\n{DUMP_1510.strip()}\n\n## Folded narrative\n")
-    assert "\n## 10:00 PM dump 1" not in generated
-    assert sum(call[:3] == ["doc", "edit", "d" * 40] for call in ccn_calls(docs)) == 2
+    generated = (docs / ("a" * 40 + ".md")).read_text()
+    assert generated.split("## Root narrative\n")[1] == (
+        f"\n_From doc aaaaaaa._\n\n{DUMP_1510}\n## 10:00 PM dump 1\n\n### Program state\nCensus 200/293.\n"
+    )
+    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert sum(call[:3] == ["doc", "edit", "a" * 40] for call in ccn_calls(docs)) == 3
     assert "not written" not in restored
 
 
@@ -777,3 +785,49 @@ def test_an_installed_hook_runs_the_newest_live_release_of_its_scripts(tmp_path:
     assert handoff.newest(cache / "0.7.46") == cache / "0.7.48"
     assert handoff.newest(tmp_path / "long-running-worktree") == tmp_path / "long-running-worktree"
     assert handoff.script("handoff.py") == Path(handoff.__file__).parents[2] / handoff.SCRIPTS / "handoff.py"
+
+
+FULL_HANDOFF = (
+    "# Drive brook: pre-compact handoff, 2026-10-10 ~22:10Z\n\n"
+    "This supersedes progress doc aaaaaaa.\n\n"
+    "## 1. Owner asks 83 through 103\n\n" + "".join(f"- ask/0000{n}: in flight on lane-{n}\n" for n in range(83, 104)) + "\n"
+    "## 2. Live lanes\n\n- oncall-ic-dual-3 (124)\n"
+)
+ADDENDUM = (
+    "# Addendum to progress doc bbbbbbb (everything after 22:10Z)\n\n"
+    "## Owner rulings since bbbbbbb\n\n- **824f65f**: the version-qualified PC replace is routine.\n\n"
+    "## Results since bbbbbbb\n\n- **Retro DONE**: ccn doc **8bcade3** supersedes 21961bb.\n\n"
+    "## Next actions for the root\n\n1. Keep the freeze until the owner lifts it.\n"
+)
+
+
+def test_a_stop_handoff_whose_state_was_lost_still_points_the_compaction_at_the_roots_records(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    entries = [
+        doc("a" * 40, "2026-10-10T21:13:13Z") | {"title": "brook: progress 2026-10-10T2113Z (generated)", "superseded_by": "b" * 40},
+        doc("b" * 40, "2026-10-10T22:10:38Z") | {"title": "brook: progress 2026-10-10T2210Z (pre-compact handoff, full)", "supersedes": ["a" * 40]},
+        doc("c" * 40, "2026-10-10T22:15:46Z") | {"title": "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)"},
+    ]
+    (docs / "docs.json").write_text(json.dumps(entries))
+    (docs / ("b" * 40 + ".md")).write_text(FULL_HANDOFF)
+    (docs / ("c" * 40 + ".md")).write_text(ADDENDUM)
+    due = handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40])
+    due.save(bash(session))
+
+    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
+    due.save(bash(session))
+    instructions = handoff.compaction_instructions(precompact(session)).message
+    restored = handoff.reground(session_start(session, "compact")).message
+
+    assert active(docs) == ["c" * 40]
+    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert (docs / ("b" * 40 + ".md")).read_text() == FULL_HANDOFF
+    record = (docs / ("c" * 40 + ".md")).read_text()
+    assert record.split("\n## Root narrative\n")[1] == f"\n_From doc ccccccc, carried forward._\n\n{ADDENDUM.strip()}\n"
+    assert "\n- Hand-written handoff, read it in full before `## Root narrative`: `ccn doc show bbbbbbb`: " in record
+    assert instructions.startswith(f"Resume from `{plan}`, then `ccn doc show bbbbbbb`, then `ccn doc show cccccccc`; ")
+    assert "Quote: hand-written handoff bbbbbbb, then active progress doc: cccccccc; " in instructions
+    assert "read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show ccccccc`, then " in restored
+    assert "not written" not in restored
+    [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
+    assert "now `cccccccc`" in pointer

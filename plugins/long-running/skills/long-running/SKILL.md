@@ -2269,13 +2269,18 @@ Use the nudge's UTC timestamp (`YYYY-MM-DDTHHMMZ`) and pass the body on stdin.
 The progress doc is living guidance with a `when` trigger and supersede edges.
 Never rewrite the plan; it remains the stable mandate and decisions document.
 
-Write each pre-compact dump as one `##` section appended at the end of the narrative.
-Put its parts and later addenda under it as `###` headings. Keep the current dump
-self-contained; earlier dumps fold when the handoff is generated.
-Use this shape:
+Label every hand-written progress or handoff doc `progress:<slug>`, the slug in the
+plan's pointer line, whatever else it carries; the hook refuses a root `doc add` whose
+title says `progress` or `pre-compact`, or whose labels name another `progress:` slug,
+without it.
+
+Write each compaction's narrative as its own doc, self-contained, and add an addendum as
+another doc when more happens before the compaction. The hook never folds, trims, or
+rewrites the root's text. The newest hand-written doc becomes the record, and every
+earlier one since the last generated record is named to read first. Use this shape:
 
 ```md
-## <UTC> pre-compact dump
+## <UTC> pre-compact handoff
 
 ### How the drive runs
 <root role, lane contracts, desks, ledger and rulings-log ids>
@@ -2283,8 +2288,8 @@ Use this shape:
 ### Owner asks and state
 <every ask, its current state, evidence, and next gate>
 
-### Owner rulings (verbatim, binding)
-<rulings that must survive later dumps, with answer ids>
+### Owner rulings (verbatim)
+<rulings that must survive, with answer ids>
 
 ### Landed
 <completed work and evidence>
@@ -2296,22 +2301,16 @@ Use this shape:
 <ordered actions, dependencies, and owed follow-ups>
 ```
 
-To preserve binding text, put `binding` or `byte-for-byte` in its heading, or name
-`rulings` and `verbatim` together. Mark a `###` part, or a standalone `##` section
-with no `###` parts. A dump heading does not make its parts binding; mark each
-binding part.
-
 Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the
 narrative as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
 use a progress doc; a note, a log, or a loose file does not replace it.
 
 **Generated handoff.** The hook writes the handoff with `scripts/handoff.py`, through
-the `bin/handoff.py` wrapper. The script uses only the standard library and has three
+the `bin/handoff.py` wrapper. The script uses only the standard library and has two
 verbs:
 
 ```text
-handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO] [--strict] [--folder] [--repo PATH]
-handoff.py fold (--doc ID | --file PATH) [--repo PATH]
+handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--strict] [--folder] [--repo PATH]
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
@@ -2425,57 +2424,50 @@ The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`
 Without cc-notes, `--folder` writes only that progress file. The hook caps generation
 at 120 seconds.
 
-Generation prints JSON `{id, file, register, fresh, digest}` with the active progress doc id
-in `id` and the register doc id in `register`. `register` is null when no register
-exists. Both ids are null in folder mode. `fresh` is true when the root wrote the
-narrative for this compaction.
+Generation prints JSON `{id, file, register, fresh, digest, read_first, narrative}` with
+the active progress doc id in `id` and the register doc id in `register`. `register` is
+null when no register exists. Both ids are null in folder mode. `fresh` is true when the
+root wrote the narrative for this compaction. `read_first` lists the earlier hand-written
+records oldest first, and `narrative` names the record whose text the narrative is, or null.
 
-At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
-<the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
-becomes the last section, `## Root narrative`, under `_From doc <id>._`, verbatim and never folded.
-A generated doc is never taken as the root's new doc. With no fresh narrative, the newest
-progress record's narrative is folded and carried forward with one provenance line.
+At the next main-session `Stop` after the root writes a progress doc, the hook runs
+`generate --strict`. Generation finds the root's hand-written records itself. They are
+every `progress:<slug>` doc it did not write, walked from the active docs back along
+their supersede edges to the last generated record. A generated record carries the
+`Generated from sources by the long-running compaction hook at` line; generation never
+judges a record by its title, session, or age.
 
-A narrative the root edits into the active doc in place is fresh too. When that doc
-changed after the hook's last generation, the `Stop` path runs `generate --strict`
-without `--narrative-doc`, and `PreCompact` regenerates even inside its five-minute
-window. `generate` compares the doc's narrative with the one its last generation wrote,
-found in `ccn doc history`. A changed narrative goes under `_From doc <id>._` with the
-text the last generation did not write kept whole and the rest folded, and the restore
-counts it as written.
+The newest hand-written record's text becomes `## Root narrative` verbatim under
+`_From doc <id>._`. Each earlier one gets a `Read first` line,
+`` - Hand-written handoff, read it in full before `## Root narrative`: `ccn doc show <id7>`: <title> ``.
+With no new hand-written record, the previous generated record's narrative and those
+lines carry forward unchanged under one provenance line. In file mode, the hand-written
+records are the files in `<plan-stem>-progress/` newer than its newest generated file.
+
+A narrative the root edits into the active generated doc in place is fresh too. When that
+doc changed after the hook's last generation, the `Stop` path runs `generate --strict`,
+and `PreCompact` regenerates even inside its five-minute window. `generate` compares the
+doc's narrative with the one its last generation wrote, found in `ccn doc history`. A
+changed narrative stays verbatim under `_From doc <id>._`, and the restore counts it as
+written.
 
 *Prevents a repeat of the release-v3 handoff at 3:10 PM PT on 2026-10-10, where the root
 wrote a 21 KB pre-compact handoff into generated doc 29751a1 in place, `PreCompact` folded
 it into one 240-character digest line, and the restore said no narrative was written.*
 
-When a narrative folds, every dump the last generation did not write stays whole,
-including its `###` addenda. Text before the first `##` heading goes first and `##`
-dumps go last. With none, the last non-binding `##` dump stays whole.
-Earlier binding sections move under `## Carried binding sections` once, byte for
-byte, with identical copies deduplicated. A standalone binding `##` heading becomes
-`###` there.
-
-Every earlier dump keeps its heading, as `###` under `## Folded narrative`, over one
-dated line naming each remaining part and its opening sentence, at most 240 characters.
-A section headed as owner rules or open items is binding and carried verbatim. One pointer line names the full text at
-`ccn doc history <id7> --json --full`, or the progress folder in file mode.
-A `#` title before the first section is dropped; other leading text is a dump like
-any other. Folding twice changes nothing.
-
-`fold` applies the same folding to an existing doc or file in place and prints
-`folded <id>: <before> -> <after> bytes`, with the file path in place of the id in
-file mode.
-
-Both `generate` and `fold` refuse a resulting record over 40,000 bytes. They write
-nothing, print one line naming the largest `##` section and its largest `###` part
-when present, with byte counts, and exit 5. The `Stop` path blocks with
+`generate` refuses a record whose generated sections, everything above
+`## Root narrative`, exceed 40,000 bytes. It writes nothing, prints one line naming the
+largest `##` section and its largest `###` part when present, with byte counts, and
+exits 5. The root narrative is never measured, folded, or truncated. The `Stop` path blocks with
 "The drive's progress record is over its size cap. Trim the section it names, then
 stop again:" followed by that line. `PreCompact` puts the failure first in the
 compaction instructions.
 
 *Prevents the release-v3 progress doc 91b91943 reaching 167,069 bytes from repeated
 root dumps, a duplicated register, and unbounded task and lane lists (2026-10-05).
-Folding that record reduced it to 39,466 bytes.*
+Also prevents the 164b13c4 handoff of 2026-10-10: the hook folded addendum aea91e3 to
+three clipped lines, dropped the full handoff 384f2e4, and pointed the resumed root at a
+generated doc with an empty narrative.*
 
 The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
 prompts the root to record standing rules. Durable answers feed brief matching.
@@ -2500,16 +2492,14 @@ restore, but never block generation. `handoff.py lint` runs the same checks on a
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 
 **Supersede and point.** Exactly one `progress:<slug>` doc is active. When the root
-wrote a hand-written progress doc for the coming compaction, `generate` augments that
-doc in place: it is the `--narrative-doc`, or the newest hand-written doc this session
-created in the last 30 minutes or since the previous compaction (`--fresh-since`). Its
-body becomes the generated sections with its whole hand-written body under `_From doc <id>._`;
-with no register, its own `## Standing owner rules` is named as the rules source.
-Otherwise `generate` edits the session's generated doc, passed as `--generated-doc`,
-in place while it is active, or adds one. The doc it wrote supersedes every other
-active `progress:<slug>` doc. If the label still lists another, `generate` exits 4
-naming each id; the `Stop` path blocks on it, and `PreCompact` puts the failure first
-in the compaction instructions.
+wrote hand-written records since the last generated one, `generate` augments the newest
+in place: its body becomes the generated sections over its own text, and its title stays.
+With no register, its own `## Standing owner rules` is named as the rules source.
+Otherwise, `generate` edits the newest active generated record in place, else adds one.
+The doc it wrote supersedes every other active `progress:<slug>` doc; earlier
+hand-written records stay readable by id and are named in `Read first`. If the label
+still lists another, `generate` exits 4 naming each id; the `Stop` path blocks on it, and
+`PreCompact` puts the failure first in the compaction instructions.
 
 *Prevents the release-v3 handoff of 2026-10-02 10:07 PM PT leaving hand-written dcef5bb
 active beside generated 91b9194, which carried dcef5bb's body under fresher generated
@@ -2537,24 +2527,25 @@ run `/compact` by hand and blocks nothing.
 `generate` again unless the hook generated a handoff in the last five minutes and
 that handoff's doc is still the newest progress doc. A progress doc the root writes
 after the Stop's handoff is adopted here, so the instructions, the plan's pointer,
-and the restore all name it. It reads the current register and folds the carried
-narrative.
+and the restore all name it. It reads the current register and carries the narrative
+verbatim.
 This covers Claude Code's auto-compaction before the root writes a narrative.
 
-The instructions point to the plan and active progress doc. They ask the summary to
-keep only in-flight details those records lack. They carry no register text or
-title list. The copy bar caps hook messages at two sentences and 300 characters.
-The instructions end with
+The instructions point to the plan, each read-first hand-written record, and the
+active progress doc. They ask the summary to keep only in-flight details those records
+lack. They carry no register text or title list. The copy bar caps hook messages at two
+sentences and 300 characters. The instructions end with
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured
-earlier in the conversation.` so the summary carries the id the hook just wrote.
+earlier in the conversation.` so the summary carries the id the hook just wrote. With
+read-first records the quote opens `hand-written handoff <id7>, ..., then` and the ids win.
 
 **After compaction.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed. When a register exists, the digest names it first with
 `ccn doc show <register id>`. The next main-session tool result or prompt delivers
 the register once. It binds every lane brief and outranks the summary.
 
-Read the progress doc next, then the plan.
-Without a register, the digest starts with the progress record.
+Read each read-first hand-written record next, oldest first, then the progress doc,
+then the plan. Without a register, the digest starts with those records.
 Reload Skill `long-running` if its rules are gone.
 
 Digest line two reads `Register: N owner-approved rules, M live standing rules.`
@@ -2582,8 +2573,9 @@ for touched records. At `2026-10-01 13:55Z`, the root's merged restore was 20,59
 The long-running pointer, printed last, never reached context.
 
 If generation failed, `SessionStart` gives the reason and asks the root to write the
-progress record now. If the root wrote no narrative before compaction, as a new doc or
-an in-place edit, it adds that the root should write one when convenient. The skill stays active across compaction.
+progress record now. If the record's narrative predates the nudge, it adds that the
+root should write one when convenient; a hand-written record written since the nudge, or
+an in-place edit, never draws that line. The skill stays active across compaction.
 
 On `SessionStart` with source `resume`, an active drive's newest progress record, by
 `ccn doc list --label progress:<program>` or the newest file in the progress folder,

@@ -32,7 +32,6 @@ from pathlib import Path
 
 import cci
 import ledger
-import progress
 import rulings
 
 ID = r"(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)"
@@ -112,7 +111,7 @@ def lint(body: str, previous: str | None, register: dict | None, live: set[str])
     return rule_findings(body, previous, register) + [
         f"owner-gate line cites no live answer id: {line.strip()[:200]}"
         for line in body.splitlines()
-        if not line.startswith(QUOTE) and not progress.DIGEST.match(line) and gated(line, live)
+        if not line.startswith(QUOTE) and gated(line, live)
     ]
 
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import handoff
@@ -82,14 +81,26 @@ class FakeCcn(ledger.Shell):
         self.calls: list[list[str]] = []
         self.added: dict[str, str] = {}
         self.titles: dict[str, str] = {}
+        self.tags: dict[str, list[str]] = {}
+        self.supersedes: dict[str, list[str]] = {}
+        self.updated: dict[str, str] = {}
         self.stuck: set[str] = set()
-        self.created: dict[str, dict] = {}
         self.history: dict[str, list[dict]] = {}
         self.registers: list[str] = []
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
+
+    def write(self, doc: str, body: str, title: str = "brook: progress", supersedes: tuple[str, ...] = ()) -> None:
+        self.docs[doc], self.titles[doc] = body, title
+        self.active.append(doc)
+        for older in supersedes:
+            self.active.remove(older)
+            self.supersedes.setdefault(doc, []).append(older)
+
+    def touch(self, doc: str) -> None:
+        self.updated[doc] = f"2026-10-02T00:{len(self.updated):02d}:00Z"
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
@@ -112,10 +123,21 @@ class FakeCcn(ledger.Shell):
                 ]
             )
         if verb == ["doc", "show"]:
-            return json.dumps({"id": argv[5], "body": self.docs[argv[5]]})
+            doc = argv[5]
+            created = f"2026-10-01T00:{list(self.docs).index(doc):02d}:00Z"
+            return json.dumps(
+                {
+                    "id": doc,
+                    "title": self.titles.get(doc, "brook: progress"),
+                    "body": self.docs[doc],
+                    "tags": self.tags.get(doc, [REGISTER] if doc in self.registers else ["progress:brook"]),
+                    "supersedes": self.supersedes.get(doc, []),
+                    "created_at": created,
+                    "updated_at": self.updated.get(doc, created),
+                }
+            )
         if verb == ["doc", "history"]:
-            *edits, create = self.history.get(argv[5]) or [creation_entry(self.docs[argv[5]])]
-            return json.dumps([*edits, create | self.created.get(argv[5], {})])
+            return json.dumps(self.history.get(argv[5]) or [creation_entry(self.docs[argv[5]])])
         if verb == ["doc", "add"]:
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
@@ -123,6 +145,7 @@ class FakeCcn(ledger.Shell):
             (self.registers if REGISTER in labels else self.active).append(doc)
             self.added[doc] = argv[5]
             self.titles[doc] = argv[5]
+            self.touch(doc)
             return json.dumps({"id": doc[:40]})
         if verb == ["doc", "edit"]:
             change = {"field": "body", "from": self.docs[argv[5]], "to": stdin or ""}
@@ -130,10 +153,12 @@ class FakeCcn(ledger.Shell):
             self.docs[argv[5]] = stdin or ""
             if "--title" in argv:
                 self.titles[argv[5]] = argv[argv.index("--title") + 1]
+            self.touch(argv[5])
             return ""
         if verb == ["doc", "supersede"]:
             if argv[5] not in self.stuck:
                 self.active.remove(argv[5])
+            self.supersedes.setdefault(argv[7], []).append(argv[5])
             return ""
         raise AssertionError(f"unexpected ccn call: {argv}")
 
@@ -186,25 +211,36 @@ def generate(home: Path, shell: FakeCcn, *extra: str, capsys: pytest.CaptureFixt
     return json.loads(capsys.readouterr().out)
 
 
-def shell_with(narrative: str = "", register: bool = True) -> FakeCcn:
-    rows = [ask("000001"), ask("000002", dropped_at="2026-10-01T01:00:00Z"), ask("000003", answered_at="2026-10-01T01:00:00Z")]
-    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: narrative or "# brook: progress\n\n## Root's next actions\n1. watch SoFi"}, rows)
+def generated_record(narrative: str) -> str:
+    return (
+        "# brook: progress 2026-10-01T0000Z (generated)\n\n"
+        f"{handoff.GENERATED_LINE}2026-10-01T00:00:00Z. Every section above `## Root narrative` is rebuilt at each handoff.\n\n"
+        f"## Root narrative\n\n_From doc aaaaaaa._\n\n{narrative}\n"
+    )
+
+
+def shell_with(narrative: str = "", register: bool = True, rows: list[dict] | None = None) -> FakeCcn:
+    rows = rows or [ask("000001"), ask("000002", dropped_at="2026-10-01T01:00:00Z"), ask("000003", answered_at="2026-10-01T01:00:00Z")]
+    shell = FakeCcn([RULE, OLD_RULE, OTHER], {"a" * 40: generated_record(narrative or "## Root's next actions\n1. watch SoFi")}, rows)
+    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
     if register:
         shell.docs[REGISTER_DOC] = REGISTER_BODY
         shell.registers.append(REGISTER_DOC)
     return shell
 
 
-def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
 
     out = generate(drive_home, shell, capsys=capsys)
 
     body = shell.docs[out["id"]]
-    assert shell.active == [out["id"]]
+    assert out["id"] == "a" * 40
+    assert shell.active == [out["id"]] and shell.added == {}
     assert Path(out["file"]).read_text() == body
     assert Path(out["file"]).parent == drive_home / ".claude/plans/brook-progress"
-    assert shell.added[out["id"]].startswith("brook: progress ") and shell.added[out["id"]].endswith(" (generated)")
+    assert shell.titles[out["id"]].startswith("brook: progress ") and shell.titles[out["id"]].endswith(" (generated)")
+    assert (out["read_first"], out["narrative"]) == ([], "aaaaaaa")
     for line in (
         "Register `ccn doc show ccccccc`: 2 owner-approved rules, delivered verbatim after every compaction.\n",
         "- #2 [cci #2]",
@@ -239,10 +275,9 @@ def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path
 
 def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_rest(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
-    shell.active.append("b" * 40)
+    shell.write("b" * 40, "## Root's next actions\n1. land l11")
 
-    out = generate(drive_home, shell, "--narrative-doc", "b" * 40, capsys=capsys)
+    out = generate(drive_home, shell, capsys=capsys)
 
     assert out["id"] == "b" * 40
     assert shell.active == ["b" * 40]
@@ -254,134 +289,68 @@ def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_
     assert "Then read the progress doc `ccn doc show bbbbbbb`" in out["digest"]
 
 
-def handwritten(shell: FakeCcn, session: str | None, age: timedelta) -> str:
-    doc = "b" * 40
-    shell.docs[doc] = "## Root's next actions\n1. land l11"
-    shell.active.append(doc)
-    shell.created[doc] = {"session": session, "time": (datetime.now(timezone.utc) - age).isoformat()}
-    return doc
-
-
-def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_augmented_and_the_generated_doc_superseded(
+def test_a_hand_written_doc_is_augmented_whichever_session_wrote_it_and_carried_in_place_after(
     drive_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = shell_with()
-    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
-    record = handwritten(shell, "s-root", timedelta(minutes=8))
-
-    first = generate(drive_home, shell, "--generated-doc", "a" * 40, capsys=capsys)
-    second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
-
-    assert first["id"] == second["id"] == record
-    assert (first["fresh"], second["fresh"]) == (True, False)
-    assert shell.active == [record]
-    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", record] in shell.calls
-    assert shell.titles.get(record, "brook: progress") == "brook: progress"
-    body = shell.docs[record]
-    assert body.count("## Standing owner rules") == 1 and body.count("_From ") == 1
-    assert body.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
-
-
-def test_a_hand_written_pre_compact_handoff_stays_verbatim_under_the_generated_sections(
-    drive_home: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    shell = shell_with(register=False)
-    record = handwritten(shell, "s-root", timedelta(minutes=1))
-    shell.docs[record] = PRE_COMPACT
+    shell.write("b" * 40, "## Root's next actions\n1. land l11")
 
     first = generate(drive_home, shell, capsys=capsys)
-    second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
+    second = generate(drive_home, shell, capsys=capsys)
 
-    assert first["id"] == second["id"] == record
-    body = shell.docs[record]
-    assert body.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb._\n\n{PRE_COMPACT}\n"
-    assert progress.FOLDED not in body and progress.CARRIED not in body
-    assert standing.section(body)[:1] == [
-        "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
-    ]
+    assert first["id"] == second["id"] == "b" * 40
+    assert shell.active == ["b" * 40] and shell.added == {}
+    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", "b" * 40] in shell.calls
+    assert shell.titles["b" * 40] == "brook: progress"
+    body = shell.docs["b" * 40]
+    assert body.count("## Standing owner rules") == 1 and body.count("_From ") == 1
+    assert body.endswith("_From doc bbbbbbb, carried forward._\n\n## Root's next actions\n1. land l11\n")
+    assert first["narrative"] == second["narrative"] == "bbbbbbb"
 
 
-def test_a_carried_hand_written_handoff_keeps_every_section_heading_and_its_rules_and_open_items_verbatim(
+def test_a_hand_written_pre_compact_handoff_stays_verbatim_under_the_generated_sections_at_every_compaction(
     drive_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = shell_with(register=False)
-    record = handwritten(shell, "s-root", timedelta(minutes=1))
-    shell.docs[record] = PRE_COMPACT
-    generate(drive_home, shell, capsys=capsys)
-    shell.created[record]["time"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    shell.write("b" * 40, PRE_COMPACT)
 
-    carried = generate(drive_home, shell, capsys=capsys)
-    again = generate(drive_home, shell, "--generated-doc", carried["id"], capsys=capsys)
+    first = generate(drive_home, shell, capsys=capsys)
+    fresh = shell.docs["b" * 40]
+    second = generate(drive_home, shell, capsys=capsys)
+    third = generate(drive_home, shell, capsys=capsys)
 
-    assert carried["id"] == again["id"] != record
-    narrative = shell.docs[carried["id"]].split(f"{handoff.NARRATIVE}\n")[1]
-    for heading in re.findall(r"^## (.+)$", PRE_COMPACT, re.MULTILINE):
-        assert re.search(rf"^###? {re.escape(heading)}$", narrative, re.MULTILINE), heading
-    for verbatim in ("## Standing owner rules", "### Earlier windows", "## G. Open owner-facing items"):
-        section = PRE_COMPACT.split(f"{verbatim}")[1].split("\n\n#")[0]
-        assert f"{verbatim.lstrip('#')}{section}" in narrative
-    assert narrative.endswith("## F. Lessons\n- Verify an Orca launch actually produced a lane within a minute.\n")
-    assert re.search(r"^### B\. .+\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}Z, Timeline: .+; Impact: 8,421 mint 503s\.\n\n###", narrative, re.MULTILINE)
-    assert shell.docs[again["id"]].split(f"{handoff.NARRATIVE}\n")[1] == narrative
-    assert standing.section(shell.docs[carried["id"]])[:1] == [
+    assert first["id"] == second["id"] == third["id"] == "b" * 40
+    assert fresh.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb._\n\n{PRE_COMPACT}\n"
+    carried = shell.docs["b" * 40]
+    assert carried.split(f"{handoff.NARRATIVE}\n")[1] == f"\n_From doc bbbbbbb, carried forward._\n\n{PRE_COMPACT}\n"
+    assert "## Folded narrative" not in carried and "## Carried binding sections" not in carried
+    assert standing.section(carried)[:1] == [
         "- no `standing-rules` register doc; the root's own `## Standing owner rules` follows verbatim under `## Root narrative`"
     ]
-
-
-@pytest.mark.parametrize(
-    ("session", "age"), [("s-other", timedelta(minutes=8)), ("s-root", timedelta(minutes=45)), (None, timedelta(minutes=8))]
-)
-def test_a_hand_written_doc_from_another_session_or_past_the_window_is_superseded(
-    drive_home: Path, capsys: pytest.CaptureFixture[str], session: str | None, age: timedelta
-) -> None:
-    shell = shell_with()
-    record = handwritten(shell, session, age)
-
-    out = generate(drive_home, shell, capsys=capsys)
-
-    assert out["id"] != record
-    assert shell.active == [out["id"]]
-    assert shell.titles[out["id"]].endswith(" (generated)")
-    assert ["ccn", "-R", REPO, "doc", "supersede", record, "--by", out["id"]] in shell.calls
-
-
-def test_a_hand_written_doc_written_since_the_previous_compaction_is_augmented_past_the_window(
-    drive_home: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    shell = shell_with()
-    record = handwritten(shell, "s-root", timedelta(minutes=45))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
-
-    out = generate(drive_home, shell, "--fresh-since", since, capsys=capsys)
-
-    assert out["id"] == record
-    assert shell.active == [record]
 
 
 def test_generate_fails_loudly_when_another_progress_doc_stays_active(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
+    shell.write("b" * 40, "## Root's next actions\n1. land l11")
     shell.stuck.add("a" * 40)
     argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO]
 
     assert handoff.main(argv, shell) == handoff.SEVERAL_ACTIVE
 
-    generated = shell.active[-1]
-    assert capsys.readouterr().out.startswith(
-        f"2 active progress:brook docs after generation, expected only {generated[:7]}: aaaaaaa, {generated[:7]}; "
-    )
+    assert capsys.readouterr().out.startswith("2 active progress:brook docs after generation, expected only bbbbbbb: aaaaaaa, bbbbbbb; ")
 
 
-def test_the_sessions_generated_doc_is_edited_in_place_not_chained(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_active_generated_doc_is_edited_in_place_not_chained(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     first = generate(drive_home, shell, capsys=capsys)
 
-    second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
-    third = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
+    second = generate(drive_home, shell, capsys=capsys)
+    third = generate(drive_home, shell, capsys=capsys)
 
     assert first["id"] == second["id"] == third["id"]
     assert shell.active == [first["id"]]
-    assert sum(call[3:5] == ["doc", "add"] for call in shell.calls) == 1
-    assert sum(call[3:5] == ["doc", "edit"] and call[5] == first["id"] for call in shell.calls) == 2
+    assert not any(call[3:5] == ["doc", "add"] for call in shell.calls)
+    assert sum(call[3:5] == ["doc", "edit"] and call[5] == first["id"] for call in shell.calls) == 3
     assert first["register"] == REGISTER_DOC and shell.registers == [REGISTER_DOC]
     assert shell.titles[first["id"]].endswith(" (generated)")
     body = shell.docs[first["id"]]
@@ -389,13 +358,15 @@ def test_the_sessions_generated_doc_is_edited_in_place_not_chained(drive_home: P
     assert "_From doc aaaaaaa, carried forward._" in body
 
 
-def test_a_generated_doc_that_is_no_longer_active_is_replaced(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_with_no_active_progress_doc_generation_adds_one(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
+    shell.active.clear()
 
-    out = generate(drive_home, shell, "--generated-doc", "9" * 40, capsys=capsys)
+    out = generate(drive_home, shell, capsys=capsys)
 
-    assert out["id"] != "9" * 40
+    assert shell.active == [out["id"]] and shell.added[out["id"]].endswith(" (generated)")
     assert not any(call[3:5] == ["doc", "edit"] for call in shell.calls)
+    assert shell.docs[out["id"]].endswith("## Root narrative\n\n_The root has written no narrative yet._\n")
 
 
 def test_a_carried_narrative_is_only_the_previous_narrative_section(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -409,7 +380,7 @@ def test_a_carried_narrative_is_only_the_previous_narrative_section(drive_home: 
     assert body.count("1. watch SoFi") == 1
     assert body.count("_From ") == 1
     assert "_From doc aaaaaaa, carried forward._" in body
-    assert first["id"] != second["id"]
+    assert first["id"] == second["id"]
 
 
 def test_folder_mode_calls_no_ccn(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -471,9 +442,8 @@ def test_lint_flags_the_plans_uncited_owner_gate_lines(drive_home: Path, capsys:
 
 def test_strict_refuses_a_narrative_with_an_uncited_owner_gate(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.docs["b" * 40] = "## Root's next actions\n1. ship sanddb on SoFi on the owner's word"
-    shell.active.append("b" * 40)
-    argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO, "--narrative-doc", "b" * 40, "--strict"]
+    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word")
+    argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO, "--strict"]
 
     assert handoff.main(argv, shell) == 3
 
@@ -488,18 +458,18 @@ def test_a_rule_the_sources_dropped_is_carried_once_as_superseded(drive_home: Pa
     shell.rule("correction", "deploy every landing within five minutes", re=2, refs={"ccn": "4ffc9a5"})
 
     second = generate(drive_home, shell, capsys=capsys)
+    body = shell.docs[second["id"]]
     third = generate(drive_home, shell, capsys=capsys)
 
-    body = shell.docs[second["id"]]
     assert "- #2 superseded by #3" in body
     assert "- #3 [ccn 4ffc9a5]" in body
     assert "## Lint findings\n- plan owner-gate line" in body
     assert "superseded by" not in "\n".join(handoff.standing.section(shell.docs[third["id"]]))
-    assert first["id"] != second["id"] != third["id"]
+    assert first["id"] == second["id"] == third["id"]
 
 
 def strict(home: Path, shell: FakeCcn) -> int:
-    argv = ["generate", "--program", "brook", "--plan", str(home / ".claude/plans/brook.md"), "--repo", REPO, "--narrative-doc", "b" * 40, "--strict"]
+    argv = ["generate", "--program", "brook", "--plan", str(home / ".claude/plans/brook.md"), "--repo", REPO, "--strict"]
     return handoff.main(argv, shell)
 
 
@@ -514,8 +484,7 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
     drive_home: Path, capsys: pytest.CaptureFixture[str], fix: tuple[str, str, dict]
 ) -> None:
     shell = shell_with()
-    shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
-    shell.active.append("b" * 40)
+    shell.write("b" * 40, "## Root's next actions\n1. land l11")
     shell.rule("go", "every release ships on the owner's word only once")
 
     assert strict(drive_home, shell) == 3
@@ -534,8 +503,7 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
 
 def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
-    shell.docs["b" * 40] = "## Root's next actions\n1. land l11\n2. ship sanddb on SoFi on the owner's word"
-    shell.active.append("b" * 40)
+    shell.write("b" * 40, "## Root's next actions\n1. land l11\n2. ship sanddb on SoFi on the owner's word")
 
     assert strict(drive_home, shell) == 3
 
@@ -551,7 +519,8 @@ def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path
     shell.docs["e" * 40] = "# an older draft\n"
 
     before = generate(drive_home, shell, capsys=capsys)
-    after = generate(drive_home, shell, "--generated-doc", before["id"], capsys=capsys)
+    before_body = shell.docs[before["id"]]
+    after = generate(drive_home, shell, capsys=capsys)
 
     assert before["register"] == after["register"] == REGISTER_DOC
     assert not any(call[3:5] in (["doc", "add"], ["doc", "edit"], ["doc", "supersede"]) and REGISTER_DOC in call for call in shell.calls)
@@ -561,34 +530,73 @@ def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path
     assert REGISTER_BODY.splitlines()[2] not in shell.docs[after["id"]]
     assert "an older draft" not in section
     body = handoff.lint_view(shell.docs[after["id"]])
-    assert standing.lint(body, shell.docs[before["id"]], {"id": REGISTER_DOC, "body": REGISTER_BODY}, {RULE["id"]}) == []
+    assert standing.lint(body, before_body, {"id": REGISTER_DOC, "body": REGISTER_BODY}, {RULE["id"]}) == []
 
 
-def test_generate_folds_the_carried_narrative_so_the_newest_dump_replaces_the_last(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    shell = shell_with(
+def test_a_hand_written_narrative_is_carried_verbatim_never_folded(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    narrative = (
         "## 10:17 PM dump 2\n\n### Owner rulings since 9 PM (verbatim, binding)\n- \"ship it\"\n\n### Program state\nCensus 231/293. Lanes a, b.\n\n"
-        "## 11:57 PM dump 3\n\n### Program state\nCensus 240/293.\n"
+        "## 11:57 PM dump 3\n\n### Program state\nCensus 240/293.\n" + "".join(f"- lane {n}: still running\n" for n in range(2000))
     )
+    shell = shell_with()
+    shell.write("b" * 40, narrative)
 
-    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+    first = generate(drive_home, shell, capsys=capsys)
+    second = generate(drive_home, shell, capsys=capsys)
 
-    narrative = body.split("## Root narrative\n")[1]
-    assert narrative.count('- "ship it"') == 1
-    assert "Lanes a, b." not in narrative
-    assert "\n- 20" in narrative.split(progress.FOLDED)[1]
-    assert narrative.endswith("## 11:57 PM dump 3\n\n### Program state\nCensus 240/293.\n")
-    assert "`ccn doc history aaaaaaa --json --full`" in narrative
+    assert first["id"] == second["id"] == "b" * 40
+    assert len(narrative.encode()) > progress.CAP
+    assert shell.docs["b" * 40].split("\n## Root narrative\n")[1] == f"\n_From doc bbbbbbb, carried forward._\n\n{narrative.strip()}\n"
 
 
-def test_generate_refuses_a_record_over_the_cap_and_writes_nothing(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    shell = shell_with(f"## dump\n\n### Program state\n{'x' * progress.CAP}\n")
+def test_generate_refuses_generated_sections_over_the_cap_and_writes_nothing(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with(rows=[ask("000001", text="x" * progress.CAP)])
     argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--session", str(drive_home / "session.json"), "--repo", REPO]
 
     assert handoff.main(argv, shell) == handoff.OVERSIZED
 
-    assert capsys.readouterr().out.strip().endswith("its largest section is `dump` at 40027 bytes, most of it `Program state` at 40018 bytes; trim that section, then write the record again")
+    assert "its largest section is `Open owner asks` at " in capsys.readouterr().out
     assert not any(call[3:5] in (["doc", "add"], ["doc", "edit"]) for call in shell.calls)
     assert not (drive_home / ".claude/plans/brook-progress").exists()
+
+
+FULL_HANDOFF = (
+    "# Drive brook: pre-compact handoff, 2026-10-10 ~22:10Z (3:10pm PT)\n\n"
+    "This supersedes progress doc aaaaaaa. Read aaaaaaa for everything before ledger ask 83.\n\n"
+    "## 0. Binding rules added this segment (verbatim)\n\n- **363cc69**: the version-qualified PC replace is routine.\n\n"
+    "## 1. Owner asks 83 through 103\n\n" + "".join(f"- ask/0000{n}: in flight on lane-{n}, PR #34{n}\n" for n in range(83, 104)) + "\n"
+    "## 2. Live lanes\n\n- oncall-ic-dual-3 (124)\n- oncall-credential-durability-2 (122, 123)\n"
+)
+ADDENDUM = (
+    "# Addendum to progress doc bbbbbbb (everything after 22:10Z; updated ~22:20Z)\n\n"
+    "## Owner rulings since bbbbbbb\n\n- **824f65f**: the version-qualified PC replace is routine (consistent with 363cc69).\n\n"
+    "## Results since bbbbbbb\n\n- **Retro DONE**: ccn doc **8bcade3** supersedes 21961bb, with the catalog in the appendix.\n\n"
+    "## Live lanes\n\n- oncall-ic-dual-3 (124), oncall-credential-durability-2 (122, 123), oncall-card-domain (129, 115, 128)\n\n"
+    "## Next actions for the root\n\n1. Keep the freeze until the release-v3 drive or the owner lifts it.\n"
+)
+
+
+@pytest.mark.parametrize("addendum_supersedes", [False, True])
+def test_the_hand_written_handoff_and_its_addendum_survive_a_regenerating_compaction(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], addendum_supersedes: bool
+) -> None:
+    shell = shell_with()
+    shell.write("b" * 40, FULL_HANDOFF, "brook: progress 2026-10-10T2210Z (pre-compact handoff, full)", supersedes=("a" * 40,))
+    shell.write("9" * 40, ADDENDUM, "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)", ("b" * 40,) if addendum_supersedes else ())
+
+    stop = generate(drive_home, shell, capsys=capsys)
+    compaction = generate(drive_home, shell, capsys=capsys)
+
+    assert stop["id"] == compaction["id"] == "9" * 40
+    assert shell.active == ["9" * 40] and shell.added == {}
+    assert shell.docs["b" * 40] == FULL_HANDOFF
+    assert shell.titles["9" * 40] == "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)"
+    body = shell.docs["9" * 40]
+    assert f"{handoff.READ_FIRST}`ccn doc show bbbbbbb`: brook: progress 2026-10-10T2210Z (pre-compact handoff, full)\n" in body
+    assert body.split("\n## Root narrative\n")[1] == f"\n_From doc 9999999, carried forward._\n\n{ADDENDUM.strip()}\n"
+    for out in (stop, compaction):
+        assert (out["read_first"], out["narrative"]) == (["ccn doc show bbbbbbb"], "9999999")
+        assert "Then read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show 9999999`, then " in out["digest"]
 
 
 def test_open_tasks_list_only_in_progress_and_lanes_only_running_ten(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -607,24 +615,6 @@ def test_open_tasks_list_only_in_progress_and_lanes_only_running_ten(drive_home:
     assert lanes[0] == "- teammate: lane-13"
     assert lanes[-1] == "- 4 more running lanes" and len(lanes) == 11
     assert "lane-done" not in body
-
-
-def test_fold_rewrites_a_doc_in_place_and_refuses_one_over_the_cap(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    record = "# p\n\n## Open tasks\n- none\n\n## Root narrative\n\n_From doc aaaaaaa._\n\n## dump 3\n\n### Program state\nold one. old two.\n\n## dump 4\n\n### Program state\nnew.\n"
-    shell = shell_with(record)
-
-    assert handoff.main(["fold", "--doc", "a" * 40, "--repo", REPO], shell) == 0
-
-    folded = shell.docs["a" * 40]
-    assert folded.startswith("# p\n\n## Open tasks\n- none\n\n## Root narrative\n\n_From doc aaaaaaa._\n\n## Folded narrative\n")
-    assert folded.endswith("## dump 4\n\n### Program state\nnew.\n")
-    assert "old two." not in folded
-    assert capsys.readouterr().out == f"folded aaaaaaa: {len(record)} -> {len(folded)} bytes\n"
-
-    shell.docs["a" * 40] = record + f"\n### huge\n{'h' * progress.CAP}\n"
-    assert handoff.main(["fold", "--doc", "a" * 40, "--repo", REPO], shell) == handoff.OVERSIZED
-    assert shell.docs["a" * 40].endswith("h\n")
-    assert "most of it `huge`" in capsys.readouterr().out
 
 
 def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_cci(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -646,7 +636,7 @@ class MinuteClock(datetime):
 
 
 @pytest.mark.parametrize("above", [True, False])
-def test_a_narrative_the_root_edits_into_the_generated_doc_stays_whole_and_the_carried_one_folds(
+def test_a_narrative_the_root_edits_into_the_generated_doc_is_fresh_once_and_stays_verbatim(
     drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, above: bool
 ) -> None:
     monkeypatch.setattr(handoff, "datetime", MinuteClock)
@@ -663,13 +653,14 @@ def test_a_narrative_the_root_edits_into_the_generated_doc_stays_whole_and_the_c
         edited = f"{head}{handoff.NARRATIVE}\n\n{carried}\n{dump}"
     shell.run(["ccn", "-R", REPO, "doc", "edit", doc, "--body", "-"], stdin=edited)
 
-    second = generate(drive_home, shell, "--generated-doc", doc, capsys=capsys)
-    third = generate(drive_home, shell, "--generated-doc", doc, capsys=capsys)
+    second = generate(drive_home, shell, capsys=capsys)
+    edited_narrative = handoff.narrative_of(shell.docs[doc])
+    third = generate(drive_home, shell, capsys=capsys)
 
     assert (first["fresh"], second["fresh"], third["fresh"]) == (False, True, False)
     assert first["id"] == second["id"] == third["id"]
     narrative = shell.docs[doc].split(f"{handoff.NARRATIVE}\n")[1]
     assert narrative.startswith(f"\n_From doc {doc[:7]}, carried forward._\n\n")
-    assert narrative.count(dump.strip("\n")) == 1
-    assert "\n## 10:00 PM dump 1" not in narrative and "Lanes a, b." not in narrative
-    assert "\n- 20" in narrative.split(progress.FOLDED)[1]
+    assert narrative == f"\n_From doc {doc[:7]}, carried forward._\n\n{edited_narrative}\n"
+    assert narrative.count(dump.strip("\n")) == 1 and "\n## 10:00 PM dump 1" in narrative
+    assert "## Folded narrative" not in narrative

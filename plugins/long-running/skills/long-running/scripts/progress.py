@@ -1,16 +1,7 @@
-"""Fold a progress record's root narrative so each dump replaces the last.
+"""Cap the generated sections of a progress record.
 
-The narrative is a run of ``##`` sections. Every dump absent from the earlier narrative,
-the one the previous handoff wrote, is current and stays whole, ``###`` addenda included;
-with none, the last dump that is not binding is current. A ``#`` title before the first
-section is dropped; other text there is a dump without a heading, kept first when current.
-A ``##`` section without ``###`` parts, or a ``###`` part, whose heading says ``binding``
-or ``byte-for-byte``, names rulings ``verbatim``, or names owner rules or open items, is
-binding: it moves under :data:`CARRIED` once, byte for byte. Every earlier dump keeps its heading, as ``###``
-under :data:`FOLDED`, over one dated line that names the rest of its parts and their
-opening sentences.
-
-A record over :data:`CAP` bytes is refused with the largest section named.
+A record whose generated sections run over :data:`CAP` bytes is refused with the largest
+section named. The root's narrative is never measured, folded, or truncated.
 Only the Python standard library is used.
 """
 
@@ -18,20 +9,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
 
-CARRIED = "## Carried binding sections"
-FOLDED = "## Folded narrative"
-BINDING = re.compile(r"binding|byte-for-byte|ruling.*verbatim|verbatim.*ruling|owner rules|\bopen\b.*\bitems\b", re.IGNORECASE)
 CAP = 40_000
-DIGEST_CHARS = 240
-OPENING_CHARS = 120
-SENTENCE = re.compile(r"(?<=[.!?])\s")
-MARKUP = re.compile(r"^[\s>*_#-]*(?:\d+\.\s+)?")
-TITLE = re.compile(r"^# .*\n?", re.MULTILINE)
-QUALIFIER = re.compile(r" \(| — |; |\. ")
 FENCE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
-DIGEST = re.compile(r"^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}Z, ")
 
 
 @dataclass(frozen=True)
@@ -42,10 +22,6 @@ class Section:
     @property
     def title(self) -> str:
         return self.heading.lstrip("#").strip()
-
-    @property
-    def label(self) -> str:
-        return QUALIFIER.split(self.title, maxsplit=1)[0]
 
     @property
     def text(self) -> str:
@@ -75,76 +51,6 @@ def split(text: str, level: int) -> tuple[str, list[Section]]:
         for match, following in zip(starts, [*starts[1:], None], strict=True)
     ]
     return text[: starts[0].start()], sections
-
-
-def binding(section: Section) -> bool:
-    return BINDING.search(section.title) is not None
-
-
-def opening(text: str) -> str:
-    lines = [MARKUP.sub("", line).strip() for line in text.splitlines()]
-    prose = " ".join(line for line in lines if line)
-    first = SENTENCE.split(prose, maxsplit=1)[0]
-    return first if len(first) <= OPENING_CHARS else first[: OPENING_CHARS - 1] + "…"
-
-
-def digest(parts: list[Section], lead: str, when: datetime, label: str = "") -> str:
-    named = ([opening(lead)] if lead.strip() else []) + [f"{part.label}: {opening(part.body)}" for part in parts]
-    line = f"- {when:%Y-%m-%d %H:%MZ}, {label}{'; '.join(named)}"
-    return line if len(line) <= DIGEST_CHARS else line[: DIGEST_CHARS - 1] + "…"
-
-
-def sorted_out(narrative: str) -> tuple[list[Section], list[str], list[Section], list[Section]]:
-    preamble, sections = split(narrative.strip("\n") + "\n", 2)
-    carried: list[Section] = []
-    digests: list[str] = []
-    folded: list[Section] = []
-    preamble = TITLE.sub("", preamble)
-    dumps = [Section("", preamble)] if preamble.strip() else []
-    for section in sections:
-        if section.heading == CARRIED:
-            carried += split(section.body, 3)[1]
-        elif section.heading == FOLDED:
-            lead, parts = split(section.body, 3)
-            digests += [line for line in lead.splitlines() if line.startswith("- ")]
-            folded += parts
-        elif binding(section) and not split(section.body, 3)[1]:
-            carried.append(Section(f"#{section.heading}", section.body))
-        else:
-            dumps.append(section)
-    return carried, digests, folded, dumps
-
-
-def fold(narrative: str, when: datetime, history: str, earlier: str) -> str:
-    if not split(narrative.strip("\n") + "\n", 2)[1]:
-        return narrative.strip("\n")
-    carried, digests, folded, dumps = sorted_out(narrative)
-    seen = {dump.text for dump in sorted_out(earlier)[3]}
-    current = [dump for dump in dumps if dump.text not in seen] or dumps[-1:]
-    for dump in dumps:
-        if dump in current:
-            continue
-        lead, parts = split(dump.body, 3)
-        carried += [part for part in parts if binding(part)]
-        rest = [part for part in parts if not binding(part)]
-        if dump.heading:
-            folded.append(Section(f"#{dump.heading}", f"{digest(rest, lead, when)}\n" if lead.strip() or rest else ""))
-        else:
-            digests.append(digest(rest, lead, when, "untitled narrative: "))
-    kept = {part.text for dump in current for part in split(dump.body, 3)[1]}
-    unique = []
-    for part in carried:
-        if part.text not in kept:
-            kept.add(part.text)
-            unique.append(part)
-    out = [dump.text for dump in current if not dump.heading]
-    if unique:
-        out.append("\n\n".join([CARRIED, *(part.text for part in unique)]))
-    if digests or folded:
-        listed = ["\n".join(digests)] if digests else []
-        out.append("\n\n".join([FOLDED, f"Full text of each folded dump: {history}.", *listed, *(part.text for part in folded)]))
-    out += [dump.text for dump in current if dump.heading]
-    return "\n\n".join(out)
 
 
 def oversized(markdown: str) -> str | None:
