@@ -802,6 +802,12 @@ def check_meta(rep, R, meta):
                     rep.err(f"meta.homeLink.{k} must be a non-empty string")
             if isinstance(home.get("href"), str) and foreign_scheme(home["href"]):
                 rep.err(f"meta.homeLink.href uses the {foreign_scheme(home['href'])}: scheme; it must be relative or an http(s) URL")
+    cover = meta.get("cover")
+    if cover is not None:
+        if not (isinstance(cover, dict) and isinstance(cover.get("file"), str) and isinstance(cover.get("digest"), str)):
+            rep.err("meta.cover must be an object with a 'file' and a 'digest'")
+        elif foreign_scheme(cover["file"]) or cover["file"].startswith("/") or ".." in Path(cover["file"]).parts:
+            rep.err(f"meta.cover.file {cover['file']!r} must be a path inside the retro's folder")
     subs = meta.get("subIncidents")
     sub_ids = set()
     if subs is not None:
