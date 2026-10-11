@@ -76,6 +76,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Collection
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
@@ -387,11 +388,15 @@ class Messages:
     def answer(self, key: str, fields: dict[str, str], text: str) -> None:
         self.shell.run(["cci", "post", "--drive", self.drive, "--lane", MESSAGE_ANSWERER, "--kind", "answer", "--re", key.lstrip("#"), "--topic", fields["pr"], "--text", f"{text} {key}"])
 
+    def records(self, kinds: Collection[str], lanes: Collection[str]) -> list[dict]:
+        """The drive's records of `kinds` from `lanes`, every lane when empty; `cci tail` also carries this session's peer mail from any drive, kind, or lane."""
+        found = cci.records(self.shell.run, self.drive, *(f"--kind={kind}" for kind in kinds), *(f"--lane={lane}" for lane in sorted(lanes)))
+        return [record for record in found if record["drive"] == self.drive and record["kind"] in kinds and (not lanes or record["lane"] in lanes)]
+
     def read(self, shard: frozenset[str] | None) -> dict[str, dict[str, str]]:
         """Every lane message, oldest first, keyed `#<seq>`; one is pending until `ledger` answers it."""
-        lanes = [f"--lane={lane}" for lane in sorted(shard or ())]
-        records = cci.records(self.shell.run, self.drive, *(f"--kind={kind}" for kind in LEDGER_KINDS), *lanes)
-        answered = {record["re"] for record in cci.records(self.shell.run, self.drive, "--kind=answer", f"--lane={MESSAGE_ANSWERER}") if record.get("re")}
+        records = self.records(LEDGER_KINDS, shard or ())
+        answered = {record["re"] for record in self.records(("answer",), (MESSAGE_ANSWERER,)) if record.get("re")}
         return {
             f"#{record['seq']}": {
                 "kind": LEDGER_KINDS[record["kind"]],

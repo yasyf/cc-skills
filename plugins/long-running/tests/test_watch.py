@@ -107,6 +107,22 @@ def test_a_report_a_lane_wrote_itself_wakes_the_desk_once(capsys, tmp_path):
     assert ledger.Messages(shell, DRIVE).read(None)["#1"]["state"] == "pending"
 
 
+def test_peer_mail_cci_tail_carries_is_not_a_lane_message(tmp_path):
+    shell = row_shell()
+    messages = ledger.Messages(shell, DRIVE)
+    messages.post({"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY"})
+    peer = {"lane": "inc-5177-edge-fix", "at": "2026-10-10T21:16:22Z", "topic": "", "re": 1, "fields": {}, "to": ["peer:b577ef71"]}
+    shell.cci += [
+        {**peer, "seq": 2, "drive": "release-v3", "kind": "state", "text": "verification only"},
+        {**peer, "seq": 3, "drive": "release-v3", "kind": "blocker", "text": "AIG GetRoleCredentials No access"},
+        {**peer, "seq": 4, "drive": DRIVE, "kind": "state", "text": "checking plat"},
+        {**peer, "seq": 5, "drive": DRIVE, "kind": "answer", "text": "seen"},
+    ]
+
+    assert {key: (fields["kind"], fields["state"]) for key, fields in messages.read(None).items()} == {"#1": ("report", "pending")}
+    assert list(messages.read(frozenset({LANE}))) == ["#1"]
+
+
 def arm(tmp_path, *prs: str) -> None:
     (tmp_path / "watch.json").write_text(json.dumps({"prs": {pr: {"state": "OPEN"} for pr in prs}}))
 
