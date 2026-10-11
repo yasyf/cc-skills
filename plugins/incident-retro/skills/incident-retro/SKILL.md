@@ -153,6 +153,13 @@ from `ai.json`, redraws on a changed SHA, and preserves scroll position and
 open disclosures. A pulsing Live pill marks the page; five minutes without
 an update shows a staleness warning. A failed fetch uses the merged record.
 
+The live view groups the timeline into chapters in the browser. Each time the
+timeline changes, the page sends its entries and the last chapters to the model
+named in `ai.json` and takes the answer only when every chapter starts at an
+entry, in time order; a failed or refused call keeps the last grouping. Without
+a model, chapters follow the milestones in `timestamps`, with a new chapter
+after 15 quiet minutes. The keeper writes no chapters.
+
 At all-clear, sync the final state and stop the updater before finalizing:
 
 ```bash

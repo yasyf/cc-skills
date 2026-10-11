@@ -80,6 +80,25 @@ SLACK_SNAPSHOT = {
                   "user_id": "U1", "user_name": "Ada", "text": "Run creation is failing."}],
 }
 
+MODEL_STUB = """
+(() => {
+  const real = window.fetch;
+  window.__groupCalls = [];
+  window.fetch = (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (/(^|\\/)ai\\.json$/.test(url))
+      return Promise.resolve(new Response(JSON.stringify({endpoint: "https://model.test/v1", model: "gpt-oss-120b", key: "k"})));
+    if (url !== "https://model.test/v1/chat/completions") return real(input, init);
+    const body = JSON.parse(init.body);
+    if (body.response_format?.json_schema?.name !== "chapters")
+      return Promise.resolve(new Response(JSON.stringify({choices: [{message: {content: ""}, finish_reason: "stop"}]})));
+    window.__groupCalls.push(body.messages[1].content);
+    return Promise.resolve(new Response(JSON.stringify({choices: [{message: {content: JSON.stringify({chapters: window.__chapters})},
+      finish_reason: "stop"}]})));
+  };
+})();
+"""
+
 LIVE_VIEW = """JSON.stringify({
   view: document.documentElement.dataset.view || "retro",
   switchShown: !document.getElementById("viewSwitch").hidden,
@@ -157,12 +176,15 @@ class LivePollRebuildsThePage(unittest.TestCase):
             datadog.mkdir(parents=True, exist_ok=True)
             (datadog / "monitor-4242.json").write_text(json.dumps(MONITOR_SNAPSHOT))
 
-    def open_page(self, chrome, base):
+    def open_page(self, chrome, base, chapters=None):
         target = chrome.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         session = chrome.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
         for domain in ("Page", "Runtime", "Log"):
             chrome.call(domain + ".enable", session=session)
         chrome.call("Page.addScriptToEvaluateOnNewDocument", {"source": POLL_STUB}, session=session)
+        if chapters is not None:
+            chrome.call("Page.addScriptToEvaluateOnNewDocument",
+                        {"source": MODEL_STUB + f"window.__chapters = {json.dumps(chapters)};"}, session=session)
         chrome.call("Emulation.setDeviceMetricsOverride",
                     {"width": 1440, "height": 980, "deviceScaleFactor": 1, "mobile": False}, session=session)
         chrome.call("Page.navigate", {"url": base + "/index.html"}, session=session)
@@ -188,7 +210,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             self.assertFalse(first["overviewShown"], "the live view left the retro sections showing")
             self.assertEqual(first["feed"], ["alert", "deploy"], "the feed is not newest first")
             self.assertEqual(first["chapters"], [["Before detection", True, ["alert", "deploy"]]],
-                             "without chapters from the keeper the page did not group the timeline itself")
+                             "without a model the page did not group the timeline by milestone")
             self.assertEqual(first["toasts"], [], "the entries already there on open were toasted")
 
             cited = [dict(e, refs=[PR_URL]) if e["id"] == "T1" else
@@ -230,7 +252,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             server.server_close()
             chrome.close()
 
-    def test_the_keepers_chapters_sessions_and_monitor_lead_the_live_view(self):
+    def test_the_models_chapters_regroup_the_live_view_as_entries_land(self):
         chrome = B.Chrome(self.chrome_path)
         server, base = B.serve(self.root)
         try:
@@ -240,20 +262,24 @@ class LivePollRebuildsThePage(unittest.TestCase):
             timeline[1]["refs"] = [MONITOR_URL]
             rec = record(timeline=timeline, timestamps={"onset": stamp(1800)}, evidence={
                 "monitors": [{"id": 4242, "url": MONITOR_URL, "file": "evidence/datadog/monitor-4242.json"}]})
-            rec["live"].update(updatedAt=stamp(10), chapters=[
-                {"start": timeline[0]["ts"], "title": "Migration breaks runs", "summary": "The migration ran and the alert fired."},
-                {"start": timeline[2]["ts"], "title": "Reports come in", "summary": "A report came in."}],
+            rec["live"].update(updatedAt=stamp(10),
                 sessions=[{"role": "fixer", "state": "running", "phase": "fixing", "step": "Rolling the workers",
                            "beatAt": stamp(20), "attempt": 1},
                           {"role": "ic", "state": "running", "step": "Updating #outage", "beatAt": stamp(600)}])
             self.publish(rec, with_slack=True)
-            session = self.open_page(chrome, base)
+            first = [{"first": 0, "title": "Migration breaks runs", "summary": "The migration ran and the alert fired."},
+                     {"first": 2, "title": "Reports come in", "summary": "A report came in."}]
+            session = self.open_page(chrome, base, chapters=first)
             time.sleep(1.5)
             view = self.live_view(chrome, session)
             self.assertEqual(view["chapters"], [["Reports come in", True, ["report"]],
                                                 ["Migration breaks runs", False, []]],
-                             "the keeper's chapters did not group the rows, newest first with only the current one open")
+                             "the model's chapters did not group the rows, newest first with only the current one open")
             self.assertEqual(view["bands"], ["Migration breaks runs", "Reports come in"])
+            self.assertEqual(view["toasts"], [], "the first grouping toasted chapters that were already there")
+            calls = B.evaluate(chrome, session, "window.__groupCalls")
+            self.assertEqual(len(calls), 1, "the page asked the model more than once for one timeline")
+            self.assertTrue(calls[0].startswith("Entries:\n0 {") and calls[0].endswith("Previous chapters: none yet"))
             self.assertEqual(view["cards"], [["fixer", "Working", "Rolling the workers"],
                                              ["ic", "Not responding", "Updating #outage"],
                                              ["monitor", "Alert", "Run creation errors"]])
@@ -262,6 +288,25 @@ class LivePollRebuildsThePage(unittest.TestCase):
             opened = self.live_view(chrome, session)
             self.assertEqual(opened["chapters"][1], ["Migration breaks runs", True, ["alert", "deploy"]])
             self.assertEqual(opened["monitor"], ["Alert"])
+
+            fix = {"id": "T4", "ts": stamp(60), "kind": "deploy", "h": "Fix rolled out", "text": "The fix rolled out."}
+            self.publish({**rec, "timeline": timeline + [fix]}, with_slack=True)
+            B.evaluate(chrome, session, f"(window.__chapters = {json.dumps(first + [{'first': 3, 'title': 'Fix rolls out', 'summary': 'The fix rolled out.'}])}, 1)")
+            grown = self.live_view(chrome, session, poll=True)
+            self.assertEqual([c[0] for c in grown["chapters"]], ["Fix rolls out", "Reports come in", "Migration breaks runs"])
+            self.assertIn("New chapterFix rolls out", grown["toasts"], "the new chapter was not toasted")
+            calls = B.evaluate(chrome, session, "window.__groupCalls")
+            self.assertEqual(len(calls), 2)
+            self.assertIn('{"first":2,"title":"Reports come in","summary":"A report came in."}', calls[1],
+                          "the regroup did not carry the last chapters forward")
+
+            late = {"id": "T5", "ts": stamp(30), "kind": "report", "h": "Runs recover", "text": "Runs recovered."}
+            self.publish({**rec, "timeline": timeline + [fix, late]}, with_slack=True)
+            B.evaluate(chrome, session, "(window.__chapters = [{first: 1, title: 'Skips the start', summary: 'Out of shape.'}], 1)")
+            kept = self.live_view(chrome, session, poll=True)
+            self.assertEqual([c[0] for c in kept["chapters"]], ["Fix rolls out", "Reports come in", "Migration breaks runs"],
+                             "an answer out of shape replaced the last good chapters")
+            self.assertEqual(kept["chapters"][0][2], ["report", "deploy"], "the new entry did not join the last chapter")
             self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
         finally:
             server.shutdown()

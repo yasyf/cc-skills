@@ -185,8 +185,7 @@ CAUSE_BODY_WORDS = 90
 DECISION_BODY_WORDS = 60
 UNKNOWN_BODY_WORDS = 45
 LIVE_PHASES = ("detected", "investigating", "identified", "mitigated", "resolved")
-LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "chapters", "sessions", "source")
-CHAPTER_FIELDS = {"start", "title", "summary"}
+LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "sessions", "source")
 SESSION_ROLES = ("fixer", "ic")
 SESSION_STATES = ("running", "draining", "drained", "skipped", "down")
 SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander"}
@@ -975,7 +974,6 @@ def check_live(rep, R, status: str):
             rep.err(f"live.{key} is missing or empty; the status strip reads it while the incident runs")
         elif words(value) > budget:
             rep.strict_warn(f"live.{key} is {words(value)} words; the strip shows {budget} or fewer")
-    check_chapters(rep, live.get("chapters"))
     check_sessions(rep, live.get("sessions"))
     source = live.get("source")
     if source is None:
@@ -994,30 +992,6 @@ def check_live(rep, R, status: str):
         rep.err(f"live.source.branch {source.get('branch')!r} is not a branch name")
     for extra in sorted(set(source) - {"repo", "branch"}):
         rep.err(f"live.source.{extra} is not one of repo, branch")
-
-
-def check_chapters(rep, chapters):
-    if chapters is None:
-        return
-    if not isinstance(chapters, list) or not all(isinstance(c, dict) for c in chapters):
-        rep.err("live.chapters must be a list of {start, title, summary}")
-        return
-    last = None
-    for at, chapter in enumerate(chapters):
-        where = f"live.chapters[{at}]"
-        for extra in sorted(set(chapter) - CHAPTER_FIELDS):
-            rep.err(f"{where}.{extra} is not one of {', '.join(sorted(CHAPTER_FIELDS))}")
-        for key in ("title", "summary"):
-            if not (isinstance(chapter.get(key), str) and chapter[key].strip()):
-                rep.err(f"{where}.{key} is missing or empty")
-        try:
-            start = parse_ts(chapter.get("start"))
-        except ValueError as e:
-            rep.err(f"{where}.start {chapter.get('start')!r} {e}")
-            continue
-        if last is not None and start <= last:
-            rep.err(f"{where}.start is not after the chapter before it; chapters run in time order")
-        last = start
 
 
 def check_sessions(rep, sessions):
