@@ -383,7 +383,7 @@ def test_a_stale_wait_alone_never_raises_a_record(home, shell):
 def test_one_dialog_whose_since_orca_keeps_rewriting_stays_one_record_one_line_and_one_owner_ask(home, shell):
     supervised(home)
     unbound(shell)
-    coordinator(shell, "waiting", "coordinator.question")
+    coordinator(shell, "waiting", "coordinator.approval")
     supervisor(shell, "managed-server.working", idle=True)
     captures = set()
 
@@ -407,19 +407,43 @@ def another_command() -> dict:
     return screen
 
 
-@pytest.mark.parametrize(("second_screen", "waits"), [(lambda: fixture("screen.coordinator.question"), "a question dialog"), (another_command, "an approval dialog")])
-def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell, second_screen, waits):
+def test_a_second_prompt_on_the_same_terminal_is_a_second_record(home, shell):
     register(home)
     unbound(shell)
     coordinator(shell, "waiting", "coordinator.approval")
     earlier = poll(shell)[ROOT]["capture"]
-    shell.orca[read(ROOT)] = second_screen()
+    shell.orca[read(ROOT)] = another_command()
 
     poll(shell)
 
     first, cleared, second = shell.posts
     assert (first["--kind"], cleared["--kind"], second["--kind"]) == ("ask", "unblock", "ask")
-    assert f"waits on {waits}. Screen: " in whole(second) and state()[ROOT]["capture"] in whole(second) and state()[ROOT]["capture"] != earlier
+    assert "waits on an approval dialog. Screen: " in whole(second) and state()[ROOT]["capture"] in whole(second) and state()[ROOT]["capture"] != earlier
+
+
+@pytest.mark.parametrize("screen", ["coordinator.question", "coordinator.preview-question"])
+def test_the_coordinators_own_question_waits_on_the_owner_in_its_terminal_and_raises_no_record(home, shell, screen):
+    supervised(home)
+    unbound(shell)
+    coordinator(shell, "waiting", screen)
+    supervisor(shell, "managed-server.working", idle=True)
+
+    rows = poll(shell, 12)
+
+    assert rows[ROOT]["state"] == "question" and rows[ROOT]["alerts"] == {} and rows[ROOT]["capture"]
+    assert shell.posts == [] and shell.sends == []
+
+
+def test_an_approval_that_gives_way_to_the_coordinators_question_is_resolved(home, shell):
+    register(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+    poll(shell)
+    shell.orca[read(ROOT)] = fixture("screen.coordinator.question")
+
+    rows = poll(shell, 3)
+
+    assert [post["--kind"] for post in shell.posts] == ["ask", "unblock"] and rows[ROOT]["state"] == "question" and rows[ROOT]["alerts"] == {}
 
 
 def test_two_terminals_at_the_same_dialog_keep_a_screen_each(home, shell):

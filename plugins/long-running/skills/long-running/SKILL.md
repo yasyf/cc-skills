@@ -1971,7 +1971,7 @@ screen with `orca terminal read --screen` and puts each terminal in exactly one 
 | State | The screen shows | Record |
 |---|---|---|
 | `approval` | an approval dialog, such as a hook's ask, a tool permission, or a trust check | one, on the first poll that sees it |
-| `question` | a question picker | one, on the first poll that sees it |
+| `question` | a question picker | one, on the first poll that sees it; none on the coordinator's terminal |
 | `stale` | the agent's own input box, with `agentWait` still set | none; it resolves the prompt's record |
 | `unknown` | nothing the watch can read, or a wait whose screen matches no dialog or input box it knows | one `report` to `root` after three polls |
 | `unreachable` | nothing, because the remote host does not answer | one `report` to `root` after three polls |
@@ -1996,9 +1996,11 @@ so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.
-- Its own prompt cannot wake the coordinator. Register one independent agent as its
+- A question on the coordinator's terminal is the coordinator's own `AskUserQuestion`,
+  already in front of the owner there, so it raises no record. `show` still lists it.
+- Its own approval cannot wake the coordinator. Register one independent agent as its
   supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
-  coordinator's prompt is then a `blocker` to that lane, and the watch types the
+  coordinator's approval is then a `blocker` to that lane, and the watch types the
   record's line into the supervisor's own terminal with `orca terminal send --enter`.
 - The owner gets an `ask`, which `lr.needs-owner` shows, when no supervisor can take
   the prompt. That covers a drive with no supervisor, a supervisor that is itself at a
