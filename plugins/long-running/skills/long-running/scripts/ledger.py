@@ -358,7 +358,7 @@ class Scope:
     default: str
 
     def key(self, pr: str) -> str:
-        return pr if same_repo(self.repo, self.default) else f"{self.repo}#{pr}"
+        return pr if same_repo(self.repo, self.default) else f"{self.repo.lower()}#{pr}"
 
     def store(self, key: str) -> str:
         if key.isdigit():
@@ -367,18 +367,19 @@ class Scope:
         return review_key(self.key(pr), head) if key.startswith(REVIEW_PREFIX) and pr.isdigit() else key
 
     def local(self, key: str) -> str | None:
-        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@")
+        review = not is_pr_key(key) and key.startswith(REVIEW_PREFIX)
+        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@") if review else (key, "", "")
         if not (match := PR_KEY.fullmatch(pr)):
             return key
         if not same_repo(match["repo"] or self.default, self.repo):
             return None
-        return review_key(match["pr"], head) if key.startswith(REVIEW_PREFIX) else match["pr"]
+        return review_key(match["pr"], head) if review else match["pr"]
 
     def view(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
         return {local: fields for key, fields in stored.items() if (local := self.local(key)) is not None}
 
     def lanes(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
-        return {key: fields for key, fields in stored.items() if key.startswith(LANE_PREFIX) and same_repo(fields.get("repo") or self.default, self.repo)}
+        return {key: fields for key, fields in stored.items() if key.startswith(LANE_PREFIX) and not is_pr_key(key) and same_repo(fields.get("repo") or self.default, self.repo)}
 
 
 def row_repo(key: str, fields: dict[str, str], default: str) -> str | None:
@@ -399,7 +400,9 @@ def ledger_repos(stored: dict[str, dict[str, str]], scope: Scope) -> list[str]:
 
 
 def is_malformed(key: str) -> bool:
-    """A PR key that is not a bare number, or an ask key whose sequence is not one."""
+    """A PR key that is neither a bare number nor `owner/name#<pr>`, or an ask key whose sequence is not one."""
+    if is_pr_key(key):
+        return False
     if key[:1].isdigit():
         return not key.isdigit()
     return key.startswith(ASK_PREFIX) and not key[len(ASK_PREFIX) :].isdigit()
@@ -1339,7 +1342,9 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
         prefix = rows[key]["branch_prefix"]
         if args.branch_prefix and args.branch_prefix != prefix:
             raise SystemExit(f"lane {args.lane} is registered on {prefix}, not {args.branch_prefix}")
-        dropped = sorted((pr for pr, fields in pull_rows(rows).items() if discovered_only(fields, args.lane, prefix)), key=pr_order)
+        default = origin_repo(shell, Path("."))
+        scope = Scope(rows[key].get("repo") or default, default)
+        dropped = sorted((pr for pr, fields in pull_rows(rows).items() if scope.local(pr) and discovered_only(fields, args.lane, prefix)), key=pr_order)
         for pr in dropped:
             notes.remove(pr)
         notes.remove(key)

@@ -248,7 +248,7 @@ class Sweep:
         self.shell = shell
         self.repo = args.repo
         self.checkout = Path(args.checkout).expanduser().resolve()
-        self.notes = ledger.Notes(shell, args.ledger)
+        self.notes = ledger.Notes(shell, args.ledger, ledger.Scope(args.repo, ledger.origin_repo(shell, self.checkout)))
         self.lock = ledger.default_lock(args.ledger).with_name(f"{args.ledger}.rules-review.lock")
         self.state = Path(args.state).expanduser().resolve() if args.state else Path.home() / ".cache" / "long-running" / "rules-review" / args.ledger
         self.parallel = args.parallel

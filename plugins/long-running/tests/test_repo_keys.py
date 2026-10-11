@@ -144,3 +144,29 @@ def test_unregister_drops_the_rows_its_prefix_pulled_in_from_another_repo(capsys
 
     assert shell.keys() == []
     assert capsys.readouterr().out.strip().endswith(f"dropped {OTHER}#7")
+
+
+def test_unregister_leaves_the_same_prefix_alone_in_another_repo():
+    lane = {"key": "lane/skills-lane", "fields": {"lane": "skills-lane", "branch_prefix": "skills/", "repo": OTHER}}
+    home = {"key": "7", "fields": {"lane": "skills-lane", "registered": "skills-lane", "branch": "skills/x"}}
+    shell = FakeShell(rows=[lane, home])
+
+    run(shell, "unregister", "--ledger", LEDGER, "--lane", "skills-lane")
+
+    assert shell.keys() == ["7"]
+
+
+def test_a_repo_spelled_in_another_case_writes_the_same_row():
+    shell = FakeShell(rows=[{"key": f"{OTHER}#20961", "fields": {"lane": "skills-lane"}}])
+
+    run(shell, "lift", "--ledger", LEDGER, "--repo", "Yasyf/CC-Skills", "--pr", "20961")
+
+    assert shell.keys() == [f"{OTHER}#20961"]
+
+
+def test_keys_that_look_like_prefixes_or_start_with_a_digit_are_pr_keys():
+    stored = {"123org/project#7": {"lane": "a"}, "review/project#8": {"lane": "b"}, "lane/project#9": {"lane": "c"}}
+
+    assert not any(ledger.is_malformed(key) for key in stored)
+    assert ledger.Scope("review/project", HOME).view(stored) == {"8": {"lane": "b"}}
+    assert ledger.Scope(HOME, HOME).lanes(stored) == {}
