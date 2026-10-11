@@ -24,7 +24,6 @@ PROSE_MODEL = "claude-opus-5-5"
 PROSE_TOOLS = "Read,Grep,Glob"
 REPLY_LOG = "reply.jsonl"
 PROSE_LOCK = "prose.lock.json"
-WRITE_LOCK = ".prose.lock"
 PROSE_TIMEOUT = 1800
 PROSE_BATCH = 0
 SLOP_ROUNDS = 2
@@ -40,6 +39,7 @@ REQUIRED_KINDS = ("short name", HEADLINE, SUBTITLE)
 WRITING_DOCS = "writing-docs"
 SKILL_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "skills"
 LANES = Path.home() / ".cache" / "incident-retro" / "prose"
+CLAIMS = Path.home() / ".cache" / "incident-retro" / "claims"
 RUN_LOG = "run.log"
 RUN_EXIT = "run.exit"
 RUN_PID = "run.pid"
@@ -76,18 +76,24 @@ class Busy(RuntimeError):
     pass
 
 
+def claim_path(root: Path) -> Path:
+    return CLAIMS / f"{digest(str(root.resolve()))}.lock"
+
+
 class Owner:
     """An exclusive claim on one retro, held for the life of the run.
 
-    The lock file is never unlinked. Unlinking it while another run holds a flock on that inode
-    hands the next run a fresh inode to lock, so two runs own the retro at once.
+    The lock file lives outside the retro directory, so publishing never stages it, and is never unlinked.
+    Unlinking it while another run holds a flock on that inode hands the next run a fresh inode to lock,
+    so two runs own the retro at once.
     """
 
     def __init__(self, root: Path):
-        self.path = root / WRITE_LOCK
+        self.path = claim_path(root)
         self.handle = None
 
     def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.handle = self.path.open("a+")
         try:
             fcntl.flock(self.handle, fcntl.LOCK_EX | fcntl.LOCK_NB)

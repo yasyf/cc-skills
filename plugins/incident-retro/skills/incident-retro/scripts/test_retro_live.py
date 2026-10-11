@@ -728,8 +728,8 @@ class StateIsReadUnderTheClaim(unittest.TestCase):
         held, original = [], retro_live.read_state
 
         def watching(where):
-            held.append((root / retro_prose.WRITE_LOCK).exists()
-                        and bool((root / retro_prose.WRITE_LOCK).read_text().strip()))
+            claim = retro_prose.claim_path(root)
+            held.append(claim.exists() and bool(claim.read_text().strip()))
             return original(where)
 
         retro_live.read_state = watching

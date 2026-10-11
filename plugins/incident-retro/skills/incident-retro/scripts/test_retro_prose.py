@@ -10,6 +10,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retro_prose
 
+retro_prose.CLAIMS = Path(tempfile.mkdtemp())
+
 
 class ExclusiveClaim(unittest.TestCase):
     def setUp(self):
@@ -27,26 +29,39 @@ class ExclusiveClaim(unittest.TestCase):
             pass
         with retro_prose.Owner(self.root):
             pass
-        lock = self.root / retro_prose.WRITE_LOCK
+        lock = retro_prose.claim_path(self.root)
         self.assertTrue(lock.exists(), "the lock file is the claim's identity and outlives the run")
         self.assertEqual(lock.read_text().strip(), "", "a released claim names no holder")
 
     def test_the_lock_file_is_never_unlinked(self):
         """Unlinking it lets the next run lock a fresh inode while this one still holds the old."""
-        lock = self.root / retro_prose.WRITE_LOCK
+        lock = retro_prose.claim_path(self.root)
         with retro_prose.Owner(self.root):
             first = lock.stat().st_ino
         with retro_prose.Owner(self.root):
             self.assertEqual(lock.stat().st_ino, first, "the claim moved to a new inode")
 
+    def test_the_claim_leaves_nothing_in_the_retro_directory_to_publish(self):
+        with retro_prose.Owner(self.root):
+            self.assertEqual(list(self.root.iterdir()), [])
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_the_same_retro_reached_by_another_path_shares_one_claim(self):
+        alias = Path(tempfile.mkdtemp()) / "alias"
+        alias.symlink_to(self.root)
+        with retro_prose.Owner(self.root):
+            with self.assertRaises(retro_prose.Busy):
+                with retro_prose.Owner(alias):
+                    pass
+
     def test_a_crashed_run_does_not_wedge_the_retro(self):
         script = (f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r});"
-                  f"from pathlib import Path; import retro_prose;"
+                  f"from pathlib import Path; import retro_prose; retro_prose.CLAIMS = Path({str(retro_prose.CLAIMS)!r});"
                   f"claim = retro_prose.Owner(Path({str(self.root)!r})); claim.__enter__();"
                   f"print('held', flush=True); raise SystemExit(1)")
         crashed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
         self.assertIn("held", crashed.stdout, f"the child never took the lock: {crashed.stderr}")
-        self.assertTrue((self.root / retro_prose.WRITE_LOCK).exists())
+        self.assertTrue(retro_prose.claim_path(self.root).exists())
         with retro_prose.Owner(self.root):
             pass
 
@@ -71,7 +86,7 @@ class RecordIsReadUnderTheClaim(unittest.TestCase):
         store = {"C1.text": {"kind": "prose", "text": "written", "holder": {}, "key": "text"}}
 
         def watching(retro, where):
-            held.append((where / retro_prose.WRITE_LOCK).exists())
+            held.append(retro_prose.claim_path(where).exists())
             return record, store
 
         retro_prose.read_record = watching

@@ -31,6 +31,7 @@ SLACK_DIR = "evidence/slack"
 DATADOG_DIR = "evidence/datadog"
 INDEX = "index.html"
 INDEX_SCRIPT = Path(".claude/skills/update-design-docs/scripts/sync-index.sh")
+CARD_PAGES = (INDEX, f"{RETRO_DIR}/{INDEX}")
 DISPOSITION_STATE = {"open": "todo", "deferred": "todo", "mitigated": "in-progress", "fixed": "done",
                      "already_fixed": "done", "not_reproducible": "dropped"}
 DISPOSITION_NOTE = {"deferred": "Deferred during the response.", "not_reproducible": "Not reproducible."}
@@ -447,7 +448,7 @@ def incident_title(state: dict, slug: str, retro) -> str:
 
 def sync_cards(docs: Path) -> list:
     subprocess.run(["bash", str(docs / INDEX_SCRIPT)], check=True, stdout=subprocess.DEVNULL)
-    return [docs / INDEX, docs / RETRO_DIR / INDEX]
+    return [docs / page for page in CARD_PAGES]
 
 
 def run_check(retro, root: Path) -> int:

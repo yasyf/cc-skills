@@ -236,6 +236,47 @@ def test_bump_run_is_idempotent(repo, tmp_path, monkeypatch):
     assert autobump.main() == 0
     assert json.loads((repo / m).read_text())["version"] == "0.2.1"
     assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "clean"
+    assert _out(tmp_path / "remote.git", "tag", "--list") == "a--v0.2.1"
+
+
+# 10b — every pushed bump is tagged <name>--v<version> at the bump commit on the remote
+def test_bump_tags_each_plugin_at_the_pushed_commit(repo, tmp_path, monkeypatch):
+    for name in ("a", "b"):
+        _write(repo, _manifest_path(f"plugins/{name}"), _manifest_text(name, "0.1.0"))
+    _commit(repo, "create plugins")
+    for name in ("a", "b"):
+        _write(repo, f"plugins/{name}/src.py", "print('x')\n")
+    _commit(repo, "add content")
+
+    _run(tmp_path, "init", "--bare", "remote.git")
+    _run(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    _run(repo, "push", "-u", "origin", "main")
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+    remote = tmp_path / "remote.git"
+    bump = _out(remote, "rev-parse", "main")
+    assert _out(remote, "log", "-1", "--format=%s", bump).startswith("chore(plugins): autobump 2 plugins")
+    for name in ("a", "b"):
+        assert _out(remote, "rev-parse", f"{name}--v0.1.1^{{commit}}") == bump
+
+
+# 10c — a version tag that already exists fails the run instead of moving the tag
+def test_an_existing_version_tag_fails_the_run(repo, tmp_path, monkeypatch):
+    m = _manifest_path("plugins/a")
+    _write(repo, m, _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/src.py", "print('x')\n")
+    taken = _commit(repo, "add content")
+
+    _run(tmp_path, "init", "--bare", "remote.git")
+    _run(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    _run(repo, "push", "-u", "origin", "main")
+    _run(repo, "push", "origin", f"{taken}:refs/tags/a--v0.1.1")
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 1
+    assert _out(tmp_path / "remote.git", "rev-parse", "a--v0.1.1") == taken
 
 
 # 11 — non-semver version is a hard error

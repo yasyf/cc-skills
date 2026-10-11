@@ -17,12 +17,13 @@ recommendations. Present it to the owner, record picked options, owners, PR link
 and fill Remediation before the prose pass and the first retro PR.
 
 `publish` runs check --strict, render-check, and a whole-page slop-cop count before pushing anything.
-After the gates pass, it has the docs checkout's `sync-index.sh` regenerate both index pages' cards, commits only the retro directory and the two
-index pages, pushes, and opens a ready PR or edits the existing PR and marks it ready. It writes
+After the gates pass, it rebases the branch onto the docs repository's default branch, has the docs checkout's
+`sync-index.sh` regenerate both index pages' cards, commits only the retro directory and the two index pages, pushes
+with a lease, and opens a ready PR or edits the existing PR and marks it ready. It writes
 the PR body from the summary panels. A retro PR is never draft.
 
 The wait merges the PR itself with the merge method the repository allows as soon as it is clean and every
-check is green, and ends when the PR has merged and a successful github-pages deployment contains the merge
+check is green, rebases and resyncs the cards when another retro landed first, and ends when the PR has merged and a successful github-pages deployment contains the merge
 commit. GitHub sign-in protects the site, so the deployment record proves the merged revision is
 served. Success exits 0 with `RENDERED: https://<CNAME>/incident-retros/<slug>/` as the last line.
 A failed check or a PR closed without merging exits 1. After --seconds (default 540), an unfinished
@@ -269,24 +270,62 @@ def gate(root: Path, retro) -> int:
     return failed
 
 
+def title_of(root: Path) -> str:
+    R = json.loads((root / "retro.json").read_text())
+    return f"incident retros: 📝 {R['meta'].get('title', root.name)}"
+
+
+def rebase_onto_base(docs: Path, live) -> str:
+    """Replay the retro branch onto the docs repository's default branch. The index pages are generated,
+    so a conflict confined to them takes the base's copy and the card sync that follows regenerates both."""
+    base = run(["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"], cwd=docs).strip()
+    git = ["git", "-C", str(docs), "-c", "core.editor=true"]
+    run([*git, "fetch", "-q", "origin", base])
+    run([*git, "checkout", "HEAD", "--", *live.CARD_PAGES])
+    done = subprocess.run([*git, "rebase", "--autostash", f"origin/{base}"], capture_output=True, text=True)
+    while done.returncode:
+        unmerged = run([*git, "diff", "--name-only", "--diff-filter=U"]).split()
+        if not unmerged or set(unmerged) - set(live.CARD_PAGES):
+            run([*git, "rebase", "--abort"], check=False)
+            raise SystemExit(f"publish: rebasing onto origin/{base} stopped on {', '.join(unmerged) or 'no conflict'}: "
+                             f"{(done.stderr or done.stdout).strip()}")
+        run([*git, "checkout", "--ours", "--", *unmerged])
+        run([*git, "add", "--", *unmerged])
+        step = "--continue" if run([*git, "diff", "--cached", "--name-only"]).strip() else "--skip"
+        done = subprocess.run([*git, "rebase", step], capture_output=True, text=True)
+    return base
+
+
+def sync_and_push(root: Path, retro, branch: str) -> str:
+    """Rebase before the card sync, so the cards count every retro the default branch already carries and the
+    docs checks pass on the merge ref; the rebase rewrites the published branch, so the push takes a lease."""
+    docs = root.parents[1]
+    current = run(["git", "-C", str(docs), "branch", "--show-current"]).strip()
+    if current != branch:
+        raise SystemExit(f"publish: {docs} is on {current or 'a detached HEAD'}, not {branch}; check out {branch} "
+                         f"and run publish again")
+    live = retro.sibling_module("retro_live")
+    base = rebase_onto_base(docs, live)
+    paths = [str(root), *map(str, live.sync_cards(docs))]
+    run(["git", "-C", str(docs), "add", *paths])
+    if run(["git", "-C", str(docs), "diff", "--cached", "--name-only", "--", *paths]).strip():
+        run(["git", "-C", str(docs), "commit", "-q", "-m", title_of(root), "--", *paths])
+    run(["git", "-C", str(docs), "push", "-q", "--force-with-lease", "-u", "origin", f"HEAD:refs/heads/{branch}"])
+    print(f"publish: {branch} is rebased onto origin/{base} with fresh index cards")
+    return run(["git", "-C", str(docs), "rev-parse", "HEAD"]).strip()
+
+
 def publish(args) -> int:
     retro = args.retro
     root = Path(args.dir).resolve()
     if args.await_pr:
-        return await_rendered(root, args.await_pr, args.seconds)
+        return await_rendered(root, args.await_pr, args.seconds, retro)
     if gate(root, retro):
         print("publish: a gate failed; nothing was pushed", file=sys.stderr)
         return 1
-    R = json.loads((root / "retro.json").read_text())
-    docs = Path(run(["git", "-C", str(root), "rev-parse", "--show-toplevel"]).strip())
-    slug = root.name
-    touched = retro.sibling_module("retro_live").sync_cards(docs)
-    paths = [str(root), *map(str, touched)]
-    run(["git", "-C", str(docs), "add", *paths])
-    title = f"incident retros: 📝 {R['meta'].get('title', slug)}"
-    if run(["git", "-C", str(docs), "diff", "--cached", "--name-only", "--", *paths]).strip():
-        run(["git", "-C", str(docs), "commit", "-q", "-m", title, "--", *paths])
-    run(["git", "-C", str(docs), "push", "-q", "-u", "origin", "HEAD"])
+    docs = root.parents[1]
+    sync_and_push(root, retro, run(["git", "-C", str(docs), "branch", "--show-current"]).strip())
+    title = title_of(root)
     body = pr_body(root, retro)
     url = run(["gh", "pr", "view", "--json", "url", "-q", ".url"], cwd=docs, check=False).strip()
     if url:
@@ -296,7 +335,7 @@ def publish(args) -> int:
         url = run(["gh", "pr", "create", "--title", title, "--body", body], cwd=docs).strip().splitlines()[-1]
     print(f"publish: {url} is ready and merges once it is clean and its checks pass")
     print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
-    return await_rendered(root, url, args.seconds)
+    return await_rendered(root, url, args.seconds, retro)
 
 
 def merge_flag(url: str) -> str:
@@ -315,15 +354,35 @@ def pages_live(repo: str, sha: str) -> bool:
     return False
 
 
-def await_rendered(root: Path, url: str, seconds: float) -> int:
+def behind_base(root: Path, base: str) -> bool:
+    docs = root.parents[1]
+    run(["git", "-C", str(docs), "fetch", "-q", "origin", base])
+    return subprocess.run(["git", "-C", str(docs), "merge-base", "--is-ancestor", f"origin/{base}", "HEAD"]).returncode != 0
+
+
+def await_rendered(root: Path, url: str, seconds: float, retro) -> int:
     """The merged commit counts as rendered once a successful Pages deployment contains it: the site sits
-    behind GitHub sign-in, so an anonymous fetch of the page cannot tell a fresh deploy from a stale one."""
+    behind GitHub sign-in, so an anonymous fetch of the page cannot tell a fresh deploy from a stale one.
+    A retro that merged first leaves this branch behind with stale cards; the wait rebases and resyncs it."""
     repo = "/".join(url.split("/")[3:5])
     deadline = time.monotonic() + seconds
+    pushed = None
     while True:
-        pr = json.loads(run(["gh", "pr", "view", url, "--json", "state,mergeCommit,mergeStateStatus,statusCheckRollup"]))
+        pr = json.loads(run(["gh", "pr", "view", url, "--json",
+                             "state,mergeCommit,mergeStateStatus,statusCheckRollup,headRefName,headRefOid,baseRefName"]))
+        if pushed and pr["headRefOid"] != pushed:
+            if time.monotonic() >= deadline:
+                return still_waiting(root, url, seconds, "waiting on GitHub to see the rebased branch")
+            time.sleep(AWAIT_POLL)
+            continue
         verdicts = [c.get("conclusion") or c.get("state") for c in pr["statusCheckRollup"]]
         failed = [c.get("name") or c.get("context") for c, v in zip(pr["statusCheckRollup"], verdicts) if v in RED]
+        stale = pr["state"] == "OPEN" and (pr["mergeStateStatus"] == "BEHIND"
+                                           or failed and behind_base(root, pr["baseRefName"]))
+        if stale:
+            print(f"publish: {url} fell behind {pr['baseRefName']}; rebasing and resyncing the index cards")
+            pushed = sync_and_push(root, retro, pr["headRefName"])
+            continue
         if failed:
             print(f"publish: {url} failed {', '.join(failed)}; fix it and run publish again", file=sys.stderr)
             return 1
@@ -336,11 +395,15 @@ def await_rendered(root: Path, url: str, seconds: float) -> int:
             print(f"RENDERED: {rendered_url(root)}")
             return 0
         if time.monotonic() >= deadline:
-            stage = "deploying to Pages" if pr["state"] == "MERGED" else "waiting on checks to merge"
-            print(f"publish: still {stage} after {seconds:.0f}s")
-            print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
-            return STILL_WAITING
+            return still_waiting(root, url, seconds,
+                                 "deploying to Pages" if pr["state"] == "MERGED" else "waiting on checks to merge")
         time.sleep(AWAIT_POLL)
+
+
+def still_waiting(root: Path, url: str, seconds: float, stage: str) -> int:
+    print(f"publish: still {stage} after {seconds:.0f}s")
+    print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
+    return STILL_WAITING
 
 
 def comms_check(args) -> int:

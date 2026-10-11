@@ -2,9 +2,10 @@
 # requires-python = ">=3.13"
 # ///
 """Auto-bump a plugin's patch version when its content drifts from the last
-version change. The installed-plugin cache only re-pulls on a version move, so
-content shipped without a bump goes stale on every consumer. Guarded plugins
-(binary-pinned) get a drift warning instead of a bump.
+version change, and tag the bump commit `<name>--v<version>`. The installed-plugin
+cache only re-pulls on a version move, so content shipped without a bump goes
+stale on every consumer. Guarded plugins (binary-pinned) get a drift warning
+instead of a bump.
 
 Env contract:
   AUTOBUMP_DRY_RUN   "true"/"false" — plan only, never write/commit/push
@@ -243,6 +244,13 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
     return False
 
 
+def tag_bumps(repo: Path, bumps: list[Result]) -> bool:
+    tags = [f"{r.name}--v{r.new_version}" for r in bumps]
+    for tag in tags:
+        _git_out(repo, "tag", tag)
+    return _git(repo, "push", "origin", *(f"refs/tags/{tag}" for tag in tags)).returncode == 0
+
+
 def main() -> int:
     repo = Path.cwd()
     dry_run = os.environ.get("AUTOBUMP_DRY_RUN", "false").strip().lower() == "true"
@@ -272,6 +280,9 @@ def main() -> int:
         push_failed = not commit_and_push(repo, bumps, branch)
         if push_failed:
             print("::error::autobump commit push failed after 3 retries")
+        elif not tag_bumps(repo, bumps):
+            push_failed = True
+            print("::error::autobump tag push failed")
 
     note = "local run: report-only (set AUTOBUMP_FORCE=1 to mutate)" if report_only else None
     summary = "\n".join(([note] if note else []) + [render_summary(results)])
