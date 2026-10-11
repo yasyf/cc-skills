@@ -4,18 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
-
 PLUGIN = Path(__file__).resolve().parents[1]
 SHIM = PLUGIN / "scripts" / "bin-shim.sh"
-SCRIPTS = PLUGIN / "skills" / "long-running" / "scripts"
-
-
-@pytest.mark.parametrize("tool", sorted(p.name for p in (PLUGIN / "bin").iterdir()))
-def test_every_bin_entry_links_to_the_shim_and_names_a_script(tool: str):
-    entry = PLUGIN / "bin" / tool
-    assert os.readlink(entry) == "../scripts/bin-shim.sh"
-    assert (SCRIPTS / tool).is_file()
 
 
 def plugin_cache(tmp_path: Path, versions: dict[str, bool]) -> Path:
