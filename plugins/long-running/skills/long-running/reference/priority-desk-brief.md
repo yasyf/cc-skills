@@ -104,7 +104,7 @@ Do, in this order, every iteration:
        They report `held` on the tip, name the held PR, and leave release to the root.
        Before every enqueue, re-read the root's holds file. Each line names held
        PRs as #<n> and whole lanes as lane:<name>, then the reason. Build a fresh
-       digits-only file with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`.
+       digits-only file with `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
        Append every open PR number whose row's lane matches a lane:<name> entry,
        from `ledger.py show --ledger <id> --json` across the whole ledger, even
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,

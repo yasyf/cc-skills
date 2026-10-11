@@ -177,8 +177,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   READY is `--verdict clean --text "READY ..."`; the desk reads only this cci record.
 - The moment your stack has a green, approved bottom prefix, re-read the holds file.
   Before each enqueue, write a fresh digits-only file with
-  `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
-  PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
+  `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`
+  and append every open PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
   Never cache the held set or self-enqueue above a held PR or any PR of a held
   lane. Under a `hold:all` line, never self-enqueue; the landing runner lands
   what the root releases. Report `held` on your tip with the held PR named and leave release to

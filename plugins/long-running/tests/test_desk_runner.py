@@ -166,7 +166,12 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", self.tail_error)
         assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
         since = int(argv[argv.index("--since") + 1])
-        found = [record for record in self.records if record["seq"] > since and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])]
+        kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
+        found = [
+            record
+            for record in self.records
+            if record["seq"] > since and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"]) and (not kinds or record.get("kind") in kinds)
+        ]
         if "--limit" in argv:
             found = found[-int(argv[argv.index("--limit") + 1]) :]
         return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in found), "")
@@ -737,6 +742,24 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert all(call[call.index("--hold") + 1 :] == ["28349", "29020"] for call in checks)
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, config, tmp_path):
+    shell.records = [
+        {"seq": 7, "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
+        {"seq": 8, "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
+        {"seq": 9, "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
+    ]
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.gates["28349"] = [gate("#28349 GREEN dddd444444 graphite READY", would="#28349")]
+    shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert shell.enqueues() and all(call[call.index("--hold") + 1 :] == ["29020"] for call in calls)
 
 
 def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_path):

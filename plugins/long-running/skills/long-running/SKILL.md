@@ -767,7 +767,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. Lanes enqueue their own green bottom prefixes; the root owns holds and priority PRs.** The moment its stack has a green, approved bottom prefix, the owning lane re-reads the root's holds file. Before every enqueue it writes the held PR numbers to a fresh file, digits only, with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`; never cache the held set. Extend it with the open PRs of held lanes under D3.
+**D1. Lanes enqueue their own green bottom prefixes; the root owns holds and priority PRs.** The moment its stack has a green, approved bottom prefix, the owning lane re-reads the root's holds file. Before every enqueue it writes the held PR numbers to a fresh file, digits only, with `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`; never cache the held set. `ledger.py held` prints every PR an open cci `hold` record names, so a lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. Extend it with the open PRs of held lanes under D3.
 
 Where the checkout carries an enqueue script, a lane calls it as
 `stack-enqueue <prefix top> --hold $(cat <held file>)`, then reports with
@@ -1498,7 +1498,7 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
   generates it. A stack that still carries a regenerated artifact rebases and
   regenerates it on ejection.
 Holds file: <path>, root-owned; rebuild a fresh numeric held file before every
-  enqueue from its #<n> entries and held lanes' open PRs under D3.
+  enqueue from its #<n> entries, `ledger.py held --drive <drive>`, and held lanes' open PRs under D3.
 Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   `stack-enqueue <prefix top> --hold $(cat <held file>)` at once, omitting `--hold`
   when the numeric file is empty, then `ledger.py report --drive <drive>` the enqueue. Where the

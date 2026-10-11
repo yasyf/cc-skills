@@ -17,6 +17,7 @@
     ledger.py refresh [--repo owner/name] --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
     ledger.py hold    --ledger ID [--repo owner/name] --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID [--repo owner/name] --pr N
+    ledger.py held    --drive D
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
     ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
@@ -1731,6 +1732,11 @@ def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], ref
             fields |= {"routed_head": head, "routed_job": job, "routed_lane": fields["lane"], "routed_at": utc_stamp()}
 
 
+def cmd_held(args: argparse.Namespace, shell: Shell) -> int:
+    print("".join(f"{pr}\n" for pr in sorted(cci.held_prs(shell.run, args.drive), key=int)), end="")
+    return 0
+
+
 def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger, args.scope)
@@ -2292,6 +2298,10 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--cars", type=int, default=TRAIN_CARS)
     add_shard(train)
     train.set_defaults(handler=cmd_train)
+
+    held = subparsers.add_parser("held", help="print each PR an open cci hold record names, one number per line, for stack-enqueue --hold")
+    held.add_argument("--drive", required=True, help="the cci drive whose hold records to read")
+    held.set_defaults(handler=cmd_held)
 
     label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then enqueue the tip once: through the checkout's stack-enqueue, else by label")
     add_ledger(label, repo=True)
