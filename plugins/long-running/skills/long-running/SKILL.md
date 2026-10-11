@@ -129,6 +129,7 @@ Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
 - Incidents use an investigation and log through `incident.py`.
 - Handoffs use a doc; follow
   [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md).
+  Every handoff carries the outgoing session's `cci me` line.
 - Reports and audits use a note for a verdict or finding, or a doc with a
   read-before trigger.
 - Lane briefs are attachments on one `briefs: <slug>` log; use `--replace` on edit.
@@ -1523,6 +1524,8 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
     that acts. Answer with `--kind answer --re <seq>`; use `--kind withdraw --re <seq>`
     before you change or retract a record. Set the topic and recipients on replies.
     A SendMessage carries the entry number, never the body.
+Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
+  owns a PR and `cci who --drive <drive> --role root` the root; SendMessage the address it prints.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 `# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
   where a hook misreads the command, and name that hook in your report.
