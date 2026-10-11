@@ -119,6 +119,7 @@ class Run:
     passes: int
     state: dict
     gh_calls: list[str]
+    cci_calls: list[str]
     returncode: int
     stderr: str
 
@@ -146,11 +147,14 @@ def poll(tmp_path: Path):
         pass_file.write_text("0\n")
         log = root / "gh.log"
         log.touch()
+        cci_log = root / "cci.log"
+        cci_log.touch()
         env = {
             **os.environ,
             "PATH": f"{FAKES}:{os.environ['PATH']}",
             "FAKE_GH_ROOT": str(root),
             "FAKE_GH_LOG": str(log),
+            "FAKE_CCI_LOG": str(cci_log),
             "FAKE_PASS_FILE": str(pass_file),
             "FAKE_MAX_PASS": str(len(passes) - 1),
             "PR_POLL_DEADLINE": "0",
@@ -168,6 +172,7 @@ def poll(tmp_path: Path):
             passes=int(pass_file.read_text()) + 1,
             state=json.loads(state_file.read_text()),
             gh_calls=log.read_text().splitlines(),
+            cci_calls=cci_log.read_text().splitlines(),
             returncode=result.returncode,
             stderr=result.stderr,
         )

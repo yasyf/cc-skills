@@ -47,6 +47,10 @@
 #
 # One poller per state file: a second concurrent run exits 3 without polling.
 #
+# With cci on PATH, each round claims `watches pr:<n>` for the session, so
+# `cci who --pr <n>` finds the watcher, and every DONE except window-elapsed and
+# evicted drops the claim: those two re-arm the same watch.
+#
 # window-elapsed: the harness kills a Monitor after 30 minutes and announces it
 # with one expiry notice a background agent can miss, so the script ends its own
 # round after PR_POLL_WINDOW seconds (25 minutes) and the watcher re-arms it on
@@ -261,7 +265,16 @@ emit() {
   printf '%s\n' "$1"
 }
 
+cci_watch() {
+  command -v cci >/dev/null 2>&1 || return 0
+  cci "$1" --pr "$PR" --rel watches >/dev/null 9>&- || true
+}
+
 finish() {
+  case $1 in
+  window-elapsed | evicted*) ;;
+  *) cci_watch unclaim ;;
+  esac
   printf 'DONE %s\n' "$1"
   exit 0
 }
@@ -568,6 +581,7 @@ rest_until() {
 }
 
 load_state
+cci_watch claim
 rest_until "$(state '.next_poll_at // 0')"
 while :; do
   polled_at=$(date +%s)

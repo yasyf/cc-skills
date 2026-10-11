@@ -34,6 +34,11 @@ and no round boundary, so it dies with the Monitor's cap the first time CI
 takes longer than 30 minutes. The caller then reads silence as "still
 running". Never substitute one.
 
+With `cci` on PATH, the script also records who holds the watch: each round
+claims `watches pr:<pr>` for this session, and every `DONE` except
+`window-elapsed` and `evicted` drops the claim, so `cci who --pr <pr>` finds
+you while you watch. Never run `cci claim` or `cci unclaim` for the PR yourself.
+
 Run the script as that Monitor's command, never wrapped in a `while` loop:
 one Monitor per state file, re-armed by you after each `DONE`. A Bash poll
 blocks you for its whole timeout while the Monitor's `DONE` line waits
