@@ -1094,13 +1094,17 @@ counts as launched, as does a new dispatch receipt when the log is empty. Other
 output produces `LAUNCH-FAILED`; neither a line nor a new receipt produces
 `UNVERIFIABLE`, never an automatic relaunch. `unsupervised` escalates separately.
 
-**O3. Keep one Run reader.** Only desk-runner consumes the Run. It reads
-`orca orchestration inbox --terminal run:<run> --limit N --json` without marking
-messages read, processes new sequences oldest first, and persists each cursor
-advance. It expands full pages until the cursor is covered. Its first read starts
-at the newest sequence without replaying history, and nothing launches or
-relays until that read succeeds. No other loop may run
-`orca orchestration check --run <run>` with `--wait` or `--ack`.
+**O3. Keep one Run reader.** Only desk-runner consumes the Run. Each pass takes the
+Run's oldest unacknowledged Delivery with `orca orchestration check --run <run>`, reads
+`orca orchestration inbox --terminal run:<run> --limit N --json` past its saved cursor
+oldest first, and acknowledges that Delivery with `--ack <delivery id> --peek` once the
+read is relayed. It persists each cursor advance and expands full pages until the
+cursor is covered. Its first read starts at the newest sequence without replaying
+history, and nothing launches or relays until that read succeeds. No other loop may
+run `orca orchestration check --run <run>` with `--wait` or `--ack`.
+
+*Prevents the coordinator's `You have 32 orchestration messages` prompt of 2026-10-11,
+which counted 20 relayed `worker_done` messages and 12 skipped heartbeats.*
 
 **O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
 with no tools reads the lane's brief. It answers what the brief settles or emits

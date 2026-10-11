@@ -23,8 +23,10 @@ never resent blindly. An accepted relay to a lane with no live dispatch and no l
 flight fails at once as `RELAY-FAILED`.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail, and
-checks relay deadlines. Prompts belong to `prompt_watch.py`, the one reader of Orca's
-agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
+checks relay deadlines. Each pass takes the Run's oldest unacknowledged Delivery before
+it reads the inbox and acknowledges it once that read is relayed, so Orca stops counting
+a relayed or skipped message as unread. Prompts belong to `prompt_watch.py`, the one reader
+of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
 while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question when it has one, logged once as
@@ -1124,9 +1126,10 @@ class Runner:
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
 
     def check(self) -> bool:
-        """Read the Run past the persisted cursor; False while no cursor exists, so nothing dispatches before the first read sets one."""
+        """Read the Run past the persisted cursor, then acknowledge the Delivery Orca handed over before that read; False while no cursor exists, so nothing dispatches before the first read sets one."""
         key = f"inbox:{self.config.run}"
         cursor = self.book.load(RUNNER).facts.get(key)
+        delivery = (self.orca.call("orchestration", "check", "--run", self.config.run).get("result") or {}).get("deliveryId")
         limit = INBOX_PAGE_SIZE
         while True:
             reply = self.orca.call("orchestration", "inbox", "--terminal", f"run:{self.config.run}", "--limit", str(limit))
@@ -1148,6 +1151,8 @@ class Runner:
                 self.message(message | {"lane": self.orca.lane_of(message["from_handle"])})
             cursor = message["sequence"]
             self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
+        if delivery:
+            self.orca.call("orchestration", "check", "--run", self.config.run, "--ack", delivery, "--peek")
         return True
 
     def message_file(self, msg: str) -> Path:
