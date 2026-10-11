@@ -137,9 +137,14 @@ class FakeShell(ledger.Shell):
             record
             for record in self.cci
             if record["seq"] > after
-            and ("--kind" not in flags or record["kind"] in flags["--kind"])
-            and ("--lane" not in flags or record["lane"] in flags["--lane"])
-            and ("--topic" not in flags or record["topic"] in flags["--topic"])
+            and (
+                any(to.startswith("peer:") for to in record.get("to", []))
+                or (
+                    ("--kind" not in flags or record["kind"] in flags["--kind"])
+                    and ("--lane" not in flags or record["lane"] in flags["--lane"])
+                    and ("--topic" not in flags or record["topic"] in flags["--topic"])
+                )
+            )
         ]
         if "--since" not in one and found:
             self.cci_cursors[one["--cursor"]] = found[-1]["seq"]
