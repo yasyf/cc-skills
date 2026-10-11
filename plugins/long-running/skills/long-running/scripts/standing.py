@@ -49,6 +49,8 @@ VIOLATIONS = 3
 REGISTER_HEADING = "## Standing owner rules"
 RULE_LINE = re.compile(r"^\d+\.\s", re.MULTILINE)
 QUOTE = "  >"
+TOPIC = "standing"
+KINDS = ("go", "correction")
 
 
 @dataclass
@@ -59,7 +61,8 @@ class Standing:
 
 
 def read(run: Callable[[list[str]], str], drive: str) -> Standing:
-    records = cci.records(run, drive, "--topic=standing", "--kind=go", "--kind=correction")
+    tailed = cci.records(run, drive, f"--topic={TOPIC}", *(f"--kind={kind}" for kind in KINDS))
+    records = [record for record in tailed if record["drive"] == drive and record.get("topic") == TOPIC and record["kind"] in KINDS]
     found = Standing(superseded={f"#{record['re']}": f"#{record['seq']}" for record in records if record["kind"] == "correction" and record.get("re")})
     for record in records:
         rid = f"#{record['seq']}"

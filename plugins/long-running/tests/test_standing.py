@@ -84,7 +84,7 @@ def standing_records(*records: dict):
         assert argv[:3] == ["cci", "tail", "--drive"] and argv[3] == "brook"
         assert argv[-3:] == ["--topic=standing", "--kind=go", "--kind=correction"]
         since = int(argv[argv.index("--since") + 1])
-        return "".join(json.dumps(record) + "\n" for record in records if record["seq"] > since)
+        return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in records if record["seq"] > since)
 
     return run
 
@@ -101,6 +101,23 @@ def test_a_standing_rule_stays_live_until_a_correction_replaces_it() -> None:
     assert found.rules == {"#7": "#7 dev is always releasable", "#9": "#9 deploy every landing within five minutes"}
     assert found.sources == {"#7": "cci #7", "#9": "ccn 87833ea"}
     assert found.superseded == {"#4": "#9"}
+
+
+def test_peer_mail_cci_tail_carries_is_not_a_standing_rule() -> None:
+    peer = {"lane": "inc-5177-edge-fix", "text": "verification only", "refs": {}, "to": ["peer:b577ef71"]}
+    found = standing.read(
+        standing_records(
+            {"seq": 4, "kind": "go", "text": "deploy every landing", "refs": {}},
+            {**peer, "seq": 5, "drive": "release-v3", "topic": "", "kind": "state"},
+            {**peer, "seq": 6, "drive": "release-v3", "kind": "go"},
+            {**peer, "seq": 7, "topic": "", "kind": "go"},
+            {**peer, "seq": 8, "kind": "decide"},
+            {**peer, "seq": 9, "drive": "release-v3", "kind": "correction", "re": 4},
+        ),
+        "brook",
+    )
+    assert found.rules == {"#4": "#4 deploy every landing"}
+    assert found.superseded == {}
 
 
 def test_a_carried_cci_rule_id_is_a_bullet_id() -> None:

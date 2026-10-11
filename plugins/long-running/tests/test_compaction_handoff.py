@@ -169,10 +169,12 @@ FAKE_CCI = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
 since = int(args[args.index("--since") + 1])
+drive = args[args.index("--drive") + 1]
 path = os.path.join(os.environ["FAKE_CCN"], "cci.jsonl")
 for line in open(path) if os.path.exists(path) else []:
-    if json.loads(line)["seq"] > since:
-        print(line, end="")
+    record = {"drive": drive, **json.loads(line)}
+    if record["seq"] > since:
+        print(json.dumps(record))
 """
 
 
