@@ -167,7 +167,7 @@ def live_answer_ids(shell: ledger.Shell, repo: str) -> set[str]:
 
 def open_asks(shell: ledger.Shell, ledger_id: str) -> list[str]:
     rows = ledger.Notes(shell, ledger_id).rows()
-    prs = {key: fields for key, fields in rows.items() if key.isdigit()}
+    prs = ledger.pull_rows(rows)
     live = ledger.live_since(rows)
     moment = ledger.now()
     lines = []

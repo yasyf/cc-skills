@@ -186,9 +186,9 @@ Do, in this order, forever:
      `ledger.py inbox --ledger <id> --drive <drive> --take` every iteration, right after step 0,
      and act on every line it prints. A message that does arrive is typed in first:
      a 3-line report as
-     `ledger.py report --drive <drive>`, with `--ask <id>` when the report names an ask id;
+     `ledger.py report --drive <drive> --repo <owner/name>`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
-     `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`,
+     `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix> [--pr N]...`,
      with opened PRs recorded by the hook and hand registration as the fallback;
      a question as `ledger.py ruling --drive <drive>`, an idle notice as
      `ledger.py enqueue --drive <drive> --kind idle`, an outage as `--kind p0`. The tool drops
@@ -205,7 +205,7 @@ Do, in this order, forever:
   2. Ground truth, one ccx cache read every 3 minutes:
      This pass no longer has to catch ejections; the watch forwards them immediately.
      `ledger.py refresh` over the rows the ledger already holds and every open PR
-     on a registered lane's branches, then
+     on a registered lane's branches, one ccx read per repository the ledger holds, then
      `ledger.py reconcile --checkout <path>` to land every row whose squash is on the
      trunk and settle the closed rest, in one trunk fetch, one log read, and one ccx
      cache read; it never fetches the PR's own base, which the queue deletes when a stack lands; a row

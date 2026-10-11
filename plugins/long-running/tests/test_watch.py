@@ -267,11 +267,13 @@ def test_a_shard_watches_only_its_lanes_and_keeps_its_own_snapshot(tmp_path):
 
     assert shell.ccx_calls[0][4:6] == [PR, "--repo"]
     home = ledger.Path.home() / ".cache" / "ccn-ledger"
-    assert ledger.watch_state(LEDGER, None) == home / f"{LEDGER}.watch.json"
-    sharded = ledger.watch_state(LEDGER, frozenset({"b", "a"}))
-    assert sharded == ledger.watch_state(LEDGER, frozenset({"a", "b"})) != ledger.watch_state(LEDGER, frozenset({"a"}))
+    scope = ledger.Scope(REPO, REPO)
+    assert ledger.watch_state(LEDGER, None, scope) == home / f"{LEDGER}.watch.json"
+    sharded = ledger.watch_state(LEDGER, frozenset({"b", "a"}), scope)
+    assert sharded == ledger.watch_state(LEDGER, frozenset({"a", "b"}), scope) != ledger.watch_state(LEDGER, frozenset({"a"}), scope)
     assert sharded.parent == home and sharded.name.startswith(f"{LEDGER}.") and sharded.name.endswith(".watch.json")
-    assert len(ledger.watch_state(LEDGER, frozenset(f"lane-{n:03}" for n in range(200))).name) < 255
+    assert len(ledger.watch_state(LEDGER, frozenset(f"lane-{n:03}" for n in range(200)), scope).name) < 255
+    assert ledger.watch_state(LEDGER, None, ledger.Scope("yasyf/cc-skills", REPO)) == home / f"{LEDGER}.yasyf.cc-skills.watch.json"
 
 
 @pytest.mark.parametrize("snapshot", [{}, {"prs": None}])

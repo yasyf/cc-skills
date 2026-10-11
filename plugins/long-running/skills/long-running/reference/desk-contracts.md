@@ -21,8 +21,10 @@ with `--ask <id>` on `ledger.py report --drive <drive>`. Every `--ask` takes the
 printed, `ask/000104`, or its bare number, `000104`.
 
 A lane with the ledger id and cci drive records it itself, and a running desk reads nothing else:
-`ledger.py report --ledger <id> --drive <drive> --pr <n> --head <sha> --lane <name> --verdict <v>
---text "<line 2>"`. READY is `--verdict clean`. A desk types a report that arrives as
+`ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head <sha> --lane <name> --verdict <v>
+--text "<line 2>"`. READY is `--verdict clean`. A PR row's key is its repository and number, so
+`yasyf/cc-skills#375` and `Forge-AI/monorepo#375` are two rows; without `--repo` a number names a PR in
+the ledger checkout's repository. A desk types a report that arrives as
 a message in the same shape. The desk's `ledger.py inbox --drive <drive> --take` lists both. The same
 PR, head, and verdict twice is one report: the second is dropped and never answered. A
 new head is a new report. Reports open rows, carry the lane's text, and feed `stale`
@@ -52,7 +54,7 @@ Rules the report carries:
   updates nothing while `git push` still prints `Everything up-to-date`.
 
 A lane registers its branch, or a namespace ending in `/` or `-`, with the desk when spawned using
-`ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`.
+`ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix> [--pr N]...`.
 Every open PR on that prefix is tracked from then on. The hook records opened PRs
 automatically; if it misses one, send the desk its number for hand registration.
 
