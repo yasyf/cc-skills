@@ -1,4 +1,4 @@
-"""Page through cci records in sequence order for bus.py, standing.py, ledger.py, and desk-runner.py."""
+"""Page through cci records in sequence order for bus.py, standing.py, ledger.py, and desk-runner.py, and read which PRs open `hold` records name."""
 
 from __future__ import annotations
 
@@ -18,3 +18,8 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
             return found
         found += page
         since = page[-1]["seq"]
+
+
+def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
+    """Each PR an open `hold` record on `drive` names, mapped to that record's seq; a `lift --resolves <seq>` closes the record and frees the PR."""
+    return {str(pr): record["seq"] for record in records(run, drive, "--kind=hold") if record["status"] == "open" for pr in record["refs"].get("prs", [])}

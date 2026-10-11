@@ -267,7 +267,7 @@ hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphit
 
 **Lanes self-enqueue under D1; the desk reconciles every three minutes.** Read the
 root's holds file and rebuild a fresh numeric held file at every enqueue under
-D1/D3, including all open PR rows of held lanes from
+D1/D3, including every PR `ledger.py held --drive <drive>` prints and all open PR rows of held lanes from
 `ledger.py show --ledger <id> --json`. A clean report's largest ready, unheld,
 unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
 `stack-enqueue <prefix top> --hold $(cat <held file>)` per ready prefix together

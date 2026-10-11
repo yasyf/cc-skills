@@ -242,6 +242,18 @@ def test_hold_carries_reason_and_expiry_on_the_row_and_lift_clears_them(capsys):
     assert shell.fields(PR)["hold_until"] == ""
 
 
+def test_held_prints_each_pr_an_open_cci_hold_names_and_skips_lifted_ones(capsys):
+    shell = desk_shell()
+    shell.cci = [
+        {"seq": 1, "drive": DRIVE, "lane": "a", "kind": "hold", "status": "open", "topic": "", "refs": {"prs": [35070, 29020]}, "text": "HOLD"},
+        {"seq": 2, "drive": DRIVE, "lane": "b", "kind": "hold", "status": "closed", "topic": "", "refs": {"prs": [28349]}, "text": "HOLD"},
+        {"seq": 3, "drive": DRIVE, "lane": "c", "kind": "hold", "status": "open", "topic": "", "refs": {"targets": ["sandsql"]}, "text": "HOLD"},
+        {"seq": 4, "drive": DRIVE, "lane": "d", "kind": "opened", "status": "open", "topic": "", "refs": {"prs": [30000]}, "text": "opened"},
+    ]
+    assert run(shell, "held", "--drive", DRIVE) == 0
+    assert capsys.readouterr().out == "29020\n35070\n"
+
+
 def test_label_re_reads_the_head_and_posts_the_label_once():
     shell = desk_shell()
     assert label(shell) == 0

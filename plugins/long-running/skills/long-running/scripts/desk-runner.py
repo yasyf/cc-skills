@@ -72,7 +72,8 @@ names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
+holding a PR that no drive lane registered or posted opened on cci. Every PR an open cci `hold` record
+names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
@@ -1457,6 +1458,7 @@ class Landing:
             released_lanes = set(HELD_LANE.findall(releases))
             released = set(HELD_PR.findall(releases)) | {pr for pr, row in rows.items() if row.get("lane") in released_lanes}
             numbers |= {pr for pr, row in rows.items() if row.get("state", "open") == "open"} - released
+        numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
     def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:
