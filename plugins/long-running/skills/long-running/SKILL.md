@@ -1100,11 +1100,18 @@ Run's oldest unacknowledged Delivery with `orca orchestration check --run <run>`
 oldest first, and acknowledges that Delivery with `--ack <delivery id> --peek` once the
 read is relayed. It persists each cursor advance and expands full pages until the
 cursor is covered. Its first read starts at the newest sequence without replaying
-history, and nothing launches or relays until that read succeeds. No other loop may
+read history, and nothing launches or relays until that read succeeds. No other loop may
 run `orca orchestration check --run <run>` with `--wait` or `--ack`.
 
+The Delivery decides what is acknowledged. The runner saves each relayed message id
+in `facts` under `relayed:<run>`. A Delivery message with no saved id is relayed
+first, whatever its sequence; one behind the cursor whose type has no relay is logged
+`UNRELAYED` with its sender, type, and sequence. Heartbeats need no record.
+
 *Prevents the coordinator's `You have 32 orchestration messages` prompt of 2026-10-11,
-which counted 20 relayed `worker_done` messages and 12 skipped heartbeats.*
+which counted 20 relayed `worker_done` messages and 12 skipped heartbeats. Also
+prevents acknowledging mail Orca re-addressed to the Run behind the cursor, which
+0.7.60 marked read unrelayed.*
 
 **O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
 with no tools reads the lane's brief. It answers what the brief settles or emits

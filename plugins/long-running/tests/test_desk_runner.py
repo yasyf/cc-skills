@@ -238,13 +238,16 @@ class FakeShell(runner_module.Shell):
             assert argv[2:4] == ["--terminal", "run:run_1"]
             if self.inbox_error:
                 return self.inbox_error
-            messages = sorted(self.mailbox, key=lambda message: message["sequence"], reverse=True)[:int(argv[5])]
+            messages = self.run_mail()[::-1][:int(argv[5])]
             return self.ok({"messages": messages, "count": len(messages)})
         if verb == ["terminal", "read"]:
             return self.ok({"terminal": {"source": "screen", "tail": self.screens.get(argv[3], IDLE_PROMPT)}})
         if verb == ["terminal", "send"]:
             return self.ok({})
         raise AssertionError(f"unexpected orca call {argv}")
+
+    def run_mail(self) -> list[dict]:
+        return sorted((message for message in self.mailbox if message["to_handle"] == "run:run_1"), key=lambda message: message["sequence"])
 
     def deliver(self, argv: list[str]) -> runner_module.Done:
         assert argv[0] == "run_1"
@@ -257,7 +260,7 @@ class FakeShell(runner_module.Shell):
             self.delivery = []
             return self.ok({"runId": "run_1", "messages": [], "count": 0, "acknowledged": argv[2]})
         assert argv[1:] == []
-        self.delivery = self.delivery or [message for message in sorted(self.mailbox, key=lambda message: message["sequence"]) if not message["read"]][:50]
+        self.delivery = self.delivery or [message for message in self.run_mail() if not message["read"]][:50]
         while self.arriving:
             self.receive(self.arriving.pop(0))
         exposed = [{key: value for key, value in message.items() if key not in ("sequence", "read")} for message in self.delivery]
@@ -982,6 +985,31 @@ def test_run_mail_is_acknowledged_once_relayed_and_never_ahead_of_the_cursor(she
     orca_pass(shell, config)
     assert late["read"]
     assert not any("--wait" in call for call in shell.calls)
+
+
+def test_mail_that_reaches_the_run_behind_the_cursor_is_relayed_before_its_delivery_is_acknowledged(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    stray = shell.receive({"type": "worker_done", "subject": "sent to the terminal", "to_handle": "term_root"})
+    note = shell.receive({"subject": "direct note", "to_handle": "term_root"})
+    fixed = shell.receive({"type": "worker_done", "subject": "fixed"})
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == fixed["sequence"]
+    stray["to_handle"] = note["to_handle"] = "run:run_1"
+    shell.inbox_error = runner_module.Done(1, "", "socket closed")
+    orca_pass(shell, config)
+    assert not (stray["read"] or note["read"])
+    shell.inbox_error = None
+    orca_pass(shell, config)
+    assert stray["read"] and note["read"]
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == fixed["sequence"]
+    assert [line for line in escalations(shell) if "ORCA-INBOX" not in line] == [
+        f"OUTCOME {fixed['id']} {LANE}: worker_done ? dispatch=ctx_a: fixed",
+        f"OUTCOME {stray['id']} {LANE}: worker_done ? dispatch=ctx_a: sent to the terminal",
+        f"UNRELAYED {note['id']} {LANE}: status from term_ctx_a at sequence {note['sequence']}, behind cursor {fixed['sequence']}, has no relay record and its type has no relay: direct note",
+    ]
+    orca_pass(shell, config)
+    assert len(escalations(shell)) == 4
 
 
 def test_nothing_dispatches_before_the_first_read_sets_the_cursor(shell, config, tmp_path):
