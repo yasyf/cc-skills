@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+PLUGIN = Path(__file__).resolve().parents[1]
+SHIM = PLUGIN / "scripts" / "bin-shim.sh"
+
+
+def plugin_cache(tmp_path: Path, versions: dict[str, bool]) -> Path:
+    cache = tmp_path / "cache"
+    for version, orphaned in versions.items():
+        root = cache / version
+        scripts = root / "skills" / "long-running" / "scripts"
+        scripts.mkdir(parents=True)
+        (root / "scripts").mkdir()
+        (root / "bin").mkdir()
+        shim = root / "scripts" / "bin-shim.sh"
+        shim.write_text(SHIM.read_text())
+        shim.chmod(0o755)
+        for tool in ("tool.py", "tool.sh"):
+            (root / "bin" / tool).symlink_to("../scripts/bin-shim.sh")
+        (scripts / "tool.py").write_text(f'import sys\nprint("{version} py", *sys.argv[1:])\n')
+        sh = scripts / "tool.sh"
+        sh.write_text(f'#!/bin/sh\necho "{version} sh $*"\n')
+        sh.chmod(0o755)
+        if orphaned:
+            (root / ".orphaned_at").write_text("1790178260989")
+    return cache
+
+
+def run(cache: Path, version: str, tool: str = "tool.py") -> str:
+    out = subprocess.run(
+        [str(cache / version / "bin" / tool), "a", "b c"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    return out.stdout.strip()
+
+
+def test_runs_its_own_script_with_python_or_directly(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": False})
+    assert run(cache, "0.7.44") == "0.7.44 py a b c"
+    assert run(cache, "0.7.44", "tool.sh") == "0.7.44 sh a b c"
+
+
+def test_hops_from_a_live_dir_to_the_newest_live_sibling(tmp_path: Path):
+    cache = plugin_cache(
+        tmp_path,
+        {"0.7.44": False, "0.7.9": False, "0.7.57": False, "0.8.0": True},
+    )
+    (cache / "0.9.0").mkdir()
+    (cache / "not-a-version").mkdir()
+    assert run(cache, "0.7.44") == "0.7.57 py a b c"
+    assert run(cache, "0.7.44", "tool.sh") == "0.7.57 sh a b c"
+
+
+def test_hops_from_an_orphaned_dir(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": True, "0.7.57": False})
+    assert run(cache, "0.7.44") == "0.7.57 py a b c"
+
+
+def test_skips_a_newer_sibling_that_lacks_the_tool(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": False, "0.7.57": False})
+    (cache / "0.7.57" / "bin" / "tool.py").unlink()
+    assert run(cache, "0.7.44") == "0.7.44 py a b c"
+
+
+def test_never_hops_down(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": False, "0.7.57": True})
+    assert run(cache, "0.7.57") == "0.7.57 py a b c"
+
+
+def test_stays_put_in_an_unversioned_dir(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"long-running": False, "0.7.57": False})
+    assert run(cache, "long-running") == "long-running py a b c"
