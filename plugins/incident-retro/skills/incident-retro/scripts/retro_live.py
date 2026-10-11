@@ -42,7 +42,6 @@ MONITOR_EXPRESSION = re.compile(r"^\s*\w+\(last_\w+\):(?P<expression>.+?)\s*(?:>
 SERIES_LEAD = datetime.timedelta(hours=1)
 TEMPLATE_VAR = re.compile(r"\{\{\s*([\w.-]+?)\.name\s*\}\}")
 TEMPLATE_LEFT = re.compile(r"\s*[\u2014\u2013:-]?\s*\{\{[^}]*\}\}")
-LIVE_FEEDS = ("chapters", "sessions")
 WORD = re.compile(r"\S+")
 
 
@@ -186,7 +185,8 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
     block = {"updatedAt": stamp(now), "phase": live_phase(state, retro),
              "headline": clip(state.get("title") or "", retro.XS_HEAD_WORDS),
              "currentState": clip(counts, retro.STATEMENT_WORDS), "next": nxt}
-    block.update({feed: state[feed] for feed in LIVE_FEEDS if state.get(feed)})
+    if state.get("sessions"):
+        block["sessions"] = state["sessions"]
     if source is not None:
         block["source"] = source
     return block

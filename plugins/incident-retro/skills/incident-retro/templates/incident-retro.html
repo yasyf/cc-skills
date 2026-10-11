@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:d28701141b23 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:325ba0da6bcd — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -3029,7 +3029,7 @@ function lvFallbackCuts(rows){
 }
 function lvChapters(rows){
  if(!rows.length)return [];
- const given=((LIVE&&LIVE.chapters)||[]).map(c=>({t:tsOf(c.start),title:c.title,summary:c.summary})).filter(c=>c.t!=null);
+ const given=(LV_GROUPED||[]).map(c=>({t:tsOf(c.start),title:c.title,summary:c.summary}));
  const cuts=given.length?given:lvFallbackCuts(rows);
  const out=cuts.map(c=>({key:(given.length?"m":"f")+c.t,t:c.t,title:c.title,summary:c.summary||"",rows:[]}));
  rows.forEach(e=>{
@@ -3039,6 +3039,63 @@ function lvChapters(rows){
   out[i].rows.push(e);
  });
  return out.filter(c=>c.rows.length);
+}
+const LV_GROUP_PROMPT="You group the timeline of a production incident into chapters for its live incident doc, so a reader sees the incident's shape at a glance and opens a chapter for its entries. "+
+ "The input numbers the timeline's entries oldest first, one per line with its number, then a JSON object with its ts, its kind (alert, action, deploy or report), its actor and its text. "+
+ "After them it lists the chapters you gave the last time the timeline changed, each with the number of its first entry, or says there are none yet. "+
+ "A chapter is a phase of the incident a responder would name when retelling it: the page firing and its triage, a diagnosis, a fix going out, a re-alert, recovery being watched. "+
+ "Aim for few chapters, roughly one per meaningful phase and rarely more than six or seven; an incident with only a few entries is one or two chapters. "+
+ "Chapters cover the timeline without gaps: name each chapter's first entry by its number, list the chapters oldest first, start the first chapter at entry 0, and every entry belongs to the last chapter that starts at or before it, so a chapter runs until the next one starts. "+
+ "Entries that share a ts belong to one chapter, so start a chapter only at the first entry with its ts. "+
+ "Title each chapter in two to six words in sentence case naming what happened, such as 'Page fires and triage starts' or 'Fix rolls out to production'. "+
+ "Summarize each chapter in one plain sentence of under 25 words saying what happened in it and how it ended. "+
+ "Use only facts the entries state: never guess at a cause or an outcome they do not give, and name no customer, person or team the entries do not already name. "+
+ "Keep the previous chapters' starts and titles unless the new entries change what a phase meant. New entries normally extend the last chapter or open a new one after it; rewrite the summary of a chapter that gained entries.";
+const LV_GROUP_SCHEMA={type:"object",additionalProperties:false,required:["chapters"],properties:{chapters:{type:"array",items:{
+ type:"object",additionalProperties:false,required:["first","title","summary"],properties:{first:{type:"integer"},title:{type:"string"},summary:{type:"string"}}}}}};
+let LV_GROUPED=null,LV_GROUPED_SIG="",LV_GROUPING=false,LV_REGROUP=false;
+function lvGroupPrompt(entries){
+ const firsts=new Map();
+ const lines=entries.map((e,i)=>{if(!firsts.has(e.ts))firsts.set(e.ts,i);return i+" "+JSON.stringify(e)});
+ const prev=(LV_GROUPED||[]).filter(c=>firsts.has(c.start)).map(c=>JSON.stringify({first:firsts.get(c.start),title:c.title,summary:c.summary}));
+ return "Entries:\n"+lines.join("\n")+"\n\nPrevious chapters:"+(prev.length?"\n"+prev.join("\n"):" none yet");
+}
+function lvGroupChecked(entries,chapters){
+ const at=entries.map(e=>tsOf(e.ts));
+ if(!chapters.length)throw new Error("the model gave no chapters");
+ return chapters.map((c,i)=>{
+  const f=c.first,title=c.title.trim(),summary=c.summary.trim();
+  if(!(f>=0&&f<entries.length)||(i===0&&f!==0)||(f>0&&at[f]===at[f-1])||(i>0&&!(at[f]>at[chapters[i-1].first]))||!title||!summary)
+   throw new Error(`the model started chapter ${i} at entry ${f}, out of order or inside a shared ts`);
+  return {start:entries[f].ts,title,summary};
+ });
+}
+async function lvGroup(entries){
+ const prompt=lvGroupPrompt(entries);
+ return aiCached("chapters",prompt,async()=>{
+  const r=await aiPost({model:AI.model,reasoning_effort:"medium",temperature:0,max_completion_tokens:6000,
+   messages:[{role:"system",content:LV_GROUP_PROMPT},{role:"user",content:prompt}],
+   response_format:{type:"json_schema",json_schema:{name:"chapters",strict:true,schema:LV_GROUP_SCHEMA}}});
+  const j=await r.json();
+  return lvGroupChecked(entries,JSON.parse((((j.choices||[])[0]||{}).message||{}).content||"{}").chapters||[]);
+ });
+}
+async function lvRegroup(){
+ if(!AI||!liveViewable())return;
+ if(LV_GROUPING){LV_REGROUP=true;return}
+ const entries=lvRows().map(e=>({ts:e.ts,kind:e.kind,actor:lvWhoName(e),text:plain(e.text||e.h||"")}));
+ const sig=aiHash(JSON.stringify(entries));
+ if(!entries.length||sig===LV_GROUPED_SIG)return;
+ LV_GROUPING=true;
+ try{
+  LV_GROUPED=await lvGroup(entries);
+  LV_GROUPED_SIG=sig;
+  renderLiveView();
+  lvChapterNews();
+ }
+ catch(e){console.warn("Regrouping the timeline into chapters failed, so it keeps its last grouping:",e.message)}
+ finally{LV_GROUPING=false}
+ if(LV_REGROUP){LV_REGROUP=false;lvRegroup()}
 }
 function lvSlackHtml(hit,url){
  const {snap,msg}=hit,users=slackUsers(snap);
@@ -3605,11 +3662,11 @@ function lvChapterNews(){
  const seen=LV_CH_SEEN;
  LV_CH_SEEN=now;
  if(!seen||!inLiveView())return;
+ const grouped=[...seen.keys()].some(k=>k[0]==="m"),newest=Math.max(...[...seen.keys()].map(k=>+k.slice(1)));
  now.forEach((title,key)=>{
   if(seen.get(key)===title)return;
-  const li=document.querySelector(`#lvChs [data-lvch="${CSS.escape(key)}"] .lv-chh`);
-  if(li)lvFlash(li);
-  if(!seen.has(key)&&key[0]==="m")lvToast(`<div class="lv-tm">New chapter</div><div><b>${esc(title)}</b></div>`,"","",()=>lvRevealChapter(key));
+  document.querySelectorAll(`#lvChs [data-lvch="${CSS.escape(key)}"] .lv-chh, #lvStrip .lv-band[data-lvch="${CSS.escape(key)}"]`).forEach(lvFlash);
+  if(grouped&&key[0]==="m"&&+key.slice(1)>newest)lvToast(`<div class="lv-tm">New chapter</div><div><b>${esc(title)}</b></div>`,"","",()=>lvRevealChapter(key));
  });
 }
 setInterval(()=>{if(inLiveView())lvTick()},1000);
@@ -5530,6 +5587,7 @@ async function adoptLive(next){
  if(fresh.length&&lvPrimed)lvAnnounce(fresh);
  lvChapterNews();
  lvPrimed=true;
+ lvRegroup();
 }
 const liveSource=()=>{
  const src=LIVE&&LIVE.source;
@@ -8356,6 +8414,7 @@ function aiBoot(){
   watchLive(github&&github.token);
   if(!ai)return;
   AI=ai;
+  lvRegroup();
   HTML.dataset.ai="1";
   aiWireTools();
   aiWirePanel();

@@ -245,10 +245,8 @@ class Sync(unittest.TestCase):
         self.assertEqual(len(thread["messages"]), 2)
 
 class LiveFeeds(unittest.TestCase):
-    """The keeper's chapters and session heartbeats reach the page's live block."""
+    """The keeper's session heartbeats reach the page's live block."""
 
-    CHAPTERS = [{"start": "2026-09-02T14:05:00-07:00", "title": "Northwind runs stall",
-                 "summary": "Northwind runs stalled waiting for browsers."}]
     SESSIONS = [{"role": "fixer", "state": "running", "phase": "fixing", "step": "Patching the Northwind pool",
                  "since": "2026-09-02T14:06:00-07:00", "beatAt": "2026-09-02T14:40:00-07:00", "attempt": 1}]
 
@@ -261,24 +259,13 @@ class LiveFeeds(unittest.TestCase):
         self.assertEqual(run(retro_live.sync, args(incident, docs)), 0)
         return json.loads((docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())["live"]
 
-    def test_chapters_and_sessions_are_copied(self):
-        live = self.live(chapters=self.CHAPTERS, sessions=self.SESSIONS)
-        self.assertEqual(live["chapters"][0]["title"], "Northwind runs stall")
+    def test_sessions_are_copied(self):
+        live = self.live(sessions=self.SESSIONS)
         self.assertEqual(live["sessions"][0]["step"], "Patching the Northwind pool")
         self.assertEqual(live["sessions"][0]["beatAt"], self.SESSIONS[0]["beatAt"])
 
-    def test_chapters_out_of_time_order_fail_the_check(self):
-        incident, docs = incident_dir(), docs_checkout()
-        state = json.loads((incident / "state.json").read_text())
-        state["chapters"] = [{**self.CHAPTERS[0], "start": "2026-09-02T14:20:00-07:00"}, self.CHAPTERS[0]]
-        (incident / "state.json").write_text(json.dumps(state))
-        run(retro_live.init, args(incident, docs))
-        self.assertEqual(run(retro_live.sync, args(incident, docs)), 1)
-
-    def test_a_sync_without_them_writes_neither(self):
-        live = self.live()
-        self.assertNotIn("chapters", live)
-        self.assertNotIn("sessions", live)
+    def test_a_sync_without_them_writes_none(self):
+        self.assertNotIn("sessions", self.live())
 
 
 class MonitorSnapshot(unittest.TestCase):
