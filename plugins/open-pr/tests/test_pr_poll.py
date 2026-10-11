@@ -633,3 +633,26 @@ def test_lock_file_left_by_an_exited_poller_does_not_block(poll, tmp_path):
     (tmp_path / "state.json.lock").touch()
     run = poll(surface(pull()))
     assert run.done == "DONE ready-to-merge"
+
+
+CLAIM = "claim --pr 7 --rel watches"
+UNCLAIM = "unclaim --pr 7 --rel watches"
+
+
+def test_a_round_claims_the_watch_and_a_final_verdict_drops_it(poll):
+    run = poll(surface(pull()))
+    assert run.done == "DONE ready-to-merge"
+    assert run.cci_calls == [CLAIM, UNCLAIM]
+
+
+def test_window_elapsed_keeps_the_claim(poll):
+    run = poll(PENDING, PENDING, PENDING, env={"PR_POLL_WINDOW": "1", "FAKE_SLEEP": "1.1"})
+    assert run.done == "DONE window-elapsed"
+    assert run.cci_calls == [CLAIM]
+
+
+def test_eviction_keeps_the_claim(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    run = poll(queued, surface(pull(), events=[labeled(1), unlabeled(2)]))
+    assert run.done.startswith("DONE evicted ")
+    assert run.cci_calls == [CLAIM]
