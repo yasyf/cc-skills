@@ -326,6 +326,9 @@ sequences after the saved cursor oldest first, skips heartbeats, and saves each
 sequence in the `desk-runner` container's `facts` under `inbox:<run>`. Full pages expand
 until the cursor is covered. A first read saves the newest sequence without
 replaying history; restarts resume there, including messages marked read elsewhere.
+Each pass takes the Run's oldest unacknowledged Delivery with
+`orca orchestration check --run <run>` before the read and acknowledges it with
+`--ack <delivery id> --peek` once the read is relayed.
 
 **O4. Judge questions from the brief.** A Sonnet-low `claude -p` call with no
 tools reads the lane's brief for each question or escalation. It answers what

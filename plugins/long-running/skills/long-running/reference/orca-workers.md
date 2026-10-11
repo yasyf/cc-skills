@@ -380,8 +380,8 @@ The lane comes from the launch receipt's terminal handle; a sender with no match
 receipt prints as its handle. A wait that ends empty prints `timeout`.
 Terminal callers acknowledge the previous batch by passing `--ack <delivery-id>`
 after `--`. Use `result.deliveryId`; a message id acknowledges nothing, and an
-unacknowledged batch replays. Desk-runner reads the Run inbox by sequence and never
-acknowledges deliveries.
+unacknowledged batch replays. Desk-runner reads the Run inbox by sequence and
+acknowledges a Run delivery only after relaying the inbox read that followed it.
 
 An escalated question can be recorded as awaiting a
 root ruling before acknowledging its delivery; the question's message id remains

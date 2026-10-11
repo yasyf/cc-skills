@@ -46,6 +46,8 @@ class FakeShell(runner_module.Shell):
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
         self.mailbox: list[dict] = []
+        self.delivery: list[dict] = []
+        self.arriving: list[dict] = []
         self.inbox_error = None
         self.inboxes: dict[str, list[dict]] = {}
         self.questions: list[dict] = []
@@ -224,6 +226,8 @@ class FakeShell(runner_module.Shell):
             return self.ok({"message": {"id": self.next_id("msg")}})
         if verb == ["orchestration", "request-show"]:
             return self.ok({"state": self.requests.get(argv[3], "absent")})
+        if verb == ["orchestration", "check"] and argv[2] == "--run":
+            return self.deliver(argv[3:])
         if verb == ["orchestration", "check"]:
             assert argv[2] == "--terminal"
             if argv[3].startswith("run:"):
@@ -241,6 +245,23 @@ class FakeShell(runner_module.Shell):
         if verb == ["terminal", "send"]:
             return self.ok({})
         raise AssertionError(f"unexpected orca call {argv}")
+
+    def deliver(self, argv: list[str]) -> runner_module.Done:
+        assert argv[0] == "run_1"
+        if self.coordinator != self.env("ORCA_TERMINAL_HANDLE"):
+            return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "consumer_fenced", "message": "This coordinator terminal is no longer bound to Run run_1."}}), "")
+        if argv[1:2] == ["--ack"]:
+            assert argv[2:] == [f"delivery_{self.delivery[0]['id']}", "--peek"]
+            for message in self.delivery:
+                message["read"] = True
+            self.delivery = []
+            return self.ok({"runId": "run_1", "messages": [], "count": 0, "acknowledged": argv[2]})
+        assert argv[1:] == []
+        self.delivery = self.delivery or [message for message in sorted(self.mailbox, key=lambda message: message["sequence"]) if not message["read"]][:50]
+        while self.arriving:
+            self.receive(self.arriving.pop(0))
+        exposed = [{key: value for key, value in message.items() if key not in ("sequence", "read")} for message in self.delivery]
+        return self.ok({"runId": "run_1", "deliveryId": f"delivery_{self.delivery[0]['id']}" if self.delivery else None, "messages": exposed, "count": len(exposed)})
 
     def receive(self, message: dict) -> dict:
         message = {
@@ -943,6 +964,24 @@ def test_read_messages_still_transfer_ownership_complete_relays_and_report_outco
     assert escalations(shell) == [f"OUTCOME {outcome['id']} {LANE}: worker_done success dispatch=ctx_a: fixed"]
     assert all(message["read"] for message in shell.mailbox)
     assert not any("--wait" in call or "--ack" in call for call in shell.calls)
+
+
+def test_run_mail_is_acknowledged_once_relayed_and_never_ahead_of_the_cursor(shell, config, tmp_path):
+    orca_pass(shell, config)
+    done = shell.receive({"type": "worker_done", "subject": "fixed", "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "success"})})
+    beat = shell.receive({"type": "heartbeat"})
+    shell.inbox_error = runner_module.Done(1, "", "socket closed")
+    orca_pass(shell, config)
+    assert not (done["read"] or beat["read"])
+    shell.inbox_error = None
+    shell.arriving.append({"type": "worker_done", "subject": "late"})
+    orca_pass(shell, config)
+    late = shell.mailbox[-1]
+    assert (done["read"], beat["read"], late["read"]) == (True, True, False)
+    assert [line.split()[1] for line in escalations(shell) if line.startswith("OUTCOME")] == [done["id"], late["id"]]
+    orca_pass(shell, config)
+    assert late["read"]
+    assert not any("--wait" in call for call in shell.calls)
 
 
 def test_nothing_dispatches_before_the_first_read_sets_the_cursor(shell, config, tmp_path):
