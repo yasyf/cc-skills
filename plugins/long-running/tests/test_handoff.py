@@ -107,7 +107,7 @@ class FakeCcn(ledger.Shell):
         if argv[:2] == ["cci", "tail"]:
             assert argv[3] == "brook"
             since = int(argv[argv.index("--since") + 1])
-            return "".join(json.dumps(record) + "\n" for record in self.standing if record["seq"] > since)
+            return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > since)
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps({"id": argv[3], "rows": self.rows})
         assert argv[1:3] == ["-R", REPO], argv
