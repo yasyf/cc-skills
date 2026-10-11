@@ -170,9 +170,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   followed by the reason. Only the root edits it.
 - You are a separate session. Register your prefix and report verdicts yourself;
   the hook records opened PRs, with hand registration as the fallback. Never SendMessage a subagent.
-- On spawn: `ledger.py register --ledger <id> --lane <lane> --branch-prefix
+- On spawn: `ledger.py register --ledger <id> --lane <lane> --repo <owner/name> --branch-prefix
   <prefix>/<lane>/`.
-- On every PR open, push, and READY: `ledger.py report --ledger <id> --drive <drive> --pr <n> --head
+- On every PR open, push, and READY: `ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   READY is `--verdict clean --text "READY ..."`; the desk reads only this cci record.
 - The moment your stack has a green, approved bottom prefix, re-read the holds file.

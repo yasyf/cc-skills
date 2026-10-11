@@ -512,7 +512,7 @@ def test_landed_leaves_open_prs_alone_and_never_rereads_a_landed_row(tmp_path):
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR).get("state") is None
-    assert not [argv for argv in shell.calls if argv[0] == "git"]
+    assert not [argv for argv in shell.calls if argv[0] == "git" and argv[3:] != ["remote", "get-url", "origin"]]
     assert f"repos/{REPO}/pulls/21137" not in shell.endpoints()
     assert not [endpoint for endpoint in shell.endpoints() if "msg" in endpoint]
 
@@ -912,7 +912,7 @@ def test_reconcile_with_nothing_open_touches_neither_git_nor_the_forge(capsys):
 
     assert reconcile(shell) == 0
 
-    assert [argv[0] for argv in shell.calls] == ["ccn"]
+    assert [argv[0] for argv in shell.calls if argv[3:] != ["remote", "get-url", "origin"]] == ["ccn"]
     assert "reconciled 0 non-terminal rows" in capsys.readouterr().out
 
 

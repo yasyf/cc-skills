@@ -98,6 +98,8 @@ class FakeShell(rules_review.Shell):
             self.reviews.append((argv[2], payload))
             self.on_pr.setdefault(argv[2].split("/")[4], []).append(payload)
             return "{}"
+        if argv[-3:] == ["remote", "get-url", "origin"]:
+            return f"git@github.com:{REPO}.git\n"
         if argv[:2] == ["git", "check-attr"]:
             return ledger.Shell.once(argv, stdin)
         if argv[:2] == ["codex-ask", "--collect"]:

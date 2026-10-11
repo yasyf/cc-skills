@@ -7,16 +7,16 @@
     ledger.py drop    --ledger ID --ask ID --reason ...
     ledger.py answer  --ledger ID --ask ID --text ...
     ledger.py live    --ledger ID --at ISO [--text ...]
-    ledger.py report  --ledger ID --drive D --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
-    ledger.py register --ledger ID --lane NAME [--branch-prefix PREFIX [--repo owner/name]] [--pr N]... [--head SHA]
+    ledger.py report  --ledger ID --drive D [--repo owner/name] --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
+    ledger.py register --ledger ID --lane NAME [--repo owner/name] [--branch-prefix PREFIX] [--pr N]... [--head SHA]
     ledger.py unregister --ledger ID --lane NAME [--branch-prefix PREFIX]
-    ledger.py enqueue --ledger ID --drive D --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
-    ledger.py ruling  --ledger ID --drive D --lane NAME --text ... --options "A|B|C" [--pr N]
+    ledger.py enqueue --ledger ID --drive D [--repo owner/name] --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
+    ledger.py ruling  --ledger ID --drive D [--repo owner/name] --lane NAME --text ... --options "A|B|C" [--pr N]
     ledger.py inbox   --ledger ID --drive D [--take] [--all] [--json] [--shard LANES]
     ledger.py ack     --ledger ID --drive D KEY...
-    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
-    ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H) [--stack]
-    ledger.py lift    --ledger ID --pr N
+    ledger.py refresh [--repo owner/name] --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
+    ledger.py hold    --ledger ID [--repo owner/name] --pr N --reason ... (--until ISO | --hours H) [--stack]
+    ledger.py lift    --ledger ID [--repo owner/name] --pr N
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
     ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
@@ -24,11 +24,11 @@
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]... [--shard LANES]
     ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
     ledger.py watch   --repo owner/name --ledger ID --drive D --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
-    ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
+    ledger.py stale   --ledger ID [--repo owner/name] [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --drive D [--checkout DIR] [--window-seconds N] [--stale-minutes N] [--shard LANES]
-    ledger.py show    --ledger ID [--red | --asks] [--json]
-    ledger.py list    --ledger ID [--lane NAME] [--open] [--json]
+    ledger.py show    --ledger ID [--repo owner/name] [--red | --asks] [--json]
+    ledger.py list    --ledger ID [--repo owner/name] [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
 branch under a lane's registered prefix, or because refresh was handed its number; the
@@ -40,7 +40,10 @@ posts an ``answer`` with ``--re <seq>``; owner asks are ``ask/<seq>`` rows, and 
 ``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. It marks an open PR ``ours`` only when a drive lane registered it here or posted it ``opened`` on cci, and ``label`` refuses a stack holding any PR that is not. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. A verb's ``--repo`` defaults to the origin of its
-``--checkout``, else of the working directory, the same checkout ``ccn`` reads the ledger from. Buildkite
+``--checkout``, else of the working directory, the same checkout ``ccn`` reads the ledger from. A PR row's key
+is its repository and number: the bare number in that working directory's own repository, so a ledger written
+before rows carried a repository reads unchanged, and ``owner/name#<pr>`` in any other; every ``--pr`` names a PR
+in ``--repo``, and ``refresh`` regrades every repository the ledger holds with one ``ccx vcs pr state`` read each. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
 
@@ -119,6 +122,7 @@ LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+PR_KEY = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)")
 GONE_PREFIX = "gone/"
 REVIEW_PREFIX = "review/"
 DEV_RED_PREFIX = "dev-red:"
@@ -322,8 +326,83 @@ def origin_repo(shell: Shell, checkout: Path) -> str:
     return match["repo"]
 
 
+def same_repo(left: str, right: str) -> bool:
+    return left.lower() == right.lower()
+
+
+def is_pr_key(key: str) -> bool:
+    return bool(PR_KEY.fullmatch(key))
+
+
+def pull_rows(rows: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    return {key: fields for key, fields in rows.items() if is_pr_key(key)}
+
+
+def pr_order(key: str) -> tuple[str, int]:
+    match = PR_KEY.fullmatch(key)
+    return (match["repo"] or "").lower(), int(match["pr"])
+
+
+def ref(key: str) -> str:
+    return key if "#" in key else f"#{key}"
+
+
+@dataclass(frozen=True)
+class Scope:
+    """One repository's view of a ledger: its PR rows under bare numbers, every other repository's PR and review rows out of sight.
+
+    A PR row is stored under its bare number in the ledger checkout's own repository, `default`, and as `owner/name#<pr>` in any other.
+    """
+
+    repo: str
+    default: str
+
+    def key(self, pr: str) -> str:
+        return pr if same_repo(self.repo, self.default) else f"{self.repo.lower()}#{pr}"
+
+    def store(self, key: str) -> str:
+        if key.isdigit():
+            return self.key(key)
+        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@")
+        return review_key(self.key(pr), head) if key.startswith(REVIEW_PREFIX) and pr.isdigit() else key
+
+    def local(self, key: str) -> str | None:
+        review = not is_pr_key(key) and key.startswith(REVIEW_PREFIX)
+        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@") if review else (key, "", "")
+        if not (match := PR_KEY.fullmatch(pr)):
+            return key
+        if not same_repo(match["repo"] or self.default, self.repo):
+            return None
+        return review_key(match["pr"], head) if review else match["pr"]
+
+    def view(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        return {local: fields for key, fields in stored.items() if (local := self.local(key)) is not None}
+
+    def lanes(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        return {key: fields for key, fields in stored.items() if key.startswith(LANE_PREFIX) and not is_pr_key(key) and same_repo(fields.get("repo") or self.default, self.repo)}
+
+
+def row_repo(key: str, fields: dict[str, str], default: str) -> str | None:
+    if match := PR_KEY.fullmatch(key):
+        return match["repo"] or default
+    if key.startswith(LANE_PREFIX):
+        return fields.get("repo") or default
+    return None
+
+
+def ledger_repos(stored: dict[str, dict[str, str]], scope: Scope) -> list[str]:
+    """Every repository the ledger holds a PR row or a lane registration for, and the scope's own."""
+    repos = {scope.repo.lower(): scope.repo}
+    for key, fields in stored.items():
+        if repo := row_repo(key, fields, scope.default):
+            repos.setdefault(repo.lower(), repo)
+    return sorted(repos.values(), key=str.lower)
+
+
 def is_malformed(key: str) -> bool:
-    """A PR key that is not a bare number, or an ask key whose sequence is not one."""
+    """A PR key that is neither a bare number nor `owner/name#<pr>`, or an ask key whose sequence is not one."""
+    if is_pr_key(key):
+        return False
     if key[:1].isdigit():
         return not key.isdigit()
     return key.startswith(ASK_PREFIX) and not key[len(ASK_PREFIX) :].isdigit()
@@ -331,14 +410,29 @@ def is_malformed(key: str) -> bool:
 
 @dataclass
 class Notes:
+    """A ledger's rows, under `scope` when one is given, else under the keys they are stored at."""
+
     shell: Shell
     ledger: str
+    scope: Scope | None = None
     warned: bool = False
 
     def show(self) -> dict:
         return json.loads(self.shell.run(["ccn", "ledger", "show", self.ledger, "--json"]))
 
+    def key(self, pr: str) -> str:
+        return self.scope.key(pr) if self.scope else pr
+
+    def store(self, key: str) -> str:
+        return self.scope.store(key) if self.scope else key
+
+    def view(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        return self.scope.view(stored) if self.scope else stored
+
     def rows(self) -> dict[str, dict[str, str]]:
+        return self.view(self.stored())
+
+    def stored(self) -> dict[str, dict[str, str]]:
         payload = self.show()
         malformed = [row["key"] for row in payload["rows"] if is_malformed(row["key"])]
         if malformed and not self.warned:
@@ -349,27 +443,21 @@ class Notes:
     def pr_rows(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.isdigit()}
 
-
-    def lanes(self) -> dict[str, dict[str, str]]:
-        return {key: fields for key, fields in self.rows().items() if key.startswith(LANE_PREFIX)}
-
     def asks(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.startswith(ASK_PREFIX)}
 
-    def reviews(self) -> dict[str, dict[str, str]]:
-        return {key: fields for key, fields in self.rows().items() if key.startswith(REVIEW_PREFIX)}
-
     def sync(self, rows: list[dict]) -> None:
-        self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(rows))
+        stored = [dict(row, key=self.store(row["key"])) for row in rows]
+        self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(stored))
 
     def set_fields(self, key: str, fields: dict[str, str]) -> None:
-        argv = ["ccn", "ledger", "row", "set", self.ledger, "--key", key]
+        argv = ["ccn", "ledger", "row", "set", self.ledger, "--key", self.store(key)]
         for name, value in fields.items():
             argv += ["--field", f"{name}={value}"]
         self.shell.run(argv)
 
     def remove(self, key: str) -> None:
-        self.shell.run(["ccn", "ledger", "row", "rm", self.ledger, "--key", key])
+        self.shell.run(["ccn", "ledger", "row", "rm", self.ledger, "--key", self.store(key)])
 
 
 @dataclass
@@ -814,7 +902,7 @@ def enqueue(messages: Messages, fields: dict[str, str]) -> str:
         print(f"duplicate of {seen}; nothing recorded, nothing to answer")
         return seen
     key = messages.post(fields)
-    print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
+    print(f"{key} {fields['kind']} {ref(fields['pr'])} {fields['head'][:9]} from {fields['lane']}")
     return key
 
 
@@ -834,7 +922,7 @@ def moot_reports(messages: dict[str, dict[str, str]], rows: dict[str, dict[str, 
 
 
 def message_line(key: str, fields: dict[str, str]) -> str:
-    return f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} {fields['lane']}: {fields['text']}"
+    return f"{key} {fields['kind']} {ref(fields['pr'])} {fields['head'][:9]} {fields['lane']}: {fields['text']}"
 
 
 def ruling_text(text: str, options: str) -> str:
@@ -981,13 +1069,20 @@ def prompt_lines(shell: Shell, drive: str, shard: frozenset[str] | None) -> list
 
 
 def summary_lines(
-    rows: dict[str, dict[str, str]], messages: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta, prompts: list[str]
+    rows: dict[str, dict[str, str]],
+    pulls: dict[str, dict[str, str]],
+    messages: dict[str, dict[str, str]],
+    moment: datetime,
+    window: timedelta,
+    stale_after: timedelta,
+    prompts: list[str],
 ) -> list[str]:
+    """The desk lines off one repository's `rows`; owner asks grade against `pulls`, every repository's PR rows under their stored keys."""
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
     asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
     live = live_since(rows)
-    states = {key: ask_state(fields, prs, moment, live) for key, fields in asks.items()}
+    states = {key: ask_state(fields, pulls, moment, live) for key, fields in asks.items()}
     lost = sorted(key for key, state in states.items() if state == ASK_LOST)
     landed_not_live = sorted(key for key, state in states.items() if state == ASK_LANDED_NOT_LIVE)
     backlog = sorted(key for key, state in states.items() if state == ASK_BACKLOG)
@@ -1010,7 +1105,7 @@ def summary_lines(
         lines.append("merged: " + " ".join(f"#{pr}" for pr in landed))
     if labelled:
         lines.append("labelled: " + " ".join(f"#{pr}" for pr in labelled))
-    lines += [f"P0 #{fields['pr']} {fields['lane']}: {fields['text']}" for fields in p0s]
+    lines += [f"P0 {ref(fields['pr'])} {fields['lane']}: {fields['text']}" for fields in p0s]
     lines += [ruling_line(fields) for fields in rulings]
     lines += [hold_line(pr, holds[pr], moment) for pr in sorted(holds, key=int)]
     if routed:
@@ -1021,7 +1116,7 @@ def summary_lines(
     asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}" for key in landed_not_live]
     asked += [f"BACKLOG {key} {asks[key].get('state_note', '')}".rstrip() for key in backlog]
     asked += [
-        f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: #{(pr := ask_open_pr(asks[key], prs))} {blocker(prs[pr])}"
+        f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: {ref(pr := ask_open_pr(asks[key], pulls))} {blocker(pulls[pr])}"
         for key in stuck
     ]
     return [lines[0], *prompts, *asked, *lines[1:]]
@@ -1034,17 +1129,19 @@ def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
+    key = notes.key(args.pr)
     if args.ask:
-        asks = notes.asks()
+        stored = notes.stored()
+        asks = notes.view(stored)
         if args.ask not in asks:
             raise SystemExit(f"no ask {args.ask} in {args.ledger}; record it with ledger.py ask first")
-        held_by = frozen_by(asks, notes.pr_rows(), args.pr, args.ask, now(), live_since(notes.rows()))
+        held_by = frozen_by(asks, pull_rows(stored), key, args.ask, now(), live_since(stored))
         if held_by:
-            raise SystemExit(f"#{args.pr} already carries {held_by}, still IN-PR; open a stacked follow-up PR for {args.ask}")
+            raise SystemExit(f"{ref(key)} already carries {held_by}, still IN-PR; open a stacked follow-up PR for {args.ask}")
         prs = linked_prs(asks[args.ask])
-        notes.set_fields(args.ask, {"prs": ",".join(prs if args.pr in prs else [*prs, args.pr])})
-    enqueue(Messages(shell, args.drive), {"kind": "report", "pr": args.pr, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
+        notes.set_fields(args.ask, {"prs": ",".join(prs if key in prs else [*prs, key])})
+    enqueue(Messages(shell, args.drive), {"kind": "report", "pr": key, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
     notes.set_fields(args.pr, {"lane": args.lane, "reported_head": args.head, "reported_verdict": args.verdict, "reported_at": utc_stamp()})
     return 0
 
@@ -1098,12 +1195,12 @@ def cmd_live(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_enqueue(args: argparse.Namespace, shell: Shell) -> int:
-    enqueue(Messages(shell, args.drive), {"kind": args.kind, "pr": args.pr, "head": args.head, "lane": args.lane, "text": args.text})
+    enqueue(Messages(shell, args.drive), {"kind": args.kind, "pr": args.scope.key(args.pr), "head": args.head, "lane": args.lane, "text": args.text})
     return 0
 
 
 def cmd_ruling(args: argparse.Namespace, shell: Shell) -> int:
-    fields = {"kind": "ruling", "pr": args.pr, "head": NO_PR, "lane": args.lane, "text": ruling_text(args.text, args.options)}
+    fields = {"kind": "ruling", "pr": args.scope.key(args.pr) if args.pr.isdigit() else args.pr, "head": NO_PR, "lane": args.lane, "text": ruling_text(args.text, args.options)}
     enqueue(Messages(shell, args.drive), fields)
     print(ruling_line(fields))
     return 0
@@ -1200,10 +1297,10 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
         raise SystemExit("register needs --branch-prefix, --pr, or both")
     if args.head and len(args.pr) != 1:
         raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
         guard_prefix(shell, args, notes)
-        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
+        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
@@ -1218,7 +1315,7 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_reassign(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows()
         if missing := [pr for pr in args.pr if pr not in rows]:
@@ -1245,47 +1342,61 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
         prefix = rows[key]["branch_prefix"]
         if args.branch_prefix and args.branch_prefix != prefix:
             raise SystemExit(f"lane {args.lane} is registered on {prefix}, not {args.branch_prefix}")
-        dropped = sorted((pr for pr, fields in rows.items() if pr.isdigit() and discovered_only(fields, args.lane, prefix)), key=int)
+        default = origin_repo(shell, Path("."))
+        scope = Scope(rows[key].get("repo") or default, default)
+        dropped = sorted((pr for pr, fields in pull_rows(rows).items() if scope.local(pr) and discovered_only(fields, args.lane, prefix)), key=pr_order)
         for pr in dropped:
             notes.remove(pr)
         notes.remove(key)
-    print(f"unregistered {args.lane} from {prefix}*; dropped " + (" ".join(f"#{pr}" for pr in dropped) or "no rows"))
+    print(f"unregistered {args.lane} from {prefix}*; dropped " + (" ".join(map(ref, dropped)) or "no rows"))
     return 0
 
 
+def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: dict[str, dict[str, str]], named: list[str], lanes: dict[str, str], moment: str) -> list[dict]:
+    """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns the graded rows under their stored keys."""
+    every = {key: fields for key, fields in scope.view(stored).items() if key.isdigit()}
+    known = sharded(every, args.shard)
+    registrations = list(sharded(scope.lanes(stored), args.shard).values())
+    prefixes = sorted({lane["branch_prefix"] for lane in registrations})
+    wanted = sorted(set(known) | set(named), key=int)
+    try:
+        state = pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
+    except subprocess.CalledProcessError as failure:
+        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+    registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
+    rows = []
+    for key in sorted(set(wanted) | set(registered), key=int):
+        fields = grade(state["prs"][key])
+        fields["last_refresh"] = moment
+        if key not in known:
+            fields["first_seen"] = moment
+        if key in registered and not every.get(key, {}).get("reassigned"):
+            fields |= {"lane": registered[key], "registered": registered[key]}
+        if key in lanes:
+            fields["lane"] = lanes[key]
+        rows.append({"key": scope.store(key), "fields": fields})
+    return rows
+
+
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
+    """Regrade every repository the ledger holds, one `ccx vcs pr state` read each; `--pr` and `--lane` name PRs in `--repo`."""
     notes = Notes(shell, args.ledger)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
-        every = notes.pr_rows()
-        known = sharded(every, args.shard)
-        registrations = list(sharded(notes.lanes(), args.shard).values())
-        prefixes = sorted({lane["branch_prefix"] for lane in registrations})
+        stored = notes.stored()
         moment = utc_stamp()
-        wanted = sorted(set(known) | set(args.pr), key=int)
-        try:
-            state = pr_state(shell, args.ccx, args.repo, wanted, prefixes)
-        except subprocess.CalledProcessError as failure:
-            raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
-        registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
         rows = []
-        for key in sorted(set(wanted) | set(registered), key=int):
-            fields = grade(state["prs"][key])
-            fields["last_refresh"] = moment
-            if key not in known:
-                fields["first_seen"] = moment
-            if key in registered and not every.get(key, {}).get("reassigned"):
-                fields |= {"lane": registered[key], "registered": registered[key]}
-            if key in lanes:
-                fields["lane"] = lanes[key]
-            rows.append({"key": key, "fields": fields})
+        for repo in ledger_repos(stored, args.scope):
+            scope = Scope(repo, args.scope.default)
+            named = same_repo(repo, args.repo)
+            rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
         notes.sync(rows)
     print(f"refreshed {len(rows)} PRs into {args.ledger}")
     return 0
 
 
 def cmd_hold(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     rows = notes.pr_rows()
     above = stacked_above(rows, args.pr)
     green = [pr for pr in above if rows[pr].get("test_state") == "success"]
@@ -1303,7 +1414,7 @@ def cmd_hold(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_lift(args: argparse.Namespace, shell: Shell) -> int:
-    Notes(shell, args.ledger).set_fields(args.pr, {name: "" for name in HOLD_FIELDS})
+    Notes(shell, args.ledger, args.scope).set_fields(args.pr, {name: "" for name in HOLD_FIELDS})
     print(f"lifted #{args.pr} at {utc_stamp()}")
     return 0
 
@@ -1337,7 +1448,7 @@ def sweep_lane(gh: Github, pr: str, fields: dict[str, str], gone: frozenset[str]
 
 
 def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     gh = Github(shell, args.repo)
     if bool(args.train) != bool(args.paths):
         raise SystemExit("--train and --paths go together: the train takes the rows whose files match its paths")
@@ -1387,7 +1498,7 @@ def is_train_candidate(fields: dict[str, str]) -> bool:
 
 def cmd_train(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
-    rows = {pr: fields for pr, fields in sharded(Notes(shell, args.ledger).pr_rows(), args.shard).items() if is_train_candidate(fields)}
+    rows = {pr: fields for pr, fields in sharded(Notes(shell, args.ledger, args.scope).pr_rows(), args.shard).items() if is_train_candidate(fields)}
     files = {pr: pr_files(gh, pr) for pr in sorted(rows, key=int)}
     hot = [pr for pr in files if touches(files[pr], args.paths)]
     tiers = {pr: train_tier(gh, pr, rows[pr]) for pr in hot}
@@ -1622,7 +1733,7 @@ def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], ref
 
 def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     trunk = gh.default_branch()
     every = notes.rows()
     rows = {key: fields for key, fields in every.items() if key.isdigit()}
@@ -1648,7 +1759,7 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     head = gh.api(f"pulls/{args.pr}")["head"]["sha"]
     gh.remove_label(args.pr, MERGE_LABEL)
     pulled = utc_stamp()
-    Notes(shell, args.ledger).set_fields(args.pr, {"label_head": head, "label_pulled_at": pulled, "label_pull_reason": args.reason})
+    Notes(shell, args.ledger, args.scope).set_fields(args.pr, {"label_head": head, "label_pulled_at": pulled, "label_pull_reason": args.reason})
     print(f"pulled {MERGE_LABEL} from #{args.pr} {head[:9]} at {pulled}; a pull is not a stop, the queue may already own this head")
     return 0
 
@@ -1774,15 +1885,16 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
 
 def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     rows = sharded(notes.pr_rows(), args.shard)
     prs = [pr for pr in args.pr if pr in rows] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
     settle(shell, gh, notes, args.checkout, pull_records(gh, prs))
     return 0
 
 
-def watch_state(ledger: str, shard: frozenset[str] | None) -> Path:
-    name = ledger if shard is None else f"{ledger}.{hashlib.sha256('+'.join(sorted(shard)).encode()).hexdigest()[:16]}"
+def watch_state(ledger: str, shard: frozenset[str] | None, scope: Scope) -> Path:
+    name = ledger if same_repo(scope.repo, scope.default) else f"{ledger}.{scope.repo.replace('/', '.')}"
+    name = name if shard is None else f"{name}.{hashlib.sha256('+'.join(sorted(shard)).encode()).hexdigest()[:16]}"
     return Path.home() / ".cache" / "ccn-ledger" / f"{name}.watch.json"
 
 
@@ -1818,9 +1930,9 @@ def announce_reports(messages: Messages, cursor: str, rows: dict[str, dict[str, 
 def watch_pass(
     shell: Shell, notes: Notes, messages: Messages, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str], shard: frozenset[str] | None
 ) -> None:
-    ledger_rows = notes.rows()
-    announce_reports(messages, f"ledger-watch:{state.name}", ledger_rows, shard)
-    rows = sharded({key: fields for key, fields in ledger_rows.items() if key.isdigit()}, shard)
+    stored = notes.stored()
+    announce_reports(messages, f"ledger-watch:{state.name}", stored, shard)
+    rows = sharded({key: fields for key, fields in notes.view(stored).items() if key.isdigit()}, shard)
     watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
     if not watched:
         return
@@ -1859,7 +1971,7 @@ def watch_pass(
         if is_watch_p0(event, fields, priority):
             lane = fields.get("lane", "?")
             with redirect_stdout(sys.stderr):
-                enqueue(messages, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"#{pr} {line}: rebase or fix now"})
+                enqueue(messages, {"kind": "p0", "pr": notes.key(pr), "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"{ref(notes.key(pr))} {line}: rebase or fix now"})
             print(f"P0 #{pr} {line} {lane}", flush=True)
         else:
             print(f"#{pr} {line}", file=sys.stderr)
@@ -1876,10 +1988,10 @@ def watch_pass(
 
 
 def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     gh = Github(shell, args.repo)
     priority = frozenset(args.priority or ())
-    state = args.state or watch_state(args.ledger, args.shard)
+    state = args.state or watch_state(args.ledger, args.shard, args.scope)
     while True:
         try:
             watch_pass(shell, notes, Messages(shell, args.drive), gh, args.checkout, args.ccx, state, priority, args.shard)
@@ -1911,7 +2023,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     whose PR the cache reads closed costs a forge call, its file list, through ``settle``,
     because a payload a stacked child carried shows up in the tree under no number of its own.
     """
-    notes = Notes(shell, args.ledger)
+    notes = Notes(shell, args.ledger, args.scope)
     gh = Github(shell, args.repo)
     rows = sharded(notes.pr_rows(), args.shard)
     pending = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
@@ -1950,15 +2062,17 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
     cmd_reconcile(args, shell)
-    rows = sharded(Notes(shell, args.ledger).rows(), args.shard)
+    notes = Notes(shell, args.ledger, args.scope)
+    stored = notes.stored()
+    rows = sharded(notes.view(stored), args.shard)
     prompts = prompt_lines(shell, args.drive, args.shard)
     messages = Messages(shell, args.drive).read(args.shard)
-    print("\n".join(summary_lines(rows, messages, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
+    print("\n".join(summary_lines(rows, pull_rows(stored), messages, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
     return 0
 
 
 def cmd_stale(args: argparse.Namespace, shell: Shell) -> int:
-    rows = sharded(Notes(shell, args.ledger).pr_rows(), args.shard)
+    rows = sharded(Notes(shell, args.ledger, args.scope).pr_rows(), args.shard)
     moment = now()
     lines = stale_lines(rows, moment, timedelta(minutes=args.minutes)) + aged_lines(rows, moment, timedelta(hours=args.hours))
     print("\n".join(lines) if lines else f"no clean row older than {args.minutes}m and no PR older than {args.hours}h")
@@ -1971,14 +2085,14 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
         return 0
     if args.asks:
         rows = Notes(shell, args.ledger).rows()
-        prs = {key: fields for key, fields in rows.items() if key.isdigit()}
+        prs = pull_rows(rows)
         live = live_since(rows)
         moment = now()
         asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
         for key, fields in sorted(asks.items()):
             print(f"{ask_line(key, fields)} [{ask_state(fields, prs, moment, live) or 'pending'}]")
         return 0
-    rows = Notes(shell, args.ledger).pr_rows()
+    rows = Notes(shell, args.ledger, args.scope).pr_rows()
     if args.red:
         rows = {key: fields for key, fields in rows.items() if needs_route(fields)}
     print(render_table(rows))
@@ -1986,7 +2100,7 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
-    every = Notes(shell, args.ledger).rows()
+    every = Notes(shell, args.ledger, args.scope).rows()
     rows = {
         key: fields
         for key, fields in every.items()
@@ -1994,7 +2108,7 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
     }
     ordered = sorted(rows.items(), key=lambda item: int(item[0]))
     if args.json:
-        print(json.dumps([{"pr": key, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, fields, key)} for key, fields in ordered]))
+        print(json.dumps([{"pr": key, "repo": args.repo, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, fields, key)} for key, fields in ordered]))
         return 0
     for key, fields in ordered:
         rules = " rules-blocked" if rules_blocked(every, key) else ""
@@ -2004,7 +2118,7 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
 
 def add_ledger(parser: argparse.ArgumentParser, repo: bool = False, drive: bool = False) -> None:
     if repo:
-        parser.add_argument("--repo", metavar="OWNER/NAME", help="default: the origin of --checkout, else of the working directory")
+        parser.add_argument("--repo", metavar="OWNER/NAME", help="the repository the PRs live in; default: the origin of --checkout, else of the working directory")
     parser.add_argument("--ledger", required=True)
     if drive:
         parser.add_argument("--drive", required=True, help="the cci drive that carries the lane messages")
@@ -2042,7 +2156,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(handler=cmd_init)
 
     report = subparsers.add_parser("report", help="record a lane's 3-line ship report; the only way a PR row is opened by hand")
-    add_ledger(report, drive=True)
+    add_ledger(report, repo=True, drive=True)
     report.add_argument("--pr", required=True, type=pr_number)
     report.add_argument("--head", required=True, type=head_prefix)
     report.add_argument("--lane", required=True)
@@ -2083,14 +2197,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_ledger(register)
     register.add_argument("--lane", required=True)
     register.add_argument("--branch-prefix", type=branch_prefix, help="the lane's branch name, or a namespace ending in '/' or '-' covering its stack")
-    register.add_argument("--repo", metavar="OWNER/NAME", help="the repository the prefix's PRs live in; default: the working directory's origin")
+    register.add_argument("--repo", metavar="OWNER/NAME", help="the repository the lane's PRs live in; default: the working directory's origin")
     register.add_argument("--ccx", default="ccx", help="the ccx binary")
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
     register.set_defaults(handler=cmd_register)
 
     reassign = subparsers.add_parser("reassign", help="move PR rows to a new owning lane, so route and refresh address it from now on")
-    add_ledger(reassign)
+    add_ledger(reassign, repo=True)
     reassign.add_argument("--pr", action="append", required=True, metavar="N", type=pr_number)
     reassign.add_argument("--lane", required=True)
     reassign.set_defaults(handler=cmd_reassign)
@@ -2102,7 +2216,7 @@ def build_parser() -> argparse.ArgumentParser:
     unregister.set_defaults(handler=cmd_unregister)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
-    add_ledger(enqueue_cmd, drive=True)
+    add_ledger(enqueue_cmd, repo=True, drive=True)
     enqueue_cmd.add_argument("--kind", required=True, choices=KINDS)
     enqueue_cmd.add_argument("--pr", required=True, type=pr_number)
     enqueue_cmd.add_argument("--head", required=True)
@@ -2111,7 +2225,7 @@ def build_parser() -> argparse.ArgumentParser:
     enqueue_cmd.set_defaults(handler=cmd_enqueue)
 
     ruling = subparsers.add_parser("ruling", help="record a question only the root can answer and print the RULING NEEDED line")
-    add_ledger(ruling, drive=True)
+    add_ledger(ruling, repo=True, drive=True)
     ruling.add_argument("--lane", required=True)
     ruling.add_argument("--text", required=True)
     ruling.add_argument("--options", required=True, metavar="A|B|C")
@@ -2141,7 +2255,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.set_defaults(handler=cmd_refresh)
 
     hold = subparsers.add_parser("hold", help="hold a PR with a reason and an expiry")
-    add_ledger(hold)
+    add_ledger(hold, repo=True)
     hold.add_argument("--pr", required=True, type=pr_number)
     hold.add_argument("--reason", required=True)
     expiry = hold.add_mutually_exclusive_group(required=True)
@@ -2151,7 +2265,7 @@ def build_parser() -> argparse.ArgumentParser:
     hold.set_defaults(handler=cmd_hold)
 
     lift = subparsers.add_parser("lift", help="lift a hold")
-    add_ledger(lift)
+    add_ledger(lift, repo=True)
     lift.add_argument("--pr", required=True, type=pr_number)
     lift.set_defaults(handler=cmd_lift)
 
@@ -2236,14 +2350,14 @@ def build_parser() -> argparse.ArgumentParser:
     summary.set_defaults(handler=cmd_summary, dry_run=False)
 
     stale = subparsers.add_parser("stale", help="every open row reported clean at least --minutes ago, with its blocker")
-    add_ledger(stale)
+    add_ledger(stale, repo=True)
     stale.add_argument("--minutes", type=int, default=STALE_MINUTES)
     stale.add_argument("--hours", type=int, default=AGED_HOURS, help="also name every open PR opened at least this long ago")
     add_shard(stale)
     stale.set_defaults(handler=cmd_stale)
 
     show = subparsers.add_parser("show", help="render the PR rows")
-    add_ledger(show)
+    add_ledger(show, repo=True)
     view = show.add_mutually_exclusive_group()
     view.add_argument("--red", action="store_true")
     view.add_argument("--asks", action="store_true")
@@ -2251,7 +2365,7 @@ def build_parser() -> argparse.ArgumentParser:
     show.set_defaults(handler=cmd_show)
 
     list_cmd = subparsers.add_parser("list", help="every PR row, oldest first, with its lane, state, branch, and head")
-    add_ledger(list_cmd)
+    add_ledger(list_cmd, repo=True)
     list_cmd.add_argument("--lane", help="only this lane's rows")
     list_cmd.add_argument("--open", action="store_true", help="only rows still open")
     list_cmd.add_argument("--json", action="store_true")
@@ -2265,8 +2379,11 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.directory:
         os.chdir(args.directory)
     shell = shell or Shell()
-    if "repo" in vars(args) and args.repo is None:
-        args.repo = origin_repo(shell, vars(args).get("checkout") or Path("."))
+    if "repo" in vars(args):
+        default = origin_repo(shell, Path("."))
+        checkout = vars(args).get("checkout")
+        args.repo = args.repo or (origin_repo(shell, checkout) if checkout else default)
+        args.scope = Scope(args.repo, default)
     try:
         return args.handler(args, shell)
     except ForgeUnreachable as unreachable:

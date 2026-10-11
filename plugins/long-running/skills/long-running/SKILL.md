@@ -1507,10 +1507,11 @@ Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   before enqueueing yours. After the prefix lands, restack the PRs above it with
   `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
 Ledger: <id>. Register your branch prefix when spawned:
-  `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>`.
+  `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix>`.
 Report every PR open, push, enqueue, and READY yourself, in this one shape:
-  `ledger.py report --ledger <id> --drive <drive> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
+  `ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
   plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`.
+  `--repo` is the PR's repository; without it a number names a PR in the ledger checkout's repository.
   The desk's inbox reads that cci record; a SendMessage to a looping desk is never read.
 Bus: cci drive <drive>; CLI cci, on PATH by name.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
@@ -1810,13 +1811,14 @@ ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --a
 
 # on each report: record it and grade the current head; reports are not a gate
 ledger.py report  --ledger "$LEDGER" --drive "$DRIVE" --pr 21221 --head <sha> --lane lightning-eh --verdict clean --ask ask/000001
+ledger.py report  --ledger "$LEDGER" --drive "$DRIVE" --repo yasyf/cc-skills --pr 375 --head <sha> --lane skills-tool --verdict clean
 ledger.py ruling  --ledger "$LEDGER" --drive "$DRIVE" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
 ledger.py enqueue --ledger "$LEDGER" --drive "$DRIVE" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
 ledger.py inbox   --ledger "$LEDGER" --drive "$DRIVE" --take
 ledger.py register --ledger "$LEDGER" --lane lightning-eh --branch-prefix lightning/ --pr 21221
 
 # every 3 minutes, staggered :00/:01/:02: reconcile every tracked current head
-ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
+ledger.py refresh --ledger "$LEDGER"
 ledger.py reconcile --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
 ledger.py stale   --ledger "$LEDGER"
