@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import prompt_screen
 import pytest
 
@@ -112,6 +115,15 @@ HOOK_ASKED = "Bash command · from the startup-speed agent / Time the current si
 )
 def test_a_dialog_is_a_cancel_footer_under_a_selection_cursor(terminal: dict, kind: str, asked: str) -> None:
     assert prompt_screen.dialog(terminal) == prompt_screen.Dialog(kind, asked)
+
+
+def test_a_question_whose_preview_pane_puts_its_cursor_far_above_the_footer_is_still_a_question() -> None:
+    terminal = json.loads((Path(__file__).parent / "fixtures" / "prompt_watch" / "screen.coordinator.preview-question.json").read_text())["result"]["terminal"]
+
+    found = prompt_screen.dialog(terminal)
+
+    assert found.kind == "question" and found.asked.startswith("Reply draft / Post this reply") and "/ ❯ 1. Post as drafted " in found.asked and found.asked.endswith("/ Chat about this")
+    assert prompt_screen.input_state(terminal) == "waiting"
 
 
 def test_two_commands_behind_one_warning_ask_two_different_things() -> None:

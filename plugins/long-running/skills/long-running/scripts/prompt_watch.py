@@ -31,9 +31,10 @@ is clipped and its whole line rides as `--path` from `<state dir>/prompt-watch/n
 One cci record per prompt, from lane `prompt-watch`, keyed by the terminal, the dialog's class,
 and every row of the dialog. Orca rewrites `agentWait.since` every few seconds while one dialog
 stays open, so it keys nothing:
-a worker's or desk's prompt is a `blocker` to `root`. The coordinator cannot be woken by its
-own prompt, so its prompt is a `blocker` to the registered supervisor desk while that desk's
-own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
+a worker's or desk's prompt is a `blocker` to `root`. A question on the coordinator's terminal
+is the coordinator asking the owner there, so it raises no record. The coordinator cannot be
+woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
+while that desk's own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
 card shows, when no supervisor is registered, when the supervisor is itself at a prompt,
 unknown, or unreachable, and when the prompt is still open five minutes after the supervisor
 was told. A supervisor that holds a foreground wait is never idle, so it keeps
@@ -362,7 +363,7 @@ class Watch:
             if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(row, seen, "The watch answers nothing."))):
                 alerts[ROOT] = seq
             return
-        if OWNER in alerts:
+        if OWNER in alerts or seen.state == prompt_screen.QUESTION:
             return
         ready = supervisor is not None and supervisor.state in (CLEAR, STALE)
         text = self.prompt_text(row, seen, "Answer only within what the owner already authorized, else ask the owner.")

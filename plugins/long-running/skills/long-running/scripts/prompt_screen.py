@@ -9,7 +9,6 @@ MODE_INDENT = 2
 MARGIN = 2
 APPROVAL = "approval"
 QUESTION = "question"
-DIALOG_ROWS = 30
 CODEX_ROWS = 4
 KEY_HINT = r"[\w↑↓/+ ]+ to [\w ]+"
 FOOTER = re.compile(rf"^\s*{KEY_HINT}(?:\s*·\s*{KEY_HINT})*\s*$")
@@ -86,10 +85,9 @@ def dialog(terminal: dict) -> Dialog | None:
     footer = next((i for i in reversed(range(len(tail))) if FOOTER.match(tail[i]) and CANCEL.search(tail[i])), None)
     if footer is None or ((box := composer(tail)) is not None and box > footer):
         return None
-    start = max(0, footer - DIALOG_ROWS)
-    if (cursor := next((i for i in reversed(range(start, footer)) if CURSOR.match(tail[i])), None)) is None:
+    if (cursor := next((i for i in reversed(range(footer)) if CURSOR.match(tail[i])), None)) is None:
         return None
-    top = next((i + 1 for i in reversed(range(start, cursor)) if is_rule(tail[i])), start)
+    top = next((i + 1 for i in reversed(range(cursor)) if is_rule(tail[i])), 0)
     rows = [line.strip(FRAME) for line in tail[top:footer] if WORD.search(line) and not RUNNING.search(line)]
     return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(rows))
 
