@@ -159,7 +159,7 @@ class RecordInPlace(unittest.TestCase):
                  "T1.h": {"kind": "short name", "text": ""}}
         lock = {"fields": {}}
         with patch.object(retro_prose, "lint", return_value={}):
-            retro_prose.record(store, ["C1.text", "T1.h"], lock, "claude-opus-5-5")
+            retro_prose.record(store, ["C1.text", "T1.h"], lock, "claude-opus-5-5", set())
         entry = lock["fields"]["C1.text"]
         self.assertEqual(entry["sha256"], retro_prose.digest("The column rename broke inserts."))
         self.assertEqual((entry["model"], entry["writer"], entry["slop"]), ("claude-opus-5-5", "session", 0))
@@ -169,8 +169,17 @@ class RecordInPlace(unittest.TestCase):
         store = {"C1.text": {"kind": "prose", "text": "We leverage a robust solution."}}
         lock = {"fields": {"C2.text": {"sha256": "x", "slop": 1}}}
         with patch.object(retro_prose, "lint", return_value={"C1.text": [{"ruleId": "a"}, {"ruleId": "b"}]}):
-            retro_prose.record(store, ["C1.text"], lock, "claude-opus-5-5")
+            retro_prose.record(store, ["C1.text"], lock, "claude-opus-5-5", set())
         self.assertEqual((lock["fields"]["C1.text"]["slop"], lock["slop"]), (2, 3))
+
+    def test_customer_names_the_retro_declares_are_not_findings(self):
+        R = {"meta": {"teams": ["HSBC", "AIG", "GSK", "SoFi"], "acronyms": ["NVMe"]}}
+        store = {"C1.text": {"kind": "prose", "text": "HSBC, AIG, GSK, and SoFi lost access when the NVMe disks behind EBS "
+                                                       "filled up during the morning rollout."}}
+        lock = {"fields": {}}
+        findings = retro_prose.record(store, ["C1.text"], lock, "claude-opus-5-5", retro_prose.declared_names(R))
+        self.assertEqual([v["matchedText"] for v in findings.get("C1.text", [])], ["EBS"])
+        self.assertEqual(lock["fields"]["C1.text"]["slop"], 1)
 
 
 class HeadlineAndSubtitle(unittest.TestCase):
@@ -250,7 +259,7 @@ class BatchedLint(unittest.TestCase):
     def test_findings_are_attributed_to_the_field_they_fall_in(self):
         landed = {"C1.text": "We leverage a robust solution.", "C2.text": "The column rename broke inserts.",
                   "C3.text": "It is not just fast, but also powerful."}
-        deep = retro_prose.lint(landed, True)
+        deep = retro_prose.lint(landed, True, set())
         self.assertIn("C1.text", deep)
         self.assertNotIn("C2.text", deep, "a clean field must not inherit a neighbor's finding")
         for addr, violations in deep.items():
