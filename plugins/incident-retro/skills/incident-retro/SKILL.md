@@ -329,18 +329,18 @@ Opus may drop facts to shorten these fields but may invent none.
 Work orders, schemas, and the rule catalog live under
 `~/.cache/incident-retro/prose/<slug>/`, keyed by `meta.slug`. Replies and
 logs (`reply.jsonl`, the `claude -p` event stream) stay in each round's
-directory under that lane; the lock records their paths. `prose.lock.json` stays beside `retro.json`; `.prose.lock` and
-the atomic-write scratch files are transient. The retro directory is
+directory under that lane; the lock records their paths. `prose.lock.json` stays beside `retro.json`; the atomic-write scratch files are
+transient. The retro directory is
 published as a static site.
 
 Before model calls and writes, the command takes an exclusive, nonblocking
-`fcntl.flock` on `.prose.lock` beside `retro.json` and holds it until writing
-ends. A competing claim exits nonzero and names the holder's pid. Two
+`fcntl.flock` on a claim file under `~/.cache/incident-retro/claims/`, named
+for the retro directory, and holds it until writing ends. A competing claim exits nonzero and names the holder's pid. Two
 concurrent runs used to lose each other's fields because each wrote back a
 whole file it had read before the other's batch landed. The initial record
 read still precedes the claim; the command rereads the record under the
-claim. `.prose.lock` is removed when the writing run
-ends and is safe to delete after a killed run if no other run holds it.
+claim. The claim file sits outside the retro directory, so `publish` never
+stages it, and a killed run releases its flock when the process exits.
 Writes to `retro.json` and `prose.lock.json` each use a
 `<filename>.<pid>.part` sibling followed by `Path.replace`, which uses
 `os.replace`; successful replacement leaves no scratch file.
@@ -481,15 +481,21 @@ the prose and publication.
 $TOOL publish <dir>
 ```
 
-After the Phase 4 gates pass, `publish` runs the checkout's `sync-index.sh`,
-which regenerates both index pages' cards from every `retro.json`. It commits only the retro directory and the two index pages
-as `incident retros: 📝 <meta.title>`, then pushes. It opens a ready PR or
+After the Phase 4 gates pass, `publish` fetches the docs repository's default
+branch and rebases the retro branch onto it, so the cards count every retro that
+landed first. A conflict confined to the two index pages takes the default
+branch's copy; any other conflict aborts the rebase and exits nonzero. It then
+runs the checkout's `sync-index.sh`, which regenerates both index pages' cards
+from every `retro.json`. It commits only the retro directory and the two index pages
+as `incident retros: 📝 <meta.title>`, then pushes with a lease. It opens a ready PR or
 edits the existing PR and marks it ready.
 The PR body contains the summary panels rendered as Markdown with Opus's
 text verbatim, plus the page URL from `CNAME`.
 
 `publish` merges the PR itself, with the merge method the repository allows,
-as soon as it is clean and every check is green. It then waits for a
+as soon as it is clean and every check is green. When another retro lands
+first, the PR falls behind or fails its stale-cards check; the wait rebases,
+resyncs the cards, pushes, and keeps waiting. It then waits for a
 successful `github-pages` deployment to contain the merge commit. The site requires GitHub sign-in,
 so the deployment record proves that the merged revision is served; an
 anonymous fetch does not. On success, the last line is

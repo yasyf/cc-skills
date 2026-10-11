@@ -563,17 +563,17 @@ sits at the slug root. The slug comes from `meta.slug`, with the directory
 name used when it is absent. Each round's `reply.jsonl`, the `claude -p`
 event stream, stays in its round directory. The retro directory is published as a static site,
 so work orders, replies, and logs stay outside it. `prose.lock.json` remains
-beside the record; `.prose.lock` and atomic-write scratch files are transient.
+beside the record; atomic-write scratch files are transient.
 
 Before model calls and writes, `prose` takes an exclusive, nonblocking
-`fcntl.flock` on `.prose.lock` beside `retro.json` and holds it until writing
-ends. A competing claim exits nonzero and names the holder's pid. Two
+`fcntl.flock` on a claim file under `~/.cache/incident-retro/claims/`, named
+for the retro directory, and holds it until writing ends. A competing claim exits nonzero and names the holder's pid. Two
 concurrent runs used to lose each other's fields because each wrote back a
 whole file it had read before the other's batch landed. The initial record
 read still precedes the claim; the command rereads the record under the claim
 before writing.
-`.prose.lock` is removed when the writing run ends and is safe to delete
-after a killed run if no other run holds it.
+The claim file sits outside the retro directory, so `publish` never stages
+it, and a killed run releases its flock when the process exits.
 
 Each write to `retro.json` or `prose.lock.json` in this pipeline writes a
 `<filename>.<pid>.part` sibling, then calls `Path.replace`, which uses
@@ -771,8 +771,8 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 | `live/<slug>` branch | `retro.json`, `evidence/slack/` and `evidence/datadog/` as `live sync` last pushed them, the ref the page polls while `meta.status` is `ongoing` |
 | `summary.html` | the executive summary, a body-level fragment whose panel prose is written by `prose` |
 | `prose.lock.json` | model and command metadata, total `slop`, and each accepted field's digest, run directory, log path, timestamp, and remaining `slop` count; migrated legacy entries carry a digest, `kind`, `grandfathered` plugin version, and timestamp |
-| `.prose.lock` | transient exclusive writer claim (`WRITE_LOCK = ".prose.lock"`); removed when the writing run ends and safe to delete after a killed run if no other run holds it |
 | `<filename>.<pid>.part` | transient sibling used to replace `retro.json` or `prose.lock.json` atomically; removed by successful replacement |
+| `~/.cache/incident-retro/claims/<sha256>.lock` | the exclusive writer claim for one retro directory, keyed by its resolved path, outside the published directory |
 | `~/.cache/incident-retro/prose/<slug>/slop-cop-rules.json` | the linter's full rule catalog, outside the published retro directory |
 | `~/.cache/incident-retro/prose/<slug>/batch-<N>/round-<N>/` | generated work orders and JSON reply schemas |
 | Run and log paths recorded in `prose.lock.json` | each round's directory and its `reply.jsonl` |

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for the records scaffold, the prevention check and the board.
+"""Tests for the records scaffold, the prevention check, the board and publishing.
 
   python3 scripts/test_retro_new.py
 """
-import argparse, contextlib, datetime, io, json, sys, tempfile, unittest, unittest.mock, zoneinfo
+import argparse, contextlib, datetime, io, json, os, subprocess, sys, tempfile, unittest, unittest.mock, zoneinfo
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -180,8 +180,9 @@ class Board(unittest.TestCase):
 class AwaitMerges(unittest.TestCase):
     URL = "https://github.com/Forge-AI/design-docs/pull/73"
 
-    def pr(self, state, merge_state, *verdicts):
+    def pr(self, state, merge_state, *verdicts, head="h1"):
         return json.dumps({"state": state, "mergeStateStatus": merge_state, "mergeCommit": {"oid": "abc"},
+                           "headRefName": "retro/slug", "headRefOid": head, "baseRefName": "main",
                            "statusCheckRollup": [{"name": f"check-{i}", "conclusion": v} for i, v in enumerate(verdicts)]})
 
     def test_a_clean_green_pr_is_merged_with_the_allowed_method(self):
@@ -202,9 +203,144 @@ class AwaitMerges(unittest.TestCase):
                 unittest.mock.patch.object(retro_new, "pages_live", return_value=True), \
                 unittest.mock.patch.object(retro_new, "rendered_url", return_value="https://docs.example/slug/"), \
                 unittest.mock.patch.object(retro_new.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(retro_new.await_rendered(root, self.URL, 60), 0)
+            self.assertEqual(retro_new.await_rendered(root, self.URL, 60, retro), 0)
         merges = [(argv, cwd) for argv, cwd in calls if argv[:3] == ["gh", "pr", "merge"]]
         self.assertEqual(merges, [(["gh", "pr", "merge", self.URL, "--rebase"], root.parents[1])])
+
+    def await_with(self, views, behind=False):
+        views, synced = iter(views), []
+
+        def gh(argv, cwd=None, check=True):
+            if argv[:3] == ["gh", "pr", "view"]:
+                return next(views)
+            if argv[:2] == ["gh", "api"]:
+                return json.dumps({"allow_squash_merge": False, "allow_rebase_merge": True, "allow_merge_commit": False})
+            return ""
+
+        def sync(root, retro, branch):
+            synced.append(branch)
+            return "h2"
+
+        root = Path(tempfile.mkdtemp()) / "incident-retros" / "slug"
+        with unittest.mock.patch.object(retro_new, "run", gh), \
+                unittest.mock.patch.object(retro_new, "sync_and_push", sync), \
+                unittest.mock.patch.object(retro_new, "behind_base", return_value=behind), \
+                unittest.mock.patch.object(retro_new, "pages_live", return_value=True), \
+                unittest.mock.patch.object(retro_new, "rendered_url", return_value="https://docs.example/slug/"), \
+                unittest.mock.patch.object(retro_new.time, "sleep"), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return retro_new.await_rendered(root, self.URL, 60, retro), synced
+
+    def test_a_pr_behind_its_base_is_rebased_and_resynced(self):
+        code, synced = self.await_with([self.pr("OPEN", "BEHIND", "SUCCESS"), self.pr("OPEN", "BEHIND", "SUCCESS"),
+                                        self.pr("OPEN", "CLEAN", "SUCCESS", head="h2"),
+                                        self.pr("MERGED", "UNKNOWN", "SUCCESS", head="h2")])
+        self.assertEqual((code, synced), (0, ["retro/slug"]))
+
+    def test_stale_cards_on_the_merge_ref_are_resynced_instead_of_failing(self):
+        code, synced = self.await_with([self.pr("OPEN", "BLOCKED", "FAILURE"),
+                                        self.pr("MERGED", "UNKNOWN", "SUCCESS", head="h2")], behind=True)
+        self.assertEqual((code, synced), (0, ["retro/slug"]))
+
+    def test_a_failure_on_an_up_to_date_branch_still_fails(self):
+        code, synced = self.await_with([self.pr("OPEN", "BLOCKED", "FAILURE")], behind=False)
+        self.assertEqual((code, synced), (1, []))
+
+
+SYNC_INDEX = """#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../../../.."
+for f in $(ls incident-retros/*/retro.json); do
+  slug=${f#incident-retros/}
+  slug=${slug%/retro.json}
+  echo "<a data-retro=\\"$slug\\"></a>" >&3
+  echo "<a data-retro=\\"$slug\\"></a>" >&4
+done 3>index.html 4>incident-retros/index.html
+"""
+
+
+def git(cwd: Path, *argv: str) -> str:
+    return subprocess.run(["git", "-C", str(cwd), *argv], check=True, capture_output=True, text=True).stdout.strip()
+
+
+class PublishRebases(unittest.TestCase):
+    """A retro that lands while this one waits must not leave this branch's index cards stale."""
+
+    def setUp(self):
+        top = Path(tempfile.mkdtemp())
+        bin_dir = top / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text("#!/bin/sh\necho main\n")
+        (bin_dir / "gh").chmod(0o755)
+        env = unittest.mock.patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+        env.start()
+        self.addCleanup(env.stop)
+        git(top, "init", "-q", "--bare", "-b", "main", "origin.git")
+        self.docs, self.other = top / "docs", top / "other"
+        git(top, "clone", "-q", "origin.git", str(self.docs))
+        script = self.docs / retro_live.INDEX_SCRIPT
+        script.parent.mkdir(parents=True)
+        script.write_text(SYNC_INDEX)
+        (self.docs / "README.md").write_text("docs\n")
+        self.land(self.docs, "2026-10-01-a", "main")
+        git(top, "clone", "-q", "origin.git", str(self.other))
+        git(self.docs, "switch", "-q", "-c", "retro/b")
+        self.land(self.docs, "2026-10-02-b", "retro/b")
+        self.land(self.other, "2026-10-03-c", "main")
+        self.root = self.docs / retro_live.RETRO_DIR / "2026-10-02-b"
+
+    def land(self, clone: Path, slug: str, branch: str):
+        root = clone / retro_live.RETRO_DIR / slug
+        root.mkdir(parents=True)
+        (root / "retro.json").write_text(json.dumps({"meta": {"title": slug}}) + "\n")
+        retro_live.sync_cards(clone)
+        git(clone, "add", "-A")
+        git(clone, "commit", "-q", "-m", f"incident retros: 📝 {slug}")
+        git(clone, "push", "-q", "-u", "origin", branch)
+
+    def publish(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return retro_new.sync_and_push(self.root, retro, "retro/b")
+
+    def test_the_branch_is_rebased_before_the_cards_are_synced(self):
+        (self.root / "retro.json").write_text(json.dumps({"meta": {"title": "B, revised"}}) + "\n")
+        head = self.publish()
+        git(self.docs, "fetch", "-q", "origin")
+        self.assertEqual(git(self.docs, "rev-parse", "origin/retro/b"), head)
+        git(self.docs, "merge-base", "--is-ancestor", "origin/main", head)
+        for page in retro_live.CARD_PAGES:
+            cards = (self.docs / page).read_text()
+            for slug in ("2026-10-01-a", "2026-10-02-b", "2026-10-03-c"):
+                self.assertIn(slug, cards, f"{page} is missing {slug}'s card")
+        self.assertEqual(git(self.docs, "status", "--porcelain"), "")
+        self.assertEqual(git(self.docs, "log", "-1", "--format=%s"), "incident retros: 📝 B, revised")
+        self.assertEqual(git(self.docs, "show", "--format=", "--name-only", head).splitlines(), [
+            "incident-retros/2026-10-02-b/retro.json", "incident-retros/index.html", "index.html"])
+
+    def test_a_checkout_on_another_branch_is_never_pushed_over_the_pr(self):
+        git(self.docs, "switch", "-q", "main")
+        with self.assertRaises(SystemExit) as stopped:
+            self.publish()
+        self.assertIn("check out retro/b", str(stopped.exception))
+        git(self.docs, "fetch", "-q", "origin")
+        self.assertNotEqual(git(self.docs, "rev-parse", "origin/retro/b"), git(self.docs, "rev-parse", "main"))
+
+    def test_a_conflict_outside_the_index_pages_stops_and_leaves_the_branch(self):
+        (self.other / "README.md").write_text("theirs\n")
+        git(self.other, "commit", "-q", "-am", "readme")
+        git(self.other, "push", "-q", "origin", "main")
+        (self.docs / "README.md").write_text("ours\n")
+        git(self.docs, "commit", "-q", "-am", "readme")
+        before = git(self.docs, "rev-parse", "HEAD")
+        with self.assertRaises(SystemExit) as stopped:
+            self.publish()
+        self.assertIn("README.md", str(stopped.exception))
+        self.assertEqual(git(self.docs, "rev-parse", "HEAD"), before)
+        self.assertEqual(git(self.docs, "status", "--porcelain"), "")
 
 
 if __name__ == "__main__":
