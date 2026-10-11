@@ -25,7 +25,10 @@ flight fails at once as `RELAY-FAILED`.
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail, and
 checks relay deadlines. Each pass takes the Run's oldest unacknowledged Delivery before
 it reads the inbox and acknowledges it once that read is relayed, so Orca stops counting
-a relayed or skipped message as unread. Prompts belong to `prompt_watch.py`, the one reader
+a relayed or skipped message as unread. Each relayed message id is saved, and a Delivery
+message with no saved id is relayed before the acknowledgement whatever its sequence, or
+logged `UNRELAYED` when it sits behind the cursor and its type has no relay. Prompts
+belong to `prompt_watch.py`, the one reader
 of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
 while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
@@ -1127,10 +1130,12 @@ class Runner:
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
 
     def check(self) -> bool:
-        """Read the Run past the persisted cursor, then acknowledge the Delivery Orca handed over before that read; False while no cursor exists, so nothing dispatches before the first read sets one."""
-        key = f"inbox:{self.config.run}"
-        cursor = self.book.load(RUNNER).facts.get(key)
-        delivery = (self.orca.call("orchestration", "check", "--run", self.config.run).get("result") or {}).get("deliveryId")
+        """Read the Run past the persisted cursor, relay any message of the Delivery Orca handed over before that read that holds no relay record, then acknowledge the Delivery; False while no cursor exists, so nothing dispatches before the first read sets one."""
+        key, relayed = f"inbox:{self.config.run}", f"relayed:{self.config.run}"
+        facts = self.book.load(RUNNER).facts
+        cursor = facts.get(key)
+        delivery = self.orca.call("orchestration", "check", "--run", self.config.run).get("result") or {}
+        unrelayed = {message["id"] for message in delivery.get("messages") or [] if message["type"] != "heartbeat"} - set(facts.get(relayed, []))
         limit = INBOX_PAGE_SIZE
         while True:
             reply = self.orca.call("orchestration", "inbox", "--terminal", f"run:{self.config.run}", "--limit", str(limit))
@@ -1142,18 +1147,25 @@ class Runner:
                 newest = max((message["sequence"] for message in messages), default=0)
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({key: newest}))
                 return True
-            if len(messages) < limit or messages[-1]["sequence"] <= cursor + 1:
+            if len(messages) < limit or (messages[-1]["sequence"] <= cursor + 1 and unrelayed <= {message["id"] for message in messages}):
                 break
             limit *= 2
         for message in reversed(messages):
-            if message["sequence"] <= cursor:
+            behind = message["sequence"] <= cursor
+            if behind and message["id"] not in unrelayed:
                 continue
-            if message["type"] != "heartbeat":
-                self.message(message | {"lane": self.orca.lane_of(message["from_handle"])})
-            cursor = message["sequence"]
-            self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
-        if delivery:
-            self.orca.call("orchestration", "check", "--run", self.config.run, "--ack", delivery, "--peek")
+            cursor = max(cursor, message["sequence"])
+            if message["type"] == "heartbeat":
+                self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
+                continue
+            lane = self.orca.lane_of(message["from_handle"])
+            if not self.message(message | {"lane": lane}) and behind:
+                self.keep(message)
+                self.escalate(message["id"], "UNRELAYED", lane, f"{message['type']} from {message['from_handle']} at sequence {message['sequence']}, behind cursor {cursor}, has no relay record and its type has no relay: {message.get('subject') or ''}")
+            self.book.edit(RUNNER, lambda incident: (incident.facts.update({key: cursor}), incident.facts.setdefault(relayed, []).append(message["id"])))
+            unrelayed.discard(message["id"])
+        if delivery.get("deliveryId") and not unrelayed:
+            self.orca.call("orchestration", "check", "--run", self.config.run, "--ack", delivery["deliveryId"], "--peek")
         return True
 
     def message_file(self, msg: str) -> Path:
@@ -1165,7 +1177,8 @@ class Runner:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{message.get('subject') or ''}\n\n{message.get('body') or ''}".strip() + "\n")
 
-    def message(self, message: dict) -> None:
+    def message(self, message: dict) -> bool:
+        """Relay one Run message by its type; False for a type the runner relays nowhere."""
         decoded = json.loads(message.get("payload") or "{}")
         payload = decoded if isinstance(decoded, dict) else {}
         lane = message.get("lane") or self.orca.lane_of(message.get("from_handle", ""))
@@ -1191,6 +1204,9 @@ class Runner:
         elif message["type"] in ("decision_gate", "handoff"):
             self.keep(message)
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
+        else:
+            return False
+        return True
 
     def acknowledge(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
         """Apply a lane's started/done reply only from the dispatch that owns the container; a pending dispatch's first ack takes ownership first."""
