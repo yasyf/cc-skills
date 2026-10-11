@@ -29,6 +29,8 @@ PROSE_TIMEOUT = 1800
 PROSE_BATCH = 0
 SLOP_ROUNDS = 2
 SLOP_BUDGET = 3
+NAME_RULES = ("undefined-abbreviation", "unformatted-code-identifier")
+NAME_KEYS = ("teams", "acronyms")
 FIELD_MARK = "<!-- field:"
 SEPARATOR = "\n\n"
 LEGACY = "legacy"
@@ -395,11 +397,21 @@ def slop_cop(text: str, deep: bool) -> list:
     return report.get("violations") or []
 
 
-def lint(landed: dict, deep: bool) -> dict:
+def declared_names(R: dict) -> set:
+    meta = R.get("meta") or {}
+    return {n for key in NAME_KEYS for n in meta.get(key) or ()}
+
+
+def lint(landed: dict, deep: bool, names: set) -> dict:
     """address -> violations, linting the batch in one model pass and attributing by offset."""
     found = {a: slop_cop(t, False) for a, t in landed.items()}
-    if not deep:
-        return {a: v for a, v in found.items() if v}
+    if deep:
+        found = deep_lint(landed, found)
+    return {a: kept for a, v in found.items()
+            if (kept := [x for x in v if not (x.get("ruleId") in NAME_RULES and x.get("matchedText") in names)])}
+
+
+def deep_lint(landed: dict, found: dict) -> dict:
     joined, spans = [], []
     at = 0
     for addr, text in landed.items():
@@ -415,7 +427,7 @@ def lint(landed: dict, deep: bool) -> dict:
                 v["startIndex"] = start - lo
                 found.setdefault(addr, []).append(v)
                 break
-    return {a: v for a, v in found.items() if v}
+    return found
 
 
 def rule_catalogue(lane: Path) -> Path:
@@ -499,10 +511,10 @@ def grandfather(retro, R: dict, root: Path, store: dict, wanted: set, lock: dict
     return stamped
 
 
-def record(store: dict, wanted: list, lock: dict, model: str) -> dict:
+def record(store: dict, wanted: list, lock: dict, model: str, names: set) -> dict:
     """Stamp the lane's own in-place writing with its model; returns address -> slop-cop violations."""
     texts = {a: store[a]["text"] for a in wanted if store[a]["text"].strip()}
-    findings = lint(texts, False)
+    findings = lint(texts, False, names)
     at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     for addr, text in texts.items():
         lock["fields"][addr] = {"sha256": digest(text), "model": model, "writer": "session",
@@ -511,10 +523,10 @@ def record(store: dict, wanted: list, lock: dict, model: str) -> dict:
     return findings
 
 
-def record_prose(root: Path, store: dict, wanted: list, model: str) -> int:
+def record_prose(root: Path, store: dict, wanted: list, model: str, names: set) -> int:
     lock = load_lock(root)
     empty = [a for a in wanted if not store[a]["text"].strip()]
-    findings = record(store, wanted, lock, model)
+    findings = record(store, wanted, lock, model, names)
     write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
     print(f"prose: stamped {len(wanted) - len(empty)} field(s) as written by {model} in {PROSE_LOCK}")
     for addr in empty:
@@ -664,7 +676,7 @@ def prose(args) -> int:
                 R, store = read_record(retro, root)
                 if R is None:
                     return 1
-                return record_prose(root, store, [a for a in wanted if a in store], args.model)
+                return record_prose(root, store, [a for a in wanted if a in store], args.model, declared_names(R))
         except Busy as held:
             print(f"prose: {held} is already writing {root}; record after it finishes", file=sys.stderr)
             return 1
@@ -771,7 +783,7 @@ def write_batch(retro, R: dict, root: Path, args, store: dict, batch: list, lane
             landed[addr] = text
             spec["landed"] = text
             fields[addr] = {"sha256": digest(text), "run": got["run"], "log": got["log"]}
-        findings = lint({a: landed[a] for a in sorted(answered)}, not args.quick)
+        findings = lint({a: landed[a] for a in sorted(answered)}, not args.quick, declared_names(R))
         for addr in answered:
             fields[addr]["slop"] = len(findings.get(addr) or [])
         if not findings or attempt == SLOP_ROUNDS:

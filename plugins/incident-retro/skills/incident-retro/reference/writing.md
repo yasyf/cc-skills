@@ -293,6 +293,9 @@ pass took 3.77 seconds; deterministic lint alone took 0.02 seconds.
 The lock records each field's remaining `slop` count and their total.
 `check --strict` fails above `SLOP_BUDGET = 3`, naming the fields with the most
 findings.
+An `undefined-abbreviation` or `unformatted-code-identifier` finding on a
+name listed in `meta.teams` or `meta.acronyms` is never counted, so a retro
+names its customers as they are.
 This gate covers the landed prose fields; the rendered document still needs
 the separate check below. Inspect the refused-field and lint reports.
 `check --strict` rejects a changed field until it is recorded again with

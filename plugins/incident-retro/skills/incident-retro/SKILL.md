@@ -421,7 +421,9 @@ Fix every structural error. Triage every prose finding against [reference/writin
 
 The lock records per-field `slop` counts and a total; strict mode sums those
 counts and fails above `SLOP_BUDGET = 3`, naming the fields with the most
-findings. The prose gate covers the landed prose fields, not the whole rendered
+findings. An `undefined-abbreviation` or `unformatted-code-identifier` finding
+on a name listed in `meta.teams` or `meta.acronyms` is never counted, so a
+retro names its customers as they are. The prose gate covers the landed prose fields, not the whole rendered
 document. Revise failed prose in place and record it with
 `prose --record --field`, then rerun
 `publish`.
