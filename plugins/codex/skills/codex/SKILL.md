@@ -327,7 +327,8 @@ the shape (verdict line, severity-ordered findings, a cite per claim):
 "${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --lane review - <<'QUESTION'
 Review the uncommitted diff in internal/render/ (run `git diff -- internal/render`).
 Scope: every hunk. Focus: error handling and resource lifetimes.
-Out of scope: pre-existing debt outside the diff.
+Out of scope: pre-existing debt outside the diff. Code the diff moves in or
+newly calls is in scope.
 QUESTION
 ```
 
