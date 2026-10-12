@@ -536,6 +536,18 @@ Where a landed PR or a refining plan line conflicts with the owner's plan, the o
 
 Only a question nothing settles goes to the owner. Each card names which authorities were checked.
 
+When the fork is about a check, gate or grader, the question names every existing
+mechanism that grades the same signal and includes "delete it and let <that
+mechanism> own the signal" as an option. Each option lists its added lines and
+graders as a cost. Recommended goes to the option that adds the least new machinery,
+unless the question says what that option fails to cover. Write no options while a
+lane asked for them has not replied, and cite the research verdict the options rest on.
+
+*Prevents the release-v3 owner question of 2026-10-10 (12:51Z). It said the release
+"grades replicas in two places" yet offered no option that grades in one, and it marked
+the largest option Recommended before the options lane replied. Four PRs then built a
+second grader beside the Watch, and release 5445 failed its Switch on every env.*
+
 The pack's `settled_questions` hook matches each question in an asking call (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) against the tracked plan's Decisions lines, the `scope:durable` answers, and the feedback memories while a drive is active.
 It blocks only on a match and quotes the matching plan line, answer id, or memory; drop those questions and re-issue the rest. A wrong match passes when re-issued, since asking calls then pass for ten minutes.
 
@@ -1474,6 +1486,10 @@ build, test reproduction, sweep, or heavy research lane, which goes to a Sprite 
 default. `place=remote` or `place=local` places any lane yourself and wins over that
 default (O16).
 
+A brief states the outcome ("one failing database never blocks a release"), never a
+design ("report it in the Switch; reuse the handoffz and census readers"). Step 0 of
+`Do:` is the lane's own search for an existing grader.
+
 ```
 ccx: role=<role> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
@@ -1483,6 +1499,10 @@ Design rulings, verbatim: <each owner ruling on the subsystem this lane touches,
   "none">. Before READY, state which entry point your diff calls, each ruling it meets,
   and anything it leaves out; the root confirms before a ship lane launches (R22).
 Do:
+  0. Before designing, name what already grades or handles this signal: monitors,
+     the release's Watch, open owner tasks and picks (`ccn task list`,
+     `ccn answer search`). If one covers it, route through it or delete the
+     duplicate. Building alongside it is a return-early-with-options case.
   1. <step>
   2. <step>
 Escalate early, do not improvise: scope surprise, an assumption the code refutes,

@@ -207,6 +207,10 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   most every 5 minutes. Ship only while `rate.remaining` in
   `~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500; never
   gate on REST `gh api rate_limit`, which reads stale.
+- Before designing, name what already grades or handles this signal: monitors, the
+  release's Watch, open owner tasks and picks (`ccn task list`, `ccn answer search`).
+  If one covers it, route through it or delete the duplicate. Building alongside it
+  is a return-early-with-options case.
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
 - Fix or accept each reviewer-bot finding with the risk
@@ -237,7 +241,7 @@ Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
 ccx: role=<role; desk or watch for a standing desk> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
-Change: <the concrete result to produce>.
+Change: <the outcome to produce, such as "one failing database never blocks a release", never a design>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
