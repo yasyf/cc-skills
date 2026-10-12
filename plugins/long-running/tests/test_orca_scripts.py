@@ -507,7 +507,7 @@ def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
     assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
     [send] = orca.calls("terminal send")
     assert flag(send, "--terminal") == "term_codex"
-    assert str(orca.brief) in flag(send, "--text") and "--enter" in send
+    assert str(orca.receipts / "lane-a.brief.md") in flag(send, "--text") and "--enter" in send
 
 
 def test_an_incident_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
