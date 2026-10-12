@@ -231,6 +231,11 @@ Every lane records each sub-dispatch as an ask row before dispatch with
 When the reply lands, the lane runs `ledger.py answer`. An orphaned sub-dispatch
 surfaces as `LOST` in the summary.
 
+A lane whose progress is not a PR, such as Slack posts or register entries, records
+each step with `ledger.py progress --ledger <id> --ask <id> --note "<what moved>" [--artifact <url or id>]...`.
+The ask then reads `IN-PROGRESS` until 30 minutes pass with no new entry, and the
+summary and `show --asks` print its latest entry.
+
 Before claiming anything is assigned, in flight, or done, the root reads
 `ledger.py summary --drive <drive>` or `ledger.py show --asks`, never its own plan table. R7 still
 applies to PR state; the root never reports it from the plan file. An ask is done only

@@ -338,7 +338,7 @@ Do, in this order, forever:
      root, unchanged. `--checkout` defaults to the working directory and `--repo` to
      its origin; summary settles landings first so it never reports a landed row as pending. This sweep
      reclassifies every ask from the forge and the release/deploy record.
-     `LOST`, `LANDED-NOT-LIVE`, and `IN-PR` past 60 minutes
+     `LOST`, `LANDED-NOT-LIVE`, `IN-PROGRESS`, and `IN-PR` past 60 minutes
      follow the counts, outside the ten-line cap; forward every one unchanged. The
      root dispatches each `LOST` ask in that turn and advances each escalated
      `LANDED-NOT-LIVE` or `IN-PR` ask. Once the shipping pipeline runs, the root
