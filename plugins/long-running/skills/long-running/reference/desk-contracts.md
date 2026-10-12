@@ -66,7 +66,7 @@ in the turn the owner asks, before or with dispatch to a new lane. It opens an
 `asked_at`, and prints `ask/000001 <lane>: <text>`.
 
 An ask has one status: `LIVE`, `LANDED-NOT-LIVE`, `IN-PR`, `IN-PROGRESS`, `LOST`,
-`dropped`, or `answered`. The last two are terminal. Only `LIVE` counts as done. Before then, the
+`STALE`, `dropped`, or `answered`. The last two are terminal. Only `LIVE` counts as done. Before then, the
 root says "in #N, not live yet: `<blocker>`", never that the ask is handled or done.
 
 The lane reports each PR with that ask id; the desk records `ledger.py report --drive <drive> --ask
@@ -85,6 +85,13 @@ and goes `LOST` only 30 minutes after its latest entry. Two terminal
 verbs close an ask outside that lifecycle: `ledger.py drop --ledger <id> --ask <id>
 --reason "<why>"` when the owner withdraws it, and `ledger.py answer --ledger <id> --ask
 <id> --text "<reply>"` when it was a question rather than shipped work.
+
+A desk's own ask, such as a comms desk or a fidelity desk, is never done, so it is
+recorded standing: `ledger.py ask --ledger <id> --text "<ask>" --lane <lane> --accept
+"<check>" --standing [HOURS]`, or `ledger.py ask --ledger <id> --ask <id> --standing
+[HOURS]` for an ask already recorded. A standing ask reads `IN-PROGRESS` while the later
+of `asked_at` and its latest `progress` entry is under HOURS old, 24 by default, and
+`STALE` after, never `LOST`. Its lines carry `standing <HOURS>h` after the lane.
 
 An ask that will never land here, such as one the owner deferred to a cc-notes
 backlog, is marked with `ledger.py ask --ledger <id> --state backlog --ask <id> --note
@@ -181,6 +188,7 @@ only when they carry something.
 ```
 desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm | lost N | landed-not-live N
 LOST ask/<n> <lane>: <text>
+STALE ask/<n> <lane> standing 24h: <text> | progress 1500m: <note> <artifact>
 LANDED-NOT-LIVE ask/<n> <lane>: <text>
 IN-PROGRESS ask/<n> <lane>: <text> | progress 12m: <note> <artifact>
 IN-PR 61m ask/<n> <lane>: <text>: #<pr> <blocker>
@@ -197,7 +205,8 @@ routed, awaiting a new head: #g #h
 `LOST` names an ask with no linked PR, none of them ever opened, at least 30 minutes
 after it was recorded or after its latest `progress` entry. `IN-PROGRESS` names an ask
 with no PR whose latest `progress` entry is under 30 minutes old, and every ask line
-with a progress entry ends with the latest one. `LANDED-NOT-LIVE` names an ask whose linked PRs have all landed
+with a progress entry ends with the latest one. `STALE` names a standing ask whose latest
+`progress` entry is past its window. `LANDED-NOT-LIVE` names an ask whose linked PRs have all landed
 but whose shipping pipeline has not run since. `IN-PR` names an ask carried
 by an open PR older than 60 minutes, with that PR's blocker.
 

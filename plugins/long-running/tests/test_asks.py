@@ -406,3 +406,56 @@ def test_progress_refuses_an_ask_the_ledger_does_not_hold():
         progress(shell, "x", ask_id="ask/000009")
 
     assert shell.keys() == []
+
+
+def standing(shell, *hours, ask_id=None) -> int:
+    if ask_id:
+        return run(shell, "ask", "--ledger", LEDGER, "--ask", ask_id, "--standing", *hours)
+    return run(shell, "ask", "--ledger", LEDGER, "--text", ASK, "--lane", LANE, "--accept", CHECK, "--standing", *hours)
+
+
+def test_a_standing_ask_reads_in_progress_through_its_window_and_never_lost(capsys):
+    shell = desk_shell()
+    assert standing(shell) == 0
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE} standing 24h: {ASK}"]
+    aged(shell, "ask/000001", 600)
+    progress(shell, "posted the 3 PM update", "https://slack.test/p3")
+    progress_aged(shell, "ask/000001", 23 * 60)
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| lost 0 | landed-not-live 0")
+    assert lines[1] == f"IN-PROGRESS ask/000001 {LANE} standing 24h: {ASK} | progress {23 * 60}m: posted the 3 PM update https://slack.test/p3"
+
+
+def test_a_standing_ask_reads_stale_past_its_window_with_its_latest_entry(capsys):
+    shell = desk_shell()
+    standing(shell, "2")
+    progress(shell, "posted the 3 PM update")
+    progress_aged(shell, "ask/000001", 121)
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| lost 0 | landed-not-live 0")
+    assert lines[1] == f"STALE ask/000001 {LANE} standing 2h: {ASK} | progress 121m: posted the 3 PM update"
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE} standing 2h: {ASK} [STALE] | progress 121m: posted the 3 PM update"]
+
+
+def test_standing_with_an_ask_id_turns_an_existing_lost_ask_standing(capsys):
+    shell = desk_shell()
+    ask(shell)
+    aged(shell, "ask/000001", 45)
+    capsys.readouterr()
+
+    assert standing(shell, ask_id="000001") == 0
+
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE} standing 24h: {ASK}"]
+    assert shell.fields("ask/000001")["text"] == ASK
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE} standing 24h: {ASK} [IN-PROGRESS]"]
+
+
+def test_standing_refuses_an_ask_the_ledger_does_not_hold():
+    with pytest.raises(SystemExit, match="no ask ask/000009"):
+        standing(desk_shell(), ask_id="ask/000009")

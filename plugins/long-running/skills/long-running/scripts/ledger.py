@@ -56,7 +56,9 @@ terminal ``dropped`` and ``answered``. LIVE needs every linked PR landed and a
 ``ledger.py live`` timestamp at or after the latest of those landings; short of that a
 delivered ask reads LANDED-NOT-LIVE. An open linked PR reads IN-PR; no PR at all reads
 LOST once the later of ``asked_at`` and its latest ``progress`` entry is 30 minutes old, and
-IN-PROGRESS before then when it has a progress entry. ``report --ask`` refuses a second, still-IN-PR
+IN-PROGRESS before then when it has a progress entry. A standing ask, recorded with ``ask --standing [HOURS]``
+or marked with ``ask --ask ID --standing``, is never done: it reads IN-PROGRESS while the later of ``asked_at``
+and its latest progress entry is under HOURS old, 24 by default, and STALE after, never LOST. ``report --ask`` refuses a second, still-IN-PR
 ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
 on a stacked follow-up PR instead.
 
@@ -135,12 +137,14 @@ TRAIN_TIERS = ("green", "dirty")
 LIVE_KEY = "live"
 PROMPT_WATCH = Path(__file__).resolve().parent / "prompt_watch.py"
 LOST_MINUTES = 30
+STANDING_HOURS = 24
 ESCALATE_MINUTES = 60
 ASK_LIVE = "LIVE"
 ASK_LANDED_NOT_LIVE = "LANDED-NOT-LIVE"
 ASK_IN_PR = "IN-PR"
 ASK_LOST = "LOST"
 ASK_IN_PROGRESS = "IN-PROGRESS"
+ASK_STALE = "STALE"
 PROGRESS_PREFIX = "progress_"
 ASK_DROPPED = "dropped"
 ASK_BACKLOG = "BACKLOG"
@@ -1014,7 +1018,8 @@ def linked_prs(fields: dict[str, str]) -> list[str]:
 
 
 def ask_line(key: str, fields: dict[str, str]) -> str:
-    return f"{key} {fields['lane']}: {fields['text']}"
+    standing = f" standing {fields['standing_hours']}h" if fields.get("standing_hours") else ""
+    return f"{key} {fields['lane']}{standing}: {fields['text']}"
 
 
 def progress_names(fields: dict[str, str]) -> list[str]:
@@ -1054,19 +1059,21 @@ def ask_open_pr(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> str:
 
 
 def ask_state(fields: dict[str, str], prs: dict[str, dict[str, str]], moment: datetime, live: str) -> str:
-    """LIVE, LANDED-NOT-LIVE, IN-PR, IN-PROGRESS, LOST, BACKLOG, dropped, or answered; "" while too fresh to grade."""
+    """LIVE, LANDED-NOT-LIVE, IN-PR, IN-PROGRESS, LOST, STALE, BACKLOG, dropped, or answered; "" while too fresh to grade."""
     if fields.get("dropped_at"):
         return ASK_DROPPED
     if fields.get("answered_at"):
         return ASK_ANSWERED
     if override := ASK_OVERRIDES.get(fields.get("state", "")):
         return override
+    progress = latest_progress(fields)
+    if hours := fields.get("standing_hours"):
+        return ASK_IN_PROGRESS if age_minutes(progress["at"] if progress else fields["asked_at"], moment) < int(hours) * 60 else ASK_STALE
     if ask_delivered(fields, prs):
         landed = ask_landed_at(fields, prs)
         return ASK_LIVE if live and live >= landed else ASK_LANDED_NOT_LIVE
     if ask_open_pr(fields, prs):
         return ASK_IN_PR
-    progress = latest_progress(fields)
     if age_minutes(progress["at"] if progress else fields["asked_at"], moment) >= LOST_MINUTES:
         return ASK_LOST
     return ASK_IN_PROGRESS if progress else ""
@@ -1116,6 +1123,7 @@ def summary_lines(
     live = live_since(rows)
     states = {key: ask_state(fields, pulls, moment, live) for key, fields in asks.items()}
     lost = sorted(key for key, state in states.items() if state == ASK_LOST)
+    standing_stale = sorted(key for key, state in states.items() if state == ASK_STALE)
     landed_not_live = sorted(key for key, state in states.items() if state == ASK_LANDED_NOT_LIVE)
     backlog = sorted(key for key, state in states.items() if state == ASK_BACKLOG)
     in_progress = sorted(key for key, state in states.items() if state == ASK_IN_PROGRESS)
@@ -1146,6 +1154,7 @@ def summary_lines(
     if len(lines) > SUMMARY_LINES:
         lines = lines[: SUMMARY_LINES - 1] + [f"... {len(lines) - SUMMARY_LINES + 1} more lines in ledger show"]
     asked = [f"LOST {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in lost]
+    asked += [f"STALE {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in standing_stale]
     asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in landed_not_live]
     asked += [" ".join(["BACKLOG", key, asks[key].get("state_note", "")]).rstrip() + progress_line(asks[key], moment) for key in backlog]
     asked += [f"IN-PROGRESS {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in in_progress]
@@ -1189,16 +1198,29 @@ def cmd_ask_state(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_ask_standing(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    asks = notes.asks()
+    if args.ask not in asks:
+        raise SystemExit(f"no ask {args.ask} in {args.ledger}")
+    standing = {"standing_hours": str(args.standing)}
+    notes.set_fields(args.ask, standing)
+    print(ask_line(args.ask, asks[args.ask] | standing))
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
     if args.state:
         if not args.ask:
             raise SystemExit("ask --state needs --ask ID")
         return cmd_ask_state(args, shell)
+    if args.ask and args.standing:
+        return cmd_ask_standing(args, shell)
     if not (args.text and args.lane and args.accept):
-        raise SystemExit("ask needs --text, --lane and --accept to record an ask, or --state with --ask to mark one")
+        raise SystemExit("ask needs --text, --lane and --accept to record an ask, --state with --ask to mark one, or --standing with --ask to make one standing")
     notes = Notes(shell, args.ledger)
     key = next_key(ASK_PREFIX, notes.asks())
-    fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()}
+    fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()} | ({"standing_hours": str(args.standing)} if args.standing else {})
     notes.set_fields(key, fields)
     print(ask_line(key, fields))
     return 0
@@ -2229,6 +2251,14 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--state", choices=ASK_STATES, help="override the computed state of --ask; open restores it")
     ask.add_argument("--ask", type=ask_key, metavar="ID")
     ask.add_argument("--note", default="")
+    ask.add_argument(
+        "--standing",
+        nargs="?",
+        const=STANDING_HOURS,
+        type=int,
+        metavar="HOURS",
+        help=f"an ask that is never done: IN-PROGRESS while its latest progress entry is under HOURS old (default {STANDING_HOURS}), STALE after, never LOST; with --ask, makes that ask standing",
+    )
     ask.set_defaults(handler=cmd_ask)
 
     progress = subparsers.add_parser("progress", help="append a timestamped progress entry to an ask with no PR yet; restarts its 30-minute LOST clock")
