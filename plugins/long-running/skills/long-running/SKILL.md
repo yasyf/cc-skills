@@ -266,9 +266,13 @@ lanes' broadcasts of each `--kind`. Each record arrives as a
 `#<seq> <time> <KIND> <lane> -> <to>: <text> [path]`. Skip a seq you have already
 handled. The subscription belongs to the Claude Code window. Compaction and `/clear`
 keep it, and the cc-inbox `SessionStart` hook moves it into a resumed session.
-Re-run `cci subscribe` to change kinds. Never arm a Monitor on `cci watch` or
-`inbox-watch.py` for the root; a root switching over stops its Monitor after
-subscribing, and records in the overlap arrive twice. A root launched without the flag receives no tags,
+Re-run `cci subscribe` to change kinds. Never arm a Monitor on `cci watch` for
+the root; a root switching over stops its Monitor after subscribing, and records
+in the overlap arrive twice. The plugin ships no `inbox-watch.py`.
+A desk watches its own records with
+`cci watch --drive <drive> --cursor <desk> --to <desk>`; `--reader <desk>` also
+delivers every lane's broadcasts, so a desk that acts only on its own records
+passes `--to`. A root launched without the flag receives no tags,
 and managed settings must list every plugin the flag names in
 `allowedChannelPlugins`.
 
