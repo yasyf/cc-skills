@@ -26,10 +26,11 @@ Tools: ToolSearch-load mcp__slack__slack_conversations_history,
   mcp__slack__slack_get_thread, and SendMessage once at start.
 
 Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`;
-  team mailbox is ~/.claude/teams/<team>/inboxes/<lane>.json):
+  team mailbox is <absolute path, from `inboxes.py mailbox <lane>`>):
   Use a separate cursor file for the mailbox. A `MAILBOX <n> unread` line ends
-  the Bash call so Claude Code delivers the message at that boundary. Never end
-  the turn waiting.
+  the Bash call, followed by each new message's sender, time, and full text.
+  Claude Code delivers mail only after your turn ends, so act on that text.
+  Never end the turn waiting.
   1. Re-read watched-threads.jsonl in full. The open threads are the union of
      every post row without a close row; rows appended since the last poll join
      this poll.

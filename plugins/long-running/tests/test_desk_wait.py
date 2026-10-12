@@ -104,8 +104,11 @@ def test_append_during_wait_returns_before_the_deadline(tmp_path):
     assert time.monotonic() - started < 3
 
 
-def message(read: bool) -> dict:
-    return {"from": "team-lead", "text": "pick A", "read": read}
+def message(read: bool, sender: str = "team-lead", text: str = "pick A") -> dict:
+    return {"from": sender, "text": text, "timestamp": "2026-10-12T04:38:49.293Z", "read": read}
+
+
+PRINTED = "== team-lead 2026-10-12T04:38:49.293Z\npick A\n"
 
 
 def mailbox_in(tmp_path: Path) -> Path:
@@ -138,7 +141,7 @@ def test_an_unread_message_appended_during_a_wait_returns_within_two_seconds(tmp
 
     stdout, elapsed = wait_during(tmp_path, mailbox, lambda: mailbox.write_text(json.dumps([message(read=True), message(read=False)])))
 
-    assert stdout == "MAILBOX 1 unread\n"
+    assert stdout == "MAILBOX 1 unread\n" + PRINTED
     assert elapsed < 2
     assert (tmp_path / "mailbox.cursor").read_text() == "2\n"
 
@@ -173,8 +176,24 @@ def test_unread_messages_waiting_before_the_call_wake_it_once(tmp_path, stored):
     first = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
     again = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
 
-    assert first.stdout == "MAILBOX 2 unread\n"
+    assert first.stdout == "MAILBOX 2 unread\n" + PRINTED * 2
     assert again.stdout.startswith("QUIET ")
+
+
+def test_mailbox_prints_each_new_unread_entry_in_full(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    cursor = tmp_path / "mailbox.cursor"
+    body = "The owner chose A.\n" + "x" * 2600
+    mailbox.write_text(
+        json.dumps([message(read=False, text="seen before"), message(read=True, text="delivered"), message(read=False, sender="oncall-core-comms-wire", text=body)])
+    )
+    cursor.write_text("2\n")
+
+    result = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"MAILBOX 2 unread\n== oncall-core-comms-wire 2026-10-12T04:38:49.293Z\n{body}\n"
+    assert cursor.read_text() == "3\n"
 
 
 @pytest.mark.parametrize("args", [[], ["1"], ["bad", "inbox=cursor"], ["-1", "inbox=cursor"], ["1.5", "inbox=cursor"], ["1", "inbox"], ["1", "=cursor"], ["1", "inbox="], ["1", "--"], ["1", "inbox=cursor", "--"]])
@@ -253,7 +272,7 @@ def test_an_unread_message_ends_a_running_command_within_two_seconds(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "watching\nMAILBOX 1 unread\n"
+    assert result.stdout == "watching\nMAILBOX 1 unread\n" + PRINTED
     assert elapsed < 2
     time.sleep(0.5)
     assert not marker.exists()
@@ -271,7 +290,7 @@ def test_a_command_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_pat
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "MAILBOX 1 unread\n"
+    assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
     assert elapsed < 8
 
 

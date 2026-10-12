@@ -185,3 +185,18 @@ def test_a_desk_wait_cursor_counts_archived_lines(tmp_path, script):
     assert result.returncode == 0, result.stderr
     assert result.stdout == "L3 new\n"
     assert cursor.read_text() == "4\n"
+
+
+def roster(teams: Path, team: str, *members: tuple[str, int]) -> None:
+    (teams / team).mkdir(parents=True)
+    (teams / team / "config.json").write_text(json.dumps({"members": [{"name": name, "joinedAt": at} for name, at in members]}))
+
+
+def test_mailbox_names_the_newest_roster_entry_for_the_lane(tmp_path, monkeypatch):
+    teams = tmp_path / "teams"
+    roster(teams, "session-old", ("team-lead", 1), ("desk.v2", 2))
+    roster(teams, "session-d8680ece", ("team-lead", 3), ("desk.v2", 4))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+
+    assert inboxes.mailbox_of("desk.v2") == teams / "session-d8680ece" / "inboxes" / "desk-v2.json"
+    assert inboxes.mailbox_of("desk-3") is None

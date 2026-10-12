@@ -4,6 +4,7 @@
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...
     inbox-rotate.py [--hours 6] FILE...
     desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]
+    inboxes.py mailbox <lane>
 
 STDLIB ONLY. The shims call this module's digest, rotate, and wait commands.
 An inbox's sorted <file>.archive/YYYY-MM-DD.md files, oldest first, followed by
@@ -29,8 +30,10 @@ when lines arrive or prints QUIET with the Pacific time at the deadline. Display
 clipping never cuts lines stored in the inbox. A .json file in an inboxes directory
 is a team mailbox whose cursor counts seen entries, starting at 0 if missing or
 if the mailbox shrinks below it. An entry past the cursor with read=false ends
-the call with MAILBOX <n> unread (n counts all read=false entries), letting Claude
-Code deliver the message at that tool-call boundary. The stat check runs every
+the call with MAILBOX <n> unread (n counts all read=false entries), followed by
+each such entry as a `== <from> <timestamp>` header and its full text. Claude Code
+delivers an in-process teammate's mail only once its turn ends, so a busy lane reads
+the message here, not from the harness. The stat check runs every
 0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
 never wake it. A cci:<drive>:<lane> source prints the cci records addressed to
 <lane> past the cursor named <lane>, through `cci tail`, which advances it.
@@ -41,6 +44,10 @@ wakes the call or the deadline passes, wait prints what it prints without a comm
 (MAILBOX, lines, or QUIET), ends the command's process group with SIGTERM, then
 SIGKILL after 5 s, and exits 0. Use it for read-only watches such as `bk build watch`
 or `ccx vcs pr watch`, never for a command that writes.
+
+mailbox prints the absolute team mailbox of the newest teammate named <lane> on any
+team roster under $CLAUDE_CONFIG_DIR/teams (default ~/.claude), and exits 1 when no
+roster lists it. The team is the live session's, never one derived from a drive id.
 """
 
 from __future__ import annotations
@@ -70,6 +77,7 @@ WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:
 WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
+UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 CHILD_GRACE = 5.0
 
 
@@ -176,18 +184,16 @@ class Mailbox:
             return None
         return stat.st_mtime_ns, stat.st_size
 
-    def poll(self, seen: int | None) -> tuple[int, int] | None:
+    def poll(self, seen: int) -> tuple[int, int, list[dict]] | None:
         try:
             entries = json.loads(self.path.read_text())
         except FileNotFoundError:
-            return 0, 0
+            return 0, 0, []
         except ValueError:
             return None
-        if seen is None:
-            return len(entries), 0
-        fresh = entries[seen:] if seen <= len(entries) else entries
+        fresh = [entry for entry in (entries[seen:] if seen <= len(entries) else entries) if not entry["read"]]
         unread = sum(not entry["read"] for entry in entries)
-        return len(entries), unread if any(not entry["read"] for entry in fresh) else 0
+        return len(entries), unread if fresh else 0, fresh
 
 
 def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | None) -> None:
@@ -289,10 +295,12 @@ def wait(argv: list[str]) -> int:
             polled = mailbox.poll(seen_count(cursor))
             if polled is None:
                 continue
-            count, unread = polled
+            count, unread, fresh = polled
             cursor.write_text(f"{count}\n")
             if unread:
                 print(f"MAILBOX {unread} unread", flush=True)
+                for entry in fresh:
+                    print(f"== {entry['from']} {entry['timestamp']}\n{entry['text']}", flush=True)
                 changed = True
         for source in files:
             watched, cursor = Path(source["file"]), Path(source["cursor"])
@@ -317,6 +325,17 @@ def wait(argv: list[str]) -> int:
         pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes], child)
 
 
+def mailbox_of(lane: str) -> Path | None:
+    teams = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "teams"
+    joined = [
+        (member["joinedAt"], config.parent)
+        for config in teams.glob("*/config.json")
+        for member in json.loads(config.read_text())["members"]
+        if member["name"] == lane
+    ]
+    return max(joined)[1] / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json" if joined else None
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["wait"]:
@@ -333,7 +352,14 @@ def main(argv: list[str] | None = None) -> int:
     rotation = verbs.add_parser("rotate")
     rotation.add_argument("--hours", type=float, default=ROTATE_HOURS)
     rotation.add_argument("files", nargs="+", type=Path)
+    verbs.add_parser("mailbox").add_argument("lane")
     args = parser.parse_args(argv)
+    if args.verb == "mailbox":
+        if not (path := mailbox_of(args.lane)):
+            print(f"no team roster lists {args.lane}", file=sys.stderr)
+            return 1
+        print(path)
+        return 0
     if args.verb == "digest":
         sys.stdout.write(digest([path.expanduser() for path in args.files], args.state.expanduser() if args.state else None, args.line_cap, args.budget))
         return 0
