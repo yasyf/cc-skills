@@ -149,7 +149,8 @@ URL_ATTRS = {"href", "src", "xlink:href"}
 MEASURED = {"yes", "no"}
 COMMENT_ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 COMMENT_KEYS = {"id", "rev", "author", "createdAt", "anchor", "body", "parent", "resolves", "supersedes"}
-COMMENT_ANCHOR_KEYS = {"entry": {"kind", "id"},
+COMMENT_ANCHOR_KEYS = {"doc": {"kind"},
+                       "entry": {"kind", "id"},
                        "quote": {"kind", "scope", "entry", "prefix", "exact", "suffix"}}
 COMMENT_POINTERS = ("parent", "resolves", "supersedes")
 COMMENT_SCOPES = ("summary", "entry", "notes")
@@ -961,10 +962,12 @@ def comment_anchor(rep, where, anchor, known):
         return
     kind = anchor.get("kind")
     if kind not in COMMENT_ANCHOR_KEYS:
-        rep.err(f"{where}.anchor.kind is {kind!r}; a comment anchors to an 'entry' or to a 'quote'")
+        rep.err(f"{where}.anchor.kind is {kind!r}; a comment anchors to the whole 'doc', an 'entry' or a 'quote'")
         return
     for extra in sorted(set(anchor) - COMMENT_ANCHOR_KEYS[kind]):
         rep.strict_warn(f"{where}.anchor carries an unknown field {extra!r}")
+    if kind == "doc":
+        return
     if kind == "entry":
         ident = anchor.get("id")
         if not isinstance(ident, str):
@@ -988,6 +991,19 @@ def comment_anchor(rep, where, anchor, known):
             rep.warn(f"{where}.anchor.entry is {entry!r}, which no register defines; the comment renders in the detached tray")
     elif entry is not None:
         rep.err(f"{where}.anchor.entry names an entry, so it is only meaningful under scope 'entry', not {scope!r}")
+
+
+def comment_author(rep, where, author):
+    if not isinstance(author, dict):
+        rep.err(f"{where}.author must be an object carrying a non-empty login or a slack user")
+        return
+    if "slack" in author:
+        slack = author["slack"]
+        if not isinstance(slack, dict) or not all(isinstance(slack.get(k), str) and slack[k].strip() for k in ("id", "name")):
+            rep.err(f"{where}.author.slack must be an object carrying a non-empty id and name")
+        return
+    if not (isinstance(author.get("login"), str) and author["login"].strip()):
+        rep.err(f"{where}.author must be an object carrying a non-empty login or a slack user")
 
 
 def check_comments(rep, root, known):
@@ -1015,9 +1031,7 @@ def check_comments(rep, root, known):
         rev = rec.get("rev")
         if not isinstance(rev, int) or isinstance(rev, bool) or rev < 1:
             rep.err(f"{where}.rev must be the positive integer revision the comment was left on")
-        author = rec.get("author")
-        if not isinstance(author, dict) or not (isinstance(author.get("login"), str) and author["login"].strip()):
-            rep.err(f"{where}.author must be an object carrying a non-empty login")
+        comment_author(rep, where, rec.get("author"))
         if not (isinstance(rec.get("createdAt"), str) and rec["createdAt"].strip()):
             rep.err(f"{where}.createdAt must be a non-empty timestamp")
         if not isinstance(rec.get("body"), str):

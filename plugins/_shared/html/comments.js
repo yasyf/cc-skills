@@ -1,5 +1,5 @@
 // @requires CMT_ENTRY_RE,HTML,META,REF,aiEl,cmtDecorate,cmtNotesHost,handleOf,openNotes,$,GH_API,GH_TOKEN,el,esc,ghGet,ghPauseUntil,reduced,relTime,siteConfig
-// @defines CMT_AUTO_MERGE,CMT_B32,CMT_BASE,CMT_CTX,CMT_DB,CMT_FRAME,CMT_HL,CMT_IDLE,CMT_LANES,CMT_LIVE,CMT_LOAD_ERR,CMT_MARK,CMT_ME,CMT_ME_KEY,CMT_NAME_KEY,CMT_POLL,CMT_POSTED,CMT_POSTED_AT,CMT_QUEUE,CMT_REPOLL,CMT_RETRY_CAP,CMT_SENT,CMT_SENT_KEY,CMT_STORE,CMT_STUCK_MS,CMT_VIEW,CMT_WRITE_KEY,b,cmtAnchorFromSelection,cmtAuthError,cmtAuthFailed,cmtB64,cmtBlob,cmtBoot,cmtBootOutbox,cmtChip,cmtClearWriteToken,cmtClosePop,cmtConnectHtml,cmtDb,cmtDispatch,cmtEl,cmtEntryNode,cmtEntryOf,cmtErrorText,cmtFind,cmtFlush,cmtFlushNote,cmtFlushNow,cmtFlushState,cmtFold,cmtForbidden,cmtFormHtml,cmtHead,cmtInNotes,cmtInflight,cmtItemHtml,cmtKick,cmtListHtml,cmtLoadPosted,cmtLogin,cmtMarkLabel,cmtName,cmtNewId,cmtNorm,cmtNotify,cmtOffHtml,cmtOnChange,cmtOpen,cmtOpenComposer,cmtOpenThread,cmtOpenTray,cmtOrder,cmtPaint,cmtPending,cmtPlace,cmtPop,cmtPost,cmtPullPosted,cmtQueue,cmtQuoteHtml,cmtRangeAt,cmtRefresh,cmtRegionFor,cmtRegionOf,cmtRender,cmtRepo,cmtRepoLabel,cmtResolveAnchor,cmtRetries,cmtReveal,cmtRows,cmtSchedule,cmtSend,cmtSentRead,cmtSentWrite,cmtSetName,cmtSetState,cmtSetWriteToken,cmtSite,cmtSize,cmtSlug,cmtState,cmtStuck,cmtSubs,cmtTextIndex,cmtThreadState,cmtTick,cmtTimer,cmtTotal,cmtTx,cmtUi,cmtUnhosted,cmtWireForm,cmtWriteToken,ghWrite,st
+// @defines CMT_AUTO_MERGE,CMT_B32,CMT_BASE,CMT_CTX,CMT_DB,CMT_FRAME,CMT_HL,CMT_IDLE,CMT_LANES,CMT_LIVE,CMT_LOAD_ERR,CMT_MARK,CMT_ME,CMT_ME_KEY,CMT_NAME_KEY,CMT_POLL,CMT_POSTED,CMT_POSTED_AT,CMT_QUEUE,CMT_REPOLL,CMT_RETRY_CAP,CMT_SENT,CMT_SENT_KEY,CMT_STORE,CMT_STUCK_MS,CMT_VIEW,CMT_WRITE_KEY,b,cmtAnchorFromSelection,cmtAuthError,cmtAuthFailed,cmtB64,cmtBlob,cmtBoot,cmtBootOutbox,cmtChip,cmtClearWriteToken,cmtClosePop,cmtConnectHtml,cmtDb,cmtDispatch,cmtEl,cmtEntryNode,cmtEntryOf,cmtErrorText,cmtFind,cmtFlush,cmtFlushNote,cmtFlushNow,cmtFlushState,cmtFold,cmtForbidden,cmtFormHtml,cmtHead,cmtInNotes,cmtInflight,cmtItemHtml,cmtKick,cmtListHtml,cmtLoadPosted,cmtLogin,cmtMarkLabel,cmtName,cmtNewId,cmtNorm,cmtNotify,cmtOffHtml,cmtOnChange,cmtOpen,cmtOpenComposer,cmtOpenThread,cmtOpenTray,cmtOrder,cmtPaint,cmtPending,cmtPlace,cmtPop,cmtPost,cmtPullPosted,cmtQueue,cmtQuoteHtml,cmtRangeAt,cmtRefresh,cmtRegionFor,cmtRegionOf,cmtRender,cmtRepo,cmtRepoLabel,cmtResolveAnchor,cmtRetries,cmtReveal,cmtRows,cmtSchedule,cmtSend,cmtSentRead,cmtSentWrite,cmtSetName,cmtSetState,cmtSetWriteToken,cmtSite,cmtSize,cmtSlug,cmtState,cmtStuck,cmtSubs,cmtTextIndex,cmtThreadState,cmtTick,cmtTimer,cmtTotal,cmtTx,cmtUi,cmtUnhosted,cmtWho,cmtWireForm,cmtWriteToken,ghWrite,st
 const CMT_WRITE_KEY="design-doc-github-write";
 const CMT_DB="design-doc-comments",CMT_STORE="comments-outbox",CMT_IDLE=20000,CMT_RETRY_CAP=10*60*1000,CMT_BASE="main";
 const CMT_B32="0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -328,7 +328,7 @@ function cmtRender(){
   return n.mark||deep[0]||null;
  };
  CMT_VIEW=cmtFold(CMT_POSTED.concat(CMT_QUEUE,CMT_SENT.map(s=>s.rec)));
- CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body);t.lost=!t.at&&!cmtUnhosted(t.anchor)});
+ CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body);t.lost=!t.at&&!cmtUnhosted(t.anchor)&&t.anchor.kind!=="doc"});
  layer.hidden=innerWidth<1100||!CMT_VIEW.length;
  if(!layer.hidden)CMT_VIEW.forEach(t=>{if(t.at&&!cmtInNotes(t.anchor)){t.chip=cmtChip(t);layer.append(t.chip)}});
  const btn=$("#cmtBtn");
@@ -397,10 +397,11 @@ function cmtMarkLabel(m){
  if(cmtStuck(m))return "sent, not merged";
  return m.kind==="sent"?"sent, waiting to merge":"not sent yet";
 }
+const cmtWho=a=>a.login||a.slack&&a.slack.name||"someone";
 function cmtItemHtml(n,reply){
  const when=relTime(n.createdAt),label=cmtMarkLabel(n.mark);
  return `<div class="cmt-item${reply?" reply":""}">`+
-  `<div class="cmt-by"><b>${esc(n.author.login||"someone")}</b>${when?`<span>${esc(when)}</span>`:""}`+
+  `<div class="cmt-by"><b>${esc(cmtWho(n.author))}</b>${n.author.slack?`<span>in Slack</span>`:""}${when?`<span>${esc(when)}</span>`:""}`+
   (n.edited?`<span>edited</span>`:"")+(label?`<span>${esc(label)}</span>`:"")+(n.resolved?`<span>resolved</span>`:"")+`</div>`+
   `<p class="cmt-body${n.gone?" gone":""}">${n.gone?"This comment was withdrawn.":esc(n.body)}</p>`+
   `</div>`+n.replies.map(r=>cmtItemHtml(r,true)).join("");
@@ -464,7 +465,7 @@ async function cmtReveal(t){
  if(notes&&notes.contains(host))notes.scrollTop+=r.top-notes.getBoundingClientRect().top-80;
  else scrollTo({top:scrollY+r.top-180,behavior:reduced()?"auto":"smooth"});
 }
-const cmtHead=a=>a.kind==="entry"?handleOf(a.id)||a.id:a.entry?handleOf(a.entry)||a.entry:a.scope==="summary"?"In the summary":"In the working notes";
+const cmtHead=a=>a.kind==="doc"?"On the whole document":a.kind==="entry"?handleOf(a.id)||a.id:a.entry?handleOf(a.entry)||a.entry:a.scope==="summary"?"In the summary":"In the working notes";
 function cmtOpenThread(t,rect){
  const where=t.lost?`<p class="cmt-note">The text this was left on is no longer in the document, so it hangs here instead.</p>`:"";
  const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(t.anchor))}</b>`+
