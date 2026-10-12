@@ -1741,10 +1741,10 @@ def test_a_root_cci_withdraw_of_a_launch_record_withdraws_it_and_is_no_directive
     launch = cci_record(shell, to=["orca-desk"], text=f"R30 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
     cci_record(shell, kind="withdraw", to=["orca-desk"], re=launch, text="withdraw R30; relaunching under R32")
+    cci_record(shell, to=["orca-desk"], text=f"R32 (11:51 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert launches(shell) == []
-    assert escalations(shell) == [f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert escalations(shell)[0] == f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"
 
 
 def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tmp_path):

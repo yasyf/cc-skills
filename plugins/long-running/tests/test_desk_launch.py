@@ -87,7 +87,7 @@ def test_a_launch_the_runner_refuses_exits_one_with_its_line(drive, tmp_path, ca
 
 def test_an_unsettled_launch_exits_two_at_the_timeout(drive, tmp_path, capsys):
     _, evidence = briefs(tmp_path)
-    assert desk_launch.main(["--timeout-seconds", "0", "lane", "slow-restore", "sol", "xhigh", str(evidence)]) == 2
+    assert desk_launch.main(["lane", "slow-restore", "sol", "xhigh", str(evidence), "--timeout-seconds", "0"]) == 2
     [post] = [call for call in drive.calls if call[1] == "post"]
     assert flag(post, "--text").endswith(f"orca-desk: launch slow-restore sol xhigh brief={evidence}")
     assert "slow-restore R2026 unsettled after 0s" in capsys.readouterr().out

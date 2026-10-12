@@ -49,8 +49,8 @@ from the desk inbox itself or one that carries `--re`; a record that is no direc
 `DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
 sequence. An `orca-desk: withdraw R<n>` line fails each launch under `R<n>` the runner accepted
 and has not started, logging `WITHDRAWN`, or `WITHDRAW-FAILED` for a launch already started or
-settled or a key that holds none. Each root cci record carrying `--re` past its own saved
-sequence is a reply: one to the runner's `DECIDE` on a worker question replies to that
+settled or a key that holds none. Each root cci record carrying `--re`, read in sequence
+order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
 reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
 launch.
@@ -670,7 +670,7 @@ class Runner:
             self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
 
     def read_cci(self) -> None:
-        """Act on each cci record addressed to the orca desk past the saved sequence as one desk inbox line; a first read starts at the newest record, and records imported from the desk inbox were already read there."""
+        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one desk inbox line, or that the root posted with `--re`, as a reply. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record, and records imported from the desk inbox were already read there."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.load(RUNNER).facts.get(fact)
         try:
@@ -678,28 +678,15 @@ class Runner:
                 newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
                 return
-            records = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
-        except CciTailFailed as failure:
-            self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
-            return
-        already_read = f"import:{self.config.desk_inbox.resolve()}"
-        for record in records:
-            if record["source"] != already_read and not record.get("re"):
-                self.cci_line(record["seq"], record["text"].strip())
-            self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
-
-    def read_root_replies(self) -> None:
-        """Act on each root cci record that answers or closes another with `--re`, past the saved sequence: a reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch; a first read starts at the newest record."""
-        fact = f"cci:{self.config.drive}:{ROOT}-re"
-        cursor = self.book.load(RUNNER).facts.get(fact)
-        try:
-            if cursor is None:
-                newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
-                self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
-                return
-            records = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
-            for record in records:
-                self.root_reply(record, self.cci_record(record["re"]))
+            addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
+            replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
+            already_read = f"import:{self.config.desk_inbox.resolve()}"
+            for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
+                if record.get("re"):
+                    if record["lane"] == ROOT:
+                        self.root_reply(record, self.cci_record(record["re"]))
+                elif record["source"] != already_read:
+                    self.cci_line(record["seq"], record["text"].strip())
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
             self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
@@ -1733,7 +1720,6 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.resume_judges()
             runner.read_inbox()
             runner.read_cci()
-            runner.read_root_replies()
             runner.deliver()
             if runner.now() - swept >= SWEEP_EVERY:
                 runner.sweep()

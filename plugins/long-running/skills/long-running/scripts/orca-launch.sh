@@ -263,8 +263,9 @@ if [ "$AGENT" != claude ]; then
   LANE_BRIEF=$STATE/$LANE.brief.md
   {
     cat "$BRIEF"
-    printf '\n\n## PR prose\n\n%s\n' "You run on a model that writes no prose: Claude Opus 5.5 writes every PR title, PR body, and commit message. Once the change is committed, run \`$BIN/pr-prose.py --brief $BRIEF\` from your worktree, adding \`--notes <file>\` for each findings or evidence file the PR must carry. It prints the paths of the title, body, and commit message it wrote; ship with them verbatim, amending your commit to that message. Never ask the root, another lane, or an Orca question for prose."
-  } >"$LANE_BRIEF"
+    printf '\n\n## PR prose\n\n%s\n' "You run on a model that writes no prose: Claude Opus 5.5 writes every PR title, PR body, and commit message. Once the change is committed, run \`'$BIN/pr-prose.py' --brief '$BRIEF'\` from your worktree, adding \`--notes <file>\` for each findings or evidence file the PR must carry. It prints the paths of the title, body, and commit message it wrote; ship with them verbatim, amending your commit to that message. Never ask the root, another lane, or an Orca question for prose."
+  } >"$LANE_BRIEF.tmp"
+  mv "$LANE_BRIEF.tmp" "$LANE_BRIEF"
 fi
 spec() {
   SPEC=$(pointer "$LANE_BRIEF")

@@ -33,7 +33,7 @@ DESK = "orca-desk"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
-VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+)\b")
+VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
 POLL_SECONDS = 2
 BUDGET = "30000"
 
@@ -50,7 +50,7 @@ def records(out: str) -> list[dict]:
 
 
 def next_key(drive: str) -> int:
-    posted = records(cci(drive, "grep", f"{DESK}: ", "--lane", "root", "--json", "--limit", "50", "--budget", BUDGET))
+    posted = records(cci(drive, "grep", f"R[0-9]+ .*{DESK}: ", "--lane", "root", "--json", "--limit", "20", "--budget", BUDGET))
     return 1 + max((int(match[1]) for record in posted if (match := KEY.match(record["text"]))), default=0)
 
 
@@ -76,7 +76,7 @@ def wait(drive: str, since: int, lanes: dict[str, str], timeout: float) -> dict[
         for record in records(cci(drive, "tail", "--since", str(since), "--lane", RUNNER, "--json", "--budget", BUDGET)):
             since = max(since, record["seq"])
             verdict = VERDICT.match(record["text"])
-            if verdict and verdict["key"] in lanes and verdict["key"] not in settled:
+            if verdict and lanes.get(verdict["key"]) == verdict["lane"] and verdict["key"] not in settled:
                 settled[verdict["key"]] = (verdict["label"], record["text"])
                 print(f"{lanes[verdict['key']]} {verdict['key']} {record['text']}", flush=True)
         if len(settled) < len(lanes):
@@ -85,16 +85,17 @@ def wait(drive: str, since: int, lanes: dict[str, str], timeout: float) -> dict[
 
 
 def main(argv: list[str] | None = None) -> int:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--drive", default="", help="the cci drive the orca runner reads; default the drive bound to this session")
+    common.add_argument("--lane", default="root", help="the lane posting the launch lines")
+    common.add_argument("--timeout-seconds", type=float, default=600)
     parser = argparse.ArgumentParser(prog="desk-launch.py", description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--drive", default="", help="the cci drive the orca runner reads; default the drive bound to this session")
-    parser.add_argument("--lane", default="root", help="the lane posting the launch lines")
-    parser.add_argument("--timeout-seconds", type=float, default=600)
     verbs = parser.add_subparsers(dest="verb", required=True)
-    incident = verbs.add_parser("incident", help="launch <name>-fix and <name>-evidence NOW on incident xhigh")
+    incident = verbs.add_parser("incident", parents=[common], help="launch <name>-fix and <name>-evidence NOW on incident xhigh")
     incident.add_argument("name")
     incident.add_argument("fix_brief", type=Path)
     incident.add_argument("evidence_brief", type=Path, nargs="?")
-    lane = verbs.add_parser("lane", help="launch one lane")
+    lane = verbs.add_parser("lane", parents=[common], help="launch one lane")
     lane.add_argument("target", metavar="lane")
     lane.add_argument("model")
     lane.add_argument("effort")

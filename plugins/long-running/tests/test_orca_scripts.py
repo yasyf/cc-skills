@@ -328,7 +328,7 @@ def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca, m
     assert Path(spec.split("read ")[1].split(" in full")[0]).resolve() == copy.resolve()
     text = copy.read_text()
     assert text.startswith(orca.brief.read_text())
-    assert "## PR prose" in text and f"`{BIN}/pr-prose.py --brief {orca.brief}`" in text and "Never ask the root" in text
+    assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "Never ask the root" in text
 
 
 def test_a_claude_lane_reads_its_brief_itself(orca):
