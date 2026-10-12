@@ -76,12 +76,19 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
     ]
 
 
-def own_name(evt: BaseHookEvent) -> str | None:
+def nearest_name(evt: BaseHookEvent) -> str | None:
     try:
         meta = evt.ctx.t.path.with_suffix(".meta.json")
     except EvidenceIncomplete:
         return None
-    return json.loads(meta.read_text()).get("name") if meta.is_file() else None
+    while meta.is_file():
+        fields = json.loads(meta.read_text())
+        if name := fields.get("name"):
+            return name
+        if not (parent := fields.get("parentAgentId")):
+            return None
+        meta = meta.with_name(f"agent-{parent}.meta.json")
+    return None
 
 
 def team_dir(evt: BaseHookEvent, team: str) -> Path:

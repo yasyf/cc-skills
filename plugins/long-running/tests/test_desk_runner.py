@@ -298,7 +298,8 @@ class FakeShell(runner_module.Shell):
         tip = argv[0]
         if "--check" in argv:
             outs = self.gates[tip]
-            return runner_module.Done(0, outs.pop(0) if len(outs) > 1 else outs[0], "")
+            out = outs.pop(0) if len(outs) > 1 else outs[0]
+            return runner_module.Done(*out) if isinstance(out, tuple) else runner_module.Done(0, out, "")
         return runner_module.Done(*self.enqueue_out[tip], "")
 
     def sends(self) -> list[list[str]]:
@@ -702,6 +703,17 @@ def test_a_tip_no_drive_lane_opened_never_reaches_stack_enqueue(shell, config, t
     assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
 
 
+def test_an_open_pr_skipped_as_not_ours_escalates_once_per_head(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": False}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "NOT-OURS" in lines[0] and "#29020" in lines[0] and "ledger.py register --lane <lane> --pr 29020" in lines[0]
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
+    landing_pass(shell, config)
+    assert len(escalations(shell)) == 2
+
+
 def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
@@ -746,7 +758,7 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 not approved by poetic-svc; held")]
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert all(call[call.index("--hold") + 1 :] == ["28349", "29020"] for call in checks)
+    assert all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
     assert shell.sends() == [] and escalations(shell) == []
 
 
@@ -799,6 +811,16 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     assert calls and all(call[call.index("--hold") + 1 :] == ["28349"] for call in calls)
     assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_silently(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
+    shell.gates["29020"] = [(2, "", "usage: stack-enqueue PR [PR ...]\nstack-enqueue: error: unrecognized arguments: 28349\n")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "unrecognized arguments: 28349" in lines[0]
+    assert shell.enqueues() == []
 
 
 def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):

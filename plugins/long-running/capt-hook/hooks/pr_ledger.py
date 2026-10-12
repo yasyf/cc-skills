@@ -11,7 +11,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Run
 from captain_hook.util import reqenv
 
 from .compaction_handoff import script
-from .session_tree import own_name
+from .session_tree import nearest_name
 from .tests.ledger_fixtures import FIXTURES
 
 OPENERS = (
@@ -71,11 +71,16 @@ def opener_cwd(evt: BaseHookEvent) -> Path | None:
     return next((call.cwd for call in calls if call.cwd), evt.cwd)
 
 
+def named_lane(evt: BaseHookEvent) -> str | None:
+    return (evt.agent_id and nearest_name(evt)) or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")
+
+
 def lane_name(evt: BaseHookEvent) -> str:
-    named = evt.agent_id and own_name(evt)
-    return named or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
+    return named_lane(evt) or ROOT_LANE
 
 
+ROOT_LANE = "root"
+UNNAMED = "No named lane ran this ship, so its PRs went in the drive ledger under `root`. Move each to its lane with `ledger.py reassign --ledger <id> --pr <n> --lane <lane>`."
 UNRECORDED = "The opened PRs were not recorded in the drive ledger: {reason}. Rerun `{retry}`."
 UNSETTLED = (
     "The landed or closed PRs {prs} were not settled in the drive ledger: {reason}. "
@@ -132,7 +137,7 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if done is None or done.returncode:
         return evt.context(UNRECORDED.format(reason=reason, retry=shlex.join(argv)))
     if done.stdout.strip():
-        return None
+        return evt.context(UNNAMED) if evt.agent_id and not named_lane(evt) else None
     return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
 
 

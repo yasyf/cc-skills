@@ -1427,17 +1427,20 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
 
 
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
-    """Regrade every repository the ledger holds, one `ccx vcs pr state` read each; `--pr` and `--lane` name PRs in `--repo`."""
+    """Regrade every repository the ledger holds, one `ccx vcs pr state` read each; `--pr` and `--lane` name PRs in `--repo`.
+
+    The ledger lock covers only the merge-write, so a `register` never waits out the forge read.
+    """
     notes = Notes(shell, args.ledger)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
+    stored = notes.stored()
+    moment = utc_stamp()
+    rows = []
+    for repo in ledger_repos(stored, args.scope):
+        scope = Scope(repo, args.scope.default)
+        named = same_repo(repo, args.repo)
+        rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
     with locked(args.lock or default_lock(args.ledger)):
-        stored = notes.stored()
-        moment = utc_stamp()
-        rows = []
-        for repo in ledger_repos(stored, args.scope):
-            scope = Scope(repo, args.scope.default)
-            named = same_repo(repo, args.repo)
-            rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
         notes.sync(rows)
     print(f"refreshed {len(rows)} PRs into {args.ledger}")
     return 0

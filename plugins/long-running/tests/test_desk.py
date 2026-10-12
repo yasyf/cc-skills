@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import subprocess
 import sys
@@ -1586,6 +1587,34 @@ def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):
     [state] = shell.state_calls()
     assert PR in state
     assert "24050" not in state
+
+
+def lock_is_free(lock) -> bool:
+    with open(lock, "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return True
+
+
+def test_refresh_reads_the_forge_without_the_ledger_lock_so_a_register_never_waits_on_it(lock):
+    shell = desk_shell(user={"login": "yasyf"}, title="t", changed_files=1, created_at="2026-09-24T08:00:00Z")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"lane": LANE, "reported_head": HEAD}})
+    read = shell.run
+    probes = []
+
+    def probing(argv, stdin=None):
+        if argv[:4] == ["ccx", "vcs", "pr", "state"]:
+            probes.append(lock_is_free(lock))
+        return read(argv, stdin)
+
+    shell.run = probing
+    assert run(shell, "refresh", "--repo", REPO, "--ledger", LEDGER, "--lock", str(lock)) == 0
+
+    assert probes == [True]
+    assert shell.fields(PR)["last_refresh"]
 
 
 class MovingShell(FakeShell):
