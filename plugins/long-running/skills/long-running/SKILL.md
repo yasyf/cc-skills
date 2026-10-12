@@ -1370,17 +1370,25 @@ marked "R312 done" once deploy-experience's `tools/deploy --since` task built
 toward it.*
 
 **I7. In-process teammate desks wait in the foreground.** Every Agent-spawned
-desk is in-process. Every in-process desk and lane names its own team mailbox,
-`~/.claude/teams/<team>/inboxes/<lane name>.json`, as a source. Run one foreground
+desk is in-process. Every in-process desk and lane names its own team mailbox as a
+source: the absolute path `inboxes.py mailbox <lane name>` prints from the live team
+roster. The team is the root process's own, `session-<id>` under `~/.claude/teams/`;
+that id is not the drive id and need not be the root's current session id. Run one foreground
 Bash call with `timeout: 60000`:
 `desk-wait.sh 50 cci:<drive>:<desk> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
 
 It waits at most 50 seconds and returns on new addressed records, a new line in
 another watched file, or `MAILBOX <n> unread`, where `n` counts all unread mailbox
-entries. It clips displayed records and file lines to 400 characters, ending
-clipped lines with an ellipsis. On `MAILBOX`, end the Bash call: Claude Code
-delivers the message at that tool-call boundary. Run step 0 on the output and
-delivered message, then rerun the call in a loop.
+entries. Each new unread entry follows that line as a `== <from> <timestamp>` header
+and its full text. It clips displayed records and file lines to 400 characters, ending
+clipped lines with an ellipsis; mailbox text is never clipped. Claude Code delivers an
+in-process teammate's mail only after its turn ends, never at a tool-call boundary, so
+the printed text is the lane's only copy until then: act on it, run step 0 on the
+output, then rerun the call in a loop.
+
+*Prevents the 2026-10-12 oncall-core-reopen-2 hour: seven root and peer messages sat in
+its mailbox for 50 minutes across two `MAILBOX` wakes, while the lane searched for a
+team named after the root's session id instead of the root process's team.*
 A foreground watch in the same loop appends `-- <command>` to that call, so the mailbox ends the watch.
 
 The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk
@@ -1511,6 +1519,10 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
+Team mailbox: <absolute path: `<team dir>/inboxes/<lane>.json`, the team dir being the one
+  `inboxes.py mailbox <any live teammate>` prints; never built from the drive id>.
+  Confirm it at spawn with `inboxes.py mailbox <lane>`. Claude Code delivers your mail
+  only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
 Keep record text under 400 characters; `cci post` refuses longer text. Attach the body with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register once at start through hooks.
@@ -1741,7 +1753,7 @@ desk-wait.sh 540 "<team mailbox>=<cursor file>" -- bk build watch <build>
 Run it with `timeout: 570000`. The helper passes the command's output and exit status
 through, and on `MAILBOX` or the deadline it ends the command's process group and prints
 `MAILBOX <n> unread` or `QUIET`. Wrap read-only watches only, never a ship, push, or apply.
-On `MAILBOX`, read the message before re-running the watch.
+On `MAILBOX`, act on the message text it printed before re-running the watch.
 
 *Prevents the 2026-10-04 cases where cci-fix-1, cc-inbox-2, sweepers-delete,
 api-declarations-502-fix, and test-slow-41463-2 got rulings and stand-downs only after a

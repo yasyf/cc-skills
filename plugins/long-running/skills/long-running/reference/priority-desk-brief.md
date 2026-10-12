@@ -42,7 +42,8 @@ Verified facts, do not re-derive:
   ledger <id>; cci drive <drive>; tools ledger.py, cci, and desk-wait.sh, on PATH by name
   holds file <path>, root-owned
   cci cursor <outcome>-desk; addressed records use --to <outcome>-desk
-  team mailbox <~/.claude/teams/<team>/inboxes/<outcome>-desk.json>; mailbox cursor <path>
+  team mailbox <absolute <team dir>/inboxes/<outcome>-desk.json, the team dir from
+    `inboxes.py mailbox <any live teammate>`, never the drive id>; mailbox cursor <path>
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
   lanes you own <lane, brief path, branch prefix, worktree; one per line>
@@ -55,9 +56,10 @@ At spawn:
     `timeout: 60000`, running
     `desk-wait.sh 50 cci:<drive>:<outcome>-desk <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
     It waits at most 50 seconds and returns on new addressed records, a new line
-    in another watched file, or a `MAILBOX <n> unread` line. On `MAILBOX`, end the
-    Bash call so Claude Code delivers the message at that boundary. Run step 0
-    on its output and the delivered message, then rerun the call in a loop.
+    in another watched file, or a `MAILBOX <n> unread` line followed by each new
+    message's sender, time, and full text. Claude Code delivers mail only after
+    your turn ends, so act on that printed text. Run step 0 on the output, then
+    rerun the call in a loop.
     Top-level session: arm one Monitor on
     `cci watch --drive <drive> --cursor <outcome>-desk --to <outcome>-desk`
     at timeout 1800000. Re-arm on every exit and after your own compaction.
