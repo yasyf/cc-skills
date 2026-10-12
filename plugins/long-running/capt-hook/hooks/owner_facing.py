@@ -31,8 +31,8 @@ INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Route the incident fix lane through the orca-desk in one command: `desk-launch.py incident <name> <fix-brief> "
-    "[<evidence-brief>]` posts both launch lines and prints each dispatch. An Agent spawn on an incident is a support lane with a `ccx: role=<role>` "
+    "Launch the incident fix lane through the orca-desk: `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]`. "
+    "An Agent spawn on an incident is a support lane with a `ccx: role=<role>` "
     "line in its brief; a non-incident fix lane says `ccx: incident=none`."
 )
 INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on the Orca incident alias; tooling, support, and repush lanes may spawn here")
