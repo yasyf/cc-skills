@@ -212,7 +212,9 @@ Do, in this order, forever:
      `ledger.py reconcile --checkout <path>` to land every row whose squash is on the
      trunk and settle the closed rest, in one trunk fetch, one log read, and one ccx
      cache read; it never fetches the PR's own base, which the queue deletes when a stack lands; a row
-     the forge cannot answer records `settle_error` and the pass settles the rest. PR rows enter through a lane's report, registration, or an explicit
+     the forge cannot answer records `settle_error` and the pass settles the rest.
+     Refresh never re-reads a row already `landed` or `closed-without-squash`, so a
+     settled verdict sticks. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Refresh makes one `ccx vcs pr state --repo <repo> <PR numbers>`
      call with every tracked or explicitly supplied PR number and one
      `--lane-prefix <prefix>` per registered prefix. The same read returns the lanes'
