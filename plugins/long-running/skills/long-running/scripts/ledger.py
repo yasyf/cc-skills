@@ -1402,17 +1402,18 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
 def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: dict[str, dict[str, str]], named: list[str], lanes: dict[str, str], moment: str) -> list[dict]:
     """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns the graded rows under their stored keys."""
     every = {key: fields for key, fields in scope.view(stored).items() if key.isdigit()}
+    settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES}
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
     prefixes = sorted({lane["branch_prefix"] for lane in registrations})
-    wanted = sorted(set(known) | set(named), key=int)
+    wanted = sorted((set(known) | set(named)) - settled, key=int)
     try:
         state = pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
     rows = []
-    for key in sorted(set(wanted) | set(registered), key=int):
+    for key in sorted((set(wanted) | set(registered)) - settled, key=int):
         fields = grade(state["prs"][key])
         fields["last_refresh"] = moment
         if key not in known:

@@ -106,6 +106,18 @@ def test_closed_pr_keeps_its_row_marked_closed_for_the_desk_to_settle(lock, red_
     assert "--prune" not in sync
 
 
+def test_refresh_never_rereads_a_settled_row_so_a_landing_sticks(lock, red_routes):
+    landed = {"key": "20961", "fields": {"head": "stale", "state": "landed", "landed_at": "2026-10-12T21:00:00Z", "squash": "0bbac7ea1815"}}
+    abandoned = {"key": "20970", "fields": {"head": "dead", "state": "closed-without-squash"}}
+    shell = FakeShell(rows=[landed, abandoned], routes=red_routes)
+    refresh(shell, lock, pr=["21052", "20961"])
+
+    assert shell.fields("20961")["state"] == "landed"
+    assert shell.fields("20961")["head"] == "stale"
+    assert shell.fields("20970")["state"] == "closed-without-squash"
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "21052"]]
+
+
 def test_an_unreachable_forge_writes_nothing_and_exits_non_zero(lock, red_routes, capsys):
     """A pass that graded half the rows must not write half a row set: a partial refresh
     reports a state nobody observed, and the caller believes it refreshed."""

@@ -199,7 +199,9 @@ after it was recorded or after its latest `progress` entry. `IN-PROGRESS` names 
 with no PR whose latest `progress` entry is under 30 minutes old, and every ask line
 with a progress entry ends with the latest one. `LANDED-NOT-LIVE` names an ask whose linked PRs have all landed
 but whose shipping pipeline has not run since. `IN-PR` names an ask carried
-by an open PR older than 60 minutes, with that PR's blocker. Every ask
+by an open PR older than 60 minutes, with that PR's blocker.
+
+Every ask
 line sits right after the counts, outside the ten-line cap on the desk lines; forward
 them all unchanged. The root dispatches each `LOST` ask in that turn. For each
 `LANDED-NOT-LIVE` or `IN-PR` ask, it checks whether it can advance the pipeline or PR
