@@ -29,6 +29,7 @@
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --drive D [--checkout DIR] [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--repo owner/name] [--red | --asks] [--json]
+    ledger.py progress --ledger ID --ask ID --note TEXT [--artifact URL]...
     ledger.py list    --ledger ID [--repo owner/name] [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
@@ -50,11 +51,12 @@ through :class:`Shell`, the one seam tests replace.
 
 Every ``--ask ID`` takes the key ``ask`` printed, ``ask/000104``, or its bare number, ``000104``.
 
-An owner ask's status is exactly one of LIVE, LANDED-NOT-LIVE, IN-PR, or LOST, plus the
+An owner ask's status is exactly one of LIVE, LANDED-NOT-LIVE, IN-PR, IN-PROGRESS, or LOST, plus the
 terminal ``dropped`` and ``answered``. LIVE needs every linked PR landed and a
 ``ledger.py live`` timestamp at or after the latest of those landings; short of that a
 delivered ask reads LANDED-NOT-LIVE. An open linked PR reads IN-PR; no PR at all reads
-LOST once ``asked_at`` is 30 minutes old. ``report --ask`` refuses a second, still-IN-PR
+LOST once the later of ``asked_at`` and its latest ``progress`` entry is 30 minutes old, and
+IN-PROGRESS before then when it has a progress entry. ``report --ask`` refuses a second, still-IN-PR
 ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
 on a stacked follow-up PR instead.
 
@@ -138,6 +140,8 @@ ASK_LIVE = "LIVE"
 ASK_LANDED_NOT_LIVE = "LANDED-NOT-LIVE"
 ASK_IN_PR = "IN-PR"
 ASK_LOST = "LOST"
+ASK_IN_PROGRESS = "IN-PROGRESS"
+PROGRESS_PREFIX = "progress_"
 ASK_DROPPED = "dropped"
 ASK_BACKLOG = "BACKLOG"
 ASK_OPEN = "open"
@@ -1013,6 +1017,21 @@ def ask_line(key: str, fields: dict[str, str]) -> str:
     return f"{key} {fields['lane']}: {fields['text']}"
 
 
+def progress_names(fields: dict[str, str]) -> list[str]:
+    return sorted(name for name in fields if name.startswith(PROGRESS_PREFIX))
+
+
+def latest_progress(fields: dict[str, str]) -> dict | None:
+    names = progress_names(fields)
+    return json.loads(fields[names[-1]]) if names else None
+
+
+def progress_line(fields: dict[str, str], moment: datetime) -> str:
+    if not (entry := latest_progress(fields)):
+        return ""
+    return f" | progress {age_minutes(entry['at'], moment)}m: {' '.join([entry['note'], *entry['artifacts']])}"
+
+
 def age_minutes(since: str, moment: datetime) -> int:
     return int((moment - parse_iso(since)).total_seconds() // 60)
 
@@ -1035,7 +1054,7 @@ def ask_open_pr(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> str:
 
 
 def ask_state(fields: dict[str, str], prs: dict[str, dict[str, str]], moment: datetime, live: str) -> str:
-    """LIVE, LANDED-NOT-LIVE, IN-PR, LOST, BACKLOG, dropped, or answered; "" while too fresh to grade."""
+    """LIVE, LANDED-NOT-LIVE, IN-PR, IN-PROGRESS, LOST, BACKLOG, dropped, or answered; "" while too fresh to grade."""
     if fields.get("dropped_at"):
         return ASK_DROPPED
     if fields.get("answered_at"):
@@ -1047,7 +1066,10 @@ def ask_state(fields: dict[str, str], prs: dict[str, dict[str, str]], moment: da
         return ASK_LIVE if live and live >= landed else ASK_LANDED_NOT_LIVE
     if ask_open_pr(fields, prs):
         return ASK_IN_PR
-    return ASK_LOST if age_minutes(fields["asked_at"], moment) >= LOST_MINUTES else ""
+    progress = latest_progress(fields)
+    if age_minutes(progress["at"] if progress else fields["asked_at"], moment) >= LOST_MINUTES:
+        return ASK_LOST
+    return ASK_IN_PROGRESS if progress else ""
 
 
 def frozen_by(asks: dict[str, dict[str, str]], prs: dict[str, dict[str, str]], pr: str, ask: str, moment: datetime, live: str) -> str | None:
@@ -1096,6 +1118,7 @@ def summary_lines(
     lost = sorted(key for key, state in states.items() if state == ASK_LOST)
     landed_not_live = sorted(key for key, state in states.items() if state == ASK_LANDED_NOT_LIVE)
     backlog = sorted(key for key, state in states.items() if state == ASK_BACKLOG)
+    in_progress = sorted(key for key, state in states.items() if state == ASK_IN_PROGRESS)
     stuck = sorted(key for key, state in states.items() if state == ASK_IN_PR and age_minutes(asks[key]["asked_at"], moment) >= ESCALATE_MINUTES)
     landed = sorted((pr for pr, fields in prs.items() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff), key=int)
     stale = stale_lines(prs, moment, stale_after)
@@ -1122,11 +1145,12 @@ def summary_lines(
         lines.append("routed, awaiting a new head: " + " ".join(f"#{pr}" for pr in routed))
     if len(lines) > SUMMARY_LINES:
         lines = lines[: SUMMARY_LINES - 1] + [f"... {len(lines) - SUMMARY_LINES + 1} more lines in ledger show"]
-    asked = [f"LOST {ask_line(key, asks[key])}" for key in lost]
-    asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}" for key in landed_not_live]
-    asked += [f"BACKLOG {key} {asks[key].get('state_note', '')}".rstrip() for key in backlog]
+    asked = [f"LOST {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in lost]
+    asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in landed_not_live]
+    asked += [" ".join(["BACKLOG", key, asks[key].get("state_note", "")]).rstrip() + progress_line(asks[key], moment) for key in backlog]
+    asked += [f"IN-PROGRESS {ask_line(key, asks[key])}{progress_line(asks[key], moment)}" for key in in_progress]
     asked += [
-        f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: {ref(pr := ask_open_pr(asks[key], pulls))} {blocker(pulls[pr])}"
+        f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: {ref(pr := ask_open_pr(asks[key], pulls))} {blocker(pulls[pr])}{progress_line(asks[key], moment)}"
         for key in stuck
     ]
     return [lines[0], *prompts, *asked, *lines[1:]]
@@ -1177,6 +1201,19 @@ def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
     fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()}
     notes.set_fields(key, fields)
     print(ask_line(key, fields))
+    return 0
+
+
+def cmd_progress(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    asks = notes.asks()
+    if args.ask not in asks:
+        raise SystemExit(f"no ask {args.ask} in {args.ledger}")
+    names = progress_names(asks[args.ask])
+    seq = int(names[-1][len(PROGRESS_PREFIX) :]) + 1 if names else 1
+    entry = {"at": utc_stamp(), "note": args.note, "artifacts": args.artifact}
+    notes.set_fields(args.ask, {f"{PROGRESS_PREFIX}{seq:06d}": json.dumps(entry)})
+    print(f"{args.ask} progress: {' '.join([args.note, *args.artifact])}")
     return 0
 
 
@@ -2105,7 +2142,7 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
         moment = now()
         asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
         for key, fields in sorted(asks.items()):
-            print(f"{ask_line(key, fields)} [{ask_state(fields, prs, moment, live) or 'pending'}]")
+            print(f"{ask_line(key, fields)} [{ask_state(fields, prs, moment, live) or 'pending'}]{progress_line(fields, moment)}")
         return 0
     rows = Notes(shell, args.ledger, args.scope).pr_rows()
     if args.red:
@@ -2189,6 +2226,13 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--ask", type=ask_key, metavar="ID")
     ask.add_argument("--note", default="")
     ask.set_defaults(handler=cmd_ask)
+
+    progress = subparsers.add_parser("progress", help="append a timestamped progress entry to an ask with no PR yet; restarts its 30-minute LOST clock")
+    add_ledger(progress)
+    progress.add_argument("--ask", required=True, type=ask_key, metavar="ID")
+    progress.add_argument("--note", required=True)
+    progress.add_argument("--artifact", action="append", default=[], metavar="URL", help="a Slack permalink, register entry, or other id the progress produced; repeatable")
+    progress.set_defaults(handler=cmd_progress)
 
     drop = subparsers.add_parser("drop", help="terminal: the owner withdrew this ask")
     add_ledger(drop)

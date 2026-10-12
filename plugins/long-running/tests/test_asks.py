@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -309,3 +310,99 @@ def test_ask_state_needs_an_ask_id():
 def test_ask_without_a_state_still_needs_text_lane_and_accept():
     with pytest.raises(SystemExit, match="--text, --lane and --accept"):
         run(desk_shell(), "ask", "--ledger", LEDGER, "--text", ASK)
+
+
+def progress(shell, note, *artifacts, ask_id="ask/000001") -> int:
+    return run(shell, "progress", "--ledger", LEDGER, "--ask", ask_id, "--note", note, *(arg for artifact in artifacts for arg in ("--artifact", artifact)))
+
+
+def progress_aged(shell, key: str, minutes: int) -> None:
+    fields = shell.fields(key)
+    for name in [name for name in fields if name.startswith("progress_")]:
+        fields[name] = json.dumps(dict(json.loads(fields[name]), at=stamp(timedelta(minutes=-minutes))))
+
+
+def test_progress_appends_each_entry_and_keeps_the_earlier_ones(capsys):
+    shell = desk_shell()
+    ask(shell)
+    capsys.readouterr()
+
+    assert progress(shell, "posted the rollout plan", "https://slack.test/p1") == 0
+    assert progress(shell, "posted the second update", "https://slack.test/p2", "cc-notes 1a2b3c") == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ask/000001 progress: posted the rollout plan https://slack.test/p1",
+        "ask/000001 progress: posted the second update https://slack.test/p2 cc-notes 1a2b3c",
+    ]
+    fields = shell.fields("ask/000001")
+    entries = [json.loads(fields[name]) for name in ("progress_000001", "progress_000002")]
+    assert [(entry["note"], entry["artifacts"]) for entry in entries] == [
+        ("posted the rollout plan", ["https://slack.test/p1"]),
+        ("posted the second update", ["https://slack.test/p2", "cc-notes 1a2b3c"]),
+    ]
+    assert fields["text"] == ASK
+
+
+def test_progress_restarts_the_lost_clock_and_grades_in_progress(capsys):
+    shell = desk_shell()
+    ask(shell)
+    aged(shell, "ask/000001", 45)
+    progress(shell, "posted the rollout plan")
+    progress_aged(shell, "ask/000001", 40)
+    progress(shell, "posted the second update", "https://slack.test/p2")
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| lost 0 | landed-not-live 0")
+    assert lines[1] == f"IN-PROGRESS ask/000001 {LANE}: {ASK} | progress 0m: posted the second update https://slack.test/p2"
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE}: {ASK} [IN-PROGRESS] | progress 0m: posted the second update https://slack.test/p2"]
+
+
+def test_an_ask_reads_lost_thirty_minutes_after_its_latest_progress(capsys):
+    shell = desk_shell()
+    ask(shell)
+    aged(shell, "ask/000001", 90)
+    progress(shell, "posted the rollout plan")
+    progress_aged(shell, "ask/000001", 31)
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| lost 1 | landed-not-live 0")
+    assert lines[1] == f"LOST ask/000001 {LANE}: {ASK} | progress 31m: posted the rollout plan"
+
+
+def test_a_fresh_ask_with_progress_reads_in_progress_rather_than_pending(capsys):
+    shell = desk_shell()
+    ask(shell)
+    ask(shell, text="unstarted")
+    progress(shell, "drafted the register entry")
+    capsys.readouterr()
+
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"ask/000001 {LANE}: {ASK} [IN-PROGRESS] | progress 0m: drafted the register entry",
+        f"ask/000002 {LANE}: unstarted [pending]",
+    ]
+
+
+def test_progress_leaves_a_pr_linked_ask_in_pr(capsys):
+    shell = desk_shell()
+    ask(shell)
+    report(shell)
+    progress(shell, "posted the release thread")
+    capsys.readouterr()
+
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE}: {ASK} [IN-PR] | progress 0m: posted the release thread"]
+
+
+def test_progress_refuses_an_ask_the_ledger_does_not_hold():
+    shell = desk_shell()
+
+    with pytest.raises(SystemExit, match="no ask ask/000009"):
+        progress(shell, "x", ask_id="ask/000009")
+
+    assert shell.keys() == []
