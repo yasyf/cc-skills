@@ -412,6 +412,28 @@ executor owns the incident, through the final reply:
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
 
+When the root launches an incident pair itself, the launch is one command:
+
+```sh
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
+```
+
+It takes the next `R<n>`, posts `<name>-fix` and `<name>-evidence` to `orca-desk`
+on cci as `NOW incident xhigh` launch lines, waits for the runner's `LAUNCHED` or
+`LAUNCH-FAILED`, and prints each lane's dispatch and terminal. It exits 0 only when
+both launched. `incident.py open ... --adopt fix=<name>-fix --adopt
+evidence=<name>-evidence` hands both lanes to the executor. A codex lane writes its
+PR title, body, and commit message with `pr-prose.py`, a headless Opus 5.5 writer
+that `orca-launch.sh` names in its brief, so it never asks the root for prose. The
+root answers a lane's question with `cci post --kind answer --to <lane> --re <seq>`
+on the lane's ask or on the runner's `DECIDE`. The runner relays that answer as the
+reply to the lane's open Orca question, so no question is left open. It withdraws
+an unstarted launch with `orca-desk: withdraw R<n>`.
+
+*Prevents the 11:49 PM Oct 11 incident launch: two unaddressed launch lines, a
+withdrawal the runner rejected, a codex lane that asked the root for PR prose, and
+a stale Orca question answered by hand.*
+
 Alert intake runs before the root wakes. A monitor transition never launches a
 lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
 <link> :: <what fired>`, which the runner records and launches nothing on. The
@@ -1078,7 +1100,12 @@ the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-dire
 and logs `LAUNCHED` or `LAUNCH-FAILED`. A
 `cci post --drive <drive> --lane root --kind go --to orca-desk --text "<line>"` record
 carrying the same line is read the same way; post it there or append it to the file,
-never both, since a key held twice logs `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
+never both, since a key held twice logs `LAUNCH-FAILED`. `desk-launch.py lane <lane>
+<model> <effort> <brief> [--now]` does both steps: it takes the next `R<n>`, posts the
+line, and waits for the runner's verdict. An `orca-desk: withdraw R<n>` line fails a
+launch the runner accepted and has not started, such as one held on load, and logs
+`WITHDRAWN`; `WITHDRAW-FAILED` names a launch already started or a key that holds
+none. A root `cci post --kind withdraw --re <seq>` of a launch record does the same. The root never `SendMessage`s a desk. It
 receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.
@@ -1128,7 +1155,11 @@ prevents acknowledging mail Orca re-addressed to the Run behind the cursor, whic
 **O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
 with no tools reads the lane's brief. It answers what the brief settles or emits
 `DECIDE` with the question and options. Missing briefs and judge failures can
-escalate without options. The root answers with `relay --reply-to <msg id>`.
+escalate without options. The root answers with `relay --reply-to <msg id>`, or
+with `cci post --kind answer --to <lane> --re <DECIDE seq> --text "<answer>"`, which
+the runner relays as the reply to that question. A root cci reply with `--re` on a
+lane's own record also answers that lane's open question, so the question never
+outlives the answer.
 
 **O5. Relay to the current dispatch.** Submit
 `desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <msg id>]`.

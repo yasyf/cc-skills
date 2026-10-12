@@ -318,6 +318,25 @@ def test_a_codex_lane_starts_sol_on_the_codex_agent_without_a_custom_terminal(or
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
+@pytest.mark.parametrize("model", ["sol", "incident"])
+def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca, model):
+    orca.healthy(agent="codex" if model == "incident" else "claude")
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
+    assert orca.launch("lane-a", model, "xhigh", str(orca.brief)).returncode == 0
+    copy = orca.receipts / "lane-a.brief.md"
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert Path(spec.split("read ")[1].split(" in full")[0]).resolve() == copy.resolve()
+    text = copy.read_text()
+    assert text.startswith(orca.brief.read_text())
+    assert "## PR prose" in text and f"`{BIN}/pr-prose.py --brief {orca.brief}`" in text and "Never ask the root" in text
+
+
+def test_a_claude_lane_reads_its_brief_itself(orca):
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    assert not (orca.receipts / "lane-a.brief.md").exists()
+
+
 def test_a_sol_lane_runs_on_the_standard_tier_under_its_parent_worktree(orca):
     orca.healthy()
     orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
