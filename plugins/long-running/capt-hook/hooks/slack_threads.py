@@ -11,7 +11,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Too
 from captain_hook.util import reqenv
 
 from .compaction_handoff import script
-from .pr_ledger import RECORD_TIMEOUT_SECONDS, lane_name
+from .pr_ledger import RECORD_TIMEOUT_SECONDS, named_lane
 
 POST_TOOLS = (
     "mcp__plugin_cc-slack_cc-slack__slack_send",
@@ -119,7 +119,7 @@ def posts_to_slack(evt: BaseHookEvent) -> bool:
 def register_posted_thread(evt: BaseHookEvent) -> HookResult | None:
     if not posts_to_slack(evt) or not (threads := posted_threads(evt.tool_response)):
         return None
-    base = [sys.executable, str(script("drive.py")), "thread", "--session", evt.session_id, "--lane", lane_name(evt)]
+    base = [sys.executable, str(script("drive.py")), "thread", "--session", evt.session_id, "--lane", named_lane(evt) or evt.session_id]
     base += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     lines = []
     for thread in threads:
