@@ -22,9 +22,9 @@ Each comment a reader leaves on a published doc is one immutable JSON file at `<
 |---|---|---|
 | `id` | yes | ULID, lexicographically sortable by time; also the filename stem |
 | `rev` | yes | `meta.rev` this comment was written against |
-| `author` | yes | `{login}`, the GitHub `login` that wrote it |
+| `author` | yes | `{login}`, the GitHub `login` that wrote it, or `{slack: {id, name}}` for a comment written in Slack |
 | `createdAt` | yes | when it was written |
-| `anchor` | yes | where it attaches: `entry` or `quote`, below |
+| `anchor` | yes | where it attaches: `doc`, `entry` or `quote`, below |
 | `body` | yes | the comment text |
 | `parent` | no | the comment this replies to; null for a top-level comment |
 | `resolves` | no | the comment whose thread this closes; null otherwise |
@@ -36,10 +36,13 @@ An edit is a later record carrying `supersedes` and a new `body`; a deletion is 
 
 | Kind | Shape | Meaning |
 |---|---|---|
+| `doc` | `{kind: "doc"}` | the whole document; it lists under "On the page" in the comments tray and has no mark in the text |
 | `entry` | `{kind: "entry", id}` | a register entry: `A#`, `DQ#`, `Q#`, `V#`, `c-*`, `n-*`, `p-*` |
 | `quote` | `{kind: "quote", scope, entry, prefix, exact, suffix}` | a text-quote selector; `scope` is `summary`, `entry`, or `notes`, naming the body of text the quote lives in (`summary.html`, a register entry's body, or `NOTES.md`); `entry` names which register entry when `scope` is `entry`; `exact` is the quoted text, and `prefix`/`suffix` its 32 characters of context on each side |
 
 A text-quote selector is only meaningful within one body of text. `scope` bounds the search to it, so 32 characters of context pin the quote inside its own body instead of matching identical wording elsewhere on the page.
+
+A comment written in Slack carries a `doc` anchor and `author.slack`, the Slack user id and name, since Slack knows neither a place in the text nor a GitHub login. The slack-agent writes it into this store the same way the browser does, one record per pull request, and shows the store back in Slack, so a comment lives in one place.
 
 Entry anchors survive a revision because register ids are stable by contract ([schema.md](schema.md)). Quote anchors do not: rewording the anchored sentence orphans the selector, and an orphaned comment moves to a detached-comments tray rather than vanishing.
 
