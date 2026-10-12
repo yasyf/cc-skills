@@ -70,12 +70,33 @@ def test_an_unnamed_subagent_records_under_its_nearest_named_parent(tmp_path):
     assert lane_name(event(tmp_path, "a3d0ef77")) == "release-fix"
 
 
-def test_an_unnamed_session_falls_back_to_its_lane_env_then_its_session_id(tmp_path, monkeypatch):
+def test_an_unnamed_session_falls_back_to_its_lane_env_then_the_root_lane(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
-    assert lane_name(event(tmp_path, "aship-pr-9f9f")) == SESSION
+    assert lane_name(event(tmp_path, "aship-pr-9f9f")) == "root"
 
     monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "orca-desk")
     assert lane_name(event(tmp_path)) == "orca-desk"
+
+
+@pytest.mark.parametrize(("agent_id", "told"), [("aship-pr-9f9f", True), (None, False)], ids=["unnamed-subagent", "root-session"])
+def test_a_pr_no_named_lane_opened_registers_under_root_and_says_so_only_to_a_subagent(tmp_path, monkeypatch, agent_id, told):
+    from hooks import pr_ledger
+
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    calls = []
+
+    def record(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "registered root #28534", "")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", record)
+    evt = event(tmp_path, agent_id)
+    evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
+
+    result = pr_ledger.record_opened_prs(evt)
+
+    assert calls[0][calls[0].index("--lane") + 1] == "root"
+    assert (result.message if result else None) == (pr_ledger.UNNAMED if told else None)
 
 
 def test_the_ship_runs_in_the_directory_its_command_cd_into(tmp_path):
