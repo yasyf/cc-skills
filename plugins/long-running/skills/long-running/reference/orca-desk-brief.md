@@ -68,6 +68,31 @@ a key that already holds an action, a model or effort `launch` refuses, or a bri
 that is not a file. A line that says `orca-desk: launch` outside the form logs
 `LAUNCH-FAILED <key> inbox`.
 
+`desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
+`desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
+root: each takes the next `R<n>` past the root's newest `orca-desk:` record, posts
+with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
+`UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
+
+A launch the runner accepted and has not started, such as one held on load, is
+withdrawn with one line:
+
+```text
+R<n> (<time>) orca-desk: withdraw R<m>
+```
+
+The runner fails the launch under `R<m>` and logs `WITHDRAWN R<m> <lane>`. A launch
+already started or settled, or a key that holds no launch, logs `WITHDRAW-FAILED`.
+A root `cci post --kind withdraw --re <seq>` whose record is a launch line addressed
+to `orca-desk` withdraws that launch the same way. Any other record carrying `--re`
+is a reply, never a directive, so it logs no `DIRECTIVE-FAILED`.
+
+Each root cci record carrying `--re` is read as a reply. One to the runner's
+`DECIDE` on a worker question is relayed as the reply to that question. One to a
+lane's own record, such as its cci ask, is relayed as the reply to that lane's open
+Orca question, which the cci answer superseded. A lane with no open question gets
+nothing, since it reads the answer on cci.
+
 A monitor transition and an incident launch are each one line in the same inbox:
 
 ```text
@@ -430,7 +455,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 
 | Kind | Root action |
 |---|---|
-| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `relay --reply-to <msg id>`. |
+| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |

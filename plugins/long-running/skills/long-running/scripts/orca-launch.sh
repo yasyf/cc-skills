@@ -70,6 +70,11 @@ created the worktree and Orca reports no setup terminal or default tabs, the
 script closes every terminal Orca lists there with no agent, before creating
 its own. Release v3 kept 279 of these idle shells, one per lane.
 
+A codex, incident, astra, or gpt-* lane reads a copy of its brief at
+$STATE/<lane>.brief.md, ending in a PR prose section: the lane writes no prose,
+so it runs the plugin's pr-prose.py, a headless Claude Opus 5.5 writer, for its PR
+title, body, and commit message, and never asks the root for them.
+
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
 already bypass approvals, so there is no custom command or bypass-permissions screen check.
@@ -252,18 +257,27 @@ DESK=
 pointer() {
   printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold.$DESK"
 }
+mkdir -p "$STATE"
+LANE_BRIEF=$BRIEF
+if [ "$AGENT" != claude ]; then
+  LANE_BRIEF=$STATE/$LANE.brief.md
+  {
+    cat "$BRIEF"
+    printf '\n\n## PR prose\n\n%s\n' "You run on a model that writes no prose: Claude Opus 5.5 writes every PR title, PR body, and commit message. Once the change is committed, run \`'$BIN/pr-prose.py' --brief '$BRIEF'\` from your worktree, adding \`--notes <file>\` for each findings or evidence file the PR must carry. It prints the paths of the title, body, and commit message it wrote; ship with them verbatim, amending your commit to that message. Never ask the root, another lane, or an Orca question for prose."
+  } >"$LANE_BRIEF.tmp"
+  mv "$LANE_BRIEF.tmp" "$LANE_BRIEF"
+fi
 spec() {
-  SPEC=$(pointer "$BRIEF")
+  SPEC=$(pointer "$LANE_BRIEF")
   [ "${#SPEC}" -gt 500 ] || return 0
-  LINK=$HOME/.claude/$(printf '%s' "$BRIEF" | shasum | cut -c1-8)
+  LINK=$HOME/.claude/$(printf '%s' "$LANE_BRIEF" | shasum | cut -c1-8)
   mkdir -p "$HOME/.claude"
-  ln -sfn "$BRIEF" "$LINK"
+  ln -sfn "$LANE_BRIEF" "$LINK"
   SPEC=$(pointer "$LINK")
   [ "${#SPEC}" -le 500 ] || fail "spec pointer is ${#SPEC} characters, over 500; shorten the worktree path"
 }
 spec
 
-mkdir -p "$STATE"
 
 orca orchestration run-current --json >"$STATE/$LANE.binding.json" 2>&1 || :
 BOUND=$(jq -r '.result.run.id // empty' "$STATE/$LANE.binding.json" 2>/dev/null) || BOUND=

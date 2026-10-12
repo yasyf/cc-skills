@@ -45,8 +45,15 @@ line, which monitor-watch writes, records the transition and launches nothing. A
 lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
-from the desk inbox itself; a record that is no directive logs `DIRECTIVE-FAILED`, and a
-failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same sequence.
+from the desk inbox itself or one that carries `--re`; a record that is no directive logs
+`DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
+sequence. An `orca-desk: withdraw R<n>` line fails each launch under `R<n>` the runner accepted
+and has not started, logging `WITHDRAWN`, or `WITHDRAW-FAILED` for a launch already started or
+settled or a key that holds none. Each root cci record carrying `--re`, read in sequence
+order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
+question, one to a lane's own record replies to that lane's open Orca question, which the cci
+reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
+launch.
 Orca lets only the terminal bound to the Run call
 worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
 The runner records that terminal, its pane, the Run's coordinator and generation, and how
@@ -166,7 +173,8 @@ ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
 INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold)\b(?P<rest>.*)$")
+WITHDRAW_GRAMMAR = "orca-desk: withdraw R<n>"
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$")
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
@@ -185,8 +193,12 @@ SPRITE_EXITS = ("prepare.status", "attach.status")
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
 SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
+LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
+WITHDRAW_SPEC = re.compile(r"^ (?P<target>R\d+)$")
+DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
+ROOT = "root"
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -658,7 +670,7 @@ class Runner:
             self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
 
     def read_cci(self) -> None:
-        """Act on each cci record addressed to the orca desk past the saved sequence as one desk inbox line; a first read starts at the newest record, and records imported from the desk inbox were already read there."""
+        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one desk inbox line, or that the root posted with `--re`, as a reply. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record, and records imported from the desk inbox were already read there."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.load(RUNNER).facts.get(fact)
         try:
@@ -666,15 +678,39 @@ class Runner:
                 newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
                 return
-            records = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
+            addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
+            replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
+            already_read = f"import:{self.config.desk_inbox.resolve()}"
+            for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
+                if record.get("re"):
+                    if record["lane"] == ROOT:
+                        self.root_reply(record, self.cci_record(record["re"]))
+                elif record["source"] != already_read:
+                    self.cci_line(record["seq"], record["text"].strip())
+                self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
             self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
+
+    def cci_record(self, seq: int) -> dict | None:
+        out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
+        return next((record for line in out.splitlines() if line.strip() and (record := json.loads(line))["seq"] == seq), None)
+
+    def root_reply(self, record: dict, closed: dict | None) -> None:
+        at = f"cci#{record['seq']}"
+        if not closed:
             return
-        already_read = f"import:{self.config.desk_inbox.resolve()}"
-        for record in records:
-            if record["source"] != already_read:
-                self.cci_line(record["seq"], record["text"].strip())
-            self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
+        if record["kind"] == "withdraw":
+            directive = INBOX_DIRECTIVE.match(closed["text"].strip())
+            if ORCA_DESK in (closed.get("to") or []) and directive and directive["verb"] == "launch":
+                self.withdraw(at, at, directive["key"] or f"inbox@cci#{closed['seq']}")
+            return
+        text = " ".join(record["text"].split())
+        if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
+            self.relay_to(at, at, decide["lane"], text, decide["msg"])
+            return
+        dispatch = self.orca.show(closed["lane"])
+        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)):
+            self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", question)
 
     def cci_tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -684,14 +720,14 @@ class Runner:
 
     def cci_line(self, seq: int, line: str) -> None:
         if not self.inbox_line(f"cci#{seq}", line):
-            self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold> …` line; nothing was done")
+            self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, or a reply with --re; nothing was done")
 
     def inbox_line(self, at: str, line: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)
         if not directive:
             return False
         key = directive["key"] or f"inbox@{at}"
-        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line}
+        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line, "withdraw": self.withdraw_line}
         verbs[directive["verb"]](at, key, directive["rest"])
         return True
 
@@ -703,14 +739,14 @@ class Runner:
         for lane in LANE_LIST.split(parsed["lanes"]):
             self.relay_to(at, key, lane, parsed["text"])
 
-    def relay_to(self, at: str, key: str, lane: str, text: str) -> None:
-        """Accept what `relay` accepts for one lane: a reply to the current dispatch's latest open question, else a plain relay."""
+    def relay_to(self, at: str, key: str, lane: str, text: str, question: str | None = None) -> None:
+        """Accept what `relay` accepts for one lane: a reply to `question`, or to the current dispatch's latest open question when none is named, else a plain relay."""
         log = f"escalation:relay:{at}:{lane}"
         dispatch = self.orca.show(lane)
         if not dispatch or dispatch.status in INACTIVE:
             self.record(log, f"RELAY-FAILED {key} {lane}: no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}")
             return
-        question = self.open_question(dispatch)
+        question = self.open_question(dispatch) if question is None else question
         action, created = self.accept_relay(key, lane, text, question, self.config.start_minutes)
         if not created and json.loads(action.target)["text"] != text:
             self.record(log, f"RELAY-FAILED {key} {lane}: {key} already holds a different relay to {lane} ({action.status})")
@@ -729,6 +765,27 @@ class Runner:
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
+
+    def withdraw_line(self, at: str, key: str, rest: str) -> None:
+        spec = WITHDRAW_SPEC.match(rest)
+        if not spec:
+            self.record(f"escalation:withdraw:{at}", f"WITHDRAW-FAILED {key} inbox: one withdrawal per line, in the form `{WITHDRAW_GRAMMAR}`; nothing was withdrawn")
+            return
+        self.withdraw(at, key, spec["target"])
+
+    def withdraw(self, at: str, key: str, target: str) -> None:
+        """Fail each launch under `target` that the runner accepted and has not started, so it never launches; a started or settled launch stays as it is."""
+        log = f"escalation:withdraw:{at}"
+        held = [(container, action) for container in self.book.containers(LANE_PREFIX) if (action := self.book.load(container).actions.get(target)) and action.kind == "launch"]
+        if not held:
+            self.record(log, f"WITHDRAW-FAILED {key} {target}: the runner holds no launch under {target}; nothing was withdrawn")
+        for container, action in held:
+            lane = container.removeprefix(LANE_PREFIX)
+            if action.status != "accepted":
+                self.record(f"{log}:{lane}", f"WITHDRAW-FAILED {key} {lane}: launch {target} is {action.status}; nothing was withdrawn")
+                continue
+            self.book.edit(container, lambda incident: incident.fail(target, f"withdrawn by {key}"))
+            self.record(f"{log}:{lane}", f"WITHDRAWN {target} {lane}: by {key}; nothing was launched")
 
     def alert_line(self, at: str, key: str, rest: str) -> None:
         """Record a monitor transition and launch nothing, or relay a repeat to the fix lane already on it; the alerts desk decides whether an incident lane is necessary."""
@@ -1019,7 +1076,7 @@ class Runner:
 
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
-        argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
+        argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
         env = {**self.config.launch_env, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
 
