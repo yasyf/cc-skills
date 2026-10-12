@@ -702,6 +702,17 @@ def test_a_tip_no_drive_lane_opened_never_reaches_stack_enqueue(shell, config, t
     assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
 
 
+def test_an_open_pr_skipped_as_not_ours_escalates_once_per_head(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": False}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "NOT-OURS" in lines[0] and "#29020" in lines[0] and "ledger.py register --lane <lane> --pr 29020" in lines[0]
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
+    landing_pass(shell, config)
+    assert len(escalations(shell)) == 2
+
+
 def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]

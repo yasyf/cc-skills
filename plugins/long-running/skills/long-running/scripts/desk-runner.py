@@ -82,7 +82,8 @@ names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. Every PR an open cci `hold` record
+holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
+escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
@@ -1545,6 +1546,11 @@ class Landing:
         return sorted((pr for pr, row in tracked.items() if row.get("branch") not in bases), key=int)
 
     def gate(self, rows: dict[str, dict], held: list[str]) -> None:
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        bases = {row.get("base") for row in open_rows.values()}
+        for pr, row in open_rows.items():
+            if not row.get("ours") and row.get("branch") not in bases:
+                self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         tips = self.tips(rows)
         with ThreadPoolExecutor(max(1, len(tips))) as pool:
             gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
