@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -122,6 +123,21 @@ def test_report_enqueues_once_and_opens_the_pr_row():
     assert row["lane"] == LANE
     assert row["reported_head"] == HEAD
     assert row["reported_verdict"] == "clean"
+
+
+def test_report_outside_a_checkout_takes_the_repository_from_repo(tmp_path, monkeypatch):
+    class OutsideCheckout(FakeShell):
+        def _git(self, argv, stdin=None):
+            if argv[3:] == ["remote", "get-url", "origin"]:
+                raise subprocess.CalledProcessError(128, argv, stderr="fatal: not a git repository")
+            return super()._git(argv, stdin)
+
+    shell = OutsideCheckout()
+    monkeypatch.chdir(tmp_path)
+
+    assert run(shell, "report", "--repo", REPO, "--ledger", LEDGER, "--drive", DRIVE, "--pr", PR, "--head", HEAD, "--lane", LANE, "--verdict", "clean") == 0
+
+    assert shell.fields(PR)["reported_head"] == HEAD
 
 
 def test_a_new_head_from_the_same_lane_is_a_new_message():

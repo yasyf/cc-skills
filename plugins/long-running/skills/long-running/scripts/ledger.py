@@ -327,6 +327,15 @@ def origin_repo(shell: Shell, checkout: Path) -> str:
     return match["repo"]
 
 
+def working_repo(shell: Shell, named: str | None) -> str:
+    try:
+        return origin_repo(shell, Path("."))
+    except subprocess.CalledProcessError:
+        if named:
+            return named
+        raise
+
+
 def same_repo(left: str, right: str) -> bool:
     return left.lower() == right.lower()
 
@@ -2390,7 +2399,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         os.chdir(args.directory)
     shell = shell or Shell()
     if "repo" in vars(args):
-        default = origin_repo(shell, Path("."))
+        default = working_repo(shell, args.repo)
         checkout = vars(args).get("checkout")
         args.repo = args.repo or (origin_repo(shell, checkout) if checkout else default)
         args.scope = Scope(args.repo, default)
