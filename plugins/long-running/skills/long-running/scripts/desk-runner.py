@@ -1538,7 +1538,7 @@ class Landing:
     def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:
         policy = self.runner.landing_policy()
         whole = ["--whole"] if policy and json.loads(policy.target)["rule"] == "whole" else []
-        return [str(self.checkout / STACK_ENQUEUE), tip, *(["--check"] if check else []), *whole, *(["--hold", *held] if held else [])]
+        return [str(self.checkout / STACK_ENQUEUE), tip, *(["--check"] if check else []), *whole, *(arg for pr in held for arg in ("--hold", pr))]
 
     def tips(self, rows: dict[str, dict]) -> list[str]:
         tracked = {pr: row for pr, row in rows.items() if row.get("ours")}
@@ -1556,6 +1556,10 @@ class Landing:
             gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
         for tip, done in gated.items():
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
+            if done.code and not verdicts:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(f"gate:{tip}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "GATE-FAILED", f"#{tip}", f"stack-enqueue --check exited {done.code} with no verdict: {last[0]}")
+                continue
             if would := WOULD_ENQUEUE.search(done.out):
                 self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
             for pr, match in verdicts.items():
