@@ -60,6 +60,16 @@ def test_a_named_subagent_records_under_its_own_name(tmp_path):
     assert lane_name(event(tmp_path, "adeploy-1a2b")) == "deploy-experience"
 
 
+def test_an_unnamed_subagent_records_under_its_nearest_named_parent(tmp_path):
+    subagents = tmp_path / SESSION / "subagents"
+    subagents.mkdir(parents=True)
+    (subagents / "agent-arelease-fix-1a2b.meta.json").write_text(json.dumps({"name": "release-fix", "agentType": "long-running:lane-ship"}))
+    (subagents / "agent-a3d0ef77.meta.json").write_text(json.dumps({"agentType": "ship-pr", "parentAgentId": "arelease-fix-1a2b"}))
+    (subagents / "agent-a3d0ef77.jsonl").write_text("")
+
+    assert lane_name(event(tmp_path, "a3d0ef77")) == "release-fix"
+
+
 def test_an_unnamed_session_falls_back_to_its_lane_env_then_its_session_id(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     assert lane_name(event(tmp_path, "aship-pr-9f9f")) == SESSION

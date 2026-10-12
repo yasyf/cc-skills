@@ -11,7 +11,7 @@ from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Run
 from captain_hook.util import reqenv
 
 from .compaction_handoff import script
-from .session_tree import own_name
+from .session_tree import nearest_name
 from .tests.ledger_fixtures import FIXTURES
 
 OPENERS = (
@@ -72,7 +72,7 @@ def opener_cwd(evt: BaseHookEvent) -> Path | None:
 
 
 def lane_name(evt: BaseHookEvent) -> str:
-    named = evt.agent_id and own_name(evt)
+    named = evt.agent_id and nearest_name(evt)
     return named or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
