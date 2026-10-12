@@ -31,7 +31,7 @@ Do:
      --to <deploy lane> --topic {slug} --text "<line>"`, using the cci drive and
      deploy lane from the drive facts. Use `mechanism`, `fix-live`, or `report` for the
      three lines, respectively; attach longer evidence with `--path`.
-  3. Open the durable fix as a PR through the repo's submit skill.
+  3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
 Finish: a `STOPPED` line and `worker_done`.

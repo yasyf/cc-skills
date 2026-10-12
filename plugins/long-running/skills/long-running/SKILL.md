@@ -434,6 +434,23 @@ an unstarted launch with `orca-desk: withdraw R<n>`.
 withdrawal the runner rejected, a codex lane that asked the root for PR prose, and
 a stale Orca question answered by hand.*
 
+Before that launch, the root reads `orca-runner.heartbeat.json` beside
+`orca.desk_inbox`. A pass under 30 seconds old from a live pid means the runner
+takes the line. A missing, stale, or dead heartbeat, which the `desk_liveness` hook
+reports as `LAUNCH-FAILED`, means the root launches the fix lane inline in the same
+turn instead of waiting for the runner: a background `codex:codex-wrapper` running
+`codex-ask --incident` on the fix brief. Every incident fix brief says build, ship
+via submit-pr, enqueue `--fast`, and the inline lane carries that authority. Codex
+cannot run commit mechanics, so the wrapper hands its branch to a Claude
+`lane-ship` lane that ships and enqueues it. Never both: when the runner comes back
+and launches the same line, the root keeps the lane further along and stops the
+other.
+
+*Prevents the 4:45 AM Oct 12 incident launch: R2030 hit `LAUNCH-FAILED: orca desk
+runner not running`, the inline codex fallback stopped for an owner choice instead
+of building, the restarted runner launched the same lane at 4:48, and two lanes ran
+on one incident while the fix lost about 5 minutes.*
+
 Alert intake runs before the root wakes. A monitor transition never launches a
 lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
 <link> :: <what fired>`, which the runner records and launches nothing on. The
