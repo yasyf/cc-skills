@@ -262,6 +262,7 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     "ledger": "<ledger id>",
     "checkout": "/absolute/monorepo/worktree",
     "holds": "/absolute/drive/holds.md",
+    "fidelity_lane": "fidelity-desk",
     "interval_seconds": 180,
     "policy": {
       "rule": "prefix",
@@ -428,6 +429,17 @@ rows. Held PR numbers follow the tip:
 `stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
 numeric file is empty. `--hold` takes one or more numbers, never a filename;
 argparse's exit 2 otherwise reads as `unsettled`.
+
+A prefix is accepted only when every PR in it has a fidelity ok at its current
+head. The runner reads `cci tail --kind=review --lane <fidelity lane> --pr <n>`,
+keeps the records that start `fidelity: ok` or `fidelity: missing` and name
+that head by a short sha, and takes the newest; only `fidelity: ok` passes. An
+ok that names an older head, or no head, does not count, so the fidelity lane
+names the head it graded in every record, as in `fidelity: ok F307 at 9c0b891`.
+Without an ok the runner enqueues nothing from the prefix and posts one cci
+`blocker` per head and grade to the PR's lane and the fidelity lane. It checks
+again just before the enqueue call and completes the action as `blocked` when
+the ok is gone. `landing.fidelity_lane` names the lane, default `fidelity-desk`.
 
 After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
 first PR above it. Orca lanes receive a relay; other lanes receive

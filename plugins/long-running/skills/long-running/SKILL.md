@@ -883,6 +883,21 @@ when `ccx vcs pr status` reads a believed-queued PR `not queued` or `evicted` at
 the head it admitted. A drop whose Merge activity comment names a conflict or a
 red check goes to the lane as a blocker instead; any other drop is gated again.
 
+The runner also requires a fidelity ok at every prefix head. It reads the cci
+`review` records the fidelity lane posted about each PR with `--pr <n>`, keeps
+those whose text starts `fidelity: ok` or `fidelity: missing` and names the PR's
+current head by a short sha, and takes the newest. Only `fidelity: ok` passes.
+A head graded `missing`, graded ok only at an older head, or never graded gets
+one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
+lane, and nothing in its prefix is enqueued. The check runs again just before
+the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
+`fidelity-desk`; a drive with no fidelity lane enqueues nothing through the runner.
+
+*Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
+monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
+it landed as 2b06f105 without its test, because the gate read only
+`stack-enqueue --check` and the holds.*
+
 Every enqueue re-reads the root's holds file, including every open ledger row
 whose lane is named as `lane:<name>`. The command is
 `stack-enqueue <prefix top>... --hold $(cat <held file>)`, naming every top of the
