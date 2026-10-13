@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -64,3 +65,23 @@ def test_a_subagent_outside_a_drive_enqueues(tmp_path):
     subagent(tmp_path, "a1f2e3d4", name="ship-it", agentType="general-purpose")
 
     assert run(tmp_path, "a1f2e3d4", active=False) == []
+
+
+def git_repo(path: Path) -> Path:
+    path.mkdir()
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    return path
+
+
+@pytest.mark.parametrize(("where", "blocked"), [("drive", True), ("other", False)])
+def test_a_lane_merges_outside_the_drive_repo_but_never_inside_it(tmp_path, monkeypatch, where, blocked):
+    drive_repo, other_repo = git_repo(tmp_path / "drive"), git_repo(tmp_path / "other")
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    common = subprocess.run(["git", "-C", str(drive_repo), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True, check=True).stdout.strip()
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "sessions": [SESSION], "repo": "Forge-AI/monorepo", "git_common_dir": common}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    subagent(tmp_path, "a1f2e3d4", name="tool-drive-hardening", agentType="long-running:lane-ship")
+    cwd = drive_repo if where == "drive" else other_repo
+
+    assert bool(run(tmp_path, "a1f2e3d4", f"cd {cwd} && gt merge")) is blocked

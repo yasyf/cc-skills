@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
@@ -19,6 +21,10 @@ READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
 INTERPRETERS = frozenset({"python", "python3", "uv", "bash", "sh", "zsh"})
 GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
+REPO_FLAGS = frozenset({"-R", "--repo"})
+REPO_IN_ARG = re.compile(r"(?:^|/)repos/(?P<api>[\w.-]+/[\w.-]+)/|github\.com/(?P<url>[\w.-]+/[\w.-]+)/pull/")
+FIXTURES = Path(__file__).parent / "tests" / "fixtures"
+DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
@@ -35,6 +41,35 @@ def lane_name(evt: BaseHookEvent) -> str | None:
             return match["name"]
         return nearest_name(evt) or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or ""
     return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")
+
+
+def drive_entry(evt: BaseHookEvent) -> dict | None:
+    drives = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
+    drive = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
+    for path in sorted(drives.glob("*.json")):
+        entry = json.loads(path.read_text())
+        if entry["drive"] == drive or (not drive and evt.session_id in entry["sessions"]):
+            return entry
+    return None
+
+
+def named_repo(call: Call) -> str | None:
+    args = call.args
+    if repo := next((value for flag, value in zip(args, args[1:], strict=False) if flag in REPO_FLAGS), None):
+        return repo
+    if repo := next((arg.split("=", 1)[1] for arg in args if arg.startswith(("--repo=", "-R="))), None):
+        return repo
+    return next((found["api"] or found["url"] for arg in args if (found := REPO_IN_ARG.search(arg))), None)
+
+
+def outside_drive_repo(evt: BaseHookEvent, call: Call, entry: dict | None) -> bool:
+    if entry is None:
+        return False
+    if repo := named_repo(call):
+        return repo.casefold() != entry["repo"].casefold()
+    cwd = call.cwd or evt.cwd
+    done = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
+    return done.returncode == 0 and done.stdout.strip() != entry["git_common_dir"]
 
 
 def label_args(args: tuple[str, ...]) -> set[str]:
@@ -120,6 +155,11 @@ def landing_verb(call: Call) -> str | None:
         Input(command="ledger.py label --dry-run --pr 36023", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="echo 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="gh pr view 36023 --json mergedAt", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="gh pr merge 36023 -R o/r --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
+        Input(command="gh api repos/O/R/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Block(),
+        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        Input(command="gh pr merge https://github.com/yasyf/cc-skills/pull/403 --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        Input(command="gh api repos/yasyf/cc-skills/issues/403/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
@@ -127,5 +167,6 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
         return None
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
-    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call))), None)
+    entry = drive_entry(evt)
+    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_drive_repo(evt, call, entry)), None)
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
