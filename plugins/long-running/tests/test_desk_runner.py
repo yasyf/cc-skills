@@ -25,6 +25,8 @@ LANE = "incident-fix"
 FORBIDDEN = {"worker-release", "kill", "pkill", "close", "stop", "terminate", "worker-stop"}
 IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
 PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
+RULING = "Requirement: " + "the release holds until the canary reads back green. " * 12 + "Then land the fix."
+PARAGRAPHS = "Ruling, in three parts:\n\n- hold the release; relay the canary result to walker\n- " + "rebuild each failed head once, " * 15 + "then stop\n\nReport on this thread."
 
 
 class Process:
@@ -1883,6 +1885,8 @@ def replies(shell: FakeShell) -> list[list[str]]:
         ("R1054 (3:0x PM PT) orca-desk: relay to merge-walker-r2 and d-land-r2: G331 (chain resumes)", "R1054", ["merge-walker-r2", "d-land-r2"], "G331 (chain resumes)"),
         ("- orca-desk: relay to a, b, and c: `walker: router GO`", None, ["a", "b", "c"], "`walker: router GO`"),
         ("R7 orca-desk: relay to lane-a: see deploy-go.md: G12", "R7", ["lane-a"], "see deploy-go.md: G12"),
+        ("R8 orca-desk: relay to lane-a and lane-b: Ruling:\n- hold the release\n- rebuild once", "R8", ["lane-a", "lane-b"], "Ruling:\n- hold the release\n- rebuild once"),
+        ("R9 (8:20 AM) orca-desk: relay to lane-a:\nRuling:\n\n- hold; relay nothing yet", "R9", ["lane-a"], "Ruling:\n\n- hold; relay nothing yet"),
     ],
 )
 def test_the_relay_grammar_names_the_key_lanes_and_text(line, key, lanes, text):
@@ -2267,7 +2271,67 @@ def clipped_text(text: str) -> str:
     return (text + "x" * runner_module.CCI_TEXT)[: runner_module.CCI_TEXT - 1] + "…"
 
 
-def test_a_relay_record_cci_clipped_at_its_text_limit_is_refused_naming_the_limit(shell, config, tmp_path):
+def spilled(tmp_path: Path, text: str) -> dict:
+    blob = tmp_path / "blobs" / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.txt"
+    blob.parent.mkdir(exist_ok=True)
+    blob.write_text(f"{text}\n")
+    first = next(line.strip() for line in text.split("\n") if line.strip())
+    return {"text": first if len(first) <= runner_module.CCI_TEXT else first[: runner_module.CCI_TEXT - 1] + "…", "refs": {"path": str(blob)}}
+
+
+def test_a_relay_record_over_the_text_limit_is_relayed_whole_from_the_file_cci_wrote(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    record = spilled(tmp_path, f"R20 (8:20 AM) orca-desk: relay to {LANE}: {RULING}")
+    assert len(record["text"]) == runner_module.CCI_TEXT and record["text"].endswith("…")
+    cci_record(shell, to=["orca-desk"], **record)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(f"{RULING}\n\nReply on thread ")
+    assert escalations(shell) == [f"RELAYED R20 {LANE}: relay to dispatch ctx_a"]
+
+
+def test_a_relay_record_cci_clipped_is_relayed_from_its_file_whatever_the_files_first_line_reads(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    record = spilled(tmp_path, f"R20 (8:20 AM) orca-desk: relay to {LANE}: {RULING}")
+    cci_record(shell, to=["orca-desk"], text=record["text"].replace("8:20 AM", "8:21 AM"), refs=record["refs"])
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(f"{RULING}\n\nReply on thread ")
+
+
+@pytest.mark.parametrize("over_the_limit", [True, False])
+def test_a_relay_record_spanning_lines_is_relayed_with_every_line_after_its_directive(shell, config, tmp_path, over_the_limit):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    text = PARAGRAPHS if over_the_limit else PARAGRAPHS.replace("rebuild each failed head once, " * 15, "rebuild each failed head once, ")
+    whole = f"R21 orca-desk: relay to {LANE}:\n{text}"
+    record = spilled(tmp_path, whole) if over_the_limit else {"text": whole}
+    assert (len(whole) > runner_module.CCI_TEXT) == over_the_limit and "…" not in record["text"]
+    cci_record(shell, to=["orca-desk"], **record)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(f"{text}\n\nReply on thread ")
+    assert escalations(shell) == [f"RELAYED R21 {LANE}: relay to dispatch ctx_a"]
+
+
+def test_a_relay_record_naming_a_file_that_is_not_its_text_relays_the_records_own_text(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text("# Evidence\n\nthe canary read back red at 14:02\n")
+    cci_record(shell, to=["orca-desk"], text=f"R22 orca-desk: relay to {LANE}: read the evidence at {evidence}", refs={"path": str(evidence)})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(f"read the evidence at {evidence}\n\nReply on thread ")
+
+
+def test_a_relay_record_whose_file_cannot_be_read_here_is_refused_naming_the_path(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
     cci_record(shell, to=["orca-desk"], text=clipped_text(f"R20 (8:20 AM) orca-desk: relay to {LANE}: Requirement: "), refs={"path": "/blobs/f727f5487a4aee3f.txt"})
@@ -2275,7 +2339,7 @@ def test_a_relay_record_cci_clipped_at_its_text_limit_is_refused_naming_the_limi
     orca_pass(shell, config)
     assert shell.sends() == []
     assert escalations(shell) == [
-        "RELAY-FAILED R20 inbox: the record is over cci's 400-character text limit and cci kept only its first 400 characters; nothing was relayed; post it again within 400 characters, or as several relays"
+        "RELAY-FAILED R20 inbox: the record's full text at /blobs/f727f5487a4aee3f.txt is not readable here; nothing was relayed; post it again on the machine this runner runs on"
     ]
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "R20")]
 
@@ -2291,7 +2355,37 @@ def test_a_relay_record_exactly_at_the_text_limit_is_relayed_whole(shell, config
     assert send[send.index("--body") + 1].startswith(text.split(": ", 2)[2] + "\n")
 
 
-def test_a_clipped_root_reply_to_a_decide_is_refused_and_answers_nothing(shell, config, tmp_path):
+def test_a_root_reply_to_a_decide_over_the_text_limit_answers_with_its_whole_text(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
+    answer = "30s NLB delay, because " + "the drain must outlast the preStop hook. " * 12 + "\n\nThen set preStop to 35s."
+    record = spilled(tmp_path, answer)
+    assert len(record["text"]) == runner_module.CCI_TEXT and record["text"].endswith("…")
+    cci_record(shell, kind="answer", to=[LANE], re=decide, **record)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [reply] = replies(shell)
+    assert reply[reply.index("--id") + 1] == "msg_q9"
+    assert reply[reply.index("--body") + 1] == f"{answer}\n\n(cci#34767)"
+    assert escalations(shell) == [f"RELAYED cci#34767 {LANE}: reply to question msg_q9 of dispatch ctx_a"]
+
+
+def test_a_root_reply_to_a_lanes_cci_ask_over_the_text_limit_closes_its_question_with_the_whole_text(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q4", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    ask = cci_record(shell, lane=LANE, kind="ask", to=["root"], text="Which heads do I rebuild?")
+    cci_record(shell, kind="answer", to=[LANE], re=ask, **spilled(tmp_path, PARAGRAPHS))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [reply] = replies(shell)
+    assert reply[reply.index("--id") + 1] == "msg_q4"
+    assert reply[reply.index("--body") + 1] == f"The root answered on cci #34767 (re #34766), which supersedes this question: {PARAGRAPHS}\n\n(cci#34767)"
+
+
+def test_a_root_reply_whose_file_cannot_be_read_here_is_refused_and_answers_nothing(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
     orca_pass(shell, config)
@@ -2301,7 +2395,7 @@ def test_a_clipped_root_reply_to_a_decide_is_refused_and_answers_nothing(shell, 
     orca_pass(shell, config)
     assert replies(shell) == []
     assert escalations(shell) == [
-        f"RELAY-FAILED cci#34767 {LANE}: the record is over cci's 400-character text limit and cci kept only its first 400 characters; nothing was relayed; post it again within 400 characters, or as several relays"
+        f"RELAY-FAILED cci#34767 {LANE}: the record's full text at /blobs/a16e1fea5c0bf21e.txt is not readable here; nothing was relayed; post it again on the machine this runner runs on"
     ]
 
 

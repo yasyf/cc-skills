@@ -23,9 +23,14 @@ With neither thirty seconds on, the runner sends the relay once more on the same
 and logs `RESENT` when that send is delivered. A resend lost the same way logs `LOST`
 with the relay text on the record's path, and nothing is sent a third time. A send with
 a receipt is never resent. An accepted relay to a lane with no live dispatch and no
-launch in flight fails at once as `RELAY-FAILED`. A relay record over cci's
-400-character text limit, which cci clips, is refused as `RELAY-FAILED` naming the
-limit, and nothing is relayed.
+launch in flight fails at once as `RELAY-FAILED`. `cci post` keeps only the first
+line of a text over its 400-character limit in the record, clipped, and writes the
+whole text to a file the record names by path. The runner reads a relay record's or a
+root reply's text from that file and relays all of it, line breaks kept: a relay's
+first line is the directive and its text runs to the end of the record. A file whose
+first line is not the record's text is an attachment, and the record's own text is
+relayed, unless cci clipped the record. A record whose file cannot be read on this
+machine is refused as `RELAY-FAILED` naming the path, and nothing is relayed.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail, and
 checks relay deadlines. Each pass takes the Run's oldest unacknowledged Delivery before
@@ -198,8 +203,8 @@ INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
 WITHDRAW_GRAMMAR = "orca-desk: withdraw R<n>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$")
-RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
+RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(?P<text>\S.*)$", re.DOTALL)
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
@@ -535,8 +540,13 @@ class Orca:
         return True
 
 
-def clipped_by_cci(record: dict) -> bool:
-    return len(record["text"]) == CCI_TEXT and record["text"].endswith("…") and bool((record.get("refs") or {}).get("path"))
+def clipped_by_cci(text: str) -> bool:
+    return len(text) == CCI_TEXT and text.endswith("…")
+
+
+def kept_by_cci(text: str) -> str:
+    """What `cci post` keeps in the record of a text it writes to a file: the first non-blank line, clipped to cci's text limit."""
+    return inboxes.clip(next((line.strip() for line in text.split("\n") if line.strip()), ""), CCI_TEXT)
 
 
 def request_id(reply: dict) -> str:
@@ -743,20 +753,25 @@ class Runner:
             if ORCA_DESK in (closed.get("to") or []) and directive and directive["verb"] == "launch":
                 self.withdraw(at, at, directive["key"] or f"inbox@cci#{closed['seq']}")
             return
-        text = " ".join(record["text"].split())
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
-            if not self.refused_over_limit(at, at, decide["lane"], record):
+            if text := self.whole_text(at, at, decide["lane"], record):
                 self.relay_to(at, at, decide["lane"], text, decide["msg"])
             return
         dispatch = self.orca.show(closed["lane"])
-        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)) and not self.refused_over_limit(at, at, closed["lane"], record):
+        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
             self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", question)
 
-    def refused_over_limit(self, at: str, key: str, about: str, record: dict) -> bool:
-        if not clipped_by_cci(record):
-            return False
-        self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} {about}: the record is over cci's {CCI_TEXT}-character text limit and cci kept only its first {CCI_TEXT} characters; nothing was relayed; post it again within {CCI_TEXT} characters, or as several relays")
-        return True
+    def whole_text(self, at: str, key: str, about: str, record: dict) -> str:
+        """The record's text in full: the file its `refs.path` names when cci clipped the record or kept that file's first line as the record's text, else the record's own text; empty, logging `RELAY-FAILED`, when that file cannot be read here."""
+        kept, path = record["text"].strip(), (record.get("refs") or {}).get("path")
+        if not path:
+            return kept
+        try:
+            written = Path(path).read_text(errors="replace").strip()
+        except OSError:
+            self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} {about}: the record's full text at {path} is not readable here; nothing was relayed; post it again on the machine this runner runs on")
+            return ""
+        return written if clipped_by_cci(kept) or kept_by_cci(written) == kept else kept
 
     def cci_tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -767,7 +782,7 @@ class Runner:
     def cci_line(self, record: dict) -> None:
         seq, line = record["seq"], record["text"].strip()
         directive = INBOX_DIRECTIVE.match(line)
-        if directive and directive["verb"] == "relay" and self.refused_over_limit(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record):
+        if directive and directive["verb"] == "relay" and not (line := self.whole_text(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record)):
             return
         if not self.inbox_line(f"cci#{seq}", line):
             self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, or a reply with --re; nothing was done")
@@ -783,7 +798,7 @@ class Runner:
 
     def relay_line(self, at: str, key: str, rest: str) -> None:
         parsed = RELAY_TO.match(rest)
-        if not parsed or "; relay " in parsed["text"]:
+        if not parsed or "; relay " in parsed["text"].partition("\n")[0]:
             self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} inbox: one relay per line, in the form `{RELAY_GRAMMAR}`; nothing was relayed")
             return
         for lane in LANE_LIST.split(parsed["lanes"]):
