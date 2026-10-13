@@ -1004,8 +1004,8 @@ def test_one_ungraded_pr_keeps_its_whole_prefix_out_of_the_queue(shell, config, 
     grade(shell, "28997", "ok F307 at aaaa111.")
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    [blocker] = blockers(shell)
-    assert blocker["topic"] == "29016" and blocker["to"] == "artifact-retry,fidelity-desk"
+    [blocker] = [post for post in blockers(shell) if post["topic"] == "29016"]
+    assert blocker["to"] == "artifact-retry,fidelity-desk" and not [post for post in blockers(shell) if post["topic"] == "28997"]
     assert blocker["text"].startswith("#29016 bbbb222222: nothing in #28997 #29016 was enqueued; no review from fidelity-desk")
 
 
@@ -1030,9 +1030,11 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
     landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
-    grade(shell, "29020", "missing F307 at cccc333.")
+    seq = grade(shell, "29020", "missing F307 at cccc333.")
     landing.enqueue()
     assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
     [action] = enqueues_of(tmp_path).values()
     assert action.response["outcome"] == "blocked" and "no fidelity: ok from fidelity-desk at the head of #29020" in action.response["out"]
 

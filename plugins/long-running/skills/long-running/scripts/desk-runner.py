@@ -1677,6 +1677,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh[-800:], "at": self.book.stamp()}))
             return
         if ungraded := self.ungraded(enqueued_heads(key)):
+            self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_lane} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
         done = self.shell.run(self.enqueue_argv(tops, held, check=False))
