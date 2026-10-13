@@ -86,7 +86,8 @@ DOC_TOOLS = (
 )
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
-SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
+HARNESS_PREFIXES = ("<", "This session is being continued", "[Request interrupted")
+SYSTEM_PREFIXES = (*HARNESS_PREFIXES, "/")
 RULING_LABELS = ("scope:durable", "owner-ruling")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 RULING_SYSTEM = (
@@ -196,9 +197,12 @@ class RulingTitle(BaseModel):
 
 
 class OwnerPrompt:
+    def __init__(self, *, commands: bool = False) -> None:
+        self.prefixes = HARNESS_PREFIXES if commands else SYSTEM_PREFIXES
+
     def check(self, evt: BaseHookEvent) -> bool:
         text = (evt.user_prompt or "").strip()
-        return not text.startswith(SYSTEM_PREFIXES) and "<teammate-message" not in text
+        return not text.startswith(self.prefixes) and "<teammate-message" not in text
 
 
 class ToolStartsWith:

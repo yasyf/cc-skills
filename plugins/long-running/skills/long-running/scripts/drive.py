@@ -11,6 +11,7 @@
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
+    drive.py watch   --session ID --lane NAME [--drive ID] --channel ID [--message TS] [--thread-ts TS]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
@@ -40,6 +41,14 @@ leaves the open set in the same step that announced the landing or the close.
 
 ``thread`` is the pack's entry point after a Slack post: it appends the posted thread to
 ``<state dir>/slack/watched-threads.jsonl``, the list the drive's Slack watch lane polls.
+
+``watch`` appends a link row to that list for a Slack channel or message someone pointed at. It is the
+pack's entry point for a Slack link in an owner prompt, and the watch lane's own command for a link a
+reporter posts. The row's channel joins the lane's history poll, and its thread opens from ``--message``;
+the thread is the message's own unless ``--thread-ts`` names its root. ``--message`` takes a ts or a
+permalink's ``p…`` token; without one the row names the channel alone, from now. It prints one line per
+row it appends and nothing when the thread is already open and the channel already linked. A session in
+no drive exits 1.
 """
 
 from __future__ import annotations
@@ -65,6 +74,7 @@ DASHBOARD_SERVER = Path("dashboard") / "server.json"
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
+SLACK_TS = re.compile(r"p?(?P<seconds>\d{10})\.?(?P<micros>\d{6})")
 
 
 def drives_dir() -> Path:
@@ -317,6 +327,47 @@ def cmd_thread(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def watched(path: Path) -> tuple[set[str], set[str]]:
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    threads: set[str] = set()
+    for row in rows:
+        if "thread" in row:
+            threads.discard(row["thread"])
+        elif row["thread_ts"]:
+            threads.add(f"{row['channel']}/{row['thread_ts']}")
+    return threads, {row["channel"] for row in rows if "linked_at" in row}
+
+
+def cmd_watch(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (entry := find(args.drive, args.session)):
+        raise SystemExit(f"no drive claims session {args.session} ({DRIVE_ENV}={args.drive or 'unset'}); {args.channel} joined no Slack watch list")
+    path = Path(entry["state_dir"]) / WATCHED_THREADS
+    thread_ts = args.thread_ts or args.message
+    thread = f"{args.channel}/{thread_ts}" if thread_ts else args.channel
+    threads, channels = watched(path)
+    if args.channel in channels and (not thread_ts or thread in threads):
+        return 0
+    row = {
+        "channel": args.channel,
+        "thread_ts": thread_ts,
+        "linked_ts": args.message or thread_ts or f"{datetime.now(timezone.utc).timestamp():.6f}",
+        "linked_at": stamp(),
+        "session": args.session,
+        "lane": args.lane,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as out:
+        out.write(json.dumps(row) + "\n")
+    print(f"{thread} is on the drive's Slack watch list at {path}")
+    return 0
+
+
+def slack_ts(value: str) -> str:
+    if not (match := SLACK_TS.fullmatch(value)):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a Slack ts or a permalink's p-token")
+    return f"{match['seconds']}.{match['micros']}"
+
+
 def pr_spec(value: str) -> re.Match:
     if not (match := PR_SPEC.match(value)):
         raise argparse.ArgumentTypeError(f"{value!r} is not [OWNER/NAME#]N[=SHA]")
@@ -385,6 +436,15 @@ def build_parser() -> argparse.ArgumentParser:
     thread.add_argument("--thread-ts", required=True)
     thread.add_argument("--posted-ts", required=True)
     thread.set_defaults(handler=cmd_thread)
+
+    watch = subparsers.add_parser("watch", help="add a Slack channel or message someone linked to the drive's watch list")
+    watch.add_argument("--session", required=True)
+    watch.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
+    watch.add_argument("--lane", required=True, help="who linked it: owner, or the watch lane that read a reporter's link")
+    watch.add_argument("--channel", required=True)
+    watch.add_argument("--message", type=slack_ts, metavar="TS", help="the linked message: its ts, or the p-token of its permalink")
+    watch.add_argument("--thread-ts", type=slack_ts, metavar="TS", help="the thread root, when the link carries thread_ts")
+    watch.set_defaults(handler=cmd_watch)
 
     return parser
 
