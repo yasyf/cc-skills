@@ -788,9 +788,9 @@ def test_holds_py_entries_reach_stack_enqueue(shell, config, tmp_path):
 
 def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, config, tmp_path):
     shell.records = [
-        {"seq": 7, "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
-        {"seq": 8, "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
-        {"seq": 9, "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
+        {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
+        {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
+        {"seq": 9, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
     ]
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
