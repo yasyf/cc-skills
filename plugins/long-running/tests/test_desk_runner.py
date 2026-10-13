@@ -27,6 +27,8 @@ IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass perm
 PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
 RULING = "Requirement: " + "the release holds until the canary reads back green. " * 12 + "Then land the fix."
 PARAGRAPHS = "Ruling, in three parts:\n\n- hold the release; relay the canary result to walker\n- " + "rebuild each failed head once, " * 15 + "then stop\n\nReport on this thread."
+FAST_SQUASH = "5e11a9d0c2b47f6e8a1d3c5b7f9e0a2c4d6b8e1f"
+FAST_BODY = "Resume uploads a pre-session-rows thread instead of refusing.\n\nRelease-With: sand\n"
 
 
 class Process:
@@ -68,6 +70,7 @@ class FakeShell(runner_module.Shell):
         self.statuses = ""
         self.queue: dict[str, str] = {}
         self.activity: dict[str, str] = {}
+        self.bodies: dict[str, str] = {}
         self.rows: list[dict] = []
         self.verdict = {"verdict": "answer", "text": "the brief says yes"}
         self.launch_line = ""
@@ -86,6 +89,8 @@ class FakeShell(runner_module.Shell):
         self.records: list[dict] = []
         self.tail_error = ""
         self.post_error = ""
+        self.post_out = ""
+        self.post_ids: dict[str, int] = {}
         self.judge_process: Running | None = None
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
@@ -156,6 +161,9 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
+            return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
         if argv[:3] == ["gh", "pr", "view"]:
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
             return runner_module.Done(0, json.dumps({"comments": [{"body": self.activity[argv[3]]}] if argv[3] in self.activity else []}), "")
@@ -166,12 +174,16 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
         if argv[:2] == ["cci", "post"]:
-            flags = dict(zip(argv[2::2], argv[3::2]))
+            flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if stored := self.post_ids.get(flags.get("--id", "")):
+                return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
-            return runner_module.Done(0, f"#{len(self.posts)}\n", "")
+            if "--id" in flags:
+                self.post_ids[flags["--id"]] = len(self.posts)
+            return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
@@ -376,6 +388,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "ledger": "abc",
                     "checkout": str(tmp_path / "checkout"),
                     "holds": str(tmp_path / "holds.md"),
+                    "release_owner": "peer:sole-51",
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
             }
@@ -1401,6 +1414,227 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     landing_pass(shell, config)
     assert not [call for call in shell.calls if call[:2] == ["ccx", "vcs"]]
+
+
+def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged") -> dict:
+    return {"pr": "36642", "lane": LANE, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
+
+
+def land_fast(shell: FakeShell, config: Path, body: str = FAST_BODY, labels: str = "merge-fast,externally-merged") -> None:
+    shell.bodies["36642"] = body
+    shell.rows = [fast_row(shell, labels) | {"state": "open"}]
+    shell.gates["36642"] = [gate("#36642 QUEUED eeee555555 graphite QUEUED_TO_MERGE")]
+    landing_pass(shell, config)
+    shell.sleep(180)
+    shell.rows = [fast_row(shell, labels)]
+
+
+def body_reads(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["gh", "pr", "view"] and call[-1] == "body"]
+
+
+def release_action(tmp_path: Path) -> actions.Action:
+    return incident(tmp_path, "desk-landing").actions["release:36642"]
+
+
+def test_a_landed_merge_fast_pr_with_release_with_tells_the_release_owner_and_root_once(shell, config, tmp_path):
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    shell.sleep(180)
+    landing_pass(shell, config)
+    [release] = shell.posts
+    assert (release["kind"], release["to"], release["topic"], release["pr"], release["id"]) == ("release", "peer:sole-51,root", "36642", "36642", "release:36642:0")
+    assert release["text"].startswith("#36642 landed as 5e11a9d0c2 with merge-fast and Release-With: sand. Start the sand release now, then run `cci post --drive d1 ")
+    assert len(body_reads(shell)) == 1 and release_action(tmp_path).status == "completed"
+
+
+@pytest.mark.parametrize(
+    ("labels", "body", "reads"),
+    [("merge,externally-merged", FAST_BODY, 0), ("merge-fast", "Resume uploads the thread.\n\nRelease-Order: api before sand\n", 1)],
+    ids=["no-merge-fast-label", "no-release-with-line"],
+)
+def test_a_landing_without_the_merge_fast_label_or_a_release_with_line_posts_nothing(shell, config, tmp_path, labels, body, reads):
+    land_fast(shell, config, body=body, labels=labels)
+    for _ in range(3):
+        landing_pass(shell, config)
+        shell.sleep(11 * 60)
+    assert shell.posts == [] and len(body_reads(shell)) == reads
+
+
+def test_a_merge_fast_landing_older_than_the_runners_first_pass_is_history(shell, config, tmp_path):
+    shell.bodies["36642"] = FAST_BODY
+    shell.rows = [fast_row(shell)]
+    shell.sleep(60)
+    for _ in range(3):
+        landing_pass(shell, config)
+        shell.sleep(11 * 60)
+    assert shell.posts == [] and body_reads(shell) == []
+
+
+def test_a_landed_merge_fast_row_with_no_landing_time_is_history(shell, config, tmp_path):
+    land_fast(shell, config)
+    del shell.rows[0]["landed_at"]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.posts == [] and body_reads(shell) == []
+
+
+def test_every_release_with_line_names_its_components_once_and_any_of_them_counts(shell, config, tmp_path):
+    land_fast(shell, config, body="Moves the wire.\r\n\r\nRelease-With: api sand\r\nRelease-Order: api before sand\r\nRelease-With: sand restate\r\n")
+    landing_pass(shell, config)
+    assert "Release-With: api sand restate. Start the api sand restate release now" in shell.posts[0]["text"]
+    cci_record(shell, lane="sole", kind="release", refs={"targets": ["restate"]}, at=actions.stamp(shell.now()), text="restate release started")
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and release_action(tmp_path).status == "verified"
+
+
+def test_ten_minutes_with_no_release_record_posts_a_blocker_and_twenty_a_second(shell, config, tmp_path):
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    shell.sleep(9 * 60)
+    landing_pass(shell, config)
+    assert blockers(shell) == []
+    shell.sleep(60)
+    landing_pass(shell, config)
+    shell.sleep(180)
+    landing_pass(shell, config)
+    [late] = blockers(shell)
+    assert (late["to"], late["topic"], late["pr"]) == ("peer:sole-51,root", "36642", "36642")
+    assert late["text"].startswith("#36642 5e11a9d0c2: landed 10 minutes ago with merge-fast and Release-With: sand, and no cci `release` record since targets sand or names #36642. Start the sand release now")
+    shell.sleep(7 * 60)
+    landing_pass(shell, config)
+    assert [post["text"].split(": ", 1)[1].split(" with ")[0] for post in blockers(shell)] == ["landed 10 minutes ago", "landed 20 minutes ago"]
+    assert escalations(shell) == []
+
+
+@pytest.mark.parametrize("refs", [{"targets": ["sand"]}, {"prs": [36642]}, {"prs": ["Forge-AI/monorepo#36642"]}], ids=["target", "pr", "qualified-pr"])
+def test_a_release_record_naming_the_component_or_the_pr_stops_the_blockers(shell, config, tmp_path, refs):
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    seq = cci_record(shell, lane="sole", kind="release", refs=refs, at=actions.stamp(shell.now()), text="sand release started in build 6101")
+    shell.sleep(21 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    released = release_action(tmp_path)
+    assert blockers(shell) == [] and (released.status, released.verification_receipt["cci"]) == ("verified", seq)
+
+
+@pytest.mark.parametrize(
+    ("record", "minutes"),
+    [
+        ({"lane": "desk-runner", "refs": {"prs": [36642]}}, 0),
+        ({"lane": "sole", "refs": {"targets": ["sand"]}}, -5),
+        ({"lane": "sole", "refs": {"targets": ["api"], "prs": [36641, "Forge-AI/design-docs#36642"]}}, 0),
+        ({"lane": "sole", "drive": "release-v3", "refs": {"targets": ["sand"], "prs": [36642]}}, 0),
+    ],
+    ids=["the-runners-own-record", "before-the-landing", "another-release", "on-another-drive"],
+)
+def test_a_release_record_that_does_not_name_this_landing_stops_nothing(shell, config, tmp_path, record, minutes):
+    land_fast(shell, config)
+    cci_record(shell, kind="release", at=actions.stamp(shell.now() + timedelta(minutes=minutes)), text="release started", **record)
+    landing_pass(shell, config)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert len(blockers(shell)) == 1 and release_action(tmp_path).status == "completed"
+
+
+@pytest.mark.parametrize(
+    ("reply", "stops"),
+    [({"re": 1}, True), ({"resolves": 2}, True), ({"re": 6}, False), ({"re": 1, "drive": "release-v3"}, False)],
+    ids=["re-the-release-record", "resolves-the-blocker", "re-another-record", "another-drives-root"],
+)
+def test_a_root_reply_to_the_release_record_or_its_blocker_stops_the_blockers(shell, config, tmp_path, reply, stops):
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "blocker"]
+    seq = cci_record(shell, kind="answer", text="sole-51 is mid-apply; the root starts the sand release", **reply)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert len(blockers(shell)) == (1 if stops else 2)
+    assert (release_action(tmp_path).verification_receipt or {}).get("cci") == (seq if stops else None)
+
+
+def test_a_landing_first_read_late_posts_the_release_record_then_a_blocker_at_the_next_step(shell, config, tmp_path):
+    land_fast(shell, config)
+    shell.sleep(25 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release"]
+    shell.sleep(5 * 60)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "blocker"] and ": landed 30 minutes ago with " in shell.posts[1]["text"]
+
+
+def test_a_release_record_posted_just_before_a_crash_is_never_posted_twice(shell, config, tmp_path, monkeypatch):
+    land_fast(shell, config)
+    save = runner_module.release_posted
+
+    def killed(*args):
+        raise RuntimeError("killed after the post")
+
+    monkeypatch.setattr(runner_module, "release_posted", killed)
+    with pytest.raises(RuntimeError, match="killed after the post"):
+        cli(shell, config, "run", "--desk", "landing", "--once")
+    assert len(shell.posts) == 1 and release_action(tmp_path).status == "accepted"
+    monkeypatch.setattr(runner_module, "release_posted", save)
+    landing_pass(shell, config)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert [(post["kind"], post["id"]) for post in shell.posts] == [("release", "release:36642:0"), ("blocker", "release:36642:1")]
+    assert release_action(tmp_path).response["posted"] == {"0": 1, "1": 2}
+
+
+def test_a_post_that_prints_no_sequence_is_escalated_and_settled_by_the_repost(shell, config, tmp_path):
+    land_fast(shell, config)
+    shell.post_out = "cci: stored\n"
+    landing_pass(shell, config)
+    assert release_action(tmp_path).status == "accepted"
+    shell.post_out = ""
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "defect"] and release_action(tmp_path).response["posted"] == {"0": 1}
+    [line] = escalations(shell)
+    assert line.startswith("RELEASE-FAILED release:36642:0 #36642: cci printed no sequence for the release record to peer:sole-51,root: cci: stored; #36642 landed as 5e11a9d0c2 ")
+
+
+def test_a_release_record_cci_refuses_is_escalated_to_root_each_step_and_posted_once_cci_takes_it(shell, config, tmp_path):
+    land_fast(shell, config)
+    shell.post_error = "cci: peer:sole-51 matches no session"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert shell.posts == [] and release_action(tmp_path).status == "accepted"
+    shell.post_error = ""
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "defect", "defect"]
+    lines = escalations(shell)
+    assert [line.split(": ", 1)[0] for line in lines] == ["RELEASE-FAILED release:36642:0 #36642", "RELEASE-FAILED release:36642:1 #36642"]
+    assert lines[0].startswith("RELEASE-FAILED release:36642:0 #36642: cci refused the release record to peer:sole-51,root: cci: peer:sole-51 matches no session; #36642 landed as 5e11a9d0c2 ")
+
+
+def test_the_release_owner_and_the_start_deadline_are_the_ones_runner_json_names(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["release_owner"] = "release-desk"
+    raw["deadlines"] = {"release_start_minutes": 4}
+    config.write_text(json.dumps(raw))
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    shell.sleep(4 * 60)
+    landing_pass(shell, config)
+    assert [(post["kind"], post["to"]) for post in shell.posts] == [("release", "release-desk,root"), ("blocker", "release-desk,root")]
+    assert "landed 4 minutes ago" in shell.posts[1]["text"] and "repeats every 4 minutes" in shell.posts[1]["text"]
+
+
+def test_a_landing_config_that_names_no_release_owner_does_not_start(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    del raw["landing"]["release_owner"]
+    config.write_text(json.dumps(raw))
+    with pytest.raises(KeyError, match="release_owner"):
+        cli(shell, config, "run", "--desk", "landing", "--once")
 
 
 def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):

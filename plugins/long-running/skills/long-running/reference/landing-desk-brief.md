@@ -6,7 +6,9 @@ lanes never enqueue under D1, it and its runner enqueue and reconcile, and the r
 and a summary every 30 minutes. Where the checkout carries `stack-enqueue`,
 `desk-runner.py run --desk landing` owns ready-prefix enqueue, per-head gate
 blockers, and post-landing restacks (D3, D14, D16). The landing desk never
-enqueues or duplicates those routes beside the runner.
+enqueues or duplicates those routes beside the runner. The runner also sends the
+release of a landed `merge-fast` PR to the release owner under D20, and the desk
+never repeats those records.
 The brief below is ready to paste; fill the angle brackets.
 
 ## Root discipline
@@ -34,6 +36,16 @@ in one batched `ccx vcs pr status <n1> <n2> ...` call. If they pass, it enqueues
 them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
+
+A PR the root enqueues with `stack-enqueue <PR> --fast` carries the `merge-fast`
+label. When it lands with a `Release-With:` line in its body, the landing runner
+posts one cci `release` record to the release owner and the root in that pass. Every
+`deadlines.release_start_minutes` after the landing, 10 by default, it posts a
+`blocker` to both under D20. The blockers end when a `release` record on this drive
+from the release owner or the root names one of the line's components with `--target`
+or the PR with `--pr`, or when the root replies to one of them with `--re <seq>`. A
+`release` record the release owner posts on its own drive does not count, so it posts
+with `--drive <drive>`, as the runner's record tells it to.
 
 Hold a PR while its current head's review is pending or records an unwaived
 finding. No review, no base, and errored reviews fail open. Clean and overridden
@@ -93,7 +105,7 @@ Model opus. You run for the whole drive and never end a turn waiting.
 Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
 Authority: reconcile landings; you are the only enqueuer, and lanes never enqueue under D1. The
-  landing runner owns D3, D14, and D16 where stack-enqueue exists. Read
+  landing runner owns D3, D14, D16, and D20 where stack-enqueue exists. Read
   GitHub through `ledger.py` and `ccx vcs pr status`, with the Buildkite build list
   for CI and `ccx vcs pr watch` for transitions; add and
   pull the `merge` label through step 3's enqueue path / `ledger.py unlabel`; hold
@@ -368,7 +380,7 @@ Do, in this order, forever:
      `long-running:lane` sub-lane per set of lanes with this same brief plus
      `Shard: <lane,lane>`. Each sub-lane passes `--shard <lane,lane>` to refresh,
      landed, route, and stale. It runs step 3 only where the repo has no
-     stack-enqueue. The runner owns D3, D14, and D16 across all shards otherwise.
+     stack-enqueue. The runner owns D3, D14, D16, and D20 across all shards otherwise.
      Use a 3-minute cadence, staggered by a minute across desks and shards
      (:00/:01/:02), with one batched PR status read and the Buildkite build list.
      It never types messages in and never sends
