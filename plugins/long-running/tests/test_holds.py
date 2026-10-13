@@ -40,9 +40,13 @@ def test_a_reason_naming_a_dependency_or_a_prohibition_is_a_hold(tmp_path, reaso
 
 @pytest.mark.parametrize(
     ("line", "argv"),
-    [("lane:L28 release lane:L29 after owner review", ("--lane", "L28")), ("#30082 #30083 lane:L28 owner review", ("--pr", "30082"))],
+    [
+        ("lane:L28 release lane:L29 after owner review", ("--lane", "L28")),
+        ("#30082 #30083 lane:L28 owner review", ("--pr", "30082")),
+        ("hold:all lane:L28", ("--lane", "L28")),
+    ],
 )
-def test_rm_refuses_to_leave_a_release_line_or_a_new_hold(tmp_path, line, argv):
+def test_rm_refuses_to_leave_a_release_line_a_new_hold_or_a_line_no_form_matches(tmp_path, line, argv):
     path = tmp_path / "holds.md"
     path.write_text(f"{line}\n")
 
@@ -114,3 +118,67 @@ def test_list_names_what_each_line_holds_and_reads_a_runner_config(tmp_path, cap
         "lane:L28 waits\tholds lane:L28",
         "release #30083 reviewed\treleases #30083 reviewed",
     ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["L34-publish HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'", "HOLD L34-publish (L34 re-land): no enqueue until root posts 'L32 pass done'"],
+)
+def test_a_lane_hold_line_reads_as_its_lane_and_rm_drops_it(tmp_path, capsys, line):
+    path = tmp_path / "holds.md"
+    path.write_text(f"{line}\n")
+
+    assert [(entry.lanes, entry.prs, entry.unknown) for entry in holds.read(path)] == [(["L34-publish"], [], False)]
+    assert run(path, "list") == 0
+    assert capsys.readouterr().out == f"{line}\tholds lane:L34-publish\n"
+    assert run(path, "add", "--lane", "L34-publish", "--reason", "owner review") == 1
+    assert run(path, "rm", "--lane", "L34-publish") == 0
+    assert path.read_text() == ""
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["#30082 owner review", "lane:L28 waits", "L28 HOLD waits", "HOLD L28 waits", "hold:all owner review", "release #30082 reviewed", "release lane:L28", "", "   "],
+)
+def test_every_form_and_a_blank_line_is_known(line):
+    assert not holds.Entry(line).unknown
+
+
+@pytest.mark.parametrize("line", ["36935 waits for the L32 pass", " #30082 owner review", "L28: waits", "hold L28 waits", "L28 on HOLD", "L28 HOLD: waits", "hold:all", "HOLD"])
+def test_a_line_no_form_matches_is_unknown(line):
+    assert holds.Entry(line).unknown
+
+
+def test_list_says_a_line_no_form_matches_stops_the_runner(tmp_path, capsys):
+    path = tmp_path / "holds.md"
+    path.write_text("\n36935 waits for the L32 pass\n")
+
+    assert [entry.unknown for entry in holds.read(path)] == [False, True]
+    assert run(path, "list") == 0
+    assert capsys.readouterr().out == "36935 waits for the L32 pass\tmatches no form; the landing runner enqueues nothing until it is fixed\n"
+
+
+def test_rowless_names_each_lane_line_whose_lane_no_row_carries_in_any_state():
+    rows = {"36935": {"lane": "ship-l34-reland", "state": "open"}, "36397": {"lane": "L34-publish", "state": "landed"}}
+    entries = [
+        holds.Entry("L34-publish HOLD waits"),
+        holds.Entry("HOLD L35-sizing waits"),
+        holds.Entry("lane:ship-l34-reland lane:L36-unopened waits"),
+        holds.Entry("#36934 owner review"),
+        holds.Entry("release lane:L37-unopened"),
+        holds.Entry("36935 waits for the L32 pass"),
+    ]
+
+    assert holds.rowless(entries, rows) == {"HOLD L35-sizing waits": ["L35-sizing"], "lane:ship-l34-reland lane:L36-unopened waits": ["L36-unopened"]}
+
+
+def test_held_resolves_lane_lines_to_open_rows_and_a_rowless_lane_to_nothing():
+    rows = {
+        "36934": {"lane": "L35-sizing", "state": "open"},
+        "36935": {"lane": "L34-publish", "state": "open"},
+        "36397": {"lane": "L34-publish", "state": "landed"},
+    }
+
+    assert holds.held([holds.Entry("L34-publish HOLD waits")], rows) == {"36935"}
+    assert holds.held([holds.Entry("HOLD L35-sizing waits"), holds.Entry("lane:L36-unopened waits"), holds.Entry("#30082 owner review")], rows) == {"36934", "30082"}
+    assert holds.held([holds.Entry("hold:all owner review"), holds.Entry("release lane:L34-publish"), holds.Entry("release #30082 reviewed")], rows) == {"36934"}

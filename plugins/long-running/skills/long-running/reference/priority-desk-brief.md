@@ -105,9 +105,10 @@ Do, in this order, every iteration:
        enqueue under D1; never enqueue above a held PR or any PR of a held lane.
        Lanes report `held` on the tip, name the held PR, and leave release to the root.
        Before every enqueue, re-read the root's holds file. Each line names one
-       held PR as a leading #<n>, or whole lanes as lane:<name>, then the reason. Build a fresh
+       held PR as a leading #<n>, or whole lanes as lane:<name>, `<lane> HOLD`, or
+       `HOLD <lane>`, then the reason. Build a fresh
        digits-only file with `{ grep -o '^#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
-       Append every open PR number whose row's lane matches a lane:<name> entry,
+       Append every open PR number whose row's lane matches one of those lane entries,
        from `ledger.py show --ledger <id> --json` across the whole ledger, even
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
        the reasons, and expiries under D6; lift holds when the root removes them.

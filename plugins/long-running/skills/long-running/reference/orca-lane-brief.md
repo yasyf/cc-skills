@@ -166,8 +166,8 @@ Worktree and VCS:
 Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkout):
 - Ledger `<id>`; script `ledger.py`, on PATH by name; repo
   `<owner/name>`; base `<base>`.
-- Holds file `<path>`, root-owned; #<n> names a held PR, lane:<name> a held lane,
-  followed by the reason. Only the root edits it.
+- Holds file `<path>`, root-owned; #<n> names a held PR, and lane:<name>, `<lane> HOLD`,
+  or `HOLD <lane>` a held lane, followed by the reason. Only the root edits it.
 - You are a separate session. Register your prefix and report verdicts yourself;
   `ccx vcs ship` records each PR you open in the ledger and posts its `opened` record on cci,
   so never post `opened` yourself. Never SendMessage a subagent.
