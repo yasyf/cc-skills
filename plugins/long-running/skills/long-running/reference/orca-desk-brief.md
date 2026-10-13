@@ -127,14 +127,14 @@ Every incident fix lane the runner launched is on a clock from its verified laun
 A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
 line says `role=incident` or names an `incident=`. A brief that names another role,
 such as `role=evidence`, is never clocked, and neither is `incident=none`. On each
-pass the runner reads the lane's own cci records and its `mechanism:` and `fix-live:`
-Run statuses:
+pass the runner reads the lane's own cci records and its `mechanism:`, `ready:`, and
+`fix-live:` Run statuses:
 
 | Minutes since launch | Missing | The runner |
 |---|---|---|
 | `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
 | `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
-| `deadlines.incident_ready_minutes`, default 20 | a `ready` record, or a `report` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
+| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
 
 A later milestone counts for the earlier ones, so an opened PR also settles the
 mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
@@ -162,6 +162,32 @@ the executor launches none while the clock's `<lane>-opus` is launching or live.
 *Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
 hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
 the Opus fallback was started by hand an hour late.*
+
+A case a fix does not cover is an incident lane, never backlog. The alert fix brief
+and the executor's fix brief make every incident fix lane reproduce the reporter's
+own case before it reports ready. The lane closes its ready report and its
+`worker_done` with one `UNFIXED <lane>: <case>` line per known case the fix does not
+cover, or `UNFIXED <lane>: none`. When an incident fix lane's `worker_done` message, or its
+`ready:` or `fix-live:` Run status, carries such lines in its body, the runner
+launches `<lane>-case<n>` on incident xhigh for each case in the same pass, with no
+root turn. It fills `reference/unfixed-case-brief.md` with the case verbatim, the
+parent lane, the path of the parent's brief, and the PRs the parent's cci `opened`
+records name. It attaches that brief to the briefs log as `<lane>-case<n>.full.md`
+and logs:
+
+```text
+INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <lane>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
+```
+
+A case launches once per lane, however often the lane reports it, and
+`UNFIXED <lane>: none` launches nothing. The case brief carries the same reproduce
+step and `UNFIXED` field, so a case lane's own uncovered cases launch further case
+lanes, and the clock above covers each one. A lane that is not an incident fix lane
+launches nothing this way.
+
+*Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
+neighbouring case while the reporter's own thread still failed, and two edge cases
+the fix lane had named sat as backlog for two hours until a customer hit them.*
 
 An urgent release hold is one line in the same inbox. The holding lane names
 itself or a dedicated decision-owner lane and states both the release and its
@@ -565,7 +591,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | Kind | Root action |
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
-| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. |
+| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. |
 | `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
@@ -577,7 +603,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
-| `FIX-LIVE`, `MECHANISM` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
+| `FIX-LIVE`, `MECHANISM`, `READY` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
 | `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |

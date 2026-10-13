@@ -1917,7 +1917,10 @@ def test_a_cursor_checkpoint_survives_a_failure_mid_batch(shell, config, tmp_pat
     assert [line.split()[1] for line in escalations(shell)] == [message["id"] for message in messages]
 
 
-@pytest.mark.parametrize("subject,kind,sender,lane", [("fix-live: 12:48 PM PT release abc", "FIX-LIVE", "term_ctx_a", LANE), ("MeChAnIsM: wrong selector", "MECHANISM", "term_unknown", "term_unknown")])
+@pytest.mark.parametrize(
+    "subject,kind,sender,lane",
+    [("fix-live: 12:48 PM PT release abc", "FIX-LIVE", "term_ctx_a", LANE), ("MeChAnIsM: wrong selector", "MECHANISM", "term_unknown", "term_unknown"), ("ready: #12 green at 9c0b891", "READY", "term_ctx_a", LANE)],
+)
 def test_milestone_status_escalates_once_per_message_id(shell, config, tmp_path, subject, kind, sender, lane):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
@@ -3203,6 +3206,137 @@ def test_a_fallback_for_a_high_cpu_incident_brief_stays_on_the_mac(shell, config
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert sprite_launches(shell) == [] and [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"]
+
+
+CASES = ("resume of a thread with attachments still fails", "resume after an interrupted import loses the draft")
+
+
+def unfixed_report(shell: FakeShell, lane: str, kind: str, *cases: str, **fields) -> dict:
+    body = "\n".join([f"PR #4242 is green on {lane}.", *(f"UNFIXED {lane}: {case}" for case in cases)])
+    message = {"subject": f"{kind}: READY {lane}: #4242 green", "body": body, "from_handle": f"term_ctx_{lane}"}
+    if kind == "worker_done":
+        message |= {"type": "worker_done", "subject": "shipped", "payload": json.dumps({"dispatchId": f"ctx_{lane}", "outcome": "succeeded"})}
+    return shell.receive(message | fields)
+
+
+def incident_lines(shell: FakeShell, lane: str = LANE) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith(f"INCIDENT {lane} ")]
+
+
+@pytest.mark.parametrize("kind", ["ready", "fix-live", "worker_done"])
+def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in_the_same_pass(shell, config, tmp_path, kind):
+    brief = clocked_lane(shell, config, tmp_path)
+    shell.sleep(60)
+    lane_record(shell, LANE, "opened", prs=[4250])
+    lane_record(shell, LANE, "opened", prs=[4242])
+    unfixed_report(shell, LANE, kind, *CASES)
+    orca_pass(shell, config)
+    lanes = [f"{LANE}-case1", f"{LANE}-case2"]
+    briefs = [shell.attachments[f"{lane}.full.md"] for lane in lanes]
+    assert launches(shell)[1:] == [[str(runner_module.LAUNCHER), lane, "incident", "xhigh", str(path)] for lane, path in zip(lanes, briefs, strict=True)]
+    for lane, path, case in zip(lanes, briefs, CASES, strict=True):
+        text = path.read_text()
+        assert text.startswith(f"ccx: lane={lane} role=incident effort=xhigh\n") and "{" not in text
+        assert f"The case, in the words of `{LANE}`:\n{case}\n" in text
+        assert f"`{LANE}` works from the brief at {brief}." in text and "Its pull requests so far: #4242 #4250." in text
+        assert "Reproduce the case above exactly as written" in text and f"`UNFIXED {lane}: none`" in text
+    assert shell.entries == [f"INCIDENT {LANE}: unfixed case brief for {lane}: {case}" for lane, case in zip(lanes, CASES, strict=True)]
+    assert incident_lines(shell) == [
+        f"INCIDENT {LANE} 11:01: its fix does not cover: {case} | case lane {lane} launching on incident xhigh, brief {path}; root: ratify, and keep the reporter told that this case is still open"
+        for lane, path, case in zip(lanes, briefs, CASES, strict=True)
+    ]
+    assert [post["kind"] for post in shell.posts if post["text"].startswith(f"INCIDENT {LANE} ")] == ["incident", "incident"]
+
+
+def test_an_unfixed_none_line_launches_nothing(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    unfixed_report(shell, LANE, "ready", "none")
+    unfixed_report(shell, LANE, "worker_done", "None.")
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+
+
+def test_a_case_reported_again_launches_nothing_new(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    message = unfixed_report(shell, LANE, "ready", CASES[0])
+    orca_pass(shell, config)
+    shell.launch(f"{LANE}-case1", "ctx_case1")
+    orca_pass(shell, config)
+    unfixed_report(shell, LANE, "ready", CASES[0], id=message["id"])
+    orca_pass(shell, config)
+    shell.dispatches["ctx_case1"]["status"] = "completed"
+    unfixed_report(shell, LANE, "worker_done", *CASES)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == list(CASES)
+    assert len(incident_lines(shell)) == 2
+
+
+@pytest.mark.parametrize(("model", "header"), [("opus", ""), ("incident", "ccx: role=evidence\n")])
+def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothing(shell, config, tmp_path, model, header):
+    clocked_lane(shell, config, tmp_path, model=model, header=header)
+    shell.launch("by-hand", "ctx_by-hand")
+    unfixed_report(shell, LANE, "worker_done", *CASES)
+    unfixed_report(shell, "by-hand", "worker_done", *CASES)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+
+
+def test_a_case_lanes_own_unfixed_case_launches_a_further_case_lane(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    unfixed_report(shell, LANE, "ready", CASES[0])
+    orca_pass(shell, config)
+    case = f"{LANE}-case1"
+    shell.launch(case, f"ctx_{case}")
+    orca_pass(shell, config)
+    unfixed_report(shell, case, "worker_done", CASES[1])
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, case, f"{case}-case1"]
+    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in shell.attachments[f"{case}-case1.full.md"].read_text()
+    assert [line.split(" | ")[1].split(" launching")[0] for line in incident_lines(shell, case)] == [f"case lane {case}-case1"]
+
+
+def test_a_case_lane_whose_brief_fails_to_attach_is_named_and_not_launched(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.attach_error = "error: cc-notes: ref lock held"
+    unfixed_report(shell, LANE, "worker_done", CASES[0])
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1
+    assert incident_lines(shell) == [f"INCIDENT {LANE} 11:00: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
+
+
+def test_a_ready_status_from_the_run_escalates_and_stops_the_clock(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(5 * 60)
+    message = unfixed_report(shell, LANE, "ready", "none")
+    orca_pass(shell, config)
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    assert f"READY {message['id']} {LANE}: ready: READY {LANE}: #4242 green: PR #4242 is green on {LANE}. UNFIXED {LANE}: none" in escalations(shell)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
+def test_the_unfixed_case_brief_renders_with_every_field_filled():
+    fields = {"lane": "dd-7-fix-case1", "parent": "dd-7-fix", "case": "resume of thread T123 still fails", "parent_brief": "/lfs/parent.md", "prs": "#4242", "onset": "11:20", "log": "briefs1", "facts": "apply authority: 0 deletes"}
+    text = runner_module.UNFIXED_TEMPLATE.read_text().format(**fields)
+    assert "{" not in text and all(value in text for value in fields.values())
+    assert "fix proven only on a synthetic or neighbouring case is not ready." in text
+    assert "`UNFIXED dd-7-fix-case1: none`" in text and "`READY dd-7-fix-case1: " in text
+
+
+def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    text = shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+    assert "Before READY, reproduce the reporter's own case" in text
+    assert "A fix proven only on a synthetic or neighbouring case is not" in text
+    assert "`UNFIXED alerts-api-0305-fix: none`" in text and "{" not in text
+
+
+def test_the_unfixed_grammar_reads_bullets_and_code_ticks_and_names_each_case_once():
+    body = "done.\nUNFIXED a-fix: one\n- UNFIXED a-fix:   two  words \n> `UNFIXED a-fix: three`\nUNFIXED a-fix: one\nUNFIXED a-fix: none\nsee UNFIXED a-fix: four\n"
+    assert runner_module.unfixed_cases(body) == ["one", "two words", "three"]
 
 
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
