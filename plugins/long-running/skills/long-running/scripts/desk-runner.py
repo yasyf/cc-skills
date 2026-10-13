@@ -61,7 +61,7 @@ launch on the incident alias, or on a brief whose `ccx:` line says `role=inciden
 an `incident=`, unless that brief names a role other than `fix` or `incident`. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
 `not-ours`, `stopped`, and `stand-down`, a `report` that starts `READY`, and its
-`mechanism:` and `fix-live:` Run statuses. With no mechanism at
+`mechanism:`, `ready:`, and `fix-live:` Run statuses. With no mechanism at
 `deadlines.incident_mechanism_minutes` (default 10), or no PR at
 `deadlines.incident_pr_minutes` (default 15), the runner launches `<lane>-opus` once per
 launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
@@ -76,6 +76,19 @@ executor adopted gets none from the clock while that executor's own Opus backup 
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
 settles, and `show` prints each clocked lane's minutes and milestones.
+When an incident fix lane's `worker_done` message, or its `ready:` or `fix-live:` Run
+status, carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
+`<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
+the lane's name without its trailing `-opus` and `-case<n>` parts. The brief is the
+unfixed-case brief filled with the case verbatim, the reporting lane, the path of that
+lane's brief, and the PRs its cci `opened` records name, attached to the briefs log as
+`<first>-case<n>.full.md`. The runner logs
+`INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching …`
+for the root to ratify. Only a line that names the reporting lane counts, and
+`UNFIXED <lane>: none` launches nothing. A case launches once across a lane, its `-opus`
+fallback, and its case lanes, however often and by whichever of them it is reported, and a
+case whose launch is refused launches on the next report that names it. A case lane is an
+incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
 from the desk inbox itself or one that carries `--re`; a record that is no directive logs
@@ -250,16 +263,22 @@ LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
+UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
+UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
+UNFIXED_CASES = "unfixed-cases"
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
-NO_INCIDENT = "none"
+NAMES_NOTHING = "none"
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
 FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
 CLOCK = "incident-clock"
 MILESTONE_STATUSES = "milestone-statuses"
+MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
 CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
 READY_REPORT = "READY"
+CASE = "-case"
+LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
@@ -370,7 +389,30 @@ def brief_incidents(brief: Path) -> set[str]:
 def incident_fix(model: str, brief: Path) -> bool:
     """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a brief naming no role but fix or incident."""
     roles = set(ROLE.findall(brief.read_text())) if brief.is_file() else set()
-    return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NO_INCIDENT}))
+    return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
+
+
+def fix_launch(incident: actions.Incident) -> actions.Action | None:
+    """A lane container's newest verified launch, when it is an incident fix lane's."""
+    launch = next((action for action in reversed(incident.actions.values()) if action.kind == "launch" and action.status == "verified"), None)
+    if not launch:
+        return None
+    spec = json.loads(launch.target)
+    return launch if incident_fix(spec["model"], Path(spec["brief"])) else None
+
+
+def first_lane(lane: str) -> str:
+    """The lane an incident's fallback and case lanes descend from: the name without its trailing `-opus` and `-case<n>` parts."""
+    return LINEAGE.sub("", lane)
+
+
+def unfixed_cases(text: str, lane: str) -> dict[str, str]:
+    """The cases this lane's own `UNFIXED <lane>: <case>` lines name, in order and as first written, keyed by the text with its whitespace runs collapsed; `UNFIXED <lane>: none` names no case."""
+    cases: dict[str, str] = {}
+    for match in UNFIXED.finditer(text):
+        if match["lane"] == lane and match["case"].rstrip(".").lower() != NAMES_NOTHING:
+            cases.setdefault(" ".join(match["case"].split()), match["case"])
+    return cases
 
 
 def clock_mark(record: dict) -> str:
@@ -992,18 +1034,73 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
-        facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
         incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
-        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=facts)
-        if failure := self.attach(f"{lane}.full.md", text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}"):
-            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the brief did not attach: {failure}")
-            return
-        brief = self.attachment(f"{lane}.full.md")
+        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=self.drive_facts())
+        brief, failure = self.attach_brief(lane, text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}")
         if brief is None:
-            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the attached brief has no path")
+            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
             return
         self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
+
+    def drive_facts(self) -> str:
+        return self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
+
+    def attach_brief(self, lane: str, text: str, entry: str) -> tuple[Path | None, str]:
+        """Attach a generated brief to the briefs log as `<lane>.full.md`; its path, or why it has none."""
+        if failure := self.attach(f"{lane}.full.md", text, entry):
+            return None, f"the brief did not attach: {failure}"
+        brief = self.attachment(f"{lane}.full.md")
+        return (brief, "") if brief else (None, "the attached brief has no path")
+
+    def unfixed(self, lane: str, message: dict) -> None:
+        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes."""
+        cases = unfixed_cases(message.get("body") or "", lane)
+        if not cases or lane_container(lane) not in self.book.store.ids():
+            return
+        launch = fix_launch(self.book.load(lane_container(lane)))
+        if not launch:
+            return
+        first = first_lane(lane)
+        container = self.lane(first)
+        for index, (known, case) in enumerate(cases.items(), 1):
+            taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
+            if known not in taken and self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, f"unfixed:{message['id']}:{index}"):
+                self.book.edit(container, lambda incident, taken=[*taken, known]: incident.facts.update({UNFIXED_CASES: taken}))
+
+    def case_lane(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> bool:
+        """Launch a case lane on the incident alias from the unfixed-case brief, freshly attached to the briefs log, and say whether the launch was taken; the root ratifies from the INCIDENT line."""
+        log = f"escalation:{key}"
+        line = f"INCIDENT {parent} {pacific(self.now())}: its fix does not cover: {case}"
+        if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
+            self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
+            return False
+        text = UNFIXED_TEMPLATE.read_text().format(
+            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), log=self.config.briefs_log, facts=self.drive_facts()
+        )
+        brief, failure = self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
+        if brief is None:
+            self.record(log, f"{line} | case lane {lane} not launched: {failure}")
+            return False
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
+        self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
+        return True
+
+    def opened_prs(self, lane: str, launch: actions.Action) -> str:
+        """The PRs a lane's own cci `opened` records name since its launch, each once, as `#1 owner/repo#2`."""
+        launched = actions.parse_stamp(launch.verification_receipt["at"])
+        try:
+            opened = self.lane_records(lane, "opened")
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return "unknown, cci could not be read"
+        prs = {pr_name(pr) for record in opened if actions.parse_stamp(record["at"]) >= launched for pr in record["refs"].get("prs", [])}
+        return " ".join(sorted(prs)) or "none opened yet"
+
+    def lane_records(self, lane: str, *kinds: str) -> list[dict]:
+        """A lane's own cci records of these kinds on this drive; `cci tail` also returns the caller's peer mail, which is dropped."""
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", lane, *(f"--kind={kind}" for kind in kinds))
+        return [record for record in posted if record["drive"] == self.config.drive and record["lane"] == lane and record["kind"] in kinds]
 
     def holds(self, slug: str) -> list[actions.Action]:
         return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
@@ -1455,12 +1552,15 @@ class Runner:
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
-        elif message["type"] == "status" and subject.lower().startswith(("fix-live:", "mechanism:")):
+            self.unfixed(lane, message)
+        elif message["type"] == "status" and subject.lower().startswith(MILESTONE_SUBJECTS):
             kind = subject.split(":", 1)[0].upper()
             self.keep(message)
             body = " ".join((message.get("body") or "").split())[:300]
             self.escalate(message["id"], kind, lane, f"{subject}: {body}")
             self.stamp_status(lane, message["id"], kind.lower())
+            if kind != "MECHANISM":
+                self.unfixed(lane, message)
         elif message["type"] in ("decision_gate", "handoff"):
             self.keep(message)
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
@@ -1660,13 +1760,10 @@ class Runner:
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             incident = self.book.load(container)
-            launch = next((action for action in reversed(incident.actions.values()) if action.kind == "launch" and action.status == "verified"), None)
+            launch = fix_launch(incident)
             kept = incident.facts.get(CLOCK) or {}
             current = bool(launch) and kept.get("key") == launch.action_id
-            if not launch or (current and kept["ended"]):
-                continue
-            spec = json.loads(launch.target)
-            if not incident_fix(spec["model"], Path(spec["brief"])) or not (dispatch := self.orca.show(lane)):
+            if not launch or (current and kept["ended"]) or not (dispatch := self.orca.show(lane)):
                 continue
             launched = actions.parse_stamp(launch.verification_receipt["at"])
             clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
@@ -1688,9 +1785,7 @@ class Runner:
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
         """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run."""
-        kinds = (*CLOCK_MILESTONES, *CLOCK_ENDS, "report")
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", lane, *(f"--kind={kind}" for kind in kinds))
-        marks = [(mark, record["at"]) for record in posted if record["drive"] == self.config.drive and record["lane"] == lane and (mark := clock_mark(record))]
+        marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, "report") if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
@@ -1732,11 +1827,9 @@ class Runner:
         if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief):
             return f"no fallback launched for {backup}: {refusal}"
         text = FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text())
-        if failure := self.attach(f"{backup}.full.md", text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min"):
-            return f"no fallback launched for {backup}: the brief did not attach: {failure}"
-        attached = self.attachment(f"{backup}.full.md")
+        attached, failure = self.attach_brief(backup, text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
-            return f"no fallback launched for {backup}: the attached brief has no path"
+            return f"no fallback launched for {backup}: {failure}"
         self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
         return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
 
@@ -1818,6 +1911,11 @@ def head_pins(heads: dict[str, str]) -> list[str]:
 
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
+
+
+def pr_name(pr: int | str) -> str:
+    """A cci PR reference in prose: a bare number as `#12`, `owner/repo#12` as written."""
+    return str(pr) if "#" in str(pr) else f"#{pr}"
 
 
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:

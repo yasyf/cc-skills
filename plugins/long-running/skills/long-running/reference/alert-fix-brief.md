@@ -38,18 +38,35 @@ Do:
        minutes of launch. Past that the desk launches `{lane}-opus`, an Opus
        fallback on this brief, in parallel. Keep working; the first PR wins.
      - The PR, within 15 minutes. `ccx vcs ship` posts its `opened` record for you.
-     - `READY {lane}: <PR number, head, what is green>`, kind `ready`, within 20
-       minutes.
-     - `FIX-LIVE {lane}: <what, where, counts, time>`, kind `fix-live`, when the
-       alert recovers, or `NOT-OURS {lane}: <evidence and who owns it>`, kind
-       `not-ours`. Either one stops the clock.
+     - `READY {lane}: <PR number, head, the reporter's case failing before and
+       passing after>`, kind `ready`, within 20 minutes.
+     - `FIX-LIVE {lane}: <what, where, counts, the reporter's case passing on the
+       released build, time>`, kind `fix-live`, when the alert recovers, or
+       `NOT-OURS {lane}: <evidence and who owns it>`, kind `not-ours`. Either one
+       stops the clock.
      Each limit you pass without its record sends a blocker to the root, who tells
      the owner.
   3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
+     Before each push, build and vet the packages you touched: `go build` and
+     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
+     locally; CI grades them.
+  4. Before READY, reproduce the reporter's own case, the exact thread, run,
+     request, or monitor query the report named. Show it failing before the fix
+     and passing on the build that carries the fix, and quote both results in the
+     `READY` line. A fix proven only on a synthetic or neighbouring case is not
+     ready. After the release, run the same case on the released build and quote
+     that result in `FIX-LIVE`.
+  5. With READY, and again in `worker_done`, list every known case the fix does
+     not cover, one line each, exactly `UNFIXED {lane}: <the case, one line>`, or
+     `UNFIXED {lane}: none`. Send the lines to the Run as the body of a status
+     message whose subject is `ready: <the READY line>`, and put them in the
+     `worker_done` body. The desk launches an incident lane for each case at once,
+     so no case waits as backlog.
 
 Log: every rollback, apply, or other state-changing production command you run
   gets one line on that log in the same turn:
   `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
-Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
+Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done` with the
+`UNFIXED` lines.

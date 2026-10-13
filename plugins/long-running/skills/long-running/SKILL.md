@@ -486,8 +486,8 @@ relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 
 Every incident fix lane the runner launched is on a 20-minute clock from its
 verified launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to
-`ready`. The runner reads the lane's own cci records and its `mechanism:` and `fix-live:`
-statuses. Past the mechanism or the PR limit it launches `<lane>-opus` itself, on
+`ready`. The runner reads the lane's own cci records and its `mechanism:`, `ready:`, and
+`fix-live:` statuses. Past the mechanism or the PR limit it launches `<lane>-opus` itself, on
 opus xhigh in Claude fast mode, on the lane's own brief under a fallback header.
 Each missed limit posts one blocker to the root:
 
@@ -509,6 +509,28 @@ limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
 *Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
 hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
 the Opus fallback was started by hand an hour late.*
+
+A case the fix does not cover is an incident lane, never backlog. Both fix briefs
+make the lane reproduce the reporter's own case before it reports ready. That case
+is the exact thread, run, request, or monitor query the report named. It has to
+fail before the fix, pass on the build that carries the fix, and pass again on the
+released build before `fix-live`. A fix proven only on a synthetic or neighbouring
+case is not ready, and the root never tells a reporter "fixed" on one.
+
+The lane closes its ready report and its `worker_done` with one
+`UNFIXED <lane>: <case>` line per known case the fix does not cover, or
+`UNFIXED <lane>: none`. For each case the runner launches `<first>-case<n>` on
+incident xhigh in the same pass, where `<first>` is the first fix lane of the
+incident, on a brief filled from `reference/unfixed-case-brief.md`. It logs the
+launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane
+<first>-case<n> launching …`. A case launches once, whether the fix lane, its
+`-opus` fallback, or a case lane reports it. The root ratifies the
+case lane and keeps the reporter told that the case is still open. It never parks
+a named case for later while the break is live.
+
+*Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
+neighbouring case while the reporter's own thread still failed, and two edge cases
+the fix lane had named sat as backlog for two hours until a customer hit them.*
 
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
@@ -1288,7 +1310,7 @@ text from the file `cci post` writes for a text over 400 characters and relays
 all of it, line breaks kept.
 
 Lane results reach the root as `FIX-LIVE`,
-`MECHANISM`, or `OUTCOME` escalation lines, or by Run message id. Never reconstruct
+`MECHANISM`, `READY`, or `OUTCOME` escalation lines, or by Run message id. Never reconstruct
 the latest lane state with `grep ... | tail` across several files: file order can
 hide an earlier file's newest lines. Never use `orca orchestration inbox | grep -A`
 for this: the listing puts newer messages above the match.

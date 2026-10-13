@@ -318,25 +318,38 @@ Do:
      agreed design whole. A first PR that leaves out part of a ruling (its
      footers, its judge, its entry point) changes what the code means, so it is
      a hold, never a "static first" split; mitigate through the apply instead.
-  5. Open the PR through <submit skill>, then record it:
+  5. Before each push, build and vet the packages you touched: `go build` and
+     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
+     locally; CI grades them.
+     Open the PR through <submit skill>, then record it:
      `incident.py note --incident <incident id> --pr <PR number>`.
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.
-  6. When the PR is green, say so on cci:
-     `cci post --drive <bus id> --lane <fix lane name> --kind ready --pr <PR number> --text "READY <fix lane name>: <PR number, head, what is green>"`.
-  7. For a fix that needs a production apply, plan through <break-glass skill>,
+  6. Before you call the fix ready, reproduce the reporter's own case, the exact
+     thread, run, request, or monitor query the report named. Show it failing
+     before the fix and passing on the build that carries the fix. A fix proven
+     only on a synthetic or neighbouring case is not ready.
+  7. When the PR is green and that case passes, say so on cci:
+     `cci post --drive <bus id> --lane <fix lane name> --kind ready --pr <PR number> --text "READY <fix lane name>: <PR number, head, the case failing before and passing after>"`.
+     Then send a status Run message with subject `ready: <PR number>`. Its body
+     lists every known case the fix does not cover, one line each, exactly
+     `UNFIXED <fix lane name>: <the case, one line>`, or
+     `UNFIXED <fix lane name>: none`. The orca desk launches an incident lane
+     for each case at once, so no case waits as backlog.
+  8. For a fix that needs a production apply, plan through <break-glass skill>,
      apply under the authority above, log the apply in <runbook> and on the
      production-operations log, and verify it against the alert's metric. Then
      record the evidence:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
      If the evidence shows the alert is not ours, record that instead:
      `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
-  8. Run <exact live-check command> every two minutes and post its output as a
-     status Run message until it shows <expected live output>. Then send a status
+  9. Run <exact live-check command> every two minutes and post its output as a
+     status Run message until it shows <expected live output>. Run the
+     reporter's own case again on the released build. Once both pass, send a status
      Run message with subject `fix-live: <h:mm PM PT> <evidence>`. The brief names
      that exact command; the root uses it too. For a static site, for example:
      `curl -fsS https://platform.poetic.com/ | grep -oE '/releases/[0-9a-f]{40}/' | head -1`.
-  9. Record every artifact in cc-notes, never under ~/.claude/scratch:
+  10. Record every artifact in cc-notes, never under ~/.claude/scratch:
      `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
      A directory goes as one .tgz; `--replace` updates a same-named attachment.
      Investigation detail goes to
@@ -349,7 +362,7 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Never fable or astra.
   When the orca desk launched you, its clock also runs from your launch: a
   mechanism within 10 minutes, an opened PR within 15, ready within 20. It
-  reads your `mechanism:` and `fix-live:` status messages and the cci records
+  reads your `mechanism:`, `ready:`, and `fix-live:` status messages and the cci records
   posted as <fix lane name>: `mechanism`, the PR's `opened` record, which
   `ccx vcs ship` posts, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
@@ -359,8 +372,9 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
 Finish: when the PR is noted and any production apply is verified, report to
-  <root agent name> with the PR, head, apply counts, and runbook entry. Use the bus
-  when unsupervised, otherwise the preamble's Orca worker_done command. Your
+  <root agent name> with the PR, head, apply counts, runbook entry, and the
+  `UNFIXED` lines again. Use the bus when unsupervised, otherwise the
+  preamble's Orca worker_done command. Your
   completion settles this assignment; the executor owns the incident until its
   final reply. Never report live from a mute.
 ```
