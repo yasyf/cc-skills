@@ -3,9 +3,9 @@
 
 `add --pr <n> --reason R` writes `#<n> R`, `add --lane <name> --reason R` writes
 `lane:<name> R`, `rm` deletes that entry, and `list` prints every line with what it holds.
-Every `#<n>` outside a `release` line holds that PR, so a reason never carries `#<n>` or
-`lane:<name>`, and a PR line whose reason says the PR should land is refused: remove its
-hold instead. Name the file with `--file`, or with `--config` for a desk-runner config.
+A line holds the one PR its leading `#<n>` names; every later `#<n>` is prose. A reason
+never carries `lane:<name>`, and a PR line whose reason says the PR should land is refused:
+remove its hold instead. Name the file with `--file`, or with `--config` for a desk-runner config.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-HELD_PR = re.compile(r"#(\d+)")
+HELD_PR = re.compile(r"^#(\d+)", re.MULTILINE)
 HELD_LANE = re.compile(r"\blane:(\S+)")
 HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
 RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
@@ -83,8 +83,8 @@ def check_reason(reason: str, pr: str | None) -> str:
     reason = " ".join(reason.split())
     if not reason:
         raise Refused("a hold needs a reason")
-    if HELD_PR.search(reason) or HELD_LANE.search(reason):
-        raise Refused(f"the reason `{reason}` names `#<n>` or `lane:<name>`, which the runner reads as another hold; name other PRs without the `#`")
+    if HELD_LANE.search(reason):
+        raise Refused(f"the reason `{reason}` names `lane:<name>`, which the runner reads as another hold; name the lane without the `lane:`")
     if pr and SHOULD_LAND.search(reason):
         raise Refused(f"the reason `{reason}` says #{pr} should land, but a `#{pr}` line holds it; run `holds.py rm --pr {pr}` to let it land")
     return reason
@@ -112,11 +112,14 @@ def add(path: Path, args: argparse.Namespace) -> str:
 
 
 def without(entry: Entry, kind: str, name: str) -> Entry | None:
-    token = re.compile(rf"#{name}\b" if kind == "pr" else rf"\blane:{re.escape(name)}(?=\s|$)")
+    token = re.compile(rf"^#{name}\b" if kind == "pr" else rf"\blane:{re.escape(name)}(?=\s|$)")
     remaining = Entry(" ".join(token.sub("", entry.line).split()))
-    if remaining.release:
-        raise Refused(f"removing {token.pattern} from `{entry.line}` would turn it into a release line; split that line by hand")
-    return remaining if remaining.prs or remaining.lanes or remaining.holds_all else None
+    kept = [*(entry.prs if kind == "lane" else []), *(lane for lane in entry.lanes if kind == "pr" or lane != name)]
+    if not kept and not entry.holds_all:
+        return None
+    if remaining.release or remaining.prs + remaining.lanes != kept:
+        raise Refused(f"removing {token.pattern} from `{entry.line}` would leave `{remaining.line}`, which {remaining.describe()}; split that line by hand")
+    return remaining
 
 
 def rm(path: Path, args: argparse.Namespace) -> str:

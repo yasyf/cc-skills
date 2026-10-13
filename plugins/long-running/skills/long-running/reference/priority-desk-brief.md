@@ -104,9 +104,9 @@ Do, in this order, every iteration:
      - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
        enqueue under D1; never enqueue above a held PR or any PR of a held lane.
        Lanes report `held` on the tip, name the held PR, and leave release to the root.
-       Before every enqueue, re-read the root's holds file. Each line names held
-       PRs as #<n> and whole lanes as lane:<name>, then the reason. Build a fresh
-       digits-only file with `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
+       Before every enqueue, re-read the root's holds file. Each line names one
+       held PR as a leading #<n>, or whole lanes as lane:<name>, then the reason. Build a fresh
+       digits-only file with `{ grep -o '^#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
        Append every open PR number whose row's lane matches a lane:<name> entry,
        from `ledger.py show --ledger <id> --json` across the whole ledger, even
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,

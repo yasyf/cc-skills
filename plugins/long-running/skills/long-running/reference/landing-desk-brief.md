@@ -13,8 +13,8 @@ The brief below is ready to paste; fill the angle brackets.
 
 The root owns rulings, dispatch, the holds file, and one summary to the owner.
 Only the root edits the holds file, through `holds.py add|rm|list`. Each line names
-held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every
-`#<n>` in the file is held, so a reason names another PR without the `#`.
+one held PR as a leading `#<n>`, or whole held lanes as `lane:<name>`, then the reason.
+Only the leading `#<n>` is held; a later `#<n>` in the reason is prose.
 
 When the owner reviews every PR before it lands, the root writes one
 `hold:all <reason>` line. The landing runner then holds every open ledger row
@@ -175,7 +175,7 @@ Do, in this order, forever:
      and a cci correction names its record with --re <seq>. Never report it done.
      List live standing answer ids in every report and apply corrections before
      acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
-     Read the holds file's #<n> and lane:<name> entries and the PRs
+     Read the holds file's leading #<n> and lane:<name> entries and the PRs
      `ledger.py held --drive <drive>` prints from open cci holds. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
