@@ -84,8 +84,10 @@ never a PR URL. Every such draft passes
   launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to `ready`.
   Past the mechanism or PR limit the runner launches `<lane>-opus` in Claude
   fast mode on the lane's own brief, and each missed limit posts an
-  `INCIDENT-CLOCK` blocker to the root. [The runner brief](orca-desk-brief.md)
-  has the rules.
+  `INCIDENT-CLOCK` blocker to the root. A fix lane gets one Opus fallback:
+  the runner launches none while the executor's backup is launching or live,
+  and the executor launches none while `<lane>-opus` is.
+  [The runner brief](orca-desk-brief.md) has the rules.
 - It posts the fence for the target on the bus, and it reports `opened`, `pr`,
   `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane as
   milestones. The root relays those to the owner as one line each, in Pacific
@@ -351,7 +353,8 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
   posted as <fix lane name>: `mechanism`, the PR's `opened` record, which
   `ccx vcs ship` posts, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
-  PR wins. Each missed limit sends a blocker to the root, who tells the owner.
+  PR wins. You get one Opus fallback, from whichever of the two fires first.
+  Each missed limit sends a blocker to the root, who tells the owner.
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.

@@ -154,6 +154,11 @@ lane is clocked and gets no fallback of its own. A lane whose `<lane>-opus` alre
 has a live dispatch or a launch in flight gets no second, and the line says so.
 `show` prints each clocked lane's minutes and milestones.
 
+A fix lane gets one Opus fallback. The incident executor, `incident.py`, launches
+its own Opus backup for a fix lane it adopted after 15 quiet minutes. While that
+backup is launching or live the clock launches none and the line names it, and
+the executor launches none while the clock's `<lane>-opus` is launching or live.
+
 *Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
 hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
 the Opus fallback was started by hand an hour late.*
@@ -561,7 +566,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. |
-| `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`. Ratify the `<lane>-opus` fallback the line names, or launch one when the line says none was launched. For `ready`, clear what holds the missing milestone. The key is the lane. |
+| `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |

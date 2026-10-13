@@ -71,9 +71,11 @@ fallback header it attaches to the briefs log as `<lane>-opus.full.md`, and logs
 naming the missing milestones and the minutes each phase took. A later milestone counts
 for the earlier ones, and each threshold logs once per launch. A `-opus` lane is clocked
 and gets no fallback of its own; a lane whose `<lane>-opus` already has a live dispatch or
-a launch in flight gets no second. The clock stops at `ready`, `fix-live`, `not-ours`,
-`stopped`, or `stand-down`, or when the dispatch settles, and `show` prints each clocked
-lane's minutes and milestones.
+a launch in flight gets no second. A fix lane gets one Opus fallback: a lane an incident
+executor adopted gets none from the clock while that executor's own Opus backup is launching
+or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
+stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
+settles, and `show` prints each clocked lane's minutes and milestones.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
 from the desk inbox itself or one that carries `--re`; a record that is no directive logs
@@ -178,7 +180,7 @@ import cci
 import inboxes
 import prompt_screen
 from holds import HELD_LANE, HELD_PR, HOLD_ALL, RELEASE_LINE
-from incident import CLAUDE_FAST_MODE
+from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -258,7 +260,6 @@ MILESTONE_STATUSES = "milestone-statuses"
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
 CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
 READY_REPORT = "READY"
-FALLBACK = "-opus"
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
@@ -606,8 +607,8 @@ class Orca:
     def lane_of(self, handle: str) -> str:
         return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
-    def show(self, lane: str) -> Dispatch | None:
-        dispatch = self.receipt(lane)
+    def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
+        dispatch = dispatch or self.receipt(lane)
         shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
         if not shown.get("ok"):
             return None
@@ -1717,12 +1718,14 @@ class Runner:
 
     def fallback(self, lane: str, launch: actions.Action, missing: str, minutes: int) -> str:
         """Launch `<lane>-opus` once per clocked launch, on opus xhigh in Claude fast mode, from the lane's own brief under a fallback header attached to the briefs log; the clause returned tells the blocker what was done."""
-        backup = f"{lane}{FALLBACK}"
+        backup = f"{lane}{CLOCK_FALLBACK}"
         key = f"{CLOCK}:{launch.dispatch_id}"
-        if lane.endswith(FALLBACK):
+        if lane.endswith(CLOCK_FALLBACK):
             return f"{lane} is itself an Opus fallback, so none is launched for it"
         if self.book.known(lane_container(backup), key):
             return f"the Opus fallback {backup} is already launched"
+        if rival := self.executor_backup(lane):
+            return f"no fallback launched for {backup}: the incident executor's Opus backup {rival} is launching or live, and a fix lane gets one Opus fallback"
         brief = self.brief_for(lane)
         if not brief:
             return f"no fallback launched for {backup}: {lane} has no brief file"
@@ -1736,6 +1739,17 @@ class Runner:
             return f"no fallback launched for {backup}: the attached brief has no path"
         self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
         return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
+
+    def executor_backup(self, lane: str) -> str:
+        """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
+        store = actions.Store()
+        for incident in map(store.load, store.ids()):
+            backup = latest(incident, "dispatch:backup")
+            if backup is None or incident.facts["adopted"].get("fix") != lane:
+                continue
+            if backup.status in actions.OPEN or (backup.status == "verified" and (shown := self.orca.show(backup.target, backup.dispatch_id)) and shown.status not in INACTIVE):
+                return backup.target
+        return ""
 
     def clock_line(self, clock: dict) -> str:
         launched = actions.parse_stamp(clock["launched"])

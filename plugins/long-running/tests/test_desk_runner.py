@@ -2950,6 +2950,21 @@ def clock_lines(shell: FakeShell, lane: str = LANE) -> list[str]:
     return [line for line in escalations(shell) if line.startswith(f"INCIDENT-CLOCK {lane} ")]
 
 
+def executor_backup(shell: FakeShell, status: str, fix: str = LANE) -> str:
+    backup = "incident-api-1001-backup"
+    record = actions.Incident("api-1001", "executor", 1, actions.stamp(shell.clock), {"adopted": {"fix": fix}})
+    record.accept("dispatch:backup", "dispatch", backup, "R16", shell.clock)
+    record.start("dispatch:backup", shell.clock)
+    if status == "failed":
+        record.fail("dispatch:backup", "orca-launch.sh failed worker-start")
+    if status == "verified":
+        receipt = {"lane": backup, "dispatch": "ctx_backup"}
+        record.complete("dispatch:backup", receipt, dispatch_id="ctx_backup")
+        record.verify("dispatch:backup", receipt)
+    actions.Store().create(record)
+    return backup
+
+
 def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_threshold(shell, config, tmp_path):
     brief = clocked_lane(shell, config, tmp_path)
     shell.sleep(9 * 60)
@@ -3084,6 +3099,24 @@ def test_a_lane_whose_opus_sibling_is_already_live_gets_no_second_fallback(shell
     orca_pass(shell, config)
     assert [line.split(" | ")[1] for line in clock_lines(shell)] == [f"no fallback launched for {LANE}-opus: dispatch ctx_hand is dispatched; relay to it instead"] * 2
     assert len(launches(shell)) == 1 and shell.entries == []
+
+
+@pytest.mark.parametrize(
+    ("status", "dispatch", "fix", "stands_down"),
+    [("started", "", LANE, True), ("verified", "dispatched", LANE, True), ("verified", "completed", LANE, False), ("failed", "", LANE, False), ("started", "", "another-fix", False)],
+)
+def test_a_lane_whose_executor_backup_is_launching_or_live_gets_no_fallback_from_the_clock(shell, config, tmp_path, status, dispatch, fix, stands_down):
+    clocked_lane(shell, config, tmp_path)
+    backup = executor_backup(shell, status, fix)
+    shell.dispatches["ctx_backup"] = {"status": dispatch, "terminal": "term_ctx_backup"}
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = clock_lines(shell)
+    stood_down = f"no fallback launched for {LANE}-opus: the incident executor's Opus backup {backup} is launching or live, and a fix lane gets one Opus fallback"
+    assert (line.split(" | ")[1] == stood_down) is stands_down
+    assert len(launches(shell)) == (1 if stands_down else 2)
+    assert [call[4] for call in shell.calls if call[:3] == ["orca", "orchestration", "worker-show"] and call[4] == "ctx_backup"] == ["ctx_backup"] * (status == "verified")
 
 
 @pytest.mark.parametrize("end", ["completed", "failed", "fix-live", "not-ours", "stopped", "stand-down", "fix-live status"])

@@ -412,7 +412,9 @@ executor owns the incident, through the final reply:
   `scripts/orca-launch.sh <lane> incident xhigh` as Orca codex workers on
   `gpt-6.1-sol`, fast tier, `xhigh`; plain `sol` is the standard tier and never
   an incident route. With no mechanism after 15 minutes, it adds an Opus 5.5
-  backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running. It refuses Claude for the fix and
+  backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running.
+  It adds none while the desk clock's `<lane>-opus` for the same fix lane is
+  launching or live. It refuses Claude for the fix and
   evidence roles and never uses fable or astra.
 - It posts each comms event (ack, PR, review request, landing, live, final reply)
   to the comms lane on the bus with that event's cc-slack grant id. It confirms each
@@ -494,8 +496,11 @@ INCIDENT-CLOCK <lane> <mechanism|pr|ready>: <what is missing, the minutes each p
 ```
 
 The root sends each `INCIDENT-CLOCK` line to the owner as a direct message with
-`cc-slack dm-status` in the turn it arrives, and ratifies the fallback the line
-names. Both lanes keep running, and the first PR wins.
+`cc-slack dm-status` in the turn it arrives, ahead of any other work in that
+turn, and ratifies the fallback the line names. Both lanes keep running, and
+the first PR wins. A fix lane gets one Opus fallback. When the incident executor
+adopted the lane, its 15-minute backup and the clock's `<lane>-opus` each stand
+down while the other is launching or live.
 `ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, or a settled dispatch
 stops the clock. `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
