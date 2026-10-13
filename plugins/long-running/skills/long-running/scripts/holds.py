@@ -23,7 +23,8 @@ HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
 RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
 LANE_NAME = re.compile(r"^[\w.-]+$")
 SHOULD_LAND = re.compile(
-    r"\b(?:to (?:land|merge|enqueue)|should (?:land|merge)|land (?:it|now|this|next)|release[ds]?|unhold|lift(?:ed)?|not held)\b",
+    r"\b(?:ours|ready|ok|okay|clear|cleared|free|safe|good|fine) to (?:land|merge|enqueue)\b"
+    r"|^(?:land|merge|enqueue|release|unhold|lift)\b|\b(?:released|lifted|unheld|not held)\b",
     re.IGNORECASE,
 )
 
@@ -64,7 +65,7 @@ class Entry:
 def holds_path(args: argparse.Namespace) -> Path:
     if args.file:
         return Path(args.file).expanduser()
-    return Path(json.loads(Path(args.config).expanduser().read_text())["holds"]).expanduser()
+    return Path(json.loads(Path(args.config).expanduser().read_text())["landing"]["holds"]).expanduser()
 
 
 def read(path: Path) -> list[Entry]:
@@ -112,8 +113,9 @@ def add(path: Path, args: argparse.Namespace) -> str:
 
 def without(entry: Entry, kind: str, name: str) -> Entry | None:
     token = re.compile(rf"#{name}\b" if kind == "pr" else rf"\blane:{re.escape(name)}(?=\s|$)")
-    rest = " ".join(token.sub("", entry.line).split())
-    remaining = Entry(rest)
+    remaining = Entry(" ".join(token.sub("", entry.line).split()))
+    if remaining.release:
+        raise Refused(f"removing {token.pattern} from `{entry.line}` would turn it into a release line; split that line by hand")
     return remaining if remaining.prs or remaining.lanes or remaining.holds_all else None
 
 

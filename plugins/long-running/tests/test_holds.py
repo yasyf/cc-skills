@@ -30,6 +30,19 @@ def test_a_pr_line_whose_reason_says_it_should_land_is_refused(tmp_path, capsys,
     assert "holds.py rm --pr 30082" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("reason", ["wait for parent 30080 to land", "do not land it before parity passes", "hold until the release train clears"])
+def test_a_reason_naming_a_dependency_or_a_prohibition_is_a_hold(tmp_path, reason):
+    assert run(tmp_path / "holds.md", "add", "--pr", "30082", "--reason", reason) == 0
+
+
+def test_rm_refuses_to_turn_a_shared_line_into_a_release_line(tmp_path):
+    path = tmp_path / "holds.md"
+    path.write_text("#30082 release #30083 after owner review\n")
+
+    assert run(path, "rm", "--pr", "30082") == 1
+    assert path.read_text() == "#30082 release #30083 after owner review\n"
+
+
 @pytest.mark.parametrize("reason", ["waits on #30080", "same as lane:L28", ""])
 def test_a_reason_that_would_hold_something_else_or_nothing_is_refused(tmp_path, reason):
     assert run(tmp_path / "holds.md", "add", "--pr", "30082", "--reason", reason) == 1
@@ -62,7 +75,7 @@ def test_list_names_what_each_line_holds_and_reads_a_runner_config(tmp_path, cap
     path = tmp_path / "holds.md"
     path.write_text("hold:all owner review\n#30082 owner review\nlane:L28 waits\nrelease #30083 reviewed\n")
     config = tmp_path / "landing.json"
-    config.write_text(json.dumps({"holds": str(path)}))
+    config.write_text(json.dumps({"drive": "d1", "landing": {"holds": str(path)}}))
 
     assert holds.main(["--config", str(config), "list"]) == 0
 
