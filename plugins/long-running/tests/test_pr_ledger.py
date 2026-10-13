@@ -78,6 +78,17 @@ def test_an_unnamed_session_falls_back_to_its_lane_env_then_the_root_lane(tmp_pa
     assert lane_name(event(tmp_path)) == "orca-desk"
 
 
+def test_the_unnamed_note_names_a_ledger_script_that_has_the_reassign_verb():
+    from hooks import pr_ledger
+    from hooks.compaction_handoff import script
+
+    ledger = script("ledger.py")
+    assert f"{ledger} reassign " in pr_ledger.UNNAMED
+    done = subprocess.run([pr_ledger.sys.executable, str(ledger), "reassign", "--help"], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert "--lane" in done.stdout
+
+
 @pytest.mark.parametrize(("agent_id", "told"), [("aship-pr-9f9f", True), (None, False)], ids=["unnamed-subagent", "root-session"])
 def test_a_pr_no_named_lane_opened_registers_under_root_and_says_so_only_to_a_subagent(tmp_path, monkeypatch, agent_id, told):
     from hooks import pr_ledger

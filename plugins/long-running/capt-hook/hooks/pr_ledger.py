@@ -80,7 +80,7 @@ def lane_name(evt: BaseHookEvent) -> str:
 
 
 ROOT_LANE = "root"
-UNNAMED = "No named lane ran this ship, so its PRs went in the drive ledger under `root`. Move each to its lane with `ledger.py reassign --ledger <id> --pr <n> --lane <lane>`."
+UNNAMED = f"No named lane ran this ship, so its PRs went in the drive ledger under `root`. Move each to its lane with `{sys.executable} {script('ledger.py')} reassign --ledger <id> --pr <n> --lane <lane>`."
 UNRECORDED = "The opened PRs were not recorded in the drive ledger: {reason}. Rerun `{retry}`."
 UNSETTLED = (
     "The landed or closed PRs {prs} were not settled in the drive ledger: {reason}. "
