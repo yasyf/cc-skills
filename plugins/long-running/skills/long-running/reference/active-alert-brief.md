@@ -256,7 +256,11 @@ Owner: the incident executor <root agent name> for incident <incident id>.
 Authority: implement the fix and open its PR through <submit skill>.
   While the alert is active, apply the fix to production through
   <break-glass skill> without asking when the plan shows 0 deletes and 0 replaces.
-  Log the apply in <runbook>. Any delete or replace stops for the owner.
+  Log the apply in <runbook>, and append one line to the production-operations
+  log in the same turn, for this and every other state-changing production
+  command you run:
+  `ccn log append "$(ccn log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
+  Any delete or replace stops for the owner.
   A break-glass profile refused with ForbiddenException on GetRoleCredentials
   holds no live grant. Grant yourself, never wait for the owner, then retry:
   `env -u AWS_PROFILE tools/ci break-glass --reason "INCIDENT <incident id>: WHY" --stack DOMAIN/ENV`
@@ -290,7 +294,12 @@ Do:
   2. Read <evidence lane name>'s findings as they arrive by bus or Orca messages.
      Redirect with the evidence, including to a monitor fix for a monitor defect.
      A muted monitor still gets fixed; use the mute window.
-  3. The moment you know the mechanism, record it for the executor:
+  3. Before you name a mechanism, read the last 24 hours of the
+     production-operations log:
+     `ccn log show "$(ccn log list --label prod-ops | cut -f1)"`
+     An entry on the alert's target inside the onset window is the first mechanism
+     to test; quote it with its authorizing answer.
+     The moment you know the mechanism, record it for the executor:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
      Also send a status Run message with subject `mechanism: <evidence>`.
   4. Design check, when the brief quotes design rulings. Before the PR opens,
@@ -306,8 +315,9 @@ Do:
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.
   6. For a fix that needs a production apply, plan through <break-glass skill>,
-     apply under the authority above, log the apply in <runbook>, and verify it
-     against the alert's metric. Then record the evidence:
+     apply under the authority above, log the apply in <runbook> and on the
+     production-operations log, and verify it against the alert's metric. Then
+     record the evidence:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
      If the evidence shows the alert is not ours, record that instead:
      `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
@@ -365,7 +375,11 @@ Do:
   1. Send the first finding within about 10 minutes, with evidence and gaps.
   2. Date onset on an independent counter; do not infer it from alert time alone.
   3. Read the named metric and runbook; separate affected and healthy targets.
-     Correlate onset with the drive's landings, deploys, and applies.
+     Correlate onset with the drive's landings, deploys, and applies, and with
+     the last 24 hours of the production-operations log, before you name a
+     mechanism:
+     `ccn log show "$(ccn log list --label prod-ops | cut -f1)"`
+     Quote an entry on the alert's target with its authorizing answer.
   4. Send findings as they land to <fix lane name> on the bus topic
      <incident topic>, with query, time window, and evidence pointers. Once the
      mechanism is clear, record it:

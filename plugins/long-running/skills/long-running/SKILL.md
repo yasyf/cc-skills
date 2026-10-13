@@ -37,7 +37,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The twenty-three hard rules
+## The twenty-four hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -809,6 +809,35 @@ and Orca terminals are not finished agents; R4 and Lane rotation still govern th
 while many finished agents sat idle; the owner had to kill them by hand and ruled "fix
 your skill and never use this as an excuse".*
 
+**R24. A production operation is logged the turn it runs, and read before a mechanism
+is named.** The cc-notes log `production-operations`, label `prod-ops`, holds one line
+for every destructive or state-changing production operation an agent runs with the
+owner's authorization. That covers a `kubectl exec`, a reset-table, a data delete, a
+hand apply, and a break-glass write. The agent that runs one appends its line in the
+same turn, and R16's pre-authorized apply is no exception.
+
+```sh
+ops=$(ccn log list --label prod-ops | cut -f1)
+ccn log append "$ops" --entry "who: <session or lane> | when: <UTC> (<Pacific>) | where: <cluster>, <team> | action: <exact command> | authorized by: <answer id> | effect: <what changed>"
+```
+
+Every incident lane and the alerts desk read the last 24 hours of that log before
+naming a mechanism.
+
+```sh
+ccn log show "$(ccn log list --label prod-ops | cut -f1)"
+```
+
+An entry on the alert's target inside the onset window is the first mechanism to
+test, and the lane's report quotes it with its authorizing answer. The read belongs
+to the lanes and the desk. It never stands between an alert and R16's `incident.py
+run`.
+
+*Prevents the 2026-10-13 unknown-table incident: a drive spent two hours diagnosing
+tables missing from a customer's shared environments, which the owner's own session
+had reset at 3:57 PM the day before on the owner's authorization. No shared record
+said so, and the cause surfaced only from a Kubernetes audit read.*
+
 ## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
@@ -1343,8 +1372,9 @@ dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
 `monitor-watch.py watch --alert-inbox <drive>/inbox/orca-desk.md` over the drive's
 monitors, by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
-one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
-and posts nothing to Slack.
+one-line first read. Under R24 that first read names any `production-operations`
+entry from the last 24 hours on the monitor's target. Never on an unchanged state or
+a timer tick. It owns no fixes and posts nothing to Slack.
 
 Each alert is P0 for the root. Open its incident and start the executor that turn
 under R16, with no verdict gate. The monitor's
@@ -2976,6 +3006,10 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 23. Did a subagent's completion notification just arrive, or am I about to spawn? →
     `TaskStop` every finished agent of mine this turn; never report the subagent
     limit as a blocker.
+24. Did I or a lane just run a destructive or state-changing production operation on
+    the owner's authorization? → its line goes on the `production-operations` log
+    this turn. Is a lane or the alerts desk about to name a mechanism? → it reads
+    that log's last 24 hours first.
 
-Apply D3 to priority PRs before delegating. A call that survives all twenty-three decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty-four decides
 something no lane can decide for you; everything else is a lane.
