@@ -61,8 +61,12 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`):
      now and that the rest follows; post the commitment only on the root's answer.
   5. Post a top-level update when the root or the bus records a landing, a release,
      or an owner-visible change, one post per event.
-  6. Report each post with `cci post --drive <drive> --lane comms-desk --kind report
-     --text "<permalink> <one line>"`, then advance the cursor.
+  6. Record each post with `cci post --drive <drive> --lane comms-desk --kind posted
+     --text "<permalink> <one line>"`, then advance the cursor. The orca desk times
+     the drive's silence from these records.
+  7. An `OWNER-SILENT` blocker from `desk-runner` means an incident is live and the
+     drive has told the owner and the reporters nothing for 30 minutes. DM the owner
+     its one line within that poll, and answer every reporter thread still waiting.
 
 Write rules: follow the cc-slack skill's "Write a post": plain words for the
   channel's readers, every PR, build, and doc linked as <url|label>, every person

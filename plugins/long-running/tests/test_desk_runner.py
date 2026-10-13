@@ -3950,3 +3950,150 @@ def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config
     orca_pass(shell, config)
     assert launches(shell) == [] and sprite_launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+
+
+def incident_lane(shell: FakeShell, config: Path, tmp_path: Path, lane: str = "eeswar-500s-fix", model: str = "incident", header: str = "") -> None:
+    brief = tmp_path / f"{lane}.md"
+    brief.write_text(f"{header}brief")
+    shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_{lane} terminal=term_ctx_{lane} worktree=/w\n"
+    cli(shell, config, "launch", "--key", "R900", "--lane", lane, "--model", model, "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{lane}").actions["R900"].status == "verified"
+
+
+def told(shell: FakeShell, seq: int, kind: str = "posted") -> None:
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "comms-desk", "kind": kind, "at": shell.clock.isoformat(), "to": ["root"], "refs": {}, "text": "status posted", "source": "post"})
+
+
+def silences(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["to"] == "root,comms-desk"]
+
+
+SILENT_TAIL = "incident lanes live: eeswar-500s-fix. root: post the owner a status and answer each waiting reporter now. comms-desk: DM the owner this line."
+
+
+def test_thirty_minutes_of_incident_with_no_update_posts_one_blocker_to_the_root_and_the_comms_desk(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path)
+    shell.sleep(29 * 60)
+    orca_pass(shell, config)
+    assert silences(shell) == []
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [post] = silences(shell)
+    assert (post["kind"], post["topic"]) == ("blocker", "owner-update")
+    assert post["text"] == f"OWNER-SILENT owner-update runner: 30 min of incident with no update to the owner or a reporter on this drive; {SILENT_TAIL}"
+
+
+@pytest.mark.parametrize("kind", ["owner", "posted"])
+def test_the_owner_clock_runs_from_the_newest_update_and_repeats_every_thirty_silent_minutes(shell, config, tmp_path, kind):
+    incident_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    told(shell, 7, kind)
+    shell.sleep(29 * 60)
+    orca_pass(shell, config)
+    assert silences(shell) == []
+    shell.sleep(60)
+    orca_pass(shell, config)
+    shell.sleep(29 * 60)
+    orca_pass(shell, config)
+    assert [post["text"] for post in silences(shell)] == [f"OWNER-SILENT owner-update runner: 30 min since the last update to the owner or a reporter, cci #7 at 11:10; {SILENT_TAIL}"]
+    shell.sleep(60)
+    orca_pass(shell, config)
+    assert [post["text"].split(" min ")[0] for post in silences(shell)] == ["OWNER-SILENT owner-update runner: 30", "OWNER-SILENT owner-update runner: 60"]
+
+
+def test_an_update_after_a_silence_blocker_restarts_the_owner_clock(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path)
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    told(shell, 9)
+    shell.sleep(25 * 60)
+    orca_pass(shell, config)
+    assert len(silences(shell)) == 1
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    assert [post["text"].split(";")[0] for post in silences(shell)][1] == "OWNER-SILENT owner-update runner: 30 min since the last update to the owner or a reporter, cci #9 at 11:40"
+
+
+def test_the_owner_clock_stops_once_no_incident_dispatch_is_live(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path)
+    shell.dispatches["ctx_eeswar-500s-fix"]["status"] = "completed"
+    shell.sleep(45 * 60)
+    orca_pass(shell, config)
+    assert silences(shell) == []
+
+
+def test_a_lane_launched_off_the_incident_alias_never_starts_the_owner_clock(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path, model="sol")
+    shell.sleep(2 * 3600)
+    orca_pass(shell, config)
+    assert silences(shell) == []
+    assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=posted" in call]
+
+
+def executor_dispatch(shell: FakeShell, role: str, lane: str, dispatch: str | None) -> None:
+    store = actions.Store()
+    store.create(actions.Incident("inc-7", "incident-executor", 0, actions.stamp(shell.clock), {}))
+    with store.owned("inc-7", 0) as held:
+        held.accept(f"dispatch:{role}", "dispatch", lane, "R16", shell.clock)
+        held.start(f"dispatch:{role}", shell.clock)
+        held.complete(f"dispatch:{role}", {"lane": lane}, dispatch_id=dispatch)
+        held.verify(f"dispatch:{role}", {"lane": lane})
+    shell.launch(lane, dispatch or f"ctx_{role}")
+
+
+def test_a_worker_the_incident_executor_dispatched_starts_the_owner_clock(shell, config, tmp_path):
+    executor_dispatch(shell, "fix", "inc-7-fix", "ctx_exec")
+    executor_dispatch(shell, "evidence", "inc-7-evidence", None)
+    orca_pass(shell, config)
+    shell.sleep(29 * 60)
+    orca_pass(shell, config)
+    assert silences(shell) == []
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [post["text"] for post in silences(shell)] == [
+        "OWNER-SILENT owner-update runner: 30 min of incident with no update to the owner or a reporter on this drive;"
+        " incident lanes live: inc-7-fix. root: post the owner a status and answer each waiting reporter now. comms-desk: DM the owner this line."
+    ]
+    shell.dispatches["ctx_exec"]["status"] = "completed"
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    assert len(silences(shell)) == 1
+
+
+def test_an_incident_fix_lane_launched_off_the_alias_starts_the_owner_clock(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path, model="opus", header="ccx: role=incident\n")
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    assert len(silences(shell)) == 1
+
+
+def test_a_silence_blocker_cci_stored_before_a_lost_save_is_not_posted_twice(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path)
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    key = "silence:2026-10-01T18:00:00Z"
+    store = actions.Store(tmp_path / "store")
+    with store.owned("desk-runner", store.load("desk-runner").owner_generation) as saved:
+        del saved.actions[key]
+    shell.sleep(60)
+    orca_pass(shell, config)
+    assert [post["id"] for post in silences(shell)] == [key]
+    assert incident(tmp_path, "desk-runner").actions[key].status == "completed"
+
+
+def test_a_silence_blocker_cci_refuses_is_posted_once_on_a_later_pass(shell, config, tmp_path):
+    incident_lane(shell, config, tmp_path)
+    shell.sleep(30 * 60)
+    shell.post_error = "cci: store locked"
+    orca_pass(shell, config)
+    assert silences(shell) == []
+    shell.post_error = ""
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [post["text"].split(" min ")[0] for post in silences(shell)] == ["OWNER-SILENT owner-update runner: 31"]

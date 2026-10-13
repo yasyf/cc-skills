@@ -177,6 +177,15 @@ The config requires `drive` and `orca.desk_inbox`, and `run --desk landing` requ
 a cci `--to` address such as `peer:<session>`. A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
+While an incident worker is live, a dispatch that a launch on the incident alias or of an
+incident fix lane started, or that the incident executor recorded in its own store, each orca pass reads how
+long ago the drive last told the owner or a reporter anything: the newest cci record of
+kind `owner` or `posted`. Once an incident has been live thirty minutes and no such
+record is under thirty minutes old, the runner posts one `OWNER-SILENT` blocker to `root`
+and `comms-desk`, on topic `owner-update`, naming the minutes, that record's seq and
+time, and the live incident lanes, and one more for each further thirty minutes of
+silence. The runner holds no Claude session to DM from, so the comms desk DMs the owner
+that line.
 """
 
 from __future__ import annotations
@@ -325,6 +334,9 @@ UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>R\d+)$")
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
+COMMS_DESK = "comms-desk"
+UPDATE_KINDS = ("owner", "posted")
+OWNER_SILENCE = timedelta(minutes=30)
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -1147,6 +1159,66 @@ class Runner:
                 f"escalation:aged:{action.action_id}",
                 f"DECIDE hold:{held['slug']} {held['owner']}: held {minutes} min: {held['what']} | the root decides it now with {held['owner']}, ahead of any open owner question on another subject",
             )
+
+    def incident_workers(self) -> dict[str, actions.Action]:
+        """Each lane with an incident worker no sweep has named settled, mapped to the action that started it: the lane's current launch, when it is on the incident alias or an incident fix lane's, or a `dispatch` the incident executor recorded in its store."""
+        settled = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
+        store = actions.Store()
+        launched = [
+            (container.removeprefix(LANE_PREFIX), action)
+            for container in self.book.containers(LANE_PREFIX)
+            for action in self.book.actions(container, kind="launch")
+            if action.dispatch_id == self.orca.receipt(container.removeprefix(LANE_PREFIX))
+            and ((spec := json.loads(action.target))["model"] == INCIDENT_MODEL or incident_fix(spec["model"], Path(spec["brief"])))
+        ]
+        dispatched = [(action.target, action) for incident in map(store.load, store.ids()) for action in incident.of_kind("dispatch") if action.dispatch_id]
+        return {lane: action for lane, action in [*launched, *dispatched] if f"reclaim:{action.dispatch_id}" not in settled}
+
+    def last_update(self) -> dict | None:
+        """The seq and time of the drive's newest `owner` or `posted` record, read from cci past the one saved on an earlier pass."""
+        fact = f"owner-update:{self.config.drive}"
+        saved = self.book.load(RUNNER).facts.get(fact)
+        newer = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in UPDATE_KINDS), since=saved["seq"] if saved else 0)
+        updates = [record for record in newer if record["kind"] in UPDATE_KINDS and record["drive"] == self.config.drive]
+        if not updates:
+            return saved
+        newest = {"seq": updates[-1]["seq"], "at": updates[-1]["at"]}
+        self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: newest}))
+        return newest
+
+    def owner_clock(self) -> None:
+        """While an incident worker is live, post one blocker to the root and the comms desk per `OWNER_SILENCE` the drive goes without an `owner` or `posted` record. Orca is asked only once that long has passed, and the post carries the silence's start as its cci id, so one cci refuses or one whose save was lost is sent again as the same record."""
+        workers = self.incident_workers()
+        if not workers:
+            return
+        moment = self.now()
+        try:
+            told = self.last_update()
+        except CciTailFailed as failure:
+            self.escalate(f"cci-tail:{actions.stamp(moment)[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
+            return
+        told_at = actions.parse_stamp(told["at"]) if told else None
+        posted = [actions.parse_stamp(action.started_at) for action in self.book.actions(RUNNER, kind="silence", status="completed")]
+        started = {lane: actions.parse_stamp(action.started_at) for lane, action in workers.items()}
+        if moment - max(filter(None, [min(started.values()), told_at, *posted])) < OWNER_SILENCE:
+            return
+        live = {lane: started[lane] for lane, action in workers.items() if (shown := self.orca.show(lane, action.dispatch_id)) and shown.status not in INACTIVE}
+        if not live:
+            return
+        began = min(live.values())
+        silent_since = max(filter(None, [began, told_at, *posted]))
+        if moment - silent_since < OWNER_SILENCE:
+            return
+        if told:
+            silence = f"{whole_minutes(told_at, moment)} min since the last update to the owner or a reporter, cci #{told['seq']} at {pacific(told_at)}"
+        else:
+            silence = f"{whole_minutes(began, moment)} min of incident with no update to the owner or a reporter on this drive"
+        text = f"OWNER-SILENT owner-update runner: {silence}; incident lanes live: {', '.join(sorted(live))}. root: post the owner a status and answer each waiting reporter now. {COMMS_DESK}: DM the owner this line."
+        key = f"silence:{actions.stamp(silent_since)}"
+        self.book.accept(RUNNER, key, "silence", text, "runner", None)
+        done = self.cci_post("blocker", text, f"{ROOT},{COMMS_DESK}", "owner-update", key, record_id=key)
+        if done.code == 0:
+            self.book.attempt(RUNNER, lambda incident: (incident.start(key, moment), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
 
     def incident_lane(self, monitors: set[str], lane: str) -> str | None:
         """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
@@ -2403,6 +2475,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.deadlines_orca()
         runner.incident_clock()
         runner.aged_holds()
+        runner.owner_clock()
         runner.flush()
         runner.write_view()
         runner.beat()

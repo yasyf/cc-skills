@@ -631,6 +631,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
+| `OWNER-SILENT` | Post the owner a status and answer each waiting reporter. The record goes to `root` and `comms-desk` once per 30 minutes with no `owner` or `posted` record while an incident lane is live, and the comms desk DMs the owner its line. |
 | `RECLAIM` | Run the line's gc command; it closes each idle settled terminal's tab and removes each finished worktree under R195. |
 | `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
 | `LAUNCH-FAILED` | Read the named launch failure before issuing any new action; for an inbox launch line, relay to the live dispatch or append a corrected line under a new key. |
