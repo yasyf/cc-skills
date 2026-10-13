@@ -116,6 +116,15 @@ never gets there is never adopted. A worktree Orca already lists before the
 launch must be a git checkout of its own, or the launch fails at once: Orca can
 serve a stale record for a worktree whose git add timed out and was undone.
 
+With ORCA_LAUNCH_PREPARE set, the script runs that shell command in each worktree
+this launch creates, once its checkout is whole and before the worker starts, for
+up to ORCA_LAUNCH_PREPARE_SECONDS. It is where a drive runs the repo's code
+generators, so a worker's first build finds the generated code in place. A
+relaunch into an existing worktree runs nothing. The command's output goes to
+<lane>.prepare.log in the receipt directory. A command that fails or passes the
+ceiling never fails the launch: the worker reads a copy of the brief that ends
+with the command, the log's path, and the instruction to run it before building.
+
 A receipt from an earlier launch names the lane's last task and dispatch. When
 orca orchestration task-list shows that task failed or blocked, worker-start
 retries it with --task and --retry-of; any other task, such as one whose
@@ -155,6 +164,8 @@ launch stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the poll for a terminal whose create named no handle, on the wait for the terminal's agent to reach its idle prompt, and on the wait for an outcome_unknown worker's first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, and then for its checkout, default 180
+  ORCA_LAUNCH_PREPARE        shell command run in each worktree this launch creates, before its worker starts, default none
+  ORCA_LAUNCH_PREPARE_SECONDS  ceiling on that command, default 120
 EOF
   exit 2
 }
@@ -167,6 +178,8 @@ WORKTREE_NAME=$NAME-base
 ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
+PREPARE=${ORCA_LAUNCH_PREPARE:-}
+PREPARE_WAIT=${ORCA_LAUNCH_PREPARE_SECONDS:-120}
 POLL=4
 
 ROLLBACK='' CREATED='' MADE='' LOST='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
@@ -326,6 +339,14 @@ until [ -z "$CREATED" ] || [ -n "$MADE" ] || checked_out; do
   waited=$((waited + POLL))
 done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
+prepared() {
+  (cd "$WT" && exec perl -e 'alarm shift; exec @ARGV' "$PREPARE_WAIT" sh -c "$PREPARE") >"$STATE/$LANE.prepare.log" 2>&1
+}
+if [ -n "$CREATED" ] && [ -n "$PREPARE" ] && ! prepared; then
+  [ "$LANE_BRIEF" != "$BRIEF" ] || cp "$BRIEF" "$STATE/$LANE.brief.md"
+  LANE_BRIEF=$STATE/$LANE.brief.md
+  printf '\n\n## Worktree preparation\n\n%s\n' "The launch ran \`$PREPARE\` in this worktree and it failed; its output is in $STATE/$LANE.prepare.log. Run it yourself before you build." >>"$LANE_BRIEF"
+fi
 spec
 
 listed() {
