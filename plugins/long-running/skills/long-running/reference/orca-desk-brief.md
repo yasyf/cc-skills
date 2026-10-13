@@ -302,6 +302,12 @@ the file whose contents go into each brief: drive checkout, apply authority,
 target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
 `NOT-OURS` lines.
 
+`orca.launch_env.ORCA_LAUNCH_PREPARE` is one shell command the launch script runs
+in each worktree it creates, before the worker starts. Set it to the repo's code
+generators, so a worker's first build finds the generated code in place. A command
+that fails, or runs past `ORCA_LAUNCH_PREPARE_SECONDS` (default 120), never fails
+the launch. The worker's brief then ends with the command and the path of its log.
+
 ```json
 {
   "store": "/absolute/drive/actions",
@@ -321,7 +327,8 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
       "ORCA_LAUNCH_ROOT": "/absolute/worktrees",
       "ORCA_LAUNCH_BASE": "origin/dev",
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
-      "ORCA_LAUNCH_BOOT_SECONDS": "180"
+      "ORCA_LAUNCH_BOOT_SECONDS": "180",
+      "ORCA_LAUNCH_PREPARE": "<the repo's code generators, one shell command>"
     },
     "sprite": {
       "launcher": "/absolute/drive/checkout/.agents/skills/orca/scripts/worker-launch.sh",

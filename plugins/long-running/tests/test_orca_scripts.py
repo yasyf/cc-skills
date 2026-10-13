@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -444,6 +445,62 @@ def test_a_worktree_with_a_setup_terminal_keeps_every_terminal(orca):
     orca.reply("terminal list", STARTUP, listing("claude"))
     assert orca.launch().returncode == 0
     assert orca.calls("terminal close") == []
+
+
+def test_a_launch_runs_the_prepare_command_in_the_worktree_it_created_before_the_worker_starts(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_PREPARE"] = 'touch generated && cp "$FAKE_STATE/calls" "$FAKE_STATE/before"'
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    assert (orca.worktree / "generated").exists()
+    before = [json.loads(line)[:2] for line in (orca.state / "before").read_text().splitlines()]
+    assert ["worktree", "create"] in before and ["terminal", "create"] not in before and ["orchestration", "worker-start"] not in before
+    assert (orca.receipts / "lane-a.prepare.log").read_text() == "" and not (orca.receipts / "lane-a.brief.md").exists()
+    [start] = orca.calls("orchestration worker-start")
+    assert str(orca.brief) in flag(start, "--spec")
+
+
+def test_a_failed_prepare_command_still_launches_and_tells_the_worker_in_its_brief(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_PREPARE"] = "echo sqlc: command not found >&2; exit 127"
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    log, brief = orca.receipts / "lane-a.prepare.log", orca.receipts / "lane-a.brief.md"
+    assert log.read_text() == "sqlc: command not found\n" and orca.brief.read_text() == "# brief\n"
+    assert brief.read_text() == f"# brief\n\n\n## Worktree preparation\n\nThe launch ran `echo sqlc: command not found >&2; exit 127` in this worktree and it failed; its output is in {log}. Run it yourself before you build.\n"
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert Path(spec.split("read ")[1].split(" in full")[0]).resolve() == brief.resolve()
+
+
+def test_a_failed_prepare_command_adds_to_the_brief_copy_a_codex_lane_already_reads(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
+    orca.env["ORCA_LAUNCH_PREPARE"] = "false"
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    text = (orca.receipts / "lane-a.brief.md").read_text()
+    assert text.startswith(orca.brief.read_text()) and 0 < text.index("## PR prose") < text.index("## Worktree preparation")
+
+
+def test_a_prepare_command_past_its_ceiling_is_stopped_and_the_launch_goes_on(orca):
+    orca.healthy()
+    orca.env |= {"ORCA_LAUNCH_PREPARE": "exec /bin/sleep 60", "ORCA_LAUNCH_PREPARE_SECONDS": "1"}
+    started = time.monotonic()
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert time.monotonic() - started < 30
+    assert "## Worktree preparation" in (orca.receipts / "lane-a.brief.md").read_text()
+
+
+def test_a_relaunch_into_an_existing_worktree_runs_no_prepare_command(orca):
+    orca.healthy()
+    orca.check_out()
+    orca.env["ORCA_LAUNCH_PREPARE"] = "touch generated"
+    orca.reply("terminal list", STARTUP, listing("claude", "term_shell", "term_a"))
+    assert orca.launch().returncode == 0
+    assert orca.calls("worktree create") == []
+    assert not (orca.worktree / "generated").exists() and not (orca.receipts / "lane-a.prepare.log").exists()
 
 
 def test_a_relaunch_into_an_existing_worktree_closes_nothing(orca):
