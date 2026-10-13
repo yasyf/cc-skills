@@ -83,7 +83,7 @@ launch's receipts are copied beside the local ones. `run --desk landing` gates a
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
 admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
-which goes to the lane as a blocker. It gates only tips the ledger lists as `ours` and never enqueues a prefix
+which goes to the lane as a blocker. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
@@ -1503,6 +1503,15 @@ def enqueued_heads(key: str) -> dict[str, str]:
     return dict(entry.split("@", 1) for entry in key.split("#")[0].removeprefix("enqueue:").split(","))
 
 
+def numbered(prs: list[str]) -> str:
+    return " ".join(f"#{pr}" for pr in prs)
+
+
+def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
+    bases = {rows[pr].get("base") for pr in prefix}
+    return [pr for pr in prefix if rows[pr].get("branch") not in bases]
+
+
 def judge_verdict(done: Done) -> dict:
     if done.code != 0:
         return {"verdict": "escalate", "text": f"the judge failed: {(done.err or done.out).strip()[-200:]}"}
@@ -1543,15 +1552,23 @@ class Landing:
         numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
-    def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:
+    def enqueue_argv(self, tips: list[str], held: list[str], check: bool) -> list[str]:
         policy = self.runner.landing_policy()
         whole = ["--whole"] if policy and json.loads(policy.target)["rule"] == "whole" else []
-        return [str(self.checkout / STACK_ENQUEUE), tip, *(["--check"] if check else []), *whole, *(arg for pr in held for arg in ("--hold", pr))]
+        return [str(self.checkout / STACK_ENQUEUE), *tips, *(["--check"] if check else []), *whole, *(arg for pr in held for arg in ("--hold", pr))]
 
-    def tips(self, rows: dict[str, dict]) -> list[str]:
-        tracked = {pr: row for pr, row in rows.items() if row.get("ours")}
+    def trees(self, rows: dict[str, dict]) -> list[list[str]]:
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        by_branch = {row.get("branch"): pr for pr, row in open_rows.items()}
+        tracked = {pr: row for pr, row in open_rows.items() if row.get("ours")}
         bases = {row.get("base") for row in tracked.values()}
-        return sorted((pr for pr, row in tracked.items() if row.get("branch") not in bases), key=int)
+        grouped: dict[str, list[str]] = {}
+        for tip in sorted((pr for pr, row in tracked.items() if row.get("branch") not in bases), key=int):
+            root = tip
+            while (below := by_branch.get(open_rows[root].get("base"))) is not None:
+                root = below
+            grouped.setdefault(root, []).append(tip)
+        return [grouped[root] for root in sorted(grouped, key=int)]
 
     def gate(self, rows: dict[str, dict], held: list[str]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -1559,26 +1576,26 @@ class Landing:
         for pr, row in open_rows.items():
             if not row.get("ours") and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
-        tips = self.tips(rows)
-        with ThreadPoolExecutor(max(1, len(tips))) as pool:
-            gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
-        for tip, done in gated.items():
+        trees = self.trees(rows)
+        with ThreadPoolExecutor(max(1, len(trees))) as pool:
+            gated = list(zip(trees, pool.map(lambda tips: self.shell.run(self.enqueue_argv(tips, held, check=True)), trees), strict=True))
+        for tips, done in gated:
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
             if done.code and not verdicts:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                self.runner.escalate(f"gate:{tip}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "GATE-FAILED", f"#{tip}", f"stack-enqueue --check exited {done.code} with no verdict: {last[0]}")
+                self.runner.escalate(f"gate:{','.join(tips)}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(tips), f"stack-enqueue --check exited {done.code} with no verdict: {last[0]}")
                 continue
             if would := WOULD_ENQUEUE.search(done.out):
-                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
+                self.accept(tips, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
-                    self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tip, held)
+                    self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tips, held)
 
-    def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
+    def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
-            self.runner.escalate(f"foreign:{base}", "FOREIGN", f"#{tip}", f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
+            self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
             return
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
@@ -1606,20 +1623,21 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
             return
         held = self.held(rows)
-        fresh = self.shell.run(self.enqueue_argv(prefix[-1], held, check=True)).out
+        tops = prefix_tops(prefix, rows)
+        fresh = self.shell.run(self.enqueue_argv(tops, held, check=True)).out
         would = WOULD_ENQUEUE.search(fresh)
         current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh[-800:], "at": self.book.stamp()}))
             return
-        done = self.shell.run(self.enqueue_argv(prefix[-1], held, check=False))
+        done = self.shell.run(self.enqueue_argv(tops, held, check=False))
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": done.out[-1500:], "at": self.book.stamp()}))
         if outcome in ("stranded", "failed", "unsettled"):
             last = (done.out or done.err).strip().splitlines()
-            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", f"#{prefix[-1]}", last[-1] if last else f"exit {done.code}")
+            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last[-1] if last else f"exit {done.code}")
 
     def reconcile(self) -> None:
         """An enqueue whose response was lost: Graphite's own status decides; a partial queue is unverifiable and nothing is re-enqueued."""
@@ -1691,12 +1709,12 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", row.get("lane", ""), text, pr)
 
-    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tip: str, held: list[str]) -> None:
+    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], held: list[str]) -> None:
         """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
         key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
         if self.routed(key, row.get("lane", "")):
             return
-        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tip, held, check=True)).out)}
+        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tips, held, check=True)).out)}
         current = fresh.get(pr)
         if current and current["verdict"] == "BLOCKED" and current["detail"] == blocker:
             self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
