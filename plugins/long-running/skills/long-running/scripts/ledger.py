@@ -1886,8 +1886,10 @@ def squash_on_base(messages: list[tuple[str, str, str]], pr: str) -> tuple[str, 
     two carried it while their trees still differed and no commit named them. Only the
     trunk answers, through its tree or through a commit it names.
     """
-    needle = f"(#{pr})"
-    return next(((sha, stamp(parse_iso(committed).astimezone(timezone.utc))) for sha, committed, message in messages if needle in message), None)
+    return next(
+        ((sha, stamp(parse_iso(committed).astimezone(timezone.utc))) for sha, committed, message in messages if (match := SQUASH_SUBJECT.search(message.partition("\n")[0])) and match[1] == pr),
+        None,
+    )
 
 
 def settle_row(shell: Shell, checkout: Path, trunk: str, pr: str, record: dict, read: Future, messages: list) -> tuple[dict[str, str], str]:

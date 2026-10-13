@@ -455,6 +455,22 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     assert "which has moved on its files since" in capsys.readouterr().out
 
 
+def test_a_later_squash_whose_body_cites_the_pr_is_not_its_landing(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["rust/crates/sandsql-sql/migrations/journal/0002_steplog.rs"]
+    shell.base_log = [
+        f"45eccdacc083 2026-10-12T04:00:00+00:00\nvm_run: ✨ write run journals as a value store (#35933)\n\nJournal migration 0002 (#{PR}) adds the v2 tables.",
+        f"{SQUASH} 2026-10-12T03:00:00+00:00\nsandsql: ✨ add journal migration 0002 (#{PR})",
+    ]
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+    assert shell.fields(PR)["landed_at"] == "2026-10-12T03:00:00Z"
+    assert f"landed #{PR} as {SQUASH[:9]} on dev" in capsys.readouterr().out
+
+
 def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the_trunk(capsys, tmp_path):
     parent = "yasyf/eh-v2/dns-into-box"
     shell = desk_shell(state="closed", base={"ref": parent})
