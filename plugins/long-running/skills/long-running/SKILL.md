@@ -873,8 +873,9 @@ An open child outside the prefix is allowed only when a lane tracks its ledger r
 
 Where the checkout carries `.agents/skills/submit-pr/scripts/stack-enqueue`,
 `desk-runner.py run --desk landing` runs D3. Each pass runs `ledger.py refresh`
-and `reconcile`, reads rows, and gates every tracked open stack tip in parallel:
-`stack-enqueue <tip> --check [--whole] [--hold <n>...]`. The gate selects the largest
+and `reconcile`, reads rows, groups every tracked open stack tip by the root of
+its stack, and gates each stack in parallel, naming every tip of a fork in one call:
+`stack-enqueue <tip>... --check [--whole] [--hold <n>...]`. The gate selects the largest
 ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
 and runs independent enqueues in parallel. It permits another attempt for the
 same heads only when earlier attempts are proven to have enqueued nothing, or
@@ -884,7 +885,8 @@ red check goes to the lane as a blocker instead; any other drop is gated again.
 
 Every enqueue re-reads the root's holds file, including every open ledger row
 whose lane is named as `lane:<name>`. The command is
-`stack-enqueue <prefix top> --hold $(cat <held file>)`; omit `--hold` for an empty
+`stack-enqueue <prefix top>... --hold $(cat <held file>)`, naming every top of the
+prefix, since `stack-enqueue` refuses a green PR the batch would carry unnamed; omit `--hold` for an empty
 numeric file. A `held` refusal waits for the root and is never routed as a red.
 The runner verifies an enqueue only when `reconcile` records every prefix row
 as `landed` by squash on the base. The landing desk never enqueues beside it.

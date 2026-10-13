@@ -303,7 +303,7 @@ class FakeShell(runner_module.Shell):
     def stack_enqueue(self, argv: list[str]) -> runner_module.Done:
         if "--status" in argv:
             return runner_module.Done(0, self.statuses, "")
-        tip = argv[0]
+        tip = " ".join(itertools.takewhile(str.isdigit, argv))
         if "--check" in argv:
             outs = self.gates[tip]
             out = outs.pop(0) if len(outs) > 1 else outs[0]
@@ -835,6 +835,69 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     assert calls and all(call[call.index("--hold") + 1 :] == ["28349"] for call in calls)
     assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def fork_rows() -> list[dict]:
+    return [
+        {"pr": "36463", "lane": "release-order", "branch": "ro/monitors", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "36487", "lane": "release-order", "branch": "ro/verify", "base": "ro/monitors", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+        {"pr": "36501", "lane": "release-order", "branch": "ro/readers", "base": "ro/monitors", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "36510", "lane": "release-order", "branch": "ro/held", "base": "ro/monitors", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "36520", "lane": "release-order", "branch": "ro/red", "base": "ro/monitors", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+        {"pr": "36600", "lane": LANE, "branch": "b/1", "base": "dev", "head": "ffff666666", "state": "open", "reported_head": "ffff666666"},
+    ]
+
+
+def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, config, tmp_path):
+    shell.launch("release-order", "ctx_r")
+    (tmp_path / "holds.md").write_text("#36510 owner hold until the monitors soak\n")
+    shell.rows = fork_rows()
+    verdicts = (
+        "#36463 GREEN aaaa111111 graphite READY",
+        "#36487 GREEN bbbb222222 graphite READY",
+        "#36501 GREEN cccc333333 graphite READY",
+        "#36510 BLOCKED dddd444444 held",
+        "#36520 BLOCKED eeee555555 failed check runs: test",
+    )
+    shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
+    shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
+    shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
+    shell.enqueue_out["36487 36501"] = (0, "enqueue #36463 #36487 #36501: {}\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
+    assert all(call[call.index("--hold") :] == ["--hold", "36510"] for call in checks)
+    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--hold", "36510"]]
+    blockers = [call[call.index("--body") + 1] for call in shell.sends()]
+    assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
+
+
+def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    shell.gates["36487 36501"] = [
+        gate(
+            "#36463 GREEN aaaa111111 graphite READY",
+            "#36487 GREEN bbbb222222 graphite READY",
+            "#36501 GREEN cccc333333 graphite READY",
+            "#36530 BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #36487 #36501; name it too or pass --partial to leave it out",
+        )
+    ]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "FOREIGN" in lines[0] and "#36530 would ride the batch" in lines[0]
+    assert shell.enqueues() == []
+
+
+def test_a_whole_policy_gates_each_tip_of_a_fork_alone(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    assert cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling") == 0
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 is stacked beside the top")]
+    shell.gates["36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36487 BLOCKED bbbb222222 is stacked beside the top")]
+    landing_pass(shell, config)
+    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks and all(len(list(itertools.takewhile(str.isdigit, call[1:]))) == 1 and "--whole" in call for call in checks)
 
 
 def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_silently(shell, config, tmp_path):
