@@ -1196,6 +1196,11 @@ receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.
 
+A relay or a root reply posted on cci can be any length and span lines. Post it
+whole, as one record, and never shorten or split it. The runner reads the full
+text from the file `cci post` writes for a text over 400 characters and relays
+all of it, line breaks kept.
+
 Lane results reach the root as `FIX-LIVE`,
 `MECHANISM`, or `OUTCOME` escalation lines, or by Run message id. Never reconstruct
 the latest lane state with `grep ... | tail` across several files: file order can

@@ -15,7 +15,8 @@ ranked fix 3).*
 Issue commands with the drive's R/L numbering. Submit a key once per action;
 submitting it again in the same lane returns the existing action. Never `SendMessage`
 a desk.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
+A relay or a reply posted on cci can be any length and span lines; post it whole, as one record, and the runner relays all of it.
+Keep every other inbox line under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
 
 ```text
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
@@ -37,6 +38,11 @@ relay per line, its text running to the end of the line:
 ```text
 R<n> (<time>) orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
 ```
+
+In a cci record the first line is the directive and the text runs to the end of
+the record, starting on that line or the next, so a relay posted on cci keeps its
+paragraphs and lists. One record is one relay, so a later line is relay text,
+never a second directive.
 
 For each named lane with a live dispatch, the runner does what `relay --key R<n>`
 does. When the dispatch's newest question to the Run has no answer on its terminal,
@@ -335,9 +341,14 @@ time. A send to a dispatch that is no longer the lane's live one stays
 `unverifiable` and emits `UNVERIFIABLE`. A launch with neither a launch line nor
 a new receipt is `UNVERIFIABLE`, never relaunched automatically.
 
-A relay record over cci's 400-character text limit reaches the runner clipped,
-so the runner refuses it as `RELAY-FAILED` naming the limit and relays nothing.
-Post it again within 400 characters, or as several relays.
+A relay record or a root reply can be any length. `cci post` keeps only the first
+line of a text over 400 characters in the record, clipped, and writes the whole
+text to a file the record names by path. The runner reads that file and relays
+the whole text with its line breaks. A file whose first line is not the record's
+text is an attachment, and the runner relays the record's own text. A record that
+names a file the runner cannot read, such as one replicated from another machine
+without its file, is refused as `RELAY-FAILED` naming the path, and nothing is
+relayed. Post it again on the runner's machine.
 
 ## Orca passes and standing rules
 
@@ -479,7 +490,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
-| `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. |
+| `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `RESENT` | None; the relay's first send was lost with no receipt and the second was delivered on the same thread. |
