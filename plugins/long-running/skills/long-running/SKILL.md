@@ -24,8 +24,9 @@ A single-lane investigation is not this. One question goes to one subagent in di
 The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefed
 from `/live-dashboard` `reference/keeping-live.md`; `alerts-desk` when the drive touches
 production; and one priority desk per owner-named #1-priority outcome while that
-outcome is open. Once the drive has posted to Slack, the Slack watch lane is standing
-too, briefed from `reference/slack-watch-brief.md`. When the owner names a Slack
+outcome is open. Once the drive has posted to Slack, or the owner has linked a Slack
+channel or thread, the Slack watch lane is standing too, briefed from
+`reference/slack-watch-brief.md`. When the owner names a Slack
 channel for the drive's updates, `comms-desk` is standing, briefed from
 `reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
 not a subagent. Its landing process shares the store and runs D3, D14, and D16
@@ -717,6 +718,26 @@ The pack's `slack_threads` hook appends every thread a drive session posts in to
 CLI, its MCP tools, or the user-level `mcp__slack__slack_send_message`, and whether or
 not it passed `--no-watch`. That file is the watch lane's thread list; handoffs and
 spawn prompts never carry one (`reference/slack-watch-brief.md`).
+
+The same hook reads every owner prompt in a drive's root session, slash commands
+included. A Slack permalink, a channel link, or a bare `<channel id> p<digits>`,
+`<channel id> <ts>`, or `<channel id>/<ts>` reference goes on that list as a link row
+through `drive.py watch`, before the root's turn starts. The row opens the thread from
+the linked message and adds its channel to the lane's history poll. The watch lane
+holds the list as a wait source, so the row wakes it within seconds.
+
+The hook's context names each addition. The root never adds one by hand, and spawns
+the watch lane when none is live. When the row cannot be written, the context carries
+the command to rerun. A link in a teammate message, a notification, or a compaction
+summary is not the owner's and adds nothing.
+
+The watch lane adds the links reporters post with the same command, and posts a
+`blocker` to the root for a channel it cannot read.
+
+*Prevents the gap of 2026-10-13, when a customer engineer reported a broken product
+path at 9:28 AM in an account channel the watch lane did not poll. The drive first saw
+it at about 10:34 AM, when the owner pasted the thread link, and the channel joined
+the watch only on a later root turn.*
 
 *Prevents the release-v3 failure of 2026-10-01: the owner pasted Anubhav Jain's
 "PR reviewer broken" thread at `17:25:46Z` after replying "Looking". The root briefed

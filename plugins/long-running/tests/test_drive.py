@@ -369,3 +369,91 @@ def test_a_post_outside_any_drive_is_not_watched(repo, tmp_path):
     assert thread("--session", WORKER_SESSION) == 0
 
     assert not (tmp_path / "release-v3" / "slack").exists()
+
+
+def watch(*argv: str) -> int:
+    return drive.main(["watch", "--session", ROOT_SESSION, "--lane", "owner", "--channel", "C0AAAAAAAA1", *argv])
+
+
+def watch_rows(watched: Path) -> list[dict]:
+    return [json.loads(line) | {"linked_at": ""} if "linked_at" in line else json.loads(line) for line in watched.read_text().splitlines()]
+
+
+def test_a_linked_message_joins_the_watch_list_once_under_its_thread_root(repo, tmp_path, capsys):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    watched = tmp_path / "release-v3" / "slack" / "watched-threads.jsonl"
+
+    assert watch("--message", "p1790901997422529", "--thread-ts", "1790901035.467689") == 0
+    assert watch("--message", "1790901997.422529", "--thread-ts", "1790901035.467689") == 0
+
+    assert watch_rows(watched) == [
+        {
+            "channel": "C0AAAAAAAA1",
+            "thread_ts": "1790901035.467689",
+            "linked_ts": "1790901997.422529",
+            "linked_at": "",
+            "session": ROOT_SESSION,
+            "lane": "owner",
+        }
+    ]
+    assert capsys.readouterr().out.splitlines()[-1] == f"C0AAAAAAAA1/1790901035.467689 is on the drive's Slack watch list at {watched}"
+
+
+def test_a_linked_message_without_a_thread_root_opens_its_own_thread(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+
+    assert watch("--message", "p1790901997422529") == 0
+
+    [row] = watch_rows(tmp_path / "release-v3" / "slack" / "watched-threads.jsonl")
+    assert (row["thread_ts"], row["linked_ts"]) == ("1790901997.422529", "1790901997.422529")
+
+
+def test_a_link_to_a_thread_the_drive_posted_in_adds_its_channel_once(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    assert thread("--session", ROOT_SESSION) == 0
+
+    assert watch("--message", "1790901035.467689") == 0
+    assert watch("--message", "1790901035.467689") == 0
+
+    rows = watch_rows(tmp_path / "release-v3" / "slack" / "watched-threads.jsonl")
+    assert [("posted_ts" in row, "linked_ts" in row) for row in rows] == [(True, False), (False, True)]
+
+
+def test_a_link_after_a_close_row_reopens_the_thread_once(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    watched = tmp_path / "release-v3" / "slack" / "watched-threads.jsonl"
+    assert watch("--message", "1790901035.467689") == 0
+    with watched.open("a") as out:
+        out.write(json.dumps({"thread": "C0AAAAAAAA1/1790901035.467689", "closed_at": "2026-10-13T17:00:00Z", "reason": "owner: done"}) + "\n")
+
+    assert watch("--message", "1790901035.467689") == 0
+    assert watch("--message", "1790901035.467689") == 0
+
+    assert ["close" if "thread" in row else "link" for row in watch_rows(watched)] == ["link", "close", "link"]
+
+
+def test_a_linked_channel_joins_the_watch_list_from_now(repo, tmp_path, capsys):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    watched = tmp_path / "release-v3" / "slack" / "watched-threads.jsonl"
+
+    assert watch() == 0
+    assert watch() == 0
+
+    [row] = watch_rows(watched)
+    assert (row["channel"], row["thread_ts"]) == ("C0AAAAAAAA1", None)
+    assert drive.SLACK_TS.fullmatch(row["linked_ts"])
+    assert capsys.readouterr().out.splitlines()[-1] == f"C0AAAAAAAA1 is on the drive's Slack watch list at {watched}"
+
+
+def test_a_link_from_a_session_in_no_drive_fails(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+
+    with pytest.raises(SystemExit, match="no drive claims session 0dd0bead"):
+        drive.main(["watch", "--session", WORKER_SESSION, "--lane", "owner", "--channel", "C0AAAAAAAA1"])
+
+    assert not (tmp_path / "release-v3" / "slack").exists()
+
+
+def test_watch_refuses_a_malformed_message_ts(repo):
+    with pytest.raises(SystemExit):
+        watch("--message", "1790901997")

@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Or, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import script
-from .pr_ledger import RECORD_TIMEOUT_SECONDS, named_lane
+from .pr_ledger import RECORD_TIMEOUT_SECONDS, named_lane, run_drive
+from .root_context import DriveActive, OwnerPrompt
+from .tests.root_fixtures import ACTIVE
 
 POST_TOOLS = (
     "mcp__plugin_cc-slack_cc-slack__slack_send",
@@ -27,6 +31,22 @@ CC_SLACK_SEND = '{"channel_id":"C0BBBBBBBB2","ts":"1790875497.353829","permalink
 MCP_SENT = '{\n  "status": "sent",\n  "channel": "C0AAAAAAAA1",\n  "ts": "1790902074.413409",\n  "thread_ts": "1790901035.467689",\n  "message": "x"\n}'
 THREAD = f"{sys.executable} {script('drive.py')} thread"
 UNWATCHED = "The Slack thread {thread} was not added to the drive's watch list. Run `drive.py thread` for it by hand."
+CHANNEL = r"(?P<channel>[CDG](?=[A-Z]*\d)[A-Z0-9]{8,})(?![A-Z0-9])"
+MESSAGE = r"(?P<message>p\d{16}|\d{10}\.\d{6})(?!\d)"
+LINKS = (
+    re.compile(rf"https://[\w.-]+\.slack\.com/archives/{CHANNEL}(?:/{MESSAGE}(?:\?[^\s>|]*?\bthread_ts=(?P<thread>\d{{10}}\.\d{{6}}))?)?"),
+    re.compile(rf"(?<![\w/]){CHANNEL}[ /]{MESSAGE}"),
+)
+OWNER = "owner"
+WATCH = f"{sys.executable} {script('drive.py')} watch"
+FENCE = "~" * 12
+OWNER_LINK = "runs are broken, see https://example.slack.com/archives/C0AAAAAAAA1/p1790901997422529?thread_ts=1790901035.467689&cid=C0AAAAAAAA1"
+ON_WATCH = "{thread} is on the drive's Slack watch list at state"
+WATCHING = (
+    "The Slack links in this prompt are on the drive's watch list, so never add them by hand. "
+    "If no Slack watch lane is live, spawn one from `reference/slack-watch-brief.md`."
+)
+NOT_WATCHING = "A Slack link in this prompt did not reach the drive's watch list. Rerun the command below."
 
 
 @dataclass(frozen=True)
@@ -133,3 +153,69 @@ def register_posted_thread(evt: BaseHookEvent) -> HookResult | None:
         elif done.stdout.strip():
             lines.append(done.stdout.strip())
     return evt.context("\n".join(lines)) if lines else None
+
+
+@dataclass(frozen=True)
+class SlackLink:
+    channel: str
+    message: str | None
+    thread: str | None
+
+    @property
+    def flags(self) -> list[str]:
+        named = (("--channel", self.channel), ("--message", self.message), ("--thread-ts", self.thread))
+        return [arg for flag, value in named if value for arg in (flag, value)]
+
+
+def slack_links(prompt: str) -> list[SlackLink]:
+    found = (
+        SlackLink(match["channel"], match["message"], match.groupdict().get("thread"))
+        for pattern in LINKS
+        for match in pattern.finditer(prompt)
+    )
+    return list(dict.fromkeys(found))
+
+
+def fenced(lines: list[str]) -> str:
+    return "\n".join([FENCE, *lines, FENCE])
+
+
+def linked(prompt: str, thread: str | None = None) -> Input:
+    commands = {WATCH: ON_WATCH.format(thread=thread) if thread else ""}
+    return Input(prompt=prompt, state=ACTIVE, session_id="900424b6-0000", commands=commands)
+
+
+@on(
+    Event.UserPromptSubmit,
+    only_if=[DriveActive(), OwnerPrompt(commands=True)],
+    skip_if=[FromSubagent()],
+    tests={
+        linked(OWNER_LINK, "C0AAAAAAAA1/1790901035.467689"): Warn(
+            pattern=r"^The Slack links in this prompt are on the drive's watch list[^\n]*\n~{12}\nC0AAAAAAAA1/1790901035\.467689 is on the drive's Slack watch list at state\n~{12}$"
+        ),
+        linked("look at C0BBBBBBBB2 p1790875497353829", "C0BBBBBBBB2/1790875497.353829"): Warn(pattern=r"C0BBBBBBBB2/1790875497\.353829 is on"),
+        linked("/incident C0BBBBBBBB2 1790875497.353829 is broken", "C0BBBBBBBB2/1790875497.353829"): Warn(pattern=r"C0BBBBBBBB2/1790875497\.353829 is on"),
+        linked("watch https://example.slack.com/archives/C0BBBBBBBB2 too", "C0BBBBBBBB2"): Warn(pattern=r"\nC0BBBBBBBB2 is on"),
+        linked(OWNER_LINK): Allow(),
+        Input(prompt="post in C0AAAAAAAA1 when the fix is live", state=ACTIVE): Allow(),
+        Input(prompt="the canvas is https://example.slack.com/docs/T0AAAAAAAA1/F0AAAAAAAA1", state=ACTIVE): Allow(),
+        Input(prompt="review https://github.com/example/repo/pull/1790901997422529", state=ACTIVE): Allow(),
+        Input(prompt=OWNER_LINK): Allow(),
+        Input(prompt=OWNER_LINK, agent_id="a1b2c3", state=ACTIVE): Allow(),
+        Input(prompt=f'<teammate-message teammate_id="slack-watch">\n{OWNER_LINK}\n</teammate-message>', state=ACTIVE): Allow(),
+    },
+)
+def watch_owner_links(evt: BaseHookEvent) -> HookResult | None:
+    if not (links := slack_links(evt.user_prompt or "")):
+        return None
+    base = [sys.executable, str(script("drive.py")), "watch", "--session", evt.session_id, "--lane", OWNER]
+    base += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
+    added, missed = [], []
+    for link in links:
+        done, reason = run_drive([*base, *link.flags])
+        if done is None or done.returncode:
+            missed += [reason, shlex.join([*base, *link.flags])]
+        elif done.stdout.strip():
+            added.append(done.stdout.strip())
+    parts = [*([WATCHING, fenced(added)] if added else []), *([NOT_WATCHING, fenced(missed)] if missed else [])]
+    return evt.context(*parts) if parts else None
