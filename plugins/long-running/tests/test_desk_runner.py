@@ -60,6 +60,8 @@ class FakeShell(runner_module.Shell):
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
+        self.queue: dict[str, str] = {}
+        self.activity: dict[str, str] = {}
         self.rows: list[dict] = []
         self.verdict = {"verdict": "answer", "text": "the brief says yes"}
         self.launch_line = ""
@@ -146,6 +148,11 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
+        if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+        if argv[:3] == ["gh", "pr", "view"]:
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
+            return runner_module.Done(0, json.dumps({"comments": [{"body": self.activity[argv[3]]}] if argv[3] in self.activity else []}), "")
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
@@ -850,6 +857,78 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     action = store.load("desk-landing").actions[key]
     assert (action.status, action.response["outcome"]) == ("completed", "enqueued")
     assert shell.enqueues() == []
+
+
+QUEUE_ADDED = "### Merge activity\n\n* **Oct 13, 12:45 AM UTC**: `yasyf` added this pull request to the [Graphite merge queue](https://app.graphite.com/merges).\n"
+
+
+def enqueues_of(tmp_path: Path) -> dict[str, actions.Action]:
+    return {key: action for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "enqueue"}
+
+
+def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    shell.queue["29020"] = "not queued"
+    shell.activity["29020"] = QUEUE_ADDED
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+    shell.queue["29020"] = "queued"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+    first, second = (action for _, action in sorted(enqueues_of(tmp_path).items()))
+    assert (first.response["outcome"], second.response["outcome"]) == ("dropped", "enqueued")
+    assert first.response["drop"] == {"29020": QUEUE_ADDED.strip().splitlines()[-1]}
+    assert escalations(shell) == [] and [post for post in shell.posts if post["kind"] == "blocker"] == []
+
+
+def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    shell.queue["29020"] = "evicted"
+    shell.activity["29020"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request because it had merge conflicts.\n"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    blockers = [post for post in shell.posts if post["kind"] == "blocker"]
+    assert len(blockers) == 1 and blockers[0]["to"] == LANE and blockers[0]["topic"] == "29020"
+    assert "merge conflicts" in blockers[0]["text"] and "cccc333333" in blockers[0]["text"]
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"]
+
+
+def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(shell, config, tmp_path):
+    shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
+    shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
+    shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
+    landing_pass(shell, config)
+    shell.queue["29016"] = "not queued"
+    shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to Failed CI (test-unit).\n"
+    shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", "#29016 GREEN bbbb222222 graphite READY", would="#29016")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert len([post for post in shell.posts if post["kind"] == "blocker"]) == 1
+    shell.rows[1] |= {"head": "bbbb333333", "reported_head": "bbbb333333"}
+    shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", "#29016 GREEN bbbb333333 graphite READY", would="#29016")]
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    shell.rows = [{"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
+    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
+    landing_pass(shell, config)
+    assert not [call for call in shell.calls if call[:2] == ["ccx", "vcs"]]
 
 
 def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):
