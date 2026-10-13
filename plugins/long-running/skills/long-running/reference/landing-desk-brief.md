@@ -175,7 +175,7 @@ Do, in this order, forever:
      and a cci correction names its record with --re <seq>. Never report it done.
      List live standing answer ids in every report and apply corrections before
      acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
-     Read the holds file's #<n> and lane:<name> entries and the PRs
+     Read the holds file's leading #<n> and lane:<name> entries and the PRs
      `ledger.py held --drive <drive>` prints from open cci holds. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift

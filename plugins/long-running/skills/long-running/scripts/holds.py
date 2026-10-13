@@ -112,13 +112,14 @@ def add(path: Path, args: argparse.Namespace) -> str:
 
 
 def without(entry: Entry, kind: str, name: str) -> Entry | None:
-    if kind == "pr" and not entry.lanes:
-        return None
     token = re.compile(rf"^#{name}\b" if kind == "pr" else rf"\blane:{re.escape(name)}(?=\s|$)")
     remaining = Entry(" ".join(token.sub("", entry.line).split()))
-    if remaining.release:
-        raise Refused(f"removing {token.pattern} from `{entry.line}` would turn it into a release line; split that line by hand")
-    return remaining if remaining.prs or remaining.lanes or remaining.holds_all else None
+    kept = [*(entry.prs if kind == "lane" else []), *(lane for lane in entry.lanes if kind == "pr" or lane != name)]
+    if not kept and not entry.holds_all:
+        return None
+    if remaining.release or remaining.prs + remaining.lanes != kept:
+        raise Refused(f"removing {token.pattern} from `{entry.line}` would leave `{remaining.line}`, which {remaining.describe()}; split that line by hand")
+    return remaining
 
 
 def rm(path: Path, args: argparse.Namespace) -> str:

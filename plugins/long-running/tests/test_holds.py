@@ -38,12 +38,25 @@ def test_a_reason_naming_a_dependency_or_a_prohibition_is_a_hold(tmp_path, reaso
     assert run(tmp_path / "holds.md", "add", "--pr", "30082", "--reason", reason) == 0
 
 
-def test_rm_refuses_to_turn_a_shared_line_into_a_release_line(tmp_path):
+@pytest.mark.parametrize(
+    ("line", "argv"),
+    [("lane:L28 release lane:L29 after owner review", ("--lane", "L28")), ("#30082 #30083 lane:L28 owner review", ("--pr", "30082"))],
+)
+def test_rm_refuses_to_leave_a_release_line_or_a_new_hold(tmp_path, line, argv):
     path = tmp_path / "holds.md"
-    path.write_text("lane:L28 release #30083 after owner review\n")
+    path.write_text(f"{line}\n")
 
-    assert run(path, "rm", "--lane", "L28") == 1
-    assert path.read_text() == "lane:L28 release #30083 after owner review\n"
+    assert run(path, "rm", *argv) == 1
+    assert path.read_text() == f"{line}\n"
+
+
+@pytest.mark.parametrize(("line", "argv"), [("lane:L28 #30083 waits for review", ("--lane", "L28")), ("#30082 release #30083 after owner review", ("--pr", "30082"))])
+def test_rm_drops_a_line_whose_only_subject_it_removes(tmp_path, line, argv):
+    path = tmp_path / "holds.md"
+    path.write_text(f"{line}\n")
+
+    assert run(path, "rm", *argv) == 0
+    assert path.read_text() == ""
 
 
 @pytest.mark.parametrize("reason", ["same as lane:L28", ""])
