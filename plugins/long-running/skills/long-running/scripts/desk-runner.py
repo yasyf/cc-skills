@@ -128,6 +128,7 @@ import actions
 import cci
 import inboxes
 import prompt_screen
+from holds import HELD_LANE, HELD_PR, HOLD_ALL, RELEASE_LINE
 
 SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -169,10 +170,6 @@ VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
-HELD_PR = re.compile(r"#(\d+)")
-HELD_LANE = re.compile(r"\blane:(\S+)")
-HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
-RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
