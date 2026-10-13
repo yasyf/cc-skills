@@ -21,5 +21,8 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
-    """Each PR an open `hold` record on `drive` names, mapped to that record's seq; a `lift --resolves <seq>` closes the record and frees the PR."""
-    return {str(pr): record["seq"] for record in records(run, drive, "--kind=hold") if record["status"] == "open" for pr in record["refs"].get("prs", [])}
+    """Each PR an open `hold` record on `drive` names, mapped to that record's seq; a `lift --resolves <seq>` closes the record and frees the PR.
+
+    `cci tail --kind=hold` also returns the caller's peer mail of any kind and drive, which carries no status, so only the drive's hold records count."""
+    holds = [record for record in records(run, drive, "--kind=hold") if record["kind"] == "hold" and record["drive"] == drive]
+    return {str(pr): record["seq"] for record in holds if record["status"] == "open" for pr in record["refs"].get("prs", [])}
