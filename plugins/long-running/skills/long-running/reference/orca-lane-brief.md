@@ -234,7 +234,9 @@ Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <relevant register rules, their linked answer ids, and the entry point (symbol at file:line) each requires; or "none">.
-Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
+Design check: before READY-FOR-SHIP, post `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>` as a `contract` record on the bus and keep building; never wait for a confirm. The coordinator withdraws it only on a mismatch; a change that leaves out part of a ruling holds.
+Design questions: settle each from this spec, the register, and the base branch yourself and post the choice as a `contract` record. Ask the coordinator only when the choice changes owner-visible behaviour, and keep building the rest meanwhile.
+Stacking: open your PR as soon as its parent's PR exists, never once it lands; restack with `ccx vcs stack submit` after the parent lands.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Carry the owner-approved register's at most 30 rules, never full-answer quotes.
   Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.

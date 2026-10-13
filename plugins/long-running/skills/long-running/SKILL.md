@@ -778,10 +778,14 @@ plain-language check covered only the posting lane's copy.*
   with its id and the required entry point as a symbol at `file:line`. Have a reader
   lane find the symbol before dispatch. A package list is not an entry point:
   importing every package still permits a second implementation.
-- Before READY-FOR-SHIP, name the entry point the diff calls, each ruling it meets,
-  and anything it leaves out. The root confirms this design check against the
-  rulings before any ship lane launches. Incident fix lanes record it with
-  `incident.py note --design-check`; the executor asks the root to confirm.
+- Before READY-FOR-SHIP, the lane names the entry point the diff calls, each ruling it
+  meets, and anything it leaves out, and posts that design check as a `contract` record
+  on the bus. It settles the check itself from its brief, the standing rules register,
+  and the base branch, and keeps building; it never waits for a confirm. The root reads
+  the contract on the bus and withdraws it only on a mismatch with a quoted ruling.
+  The lane asks the root first only when its choice changes owner-visible behaviour.
+  Incident fix lanes record it with `incident.py note --design-check`; the executor
+  asks the root to confirm.
 - Never ship a "static first" split that changes the durable fix's agreed semantics,
   such as dropping footers, the judge, or the entry point. Ship the design whole or
   hold the PR; mitigate through the apply. If a lane says the full fix exceeds its
@@ -790,7 +794,9 @@ plain-language check covered only the posting lane's copy.*
 *Prevents the C09G failure of 2026-10-01: R693 named packages instead of
 `releaseDAG`; R699 deferred footers and baseline; R704 sent READY-FOR-SHIP straight
 to a ship lane. #29109 added a second closure without footers, and the owner caught
-the mismatch in the diff.*
+the mismatch in the diff. Root confirms of each design check then parked lanes for 20
+to 40 minutes on 2026-10-12 and dispatched them one at a time; the contract record keeps
+the check visible without the wait.*
 
 **R23. Stop every finished agent the turn its completion arrives.** On each subagent
 completion notification, the root calls `TaskStop` on that agent in the same turn, after
@@ -1570,7 +1576,13 @@ Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
   with its id, and the entry point (symbol at file:line) it makes the change call; or
   "none">. Before READY, state which entry point your diff calls, each ruling it meets,
-  and anything it leaves out; the root confirms before a ship lane launches (R22).
+  and anything it leaves out, as a `contract` record on the bus (R22). Never wait for
+  a confirm.
+Design questions: settle each from this brief, the standing rules register, and the
+  base branch yourself, and post the choice as a `contract` record with its reason.
+  Ask the root (`cci post --kind ask --to root`) only when the choice changes
+  owner-visible behaviour, and keep building the rest while the ask is open. Never
+  end a turn waiting for an answer.
 Do:
   0. Before designing, name what already grades or handles this signal: monitors,
      the release's Watch, open owner tasks and picks (`ccn task list`,
@@ -1598,7 +1610,9 @@ Standing rules served: <`#<seq>` ids with their answer ids, or "none">. Your tas
   them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
-  PR, stack on that PR instead of racing it. Never commit a generated output; the build
+  PR, stack on that PR instead of racing it. Open your PR as soon as its parent's PR
+  exists, never once it lands: ship on the parent branch, then restack with
+  `ccx vcs stack submit` after the parent lands. Never commit a generated output; the build
   generates it. A stack that still carries a regenerated artifact rebases and
   regenerates it on ejection.
 Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge-fast`
@@ -2936,8 +2950,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
     answered in this turn in my own words; a delay I caused named as mine.
 22. Before briefing, ruling on, or shipping a subsystem change, quote the owner's
-    rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
-    lane's design check against those rulings before launching any ship lane.
+    rulings verbatim with the entry point as a symbol at `file:line`. Read the
+    lane's design-check contract on the bus and withdraw it only on a mismatch;
+    never make a lane wait for a confirm.
     Ship the whole design or hold.
 23. Did a subagent's completion notification just arrive, or am I about to spawn? →
     `TaskStop` every finished agent of mine this turn; never report the subagent

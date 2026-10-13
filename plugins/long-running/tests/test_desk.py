@@ -47,6 +47,16 @@ def test_the_comms_desk_answers_under_the_drive_start_channel_grant_without_the_
     assert "reference/comms-desk-brief.md" in (skill / "SKILL.md").read_text()
 
 
+@pytest.mark.parametrize("path", ["SKILL.md", "reference/orca-lane-brief.md"])
+def test_lane_briefs_settle_design_themselves_and_open_prs_on_an_open_parent(path):
+    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
+    assert "`contract` record" in text
+    assert "only when the choice changes" in text and "owner-visible behaviour" in text
+    assert "as soon as its parent's PR" in text and "never once it lands" in text
+    assert "confirms it before a ship lane launches" not in text
+    assert "the root confirms before a ship lane launches" not in text
+
+
 def stamp(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 
