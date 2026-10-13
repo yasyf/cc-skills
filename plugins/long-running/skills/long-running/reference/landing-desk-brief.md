@@ -193,7 +193,7 @@ Do, in this order, forever:
      `ledger.py report --drive <drive> --repo <owner/name>`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
      `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix> [--pr N]...`,
-     with opened PRs recorded by the hook and hand registration as the fallback;
+     with each PR `ccx vcs ship` opens recorded by the hook and posted `opened` on cci;
      a question as `ledger.py ruling --drive <drive>`, an idle notice as
      `ledger.py enqueue --drive <drive> --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. The inbox lists P0 first, then rulings,

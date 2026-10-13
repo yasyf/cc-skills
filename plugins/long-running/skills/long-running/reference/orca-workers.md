@@ -205,8 +205,8 @@ Finish with `send --type worker_done --outcome succeeded|failed`
 and the preamble's `--task-id <taskId>` and `--dispatch-id <dispatchId>`.
 
 Orca workers are separate sessions. They register their prefixes and report verdicts
-through `ledger.py` themselves; the hook records opened PRs, with hand registration
-as the fallback. They never `SendMessage` a subagent. Read a worker's output by dispatch:
+through `ledger.py` themselves; `ccx vcs ship` records each PR it opens, as a ledger row
+through the hook and an `opened` record on cci, so a worker posts no `opened` line. They never `SendMessage` a subagent. Read a worker's output by dispatch:
 
 ```sh
 orca orchestration worker-read --dispatch "<id>"
