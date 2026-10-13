@@ -183,6 +183,7 @@ ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
+UNREAD = "unread"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
@@ -518,12 +519,13 @@ class Orca:
             live=observation.get("status") == "live",
         )
 
-    def thread_message(self, terminal: str, thread: str) -> dict | None:
+    def mailbox(self, terminal: str) -> list[dict] | None:
         listed = self.call("orchestration", "check", "--terminal", terminal, "--all")
-        return next((message for message in (listed.get("result") or {}).get("messages") or [] if message.get("thread_id") == thread), None)
+        return (listed.get("result") or {}).get("messages") or [] if listed.get("ok") else None
 
     def request_state(self, request: str) -> str:
-        return (self.call("orchestration", "request-show", "--request", request).get("result") or {}).get("state", "absent")
+        shown = self.call("orchestration", "request-show", "--request", request)
+        return (shown.get("result") or {}).get("state", "absent") if shown.get("ok") else UNREAD
 
     def wake(self, terminal: str, text: str) -> bool:
         screen = self.call("terminal", "read", "--terminal", terminal, "--screen")
@@ -545,8 +547,14 @@ def thread_of(container: str, key: str) -> str:
     return f"{container}/{key}"
 
 
-def delivery_thread(container: str, action: actions.Action) -> str:
-    return json.loads(action.target)["reply_to"] if action.kind == "reply" else thread_of(container, action.action_id)
+def delivers(message: dict, container: str, action: actions.Action) -> bool:
+    if action.kind == "reply":
+        return message.get("thread_id") == json.loads(action.target)["reply_to"] and (message.get("body") or "").rstrip().endswith(f"({action.authority_ref})")
+    return message.get("thread_id") == thread_of(container, action.action_id)
+
+
+def resent(tries: list[actions.Action]) -> bool:
+    return any(attempt.action_id.endswith(RESEND) for attempt in tries)
 
 
 class Runner:
@@ -1035,7 +1043,7 @@ class Runner:
         tries = self.sends(container, action.action_id, dispatch.id)
         if any(attempt.status != "failed" for attempt in tries):
             return
-        if len(tries) >= SEND_ATTEMPTS:
+        if len(tries) >= SEND_ATTEMPTS or resent(tries):
             self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}")
             return
         send_id = f"send:{action.action_id}:{dispatch.id}#{len(tries) + 1}"
@@ -1069,7 +1077,7 @@ class Runner:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
 
     def reconcile_sends(self, container: str, lane: str) -> None:
-        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; absent both `RESEND_AFTER` on, resend it once on the same thread, and report a resend lost the same way as LOST."""
+        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; once both reads succeed and show neither, `RESEND_AFTER` on, resend it once on the same thread, and report a resend lost the same way as LOST."""
         cutoff = self.now() - ORPHANED_SEND
         for send in self.book.actions(container, kind="send", status="started"):
             if actions.parse_stamp(send.started_at) < cutoff:
@@ -1078,14 +1086,17 @@ class Runner:
             action = self.book.load(container).actions[send.authority_ref]
             request = (send.response or {}).get("request_id", "")
             state = self.orca.request_state(request) if request else "absent"
-            if state == "pending":
+            if state in ("pending", UNREAD):
                 continue
             dispatch = self.orca.show(lane)
             current = dispatch if dispatch and dispatch.id == send.target else None
             if state == "completed" and current:
                 self.post(container, current, action, send.action_id, request)
                 continue
-            found = self.orca.thread_message(current.terminal, delivery_thread(container, action)) if current else None
+            mailbox = self.orca.mailbox(current.terminal) if current else []
+            if mailbox is None:
+                continue
+            found = next((message for message in mailbox if delivers(message, container, action)), None)
             if found:
                 receipt = {"message": found["id"], "at": found.get("created_at", self.book.stamp()), "reconciled": True}
                 self.book.attempt(container, lambda incident, key=send.action_id, receipt=receipt: incident.complete(key, receipt))
@@ -1094,7 +1105,7 @@ class Runner:
             elif not current or current.status in INACTIVE:
                 self.escalate(f"{container}/{send.action_id}", "UNVERIFIABLE", lane, f"{action.authority_ref} send to {send.target} lost its response; Orca holds no receipt and no message on its thread; it was not resent")
             elif self.now() - actions.parse_stamp(send.started_at) >= RESEND_AFTER:
-                if any(attempt.action_id.endswith(RESEND) for attempt in self.sends(container, action.action_id, current.id)):
+                if resent(self.sends(container, action.action_id, current.id)):
                     self.report_lost(container, lane, action, send)
                 else:
                     self.resend(container, current, action, send)
@@ -1111,10 +1122,13 @@ class Runner:
 
     def resend(self, container: str, dispatch: Dispatch, action: actions.Action, send: actions.Action) -> None:
         send_id = f"{send.action_id}{RESEND}"
-        if not self.book.attempt(container, lambda incident: incident.fail(send.action_id, f"response lost with no receipt and no message on its thread; resent as {send_id}")):
-            return
-        self.book.accept(container, send_id, "send", dispatch.id, action.action_id, None)
-        if self.book.attempt(container, lambda incident: incident.start(send_id, self.now(), dispatch_id=dispatch.id)):
+
+        def retire_and_start(incident: actions.Incident) -> None:
+            incident.fail(send.action_id, f"response lost with no receipt and no message on its thread; resent as {send_id}")
+            incident.accept(send_id, "send", dispatch.id, action.action_id, self.now())
+            incident.start(send_id, self.now(), dispatch_id=dispatch.id)
+
+        if self.book.attempt(container, retire_and_start):
             self.post(container, dispatch, action, send_id, "")
 
     def launch_log(self, container: str, key: str) -> Path:

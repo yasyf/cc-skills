@@ -54,6 +54,8 @@ class FakeShell(runner_module.Shell):
         self.questions: list[dict] = []
         self.lose_sends = 0
         self.lose_replies = 0
+        self.reject_sends = 0
+        self.mailbox_down = False
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
         self.stale_out = ""
@@ -226,6 +228,9 @@ class FakeShell(runner_module.Shell):
             dispatch = self.dispatches[argv[3]]
             return self.ok({"dispatch": {"status": dispatch["status"]}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb == ["orchestration", "send"]:
+            if self.reject_sends:
+                self.reject_sends -= 1
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "refused"}}), "")
             if self.garble_sends:
                 self.garble_sends -= 1
                 return runner_module.Done(1, "", "socket hang up")
@@ -254,6 +259,8 @@ class FakeShell(runner_module.Shell):
             if argv[3].startswith("run:"):
                 assert argv[3:] == ["run:run_1", "--all", "--types", "question"]
                 return self.ok({"messages": self.questions})
+            if self.mailbox_down:
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable"}}), "")
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
         if verb == ["orchestration", "inbox"]:
             assert argv[2:4] == ["--terminal", "run:run_1"]
@@ -533,7 +540,7 @@ def test_a_lost_reply_found_on_the_questions_thread_completes_and_is_never_resen
     shell.lose_replies = 1
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "30s", "--reply-to", "msg_q9")
     orca_pass(shell, config)
-    shell.inboxes["term_ctx_a"] = [{"id": "msg_late", "thread_id": "msg_q9", "created_at": "2026-10-01T18:00:05Z"}]
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_late", "thread_id": "msg_q9", "body": "30s\n\n(R625)", "created_at": "2026-10-01T18:00:05Z"}]
     later_pass(shell, config)
     assert len(replies(shell)) == 1
     assert send_statuses(tmp_path) == ["completed"]
@@ -541,8 +548,39 @@ def test_a_lost_reply_found_on_the_questions_thread_completes_and_is_never_resen
     assert escalations(shell) == []
 
 
+def test_a_lost_send_is_not_resent_while_the_mailbox_cannot_be_read(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.mailbox_down = True
+    later_pass(shell, config)
+    later_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert send_statuses(tmp_path) == ["unverifiable"]
+    assert escalations(shell) == []
+    shell.mailbox_down = False
+    later_pass(shell, config)
+    assert len(shell.sends()) == 2
+
+
+def test_a_resend_orca_rejects_is_never_followed_by_a_third_send(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.reject_sends = 1
+    for _ in range(3):
+        later_pass(shell, config)
+    assert len(shell.sends()) == 2
+    assert send_statuses(tmp_path) == ["failed", "failed"]
+    [line] = escalations(shell)
+    assert line.startswith(f"SEND-FAILED desk-lane-{LANE}/send:R625:ctx_a {LANE}: R625 to ctx_a failed 2 times: ")
+
+
 def test_a_lost_reply_with_no_receipt_is_resent_once(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_old", "thread_id": "msg_q9", "body": "300s\n\n(R600)", "created_at": "2026-10-01T17:55:00Z"}]
     shell.lose_replies = 1
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "30s", "--reply-to", "msg_q9")
     orca_pass(shell, config)
