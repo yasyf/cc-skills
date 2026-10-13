@@ -333,13 +333,17 @@ A done reply records completion; verification needs the action's external receip
 
 The runner settles an `unverifiable` send through Orca `request-show` and
 `--retry-request`, or the recipient's mailbox. An unparseable CLI response is
-`unverifiable` too. With neither proof thirty seconds after the send, the runner
-sends the relay once more on the same thread, under the same key, and emits
-`RESENT` when that send is delivered. A resend lost the same way emits `LOST`,
-and its record's path holds the relay text; the runner sends nothing a third
-time. A send to a dispatch that is no longer the lane's live one stays
-`unverifiable` and emits `UNVERIFIABLE`. A launch with neither a launch line nor
-a new receipt is `UNVERIFIABLE`, never relaunched automatically.
+`unverifiable` too. A send to a dispatch that is no longer the lane's live one
+stays `unverifiable`, emits `UNVERIFIABLE`, and is never resent. A launch with
+neither a launch line nor a new receipt is `UNVERIFIABLE`, never relaunched
+automatically.
+
+With neither proof thirty seconds after a send to the lane's live dispatch, the
+runner sends the relay again on the same thread, under the same key. It repeats
+that once every thirty seconds until Orca holds a receipt or the message shows on
+the thread, and a delivered resend emits nothing. After ten resends all lost the
+same way the runner emits `LOST` once, with the count, and its record's path holds
+the relay text; it sends nothing more. A resend Orca rejects emits `SEND-FAILED`.
 
 A relay record or a root reply can be any length. `cci post` keeps only the first
 line of a text over 400 characters in the record, clipped, and writes the whole
@@ -493,8 +497,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
-| `RESENT` | None; the relay's first send was lost with no receipt and the second was delivered on the same thread. |
-| `LOST` | Deliver the relay text at the record's path to the lane by hand; both sends were lost and the runner sends no third. |
+| `LOST` | Deliver the relay text at the record's path to the lane by hand; the send and ten resends were all lost, and the runner sends nothing more. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
@@ -506,7 +509,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
 | `LAUNCH-FAILED` | Read the named launch failure before issuing any new action; for an inbox launch line, relay to the live dispatch or append a corrected line under a new key. |
 | `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |
-| `SEND-FAILED` | Resolve a send that failed three explicit attempts. |
+| `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |

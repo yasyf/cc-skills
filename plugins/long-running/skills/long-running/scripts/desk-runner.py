@@ -19,10 +19,13 @@ A relay is accepted, then started and completed by the lane itself: it replies
 `started <key>` and `done <key>: <result>` on the action's thread. The send is its own
 `send:` action, delivery evidence only. A send whose response is lost becomes
 `unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
-With neither thirty seconds on, the runner sends the relay once more on the same thread
-and logs `RESENT` when that send is delivered. A resend lost the same way logs `LOST`
-with the relay text on the record's path, and nothing is sent a third time. A send with
-a receipt is never resent. An accepted relay to a lane with no live dispatch and no
+With neither thirty seconds on, the runner sends the relay again on the same thread,
+under the same key, and repeats that once every thirty seconds until Orca holds a
+receipt or the message shows on the thread. A delivered resend logs nothing. Ten
+resends all lost the same way log `LOST` once, with the count and the relay text on
+the record's path, and nothing more is sent. A send with a receipt is never resent,
+and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
+and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`. `cci post` keeps only the first
 line of a text over its 400-character limit in the record, clipped, and writes the
 whole text to a file the record names by path. The runner reads a relay record's or a
@@ -183,6 +186,7 @@ ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
+RESEND_LIMIT = 10
 RESEND = ":resend"
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
@@ -563,8 +567,8 @@ def delivers(message: dict, container: str, action: actions.Action) -> bool:
     return message.get("thread_id") == thread_of(container, action.action_id)
 
 
-def resent(tries: list[actions.Action]) -> bool:
-    return any(attempt.action_id.endswith(RESEND) for attempt in tries)
+def resends(tries: list[actions.Action]) -> list[actions.Action]:
+    return [attempt for attempt in tries if RESEND in attempt.action_id]
 
 
 class Runner:
@@ -1052,13 +1056,13 @@ class Runner:
 
     def sends(self, container: str, key: str, dispatch: str) -> list[actions.Action]:
         prefix = f"send:{key}:{dispatch}"
-        return [action for action in self.book.actions(container, kind="send") if action.action_id.split("#")[0] == prefix]
+        return [action for action in self.book.actions(container, kind="send") if action.action_id.rsplit("#", 1)[0] == prefix]
 
     def send(self, container: str, dispatch: Dispatch, action: actions.Action) -> None:
         tries = self.sends(container, action.action_id, dispatch.id)
         if any(attempt.status != "failed" for attempt in tries):
             return
-        if len(tries) >= SEND_ATTEMPTS or resent(tries):
+        if len(tries) >= SEND_ATTEMPTS or resends(tries):
             self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}")
             return
         send_id = f"send:{action.action_id}:{dispatch.id}#{len(tries) + 1}"
@@ -1092,7 +1096,7 @@ class Runner:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
 
     def reconcile_sends(self, container: str, lane: str) -> None:
-        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; once both reads succeed and show neither, `RESEND_AFTER` on, resend it once on the same thread, and report a resend lost the same way as LOST."""
+        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; while both reads succeed and show neither, resend it on the same thread once per `RESEND_AFTER`, and report `RESEND_LIMIT` resends all lost the same way as LOST."""
         cutoff = self.now() - ORPHANED_SEND
         for send in self.book.actions(container, kind="send", status="started"):
             if actions.parse_stamp(send.started_at) < cutoff:
@@ -1120,23 +1124,21 @@ class Runner:
             elif not current or current.status in INACTIVE:
                 self.escalate(f"{container}/{send.action_id}", "UNVERIFIABLE", lane, f"{action.authority_ref} send to {send.target} lost its response; Orca holds no receipt and no message on its thread; it was not resent")
             elif self.now() - actions.parse_stamp(send.started_at) >= RESEND_AFTER:
-                if resent(self.sends(container, action.action_id, current.id)):
-                    self.report_lost(container, lane, action, send)
+                sent_again = len(resends(self.sends(container, action.action_id, current.id)))
+                if sent_again >= RESEND_LIMIT:
+                    self.report_lost(container, lane, action, send, sent_again)
                 else:
-                    self.resend(container, current, action, send)
-        for send in self.book.actions(container, kind="send", status="completed"):
-            if send.action_id.endswith(RESEND):
-                self.record(f"escalation:resent:{container}/{send.action_id}", f"RESENT {send.authority_ref} {lane}: the first send to {send.target} lost its response with no receipt and no message on its thread; sent once more on the same thread and delivered")
+                    self.resend(container, current, action, send, sent_again + 1)
 
-    def report_lost(self, container: str, lane: str, action: actions.Action, send: actions.Action) -> None:
+    def report_lost(self, container: str, lane: str, action: actions.Action, send: actions.Action, sent_again: int) -> None:
         log = f"escalation:lost:{container}/{send.action_id}"
         if self.book.known(RUNNER, log):
             return
         self.keep({"id": action.action_id, "body": json.loads(action.target)["text"]})
-        self.record(log, f"LOST {action.action_id} {lane}: both sends to {send.target} lost their response; Orca holds no receipt and no message on its thread; it was not sent a third time; this record's path holds the relay text for the root to deliver by hand")
+        self.record(log, f"LOST {action.action_id} {lane}: the send to {send.target} and all {sent_again} resends lost their response; Orca holds no receipt and no message on its thread; nothing more is sent; this record's path holds the relay text for the root to deliver by hand")
 
-    def resend(self, container: str, dispatch: Dispatch, action: actions.Action, send: actions.Action) -> None:
-        send_id = f"{send.action_id}{RESEND}"
+    def resend(self, container: str, dispatch: Dispatch, action: actions.Action, send: actions.Action, number: int) -> None:
+        send_id = f"{send.action_id.split(RESEND)[0]}{RESEND}{number}"
 
         def retire_and_start(incident: actions.Incident) -> None:
             incident.fail(send.action_id, f"response lost with no receipt and no message on its thread; resent as {send_id}")

@@ -1295,11 +1295,12 @@ the lane to send `worker_done` first.
 through `accepted`, `started`, `completed`, and `verified`, with `failed` and
 `unverifiable` recording failure or missing proof. An `unverifiable` send is
 settled from Orca `request-show`/`--retry-request` or the recipient's mailbox.
-With neither proof thirty seconds on, the runner sends it once more on the same
-thread and logs `RESENT` when that send is delivered; a resend lost the same way
-logs `LOST` with the relay text on the record's path, for the root to deliver by
-hand. Never resend a send that has a receipt, and never resend by hand before
-`LOST`. `show` renders the record.
+
+With neither proof thirty seconds on, the runner resends it on the same thread
+every thirty seconds until one proof appears, and logs nothing for a delivered
+resend. Ten lost resends log `LOST` with the relay text on the record's path, for
+the root to deliver by hand. Never resend a send that has a receipt, and never
+resend by hand before `LOST`. `show` renders the record.
 
 **O8. A stale heartbeat never authorizes a relaunch.** Every five minutes the
 runner sweeps receipt dispatches. A non-live active dispatch emits `LIVENESS`;
