@@ -677,6 +677,10 @@ def grade_gated_heads_ok(shell: FakeShell) -> None:
                 grade(shell, verdict["pr"], f"ok F307 at {verdict['sha'][:7]}")
 
 
+def held_in(call: list[str]) -> list[str]:
+    return [held for flag, held in itertools.pairwise(call) if flag == "--hold"]
+
+
 def stack_rows(**states: str) -> list[dict]:
     return [
         {"pr": "28997", "lane": "artifact-retry", "branch": "a/1", "base": "dev", "head": "aaaa111111", "state": states.get("28997", "open"), "reported_head": "aaaa111111", "landed_sha": "f00d000001"},
@@ -698,7 +702,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     assert len(lines) == 1 and "STALE-POLICY L260" in lines[0] and "prefix at a1b2c3d4e5" in lines[0]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29016"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29016", "--head", "28997=aaaa111111", "--head", "29016=bbbb222222"]]
     assert all("--whole" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
     shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
     landing_pass(shell, config)
@@ -801,7 +805,7 @@ def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
     shell.enqueue_out["35413"] = (0, "enqueue #35413\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert calls and all(call[call.index("--hold") :] == ["--hold", "36525"] for call in calls)
+    assert calls and all(held_in(call) == ["36525"] for call in calls)
     assert [call[1] for call in shell.enqueues()] == ["35413"]
 
 
@@ -837,7 +841,7 @@ def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, co
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert shell.enqueues() and all(call[call.index("--hold") + 1 :] == ["29020"] for call in calls)
+    assert shell.enqueues() and all(held_in(call) == ["29020"] for call in calls)
 
 
 def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_path):
@@ -851,7 +855,7 @@ def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_p
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert shell.enqueues() and all(call[call.index("--hold") + 1 :] == ["29020"] for call in calls)
+    assert shell.enqueues() and all(held_in(call) == ["29020"] for call in calls)
 
 
 def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, config, tmp_path):
@@ -870,7 +874,7 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert calls and all(call[call.index("--hold") + 1 :] == ["28349"] for call in calls)
+    assert calls and all(held_in(call) == ["28349"] for call in calls)
     assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
     assert shell.sends() == [] and escalations(shell) == []
 
@@ -907,7 +911,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
     assert all(call[call.index("--hold") :] == ["--hold", "36510"] for call in checks)
-    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--hold", "36510"]]
+    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--hold", "36510", "--head", "36463=aaaa111111", "--head", "36487=bbbb222222", "--head", "36501=cccc333333"]]
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
@@ -974,8 +978,18 @@ def test_a_head_the_fidelity_lane_graded_ok_is_enqueued(shell, config, tmp_path)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307,F321 at cccc333. The restack onto dev has a range-diff of '='.")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--head", "29020=cccc333333"]]
     assert blockers(shell) == [] and escalations(shell) == []
+
+
+def test_the_enqueue_pins_every_pr_of_the_prefix_to_the_head_fidelity_graded(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--head", "28997=aaaa111111", "--head", "29016=bbbb222222", "--head", "29020=cccc333333"]]
+    assert all("--head" not in call for call in shell.calls if "--check" in call)
 
 
 def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path):

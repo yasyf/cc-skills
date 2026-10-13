@@ -92,7 +92,8 @@ enqueues only when every PR in it has a fidelity ok at its current head: the new
 the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
-in its prefix is enqueued. A worker's question goes to a Sonnet-low judge with the lane's
+in its prefix is enqueued. The enqueue call pins every PR of the prefix to that graded head with
+`--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
@@ -1513,6 +1514,10 @@ def enqueued_heads(key: str) -> dict[str, str]:
     return dict(entry.split("@", 1) for entry in key.split("#")[0].removeprefix("enqueue:").split(","))
 
 
+def head_pins(heads: dict[str, str]) -> list[str]:
+    return [arg for pr, sha in heads.items() for arg in ("--head", f"{pr}={sha}")]
+
+
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
@@ -1680,7 +1685,7 @@ class Landing:
             self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_lane} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
-        done = self.shell.run(self.enqueue_argv(tops, held, check=False))
+        done = self.shell.run([*self.enqueue_argv(tops, held, check=False), *head_pins(enqueued_heads(key))])
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
