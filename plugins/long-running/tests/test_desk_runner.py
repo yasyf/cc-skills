@@ -89,6 +89,8 @@ class FakeShell(runner_module.Shell):
         self.records: list[dict] = []
         self.tail_error = ""
         self.post_error = ""
+        self.post_out = ""
+        self.post_ids: dict[str, int] = {}
         self.judge_process: Running | None = None
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
@@ -176,8 +178,12 @@ class FakeShell(runner_module.Shell):
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if stored := self.post_ids.get(flags.get("--id", "")):
+                return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
-            return runner_module.Done(0, f"#{len(self.posts)}\n", "")
+            if "--id" in flags:
+                self.post_ids[flags["--id"]] = len(self.posts)
+            return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
@@ -1437,7 +1443,7 @@ def test_a_landed_merge_fast_pr_with_release_with_tells_the_release_owner_and_ro
     shell.sleep(180)
     landing_pass(shell, config)
     [release] = shell.posts
-    assert (release["kind"], release["to"], release["topic"], release["pr"]) == ("release", "peer:sole-51,root", "36642", "36642")
+    assert (release["kind"], release["to"], release["topic"], release["pr"], release["id"]) == ("release", "peer:sole-51,root", "36642", "36642", "release:36642:0")
     assert release["text"].startswith("#36642 landed as 5e11a9d0c2 with merge-fast and Release-With: sand. Start the sand release now, then run `cci post --drive d1 ")
     assert len(body_reads(shell)) == 1 and release_action(tmp_path).status == "completed"
 
@@ -1462,6 +1468,14 @@ def test_a_merge_fast_landing_older_than_the_runners_first_pass_is_history(shell
     for _ in range(3):
         landing_pass(shell, config)
         shell.sleep(11 * 60)
+    assert shell.posts == [] and body_reads(shell) == []
+
+
+def test_a_landed_merge_fast_row_with_no_landing_time_is_history(shell, config, tmp_path):
+    land_fast(shell, config)
+    del shell.rows[0]["landed_at"]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
     assert shell.posts == [] and body_reads(shell) == []
 
 
@@ -1512,8 +1526,9 @@ def test_a_release_record_naming_the_component_or_the_pr_stops_the_blockers(shel
         ({"lane": "desk-runner", "refs": {"prs": [36642]}}, 0),
         ({"lane": "sole", "refs": {"targets": ["sand"]}}, -5),
         ({"lane": "sole", "refs": {"targets": ["api"], "prs": [36641, "Forge-AI/design-docs#36642"]}}, 0),
+        ({"lane": "sole", "drive": "release-v3", "refs": {"targets": ["sand"], "prs": [36642]}}, 0),
     ],
-    ids=["the-runners-own-record", "before-the-landing", "another-release"],
+    ids=["the-runners-own-record", "before-the-landing", "another-release", "on-another-drive"],
 )
 def test_a_release_record_that_does_not_name_this_landing_stops_nothing(shell, config, tmp_path, record, minutes):
     land_fast(shell, config)
@@ -1551,6 +1566,37 @@ def test_a_landing_first_read_late_posts_the_release_record_then_a_blocker_at_th
     shell.sleep(5 * 60)
     landing_pass(shell, config)
     assert [post["kind"] for post in shell.posts] == ["release", "blocker"] and ": landed 30 minutes ago with " in shell.posts[1]["text"]
+
+
+def test_a_release_record_posted_just_before_a_crash_is_never_posted_twice(shell, config, tmp_path, monkeypatch):
+    land_fast(shell, config)
+    save = runner_module.release_posted
+
+    def killed(*args):
+        raise RuntimeError("killed after the post")
+
+    monkeypatch.setattr(runner_module, "release_posted", killed)
+    with pytest.raises(RuntimeError, match="killed after the post"):
+        cli(shell, config, "run", "--desk", "landing", "--once")
+    assert len(shell.posts) == 1 and release_action(tmp_path).status == "accepted"
+    monkeypatch.setattr(runner_module, "release_posted", save)
+    landing_pass(shell, config)
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert [(post["kind"], post["id"]) for post in shell.posts] == [("release", "release:36642:0"), ("blocker", "release:36642:1")]
+    assert release_action(tmp_path).response["posted"] == {"0": 1, "1": 2}
+
+
+def test_a_post_that_prints_no_sequence_is_escalated_and_settled_by_the_repost(shell, config, tmp_path):
+    land_fast(shell, config)
+    shell.post_out = "cci: stored\n"
+    landing_pass(shell, config)
+    assert release_action(tmp_path).status == "accepted"
+    shell.post_out = ""
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "defect"] and release_action(tmp_path).response["posted"] == {"0": 1}
+    [line] = escalations(shell)
+    assert line.startswith("RELEASE-FAILED release:36642:0 #36642: cci printed no sequence for the release record to peer:sole-51,root: cci: stored; #36642 landed as 5e11a9d0c2 ")
 
 
 def test_a_release_record_cci_refuses_is_escalated_to_root_each_step_and_posted_once_cci_takes_it(shell, config, tmp_path):

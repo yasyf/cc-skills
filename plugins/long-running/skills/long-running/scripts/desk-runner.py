@@ -109,11 +109,14 @@ in its prefix is enqueued. The enqueue call pins every PR of the prefix to that 
 `--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
-`release` record from another lane, stamped after the landing, names one of those components with `--target` or the PR with `--pr`,
-the runner posts one `blocker` to both each `deadlines.release_start_minutes` (default 10) after the landing, with the minutes
-elapsed. A record the drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends them too.
-A landing older than the landing runner's first pass is history and sends nothing. A record cci refuses is posted again on the
-next pass and escalated to root as `RELEASE-FAILED`, once per `deadlines.release_start_minutes` step. A worker's question goes to a Sonnet-low judge with the lane's
+`release` record on the drive from another lane, stamped after the landing, names one of those components with `--target` or the
+PR with `--pr`, the runner posts one `blocker` to both each `deadlines.release_start_minutes` (default 10) after the landing, with
+the minutes elapsed. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
+drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends them too. A landing older
+than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. Each record carries
+`--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
+or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
+`deadlines.release_start_minutes` step. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
@@ -607,11 +610,13 @@ class Runner:
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "") -> Done:
-        """Post one cci record; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path."""
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "") -> Done:
+        """Post one cci record; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
         argv = ["cci", "post", "--drive", self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic]
         if pr:
             argv += ["--pr", pr]
+        if record_id:
+            argv += ["--id", record_id]
         if len(text) > CCI_TEXT or message:
             body = self.config.receipts / "cci" / f"{hashlib.sha256(key.encode()).hexdigest()[:16]}.txt"
             body.parent.mkdir(parents=True, exist_ok=True)
@@ -1633,10 +1638,6 @@ def judge_verdict(done: Done) -> dict:
     return (payload[-1] if isinstance(payload, list) else payload)["structured_output"]
 
 
-def posted_seq(done: Done) -> int:
-    return int(POSTED.match(done.out)[1])
-
-
 def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at: datetime) -> None:
     if incident.action(key).status == "accepted":
         incident.start(key, at)
@@ -1843,7 +1844,7 @@ class Landing:
             self.book.edit(LANDING, lambda incident: incident.facts.update({RELEASE_SINCE: self.book.stamp()}))
             return
         for pr, row in rows.items():
-            if row.get("state") == "landed" and MERGE_FAST in row.get("labels", "").split(",") and row["landed_at"] >= since and f"release:{pr}" not in desk.actions:
+            if row.get("state") == "landed" and MERGE_FAST in row.get("labels", "").split(",") and row.get("landed_at", "") >= since and f"release:{pr}" not in desk.actions:
                 self.accept_release(pr, row)
         for action in self.book.actions(LANDING, kind="release"):
             if action.status in ("accepted", "completed"):
@@ -1874,27 +1875,30 @@ class Landing:
             kind, text = "blocker", f"#{pr} {landed['sha'][:10]}: landed {minutes} minutes ago with {MERGE_FAST} and Release-With: {named}, and no cci `release` record since targets {named} or names #{pr}. Start the {named} release now and post that record with --pr {pr} or --target <component>; a root reply to this record with --re also stops the blocker, which repeats every {every} minutes."
         else:
             kind, text = "release", f"#{pr} landed as {landed['sha'][:10]} with {MERGE_FAST} and Release-With: {named}. Start the {named} release now, then run `cci post --drive {self.runner.config.drive} --lane <lane> --kind release --pr {pr} --target <component> --text <build>`. With no such record {every} minutes after the landing, the landing desk posts a blocker to you and the root every {every} minutes."
-        done = self.post_release(f"{key}:{step}", kind, pr, text)
-        if done.code == 0:
-            self.book.attempt(LANDING, lambda incident: release_posted(incident, key, step, posted_seq(done), self.runner.now()))
+        seq = self.post_release(f"{key}:{step}", kind, pr, text)
+        if seq is not None:
+            self.book.attempt(LANDING, lambda incident: release_posted(incident, key, step, seq, self.runner.now()))
 
-    def post_release(self, key: str, kind: str, pr: str, text: str) -> Done:
-        """Post one record about a landing's release to the release owner and the root; a record cci refuses is escalated to root once per `key`, and the next pass posts it again."""
+    def post_release(self, key: str, kind: str, pr: str, text: str) -> int | None:
+        """Post one record about a landing's release to the release owner and the root, with `key` as its cci id so a repost returns the stored record, and return its sequence. A record cci refuses, or a post that prints no sequence, is escalated to root once per `key`, and the next pass posts it again."""
         to = f"{self.release_owner},{ROOT}"
-        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr)
-        if done.code != 0:
-            self.runner.escalate(key, "RELEASE-FAILED", f"#{pr}", f"cci refused the {kind} record to {to}: {(done.err or done.out).strip()[:200]}; {text}")
-        return done
+        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, record_id=key)
+        seq = POSTED.match(done.out)
+        if done.code == 0 and seq:
+            return int(seq[1])
+        why = "refused" if done.code else "printed no sequence for"
+        self.runner.escalate(key, "RELEASE-FAILED", f"#{pr}", f"cci {why} the {kind} record to {to}: {(done.err or done.out).strip()[:200]}; {text}")
+        return None
 
     def release_started(self, landed: dict) -> dict | None:
-        """The first cci `release` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR."""
-        since, names = actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
-        releases = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=release")
+        """The drive's first cci `release` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR."""
+        drive, since, names = self.runner.config.drive, actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
+        releases = cci.records(self.runner.cci_tail, drive, "--kind=release")
         return next(
             (
                 record
                 for record in releases
-                if record["kind"] == "release"
+                if (record["kind"], record["drive"]) == ("release", drive)
                 and record["lane"] != RUNNER
                 and actions.parse_stamp(record["at"]) >= since
                 and (set(record["refs"].get("targets", [])) & set(landed["components"]) or any(named in names for named in record["refs"].get("prs", [])))

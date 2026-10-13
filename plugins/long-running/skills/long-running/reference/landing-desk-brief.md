@@ -41,9 +41,11 @@ A PR the root enqueues with `stack-enqueue <PR> --fast` carries the `merge-fast`
 label. When it lands with a `Release-With:` line in its body, the landing runner
 posts one cci `release` record to the release owner and the root in that pass. Every
 `deadlines.release_start_minutes` after the landing, 10 by default, it posts a
-`blocker` to both under D20. The blockers end when a `release` record from the
-release owner or the root names one of the line's components with `--target` or the
-PR with `--pr`, or when the root replies to one of them with `--re <seq>`.
+`blocker` to both under D20. The blockers end when a `release` record on this drive
+from the release owner or the root names one of the line's components with `--target`
+or the PR with `--pr`, or when the root replies to one of them with `--re <seq>`. A
+`release` record the release owner posts on its own drive does not count, so it posts
+with `--drive <drive>`, as the runner's record tells it to.
 
 Hold a PR while its current head's review is pending or records an unwaived
 finding. No review, no base, and errored reviews fail open. Clean and overridden

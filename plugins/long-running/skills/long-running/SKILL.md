@@ -1177,9 +1177,10 @@ process requires it to start.
 
 The release owner starts the release and posts
 `cci post --drive <drive> --lane <lane> --kind release --pr <pr> --target <component> --text <build>`.
-A `release` record from another lane, stamped after the landing, that names one of
-the components with `--target` or the PR with `--pr` settles the landing. Until one
-arrives the runner posts one `blocker` to the release owner and the root every
+A `release` record on the drive from another lane, stamped after the landing, that
+names one of the components with `--target` or the PR with `--pr` settles the landing.
+A `release` record on another drive settles nothing. Until one arrives the runner
+posts one `blocker` to the release owner and the root every
 `deadlines.release_start_minutes` after the landing, 10 by default, each with the
 minutes elapsed.
 
@@ -1187,9 +1188,13 @@ The root ends them by starting the release and posting that record. When the rel
 is in hand another way, the root replies to the release record or a blocker with
 `--re <seq>` or `--resolves <seq>`. A record cci refuses, such as one addressed to a
 `peer:` session that has ended, reaches the root as `RELEASE-FAILED` once per step
-and is posted again on the next pass. The runner reads the label from the ledger
-row's `labels` and the body with one `gh pr view <pr> --json body` per landing. A
-landing older than the landing runner's first pass sends nothing.
+and is posted again on the next pass. So does a post that prints no sequence. Each
+record carries `--id release:<pr>:<step>`, so a repost returns the stored record and
+no step is posted twice.
+
+The runner reads the label from the ledger row's `labels` and the body with one
+`gh pr view <pr> --json body` per landing. A landing older than the landing runner's
+first pass sends nothing, and neither does a landed row with no `landed_at`.
 
 *Prevents a landed fix waiting on a release nobody started. On 2026-10-13 monorepo
 #36642, the fix for a customer-facing break, landed at 15:42Z through the merge queue

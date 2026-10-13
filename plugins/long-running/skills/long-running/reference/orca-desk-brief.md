@@ -479,20 +479,26 @@ landing-desk lane never enqueues or duplicates these restack routes beside the r
 
 A row that lands carrying the `merge-fast` label, with a `Release-With:` line in the
 PR body, gets one cci record in the pass that reads the landing:
-`cci post --drive <drive> --lane desk-runner --kind release --to <landing.release_owner>,root --topic <pr> --pr <pr> --text "<squash, components, start the release now>"`.
+`cci post --drive <drive> --lane desk-runner --kind release --to <landing.release_owner>,root --topic <pr> --pr <pr> --id release:<pr>:<step> --text "<squash, components, start the release now>"`.
 The runner reads the label from the row's `labels` and the body with one
 `gh pr view <pr> --json body`. From then on each pass reads `cci tail --kind=release`
-and the root's records. A `release` record from any lane but `desk-runner`, stamped
-at or after the landing, that names one of the components with `--target` or the PR
-with `--pr` settles the landing. So does a record the drive's root posts with `--re`
-or `--resolves` naming the release record or one of its blockers.
+and the root's records. A `release` record on this drive from any lane but
+`desk-runner`, stamped at or after the landing, that names one of the components with
+`--target` or the PR with `--pr` settles the landing. `cci tail` also returns peer
+mail from other drives, and a `release` record on another drive settles nothing. A
+record this drive's root posts with `--re` or `--resolves` naming the release record
+or one of its blockers settles the landing too.
 
 Until then the runner posts one `blocker` to the same two addresses at each
 `deadlines.release_start_minutes` step after the landing, with the minutes elapsed.
 A landing first read after a step has passed gets the `release` record then and its
-first blocker at the next step. A landing older than the landing runner's first pass
-sends nothing. A `merge-fast` landing whose body has no `Release-With:` line is read
-once and sends nothing.
+first blocker at the next step. Each record's `--id` names its step, so a runner that
+stops between the post and its own save reposts under the same id, cci returns the
+stored record, and no step is posted twice.
+
+A landing older than the landing runner's first pass sends nothing, and neither does
+a landed row with no `landed_at`. A `merge-fast` landing whose body has no
+`Release-With:` line is read once and sends nothing.
 
 A `BLOCKED` head other than `held` routes once per head and blocker. The runner
 re-runs the gate immediately before creating the route, suppressing a blocker
@@ -537,7 +543,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
-| `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. cci refused the record, most often because the `peer:` session ended, so correct `landing.release_owner` and restart the landing runner. |
+| `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
 
