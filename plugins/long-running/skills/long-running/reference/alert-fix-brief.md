@@ -24,7 +24,12 @@ Do:
      stops for the owner.
   1. With no such release, apply, or deploy, start at the code path the alert names
      while evidence is still arriving. Never wait for a diagnosis verdict.
-  2. Post `MECHANISM {lane}: <mechanism, one line>` within 15 minutes of launch,
+  2. Before you name a mechanism, read the last 24 hours of the
+     production-operations log:
+     `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
+     An entry on the alert's target inside the onset window is the first mechanism
+     to test; quote it with its authorizing answer in the line below.
+     Post `MECHANISM {lane}: <mechanism, one line>` within 15 minutes of launch,
      `FIX-LIVE {lane}: <what, where, counts, time>` when the alert recovers, or
      `NOT-OURS {lane}: <evidence and who owns it>`.
      Post each with `cci post --drive <drive> --lane {lane} --kind <kind>
@@ -32,6 +37,10 @@ Do:
      deploy lane from the drive facts. Use `mechanism`, `fix-live`, or `report` for the
      three lines, respectively; attach longer evidence with `--path`.
   3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
+
+Log: every rollback, apply, or other state-changing production command you run
+  gets one line on that log in the same turn:
+  `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
 Finish: a `STOPPED` line and `worker_done`.
