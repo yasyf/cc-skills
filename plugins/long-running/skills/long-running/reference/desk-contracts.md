@@ -55,8 +55,9 @@ Rules the report carries:
 
 A lane registers its branch, or a namespace ending in `/` or `-`, with the desk when spawned using
 `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix> [--pr N]...`.
-Every open PR on that prefix is tracked from then on. The hook records opened PRs
-automatically; if it misses one, send the desk its number for hand registration.
+Every open PR on that prefix is tracked from then on. `ccx vcs ship` records each PR it opens,
+as a ledger row through the hook and as an `opened` record on cci (cci 0.19.0 and later), so a
+lane never posts `opened` by hand.
 
 ## An owner ask is a row, recorded by the root
 
