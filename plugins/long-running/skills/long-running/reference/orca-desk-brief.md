@@ -123,6 +123,41 @@ lane to read it.
 The incident executor can adopt the launched lane with `--adopt fix=<lane>`.
 A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
 
+Every incident fix lane the runner launched is on a clock from its verified launch.
+A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
+line says `role=incident` or names an `incident=`. A brief that names another role,
+such as `role=evidence`, is never clocked, and neither is `incident=none`. On each
+pass the runner reads the lane's own cci records and its `mechanism:` and `fix-live:`
+Run statuses:
+
+| Minutes since launch | Missing | The runner |
+|---|---|---|
+| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
+| `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
+| `deadlines.incident_ready_minutes`, default 20 | a `ready` record, or a `report` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
+
+A later milestone counts for the earlier ones, so an opened PR also settles the
+mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
+at a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, at a `fix-live:`
+status, or when the dispatch settles. A record posted before the launch does not count.
+
+```text
+INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min
+```
+
+The fallback is `<lane>-opus` on opus xhigh in Claude fast mode, launched on the Mac
+as an `--owner-directed` launch. Its brief is the lane's own brief, unchanged, under
+a header that says why the clock started it, that it works in parallel and the first
+PR wins, and that it posts on cci as `<lane>-opus` and addresses `<lane>` and root.
+The runner attaches that brief to the briefs log as `<lane>-opus.full.md`. A `-opus`
+lane is clocked and gets no fallback of its own. A lane whose `<lane>-opus` already
+has a live dispatch or a launch in flight gets no second, and the line says so.
+`show` prints each clocked lane's minutes and milestones.
+
+*Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
+hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
+the Opus fallback was started by hand an hour late.*
+
 An urgent release hold is one line in the same inbox. The holding lane names
 itself or a dedicated decision-owner lane and states both the release and its
 blocker:
@@ -146,8 +181,8 @@ DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with 
 
 The root resolves it with the named lane before or instead of any open
 `AskUserQuestion` on another subject. That unrelated question goes to a
-non-blocking board or waits. R9's inbox watch pushes the line to the owner's DM
-after five minutes without a root turn since it arrived. The hold verb records
+non-blocking board or waits. The line reaches the root over the `cci` channel as
+soon as the runner writes it. The hold verb records
 a decision clock; it does not change the landing holds file or authorize a release.
 
 *Prevents the api/runtime-v2/restate-worker catch-up waiting behind the Demeter
@@ -163,8 +198,8 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND` and `UNOWNED` use `blocker`, any `*-FAILED` uses `defect`, and all other
-labels use `report`. Text over 400 characters is clipped, with the full line saved
+`UNBOUND`, `UNOWNED`, `LOST`, and `INCIDENT-CLOCK` use `blocker`, any `*-FAILED` uses
+`defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
 text limit and attachment rule. A landing's release record and its blockers use
@@ -214,8 +249,9 @@ without it. It is the cci `--to` address of the lane that starts releases, such 
 repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
 and `WORKER_REMOTE_ATTACH` set by the runner. The runner sets no Sprite limit: the
 provider admits or refuses each one. `place=local` keeps a `cpu=high` launch on the Mac.
-Fable, incident, and a `role=desk` or `role=watch` brief launch locally whatever the
-line says, and so does every launch when `orca.sprite` is absent.
+Fable, incident, an incident clock fallback, and a `role=desk` or `role=watch` brief
+launch locally whatever the line says, and so does every launch when `orca.sprite` is
+absent.
 
 Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
 `~/.config/cc-remote/config.yaml`, and every Sprite launch falls back to local. The
@@ -266,6 +302,9 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     "launch_minutes": 15,
     "load_hold_minutes": 5,
     "hold_minutes": 15,
+    "incident_mechanism_minutes": 10,
+    "incident_pr_minutes": 15,
+    "incident_ready_minutes": 20,
     "enqueue_minutes": 15,
     "release_start_minutes": 10
   },
@@ -365,8 +404,8 @@ relayed. Post it again on the runner's machine.
 ## Orca passes and standing rules
 
 Each pass settles detached launches, delivers accepted relays and launches,
-reconciles lost sends, reads new Run messages, checks start and launch deadlines,
-and writes changed views and escalation lines. A quiet pass writes nothing.
+reconciles lost sends, reads new Run messages, checks start and launch deadlines
+and the incident clock, and writes changed views and escalation lines. A quiet pass writes nothing.
 Stale mail, prompts, and liveness are swept every five minutes.
 
 **O1. Launch through the runner.** It starts `orca-launch.sh` detached; the root
@@ -522,6 +561,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. |
+| `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`. Ratify the `<lane>-opus` fallback the line names, or launch one when the line says none was launched. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |

@@ -482,6 +482,29 @@ relays to the live lane. The root ratifies from `INCIDENT` in that turn:
    known, under cc-notes answer `5ad4507`. A platform-wide incident also opens
    in `#outage` under `52f4863`.
 
+Every incident fix lane the runner launched is on a 20-minute clock from its
+verified launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to
+`ready`. The runner reads the lane's own cci records and its `mechanism:` and `fix-live:`
+statuses. Past the mechanism or the PR limit it launches `<lane>-opus` itself, on
+opus xhigh in Claude fast mode, on the lane's own brief under a fallback header.
+Each missed limit posts one blocker to the root:
+
+```text
+INCIDENT-CLOCK <lane> <mechanism|pr|ready>: <what is missing, the minutes each phase took, and what the runner launched>
+```
+
+The root sends each `INCIDENT-CLOCK` line to the owner as a direct message with
+`cc-slack dm-status` in the turn it arrives, and ratifies the fallback the line
+names. Both lanes keep running, and the first PR wins.
+`ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, or a settled dispatch
+stops the clock. `deadlines.incident_mechanism_minutes`,
+`deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
+limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
+
+*Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
+hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
+the Opus fallback was started by hand an hour late.*
+
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
 and at least every 10 minutes. The shell PR merges first; the page at
@@ -1397,8 +1420,8 @@ The launching model places a lane on its brief's `ccx:` line, with `place=remote
 a Sprite or `place=local` for the Mac. With neither key, a `cpu=high` lane goes to a
 Sprite and every other lane launches locally; `cpu=high` marks a build, a test
 reproduction, a sweep, or heavy research. An explicit `place=` wins over `cpu=high`
-in both directions. Fable, incident, and a standing desk's `role=desk` or
-`role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
+in both directions. Fable, incident, an incident clock fallback, and a standing
+desk's `role=desk` or `role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
 says what a Sprite holds and when to choose each.
 
 A Sprite launch needs `orca.sprite` configured; without it every lane launches

@@ -80,6 +80,12 @@ never a PR URL. Every such draft passes
   same brief, passing `--settings '{"fastMode":true}'` through
   `ORCA_LAUNCH_CLAUDE_ARGS`. It refuses any other model for the fix or evidence
   role and never uses fable or astra.
+- A fix lane the orca desk launched is also on the desk runner's clock from its
+  launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to `ready`.
+  Past the mechanism or PR limit the runner launches `<lane>-opus` in Claude
+  fast mode on the lane's own brief, and each missed limit posts an
+  `INCIDENT-CLOCK` blocker to the root. [The runner brief](orca-desk-brief.md)
+  has the rules.
 - It posts the fence for the target on the bus, and it reports `opened`, `pr`,
   `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane as
   milestones. The root relays those to the owner as one line each, in Pacific
@@ -272,7 +278,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; evidence lane <evidence lane name>
-  comms lane <comms lane name>; cci drive <drive>, topic <incident topic>
+  comms lane <comms lane name>; cci drive <bus id>, topic <incident topic>
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
@@ -314,19 +320,21 @@ Do:
      `incident.py note --incident <incident id> --pr <PR number>`.
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.
-  6. For a fix that needs a production apply, plan through <break-glass skill>,
+  6. When the PR is green, say so on cci:
+     `cci post --drive <bus id> --lane <fix lane name> --kind ready --pr <PR number> --text "READY <fix lane name>: <PR number, head, what is green>"`.
+  7. For a fix that needs a production apply, plan through <break-glass skill>,
      apply under the authority above, log the apply in <runbook> and on the
      production-operations log, and verify it against the alert's metric. Then
      record the evidence:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
      If the evidence shows the alert is not ours, record that instead:
      `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
-  7. Run <exact live-check command> every two minutes and post its output as a
+  8. Run <exact live-check command> every two minutes and post its output as a
      status Run message until it shows <expected live output>. Then send a status
      Run message with subject `fix-live: <h:mm PM PT> <evidence>`. The brief names
      that exact command; the root uses it too. For a static site, for example:
      `curl -fsS https://platform.poetic.com/ | grep -oE '/releases/[0-9a-f]{40}/' | head -1`.
-  8. Record every artifact in cc-notes, never under ~/.claude/scratch:
+  9. Record every artifact in cc-notes, never under ~/.claude/scratch:
      `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
      A directory goes as one .tgz; `--replace` updates a same-named attachment.
      Investigation detail goes to
@@ -337,6 +345,13 @@ Do:
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup lane in fast mode on this brief in parallel; keep working.
   Never fable or astra.
+  When the orca desk launched you, its clock also runs from your launch: a
+  mechanism within 10 minutes, an opened PR within 15, ready within 20. It
+  reads your `mechanism:` and `fix-live:` status messages and the cci records
+  posted as <fix lane name>: `mechanism`, the PR's `opened` record, which
+  `ccx vcs ship` posts, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
+  10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
+  PR wins. Each missed limit sends a blocker to the root, who tells the owner.
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
@@ -365,7 +380,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; fix lane <fix lane name>
-  comms lane <comms lane name>; cci drive <drive>, topic <incident topic>
+  comms lane <comms lane name>; cci drive <bus id>, topic <incident topic>
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
