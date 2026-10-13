@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -48,6 +49,7 @@ class Replay:
         self.launches: list[tuple[str, str, str]] = []
         self.fast: dict[str, bool] = {}
         self.receipts: dict[str, dict] = {}
+        self.engaged_lanes: set[str] = set()
         self.rebuilds: list[int] = []
         self.lose_rebuild: dict[int, str] = {}
         self.lose_post: set[str] = set()
@@ -87,6 +89,9 @@ class Replay:
 
     def receipt(self, lane: str) -> dict | None:
         return self.receipts.get(lane)
+
+    def engaged(self, lane: str, now: datetime) -> bool:
+        return lane in self.engaged_lanes
 
     def pr_view(self, number: int) -> dict:
         view = dict(self.prs[number])
@@ -206,7 +211,7 @@ class Adapter:
 
 def world_of(fake: Replay) -> World:
     return World(
-        orca=Adapter(fake, launch=fake.launch, receipt=fake.receipt),
+        orca=Adapter(fake, launch=fake.launch, receipt=fake.receipt, engaged=fake.engaged),
         github=Adapter(fake, prs=fake.gh_prs, landed=fake.landed),
         buildkite=Adapter(fake, configuration=fake.configuration, failed=fake.failed, unfinished=fake.unfinished, since=fake.since, rebuild=fake.rebuild),
         activation=Adapter(fake, prepare=fake.prepare, drifted=fake.drifted, apply=fake.apply),
@@ -416,6 +421,23 @@ def test_backup_launches_on_opus_after_fifteen_quiet_minutes(store, clock, fake)
     assert {lane.rsplit("-", 1)[1]: fast for lane, fast in fake.fast.items()} == {"fix": False, "evidence": False, "backup": True}
 
 
+def test_no_backup_launches_while_the_desk_clocks_opus_fallback_is_launching_or_live(store, clock, fake):
+    incident_id = open_incident(store, clock)
+    with store.inputs(incident_id) as record:
+        record.facts["adopted"] = {"fix": "api-1n85-fix"}
+    fake.engaged_lanes.add("api-1n85-fix-opus")
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=16), worker=lambda *_: None)
+
+    assert [lane for lane, _, _ in fake.launches] == [f"incident-{incident_id}-evidence"]
+    assert "dispatch:backup" not in store.load(incident_id).actions
+
+    fake.engaged_lanes.clear()
+    drive(runner, store, clock, INTAKE + timedelta(minutes=17), worker=lambda *_: None)
+
+    assert [(lane, model) for lane, model, _ in fake.launches][1:] == [(f"incident-{incident_id}-backup", "opus")]
+
+
 def test_a_transferred_incident_refuses_the_former_owner(store, clock, fake):
     incident_id = open_incident(store, clock)
     former = Runner(store, incident_id, world_of(fake), clock)
@@ -596,6 +618,19 @@ def test_orca_receipt_reads_a_receipt_left_before_its_rename(tmp_path, monkeypat
     (tmp_path / "incident-x-fix.json.new").write_text(json.dumps({"result": {"taskId": "t1", "dispatchId": "d1", "state": "ready"}}))
     assert incident.Orca(Shell({}), "run1", "repo1").receipt("incident-x-fix")["dispatch"] == "d1"
     assert incident.Orca(Shell({}), "run1", "repo1").receipt("incident-x-evidence") is None
+
+
+@pytest.mark.parametrize(("began", "landed", "status", "engaged"), [(None, None, "dispatched", False), (60, None, "dispatched", True), (incident.CALL_TIMEOUT + 60, None, "dispatched", False), (120, 60, "dispatched", True), (120, 60, "completed", False), (120, 60, "failed", False), (60, 3600, "completed", True)])
+def test_orca_engaged_reads_a_launch_in_flight_or_a_live_worker(tmp_path, monkeypatch, began, landed, status, engaged):
+    monkeypatch.setenv("ORCA_LAUNCH_STATE", str(tmp_path))
+    files = {"api-fix-opus.binding.json": (began, "{}"), "api-fix-opus.json": (landed, json.dumps({"result": {"taskId": "t1", "dispatchId": "d1", "state": "ready"}}))}
+    for name, (age, text) in files.items():
+        if age is not None:
+            (tmp_path / name).write_text(text)
+            os.utime(tmp_path / name, (INTAKE.timestamp() - age,) * 2)
+    shell = Shell({("orca", "orchestration", "worker-show", "--dispatch", "d1"): json.dumps({"ok": True, "result": {"dispatch": {"status": status}}})})
+
+    assert incident.Orca(shell, "run1", "repo1").engaged("api-fix-opus", INTAKE) is engaged
 
 
 def test_a_lost_launch_without_a_receipt_asks_instead_of_relaunching(store, clock, fake):

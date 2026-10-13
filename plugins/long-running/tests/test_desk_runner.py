@@ -2931,6 +2931,280 @@ def test_an_incident_whose_attached_brief_has_no_path_launches_nothing(shell, co
     assert line.endswith("| dd-10-fix not launched: the attached brief has no path")
 
 
+def clocked_lane(shell: FakeShell, config: Path, tmp_path: Path, lane: str = LANE, model: str = "incident", header: str = "") -> Path:
+    brief = tmp_path / f"{lane}.brief.md"
+    brief.write_text(f"{header}Fix the alert on api.\n")
+    orca_pass(shell, config)
+    cli(shell, config, "launch", "--key", f"launch-{lane}", "--lane", lane, "--model", model, "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    shell.launch(lane, f"ctx_{lane}")
+    orca_pass(shell, config)
+    return brief
+
+
+def lane_record(shell: FakeShell, lane: str, kind: str, text: str = "", at: str = "", **refs) -> None:
+    cci_record(shell, lane=lane, kind=kind, text=text or f"{kind.upper()} {lane}", at=at or actions.stamp(shell.clock), refs=refs)
+
+
+def clock_lines(shell: FakeShell, lane: str = LANE) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith(f"INCIDENT-CLOCK {lane} ")]
+
+
+def executor_backup(shell: FakeShell, status: str, fix: str = LANE) -> str:
+    backup = "incident-api-1001-backup"
+    record = actions.Incident("api-1001", "executor", 1, actions.stamp(shell.clock), {"adopted": {"fix": fix}})
+    record.accept("dispatch:backup", "dispatch", backup, "R16", shell.clock)
+    record.start("dispatch:backup", shell.clock)
+    if status == "failed":
+        record.fail("dispatch:backup", "orca-launch.sh failed worker-start")
+    if status == "verified":
+        receipt = {"lane": backup, "dispatch": "ctx_backup"}
+        record.complete("dispatch:backup", receipt, dispatch_id="ctx_backup")
+        record.verify("dispatch:backup", receipt)
+    actions.Store().create(record)
+    return backup
+
+
+def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_threshold(shell, config, tmp_path):
+    brief = clocked_lane(shell, config, tmp_path)
+    shell.sleep(9 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    backup = f"{LANE}-opus"
+    fallback = shell.attachments[f"{backup}.full.md"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]]
+    assert shell.spawned_env["orca-launch.sh"]["ORCA_LAUNCH_CLAUDE_ARGS"] == runner_module.CLAUDE_FAST_MODE
+    launch = json.loads(incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].target)
+    assert (launch["urgent"], launch["fast"]) == (True, True)
+    text = fallback.read_text()
+    assert text.startswith(f"ccx: lane={backup} role=incident effort=xhigh\n") and text.endswith(brief.read_text())
+    assert f"You are the Opus fallback for `{LANE}`" in text and f"10 minutes after `{LANE}` launched" in text
+    assert "had posted no mechanism" in text and "the first PR wins" in text
+    assert f"Post on cci as `{backup}`, and address `{LANE}` and `root` on every record." in text
+    assert shell.entries == [f"INCIDENT-CLOCK {LANE}: Opus fallback brief for {backup}, no mechanism at +10 min"]
+    shell.launch(backup, "ctx_opus")
+    orca_pass(shell, config)
+    for _ in range(2):
+        shell.sleep(5 * 60)
+        orca_pass(shell, config)
+        orca_pass(shell, config)
+    assert clock_lines(shell) == [
+        f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch at 11:00, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {fallback}",
+        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to now 15 min | the Opus fallback {backup} is already launched",
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing mechanism, PR, ready; launch to now 20 min",
+    ]
+    assert [(post["kind"], post["topic"]) for post in shell.posts if post["text"].startswith(f"INCIDENT-CLOCK {LANE} ")] == [("blocker", LANE)] * 3
+    assert len(launches(shell)) == 2 and len(shell.entries) == 1
+
+
+@pytest.mark.parametrize("source", ["status", "cci"])
+def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shell, config, tmp_path, capsys, source):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    if source == "status":
+        shell.receive({"subject": "mechanism: wrong selector", "from_handle": f"term_ctx_{LANE}"})
+    else:
+        lane_record(shell, LANE, "mechanism")
+    orca_pass(shell, config)
+    shell.sleep(7 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert "- incident clock [11 min of 20] launched 11:00; mechanism +4 min\n" in capsys.readouterr().out
+
+
+def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    lane_record(shell, LANE, "mechanism")
+    shell.sleep(11 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    fallback = shell.attachments[f"{LANE}-opus.full.md"]
+    assert clock_lines(shell) == [
+        f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
+    ]
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no PR" in fallback.read_text()
+
+
+@pytest.mark.parametrize("mechanism", [True, False], ids=["after-a-mechanism", "with-no-mechanism-record"])
+def test_an_opened_pr_stops_the_pr_threshold_and_counts_for_the_mechanism(shell, config, tmp_path, mechanism):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    if mechanism:
+        lane_record(shell, LANE, "mechanism")
+    shell.sleep(4 * 60)
+    lane_record(shell, LANE, "opened", prs=[4242])
+    shell.sleep(8 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
+@pytest.mark.parametrize(("kind", "text"), [("ready", "READY #4242 green at 9c0b891"), ("report", "READY #4242 green at 9c0b891")])
+def test_a_ready_record_stops_the_clock(shell, config, tmp_path, capsys, kind, text):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    lane_record(shell, LANE, "mechanism")
+    lane_record(shell, LANE, "report", text="checkpoint: READY is close")
+    shell.sleep(8 * 60)
+    lane_record(shell, LANE, "opened", prs=[4242])
+    shell.sleep(6 * 60)
+    lane_record(shell, LANE, kind, text=text, prs=[4242])
+    orca_pass(shell, config)
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert "- incident clock [stopped: ready] launched 11:00; mechanism +4 min, PR +12 min, ready +18 min\n" in capsys.readouterr().out
+
+
+def test_the_ready_threshold_names_the_missing_milestone_and_each_phases_minutes(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    lane_record(shell, LANE, "mechanism")
+    shell.sleep(8 * 60)
+    lane_record(shell, LANE, "opened", prs=[4242])
+    shell.sleep(8 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min"
+    ]
+    assert len(launches(shell)) == 1
+
+
+def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell, config, tmp_path):
+    backup = f"{LANE}-opus"
+    clocked_lane(shell, config, tmp_path, lane=backup, model="opus", header="ccx: role=incident\n")
+    shell.sleep(15 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(" | ")[1] for line in clock_lines(shell, backup)] == [f"{backup} is itself an Opus fallback, so none is launched for it"] * 2
+    assert len(launches(shell)) == 1 and shell.entries == []
+    assert not (tmp_path / "store" / f"desk-lane-{backup}-opus.json").exists()
+
+
+def test_a_lane_whose_opus_sibling_is_already_live_gets_no_second_fallback(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.launch(f"{LANE}-opus", "ctx_hand")
+    shell.sleep(15 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(" | ")[1] for line in clock_lines(shell)] == [f"no fallback launched for {LANE}-opus: dispatch ctx_hand is dispatched; relay to it instead"] * 2
+    assert len(launches(shell)) == 1 and shell.entries == []
+
+
+@pytest.mark.parametrize(
+    ("status", "dispatch", "fix", "stands_down"),
+    [("started", "", LANE, True), ("verified", "dispatched", LANE, True), ("verified", "completed", LANE, False), ("failed", "", LANE, False), ("started", "", "another-fix", False)],
+)
+def test_a_lane_whose_executor_backup_is_launching_or_live_gets_no_fallback_from_the_clock(shell, config, tmp_path, status, dispatch, fix, stands_down):
+    clocked_lane(shell, config, tmp_path)
+    backup = executor_backup(shell, status, fix)
+    shell.dispatches["ctx_backup"] = {"status": dispatch, "terminal": "term_ctx_backup"}
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = clock_lines(shell)
+    stood_down = f"no fallback launched for {LANE}-opus: the incident executor's Opus backup {backup} is launching or live, and a fix lane gets one Opus fallback"
+    assert (line.split(" | ")[1] == stood_down) is stands_down
+    assert len(launches(shell)) == (1 if stands_down else 2)
+    assert [call[4] for call in shell.calls if call[:3] == ["orca", "orchestration", "worker-show"] and call[4] == "ctx_backup"] == ["ctx_backup"] * (status == "verified")
+
+
+@pytest.mark.parametrize("end", ["completed", "failed", "fix-live", "not-ours", "stopped", "stand-down", "fix-live status"])
+def test_a_settled_dispatch_or_a_closing_record_stops_the_clock(shell, config, tmp_path, capsys, end):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(5 * 60)
+    if end in ("completed", "failed"):
+        shell.dispatches[f"ctx_{LANE}"]["status"] = end
+    elif end == "fix-live status":
+        shell.receive({"subject": "fix-live: 11:05 AM PT alert recovered", "from_handle": f"term_ctx_{LANE}"})
+    else:
+        lane_record(shell, LANE, end)
+    orca_pass(shell, config)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    capsys.readouterr()
+    cli(shell, config, "show")
+    stopped = f"dispatch {end}" if end in ("completed", "failed") else end.removesuffix(" status")
+    assert f"- incident clock [stopped: {stopped}] launched 11:00; " in capsys.readouterr().out
+
+
+def test_a_record_from_before_the_launch_does_not_stop_the_clock(shell, config, tmp_path):
+    lane_record(shell, LANE, "fix-live", at="2026-10-01T17:00:00Z")
+    lane_record(shell, LANE, "mechanism", at="2026-10-01T17:30:00Z")
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(":", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism"]
+
+
+@pytest.mark.parametrize(("model", "header", "clocked"), [
+    ("opus", "", False),
+    ("opus", "ccx: incident=none role=fix\n", False),
+    ("incident", "ccx: role=evidence\n", False),
+    ("opus", "ccx: incident=327967001 role=retro\n", False),
+    ("opus", "ccx: role=incident\n", True),
+    ("sol", "ccx: incident=327967001 role=fix\n", True),
+    ("incident", "ccx: role=fix\n", True),
+])
+def test_only_an_incident_fix_lane_is_clocked(shell, config, tmp_path, capsys, model, header, clocked):
+    clocked_lane(shell, config, tmp_path, model=model, header=header)
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(":", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} {about}" for about in ("mechanism", "pr", "ready")] * clocked
+    assert len(launches(shell)) == 1 + clocked
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert ("- incident clock [" in capsys.readouterr().out) is clocked
+
+
+def test_the_clock_thresholds_come_from_the_configs_deadlines(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps({**raw, "deadlines": {"incident_mechanism_minutes": 3, "incident_pr_minutes": 4, "incident_ready_minutes": 5}}))
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(3 * 60)
+    orca_pass(shell, config)
+    assert [line.split(";", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 3 min after its launch at 11:00, limit 3 min"]
+    shell.sleep(2 * 60)
+    orca_pass(shell, config)
+    assert [line.split(";", 1)[0] for line in clock_lines(shell)][1:] == [
+        f"INCIDENT-CLOCK {LANE} pr: no PR 5 min after its launch at 11:00, limit 4 min",
+        f"INCIDENT-CLOCK {LANE} ready: not ready 5 min after its launch at 11:00, limit 5 min",
+    ]
+
+
+def test_the_clock_logs_nothing_while_cci_cannot_be_read(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    shell.tail_error = "cci: store locked"
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and [line.split()[0] for line in escalations(shell)].count("CCI-TAIL-FAILED") == 1
+    shell.tail_error = ""
+    orca_pass(shell, config)
+    assert len(clock_lines(shell)) == 1
+
+
+def test_a_fallback_for_a_high_cpu_incident_brief_stays_on_the_mac(shell, config, tmp_path):
+    with_sprites(config)
+    clocked_lane(shell, config, tmp_path, header="ccx: role=fix cpu=high\n")
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [] and [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"]
+
+
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
     orca_pass(shell, config)
     desk_inbox(tmp_path, "R50 (3:50 PM PT) orca-desk: hold api-catchup owner=merge-walker-r2 :: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them")

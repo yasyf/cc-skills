@@ -28,14 +28,23 @@ Do:
      production-operations log:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
      An entry on the alert's target inside the onset window is the first mechanism
-     to test; quote it with its authorizing answer in the line below.
-     Post `MECHANISM {lane}: <mechanism, one line>` within 15 minutes of launch,
-     `FIX-LIVE {lane}: <what, where, counts, time>` when the alert recovers, or
-     `NOT-OURS {lane}: <evidence and who owns it>`.
-     Post each with `cci post --drive <drive> --lane {lane} --kind <kind>
-     --to <deploy lane> --topic {slug} --text "<line>"`, using the cci drive and
-     deploy lane from the drive facts. Use `mechanism`, `fix-live`, or `report` for the
-     three lines, respectively; attach longer evidence with `--path`.
+     to test; quote it with its authorizing answer in the mechanism line below.
+     You are on the orca desk's 20-minute clock from your launch. It reads the cci
+     records you post as `{lane}`. Post each line with `cci post --drive <drive>
+     --lane {lane} --kind <kind> --to <deploy lane> --topic {slug} --text "<line>"`,
+     using the cci drive and deploy lane from the drive facts; attach longer
+     evidence with `--path`:
+     - `MECHANISM {lane}: <mechanism, one line>`, kind `mechanism`, within 10
+       minutes of launch. Past that the desk launches `{lane}-opus`, an Opus
+       fallback on this brief, in parallel. Keep working; the first PR wins.
+     - The PR, within 15 minutes. `ccx vcs ship` posts its `opened` record for you.
+     - `READY {lane}: <PR number, head, what is green>`, kind `ready`, within 20
+       minutes.
+     - `FIX-LIVE {lane}: <what, where, counts, time>`, kind `fix-live`, when the
+       alert recovers, or `NOT-OURS {lane}: <evidence and who owns it>`, kind
+       `not-ours`. Either one stops the clock.
+     Each limit you pass without its record sends a blocker to the root, who tells
+     the owner.
   3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
 
 Log: every rollback, apply, or other state-changing production command you run
@@ -43,4 +52,4 @@ Log: every rollback, apply, or other state-changing production command you run
   `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
-Finish: a `STOPPED` line and `worker_done`.
+Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.

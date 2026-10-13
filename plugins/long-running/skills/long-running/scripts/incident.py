@@ -14,7 +14,8 @@ STDLIB ONLY. ``open`` records the incident in the :mod:`actions` store; ``run`` 
 Each pass of ``run`` advances every step whose inputs are ready and records each side
 effect as an action before it runs: the comms events, the fix and evidence launches on the
 ``incident`` alias (gpt-6.1-sol, fast tier) through ``orca-launch.sh`` (an Opus 5.5 backup in
-fast mode at 15 minutes with no mechanism), the human
+fast mode at 15 minutes with no mechanism, unless the desk clock's ``<fix lane>-opus``
+fallback is already launching or live: a fix lane gets one Opus fallback), the human
 review request a reviewer fix needs, the landing check, the single-pipeline ``ci sync``
 activation with its read-back, the canary, one rebuild per failed head in the outage window,
 the accounting of every rebuild, and the final reply. A merge never closes the incident:
@@ -72,6 +73,7 @@ CLAUDE_FAST_MODE = """--settings '{"fastMode":true}'"""
 ADOPTABLE = ("fix", "evidence")
 GRANTS = ("thread", "channel", "sync", "rebuild")
 BACKUP_AFTER = timedelta(minutes=15)
+CLOCK_FALLBACK = "-opus"
 COMMS_DEADLINE = timedelta(minutes=2)
 SYNC_DEADLINE = timedelta(minutes=10)
 REBUILD_DEADLINE = timedelta(minutes=45)
@@ -161,13 +163,29 @@ class Orca:
             raise EffectFailed(line)
         return match.groupdict()
 
+    def state(self) -> Path:
+        return Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".claude" / "scratch" / "orca-launch" / str(self.run_id))
+
     def receipt(self, lane: str) -> dict | None:
-        state = Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".claude" / "scratch" / "orca-launch" / str(self.run_id))
+        state = self.state()
         for path in (state / f"{lane}.json", state / f"{lane}.json.new"):
             result = json.loads(path.read_text()).get("result", {}) if path.exists() and path.stat().st_size else {}
             if result.get("taskId") and result.get("dispatchId"):
                 return {"lane": lane, "state": result.get("state"), "task": result["taskId"], "dispatch": result["dispatchId"]}
         return None
+
+    def engaged(self, lane: str, now: datetime) -> bool:
+        """Whether a launch of the lane is in flight or its worker is live, read from the launch state every launcher on the Run shares."""
+        began, landed = (self.state() / f"{lane}.{name}" for name in ("binding.json", "json"))
+        unlanded = began.exists() and not (landed.exists() and landed.stat().st_mtime >= began.stat().st_mtime)
+        flight = unlanded and now.timestamp() - began.stat().st_mtime < CALL_TIMEOUT
+        if flight or not (receipt := self.receipt(lane)):
+            return flight
+        try:
+            shown = json.loads(self.shell.run(["orca", "orchestration", "worker-show", "--dispatch", receipt["dispatch"], "--json"]))
+        except LOST:
+            return False
+        return shown["result"]["dispatch"]["status"] not in ("completed", "failed")
 
 
 @dataclass
@@ -613,6 +631,8 @@ class Runner:
         incident = self.store.load(self.incident_id)
         quiet = not any(incident.facts.get(fact) for fact in ("mechanism", "repair_pr", "not_ours"))
         if fix and fix.status == "verified" and quiet and self.now() - parse_stamp(fix.started_at) >= BACKUP_AFTER:
+            if retryable(latest(incident, "dispatch:backup")) and self.world.orca.engaged(f"{self.lane('fix')}{CLOCK_FALLBACK}", self.now()):
+                return
             self.launch("backup", "Fix lane brief")
 
     def design(self) -> None:

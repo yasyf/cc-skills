@@ -56,6 +56,26 @@ runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
 `orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
 lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
+Every incident fix lane the runner launched is on a clock from its verified launch: a
+launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
+an `incident=`, unless that brief names a role other than `fix` or `incident`. Each pass
+reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
+`not-ours`, `stopped`, and `stand-down`, a `report` that starts `READY`, and its
+`mechanism:` and `fix-live:` Run statuses. With no mechanism at
+`deadlines.incident_mechanism_minutes` (default 10), or no PR at
+`deadlines.incident_pr_minutes` (default 15), the runner launches `<lane>-opus` once per
+launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
+fallback header it attaches to the briefs log as `<lane>-opus.full.md`, and logs
+`INCIDENT-CLOCK <lane> mechanism` or `INCIDENT-CLOCK <lane> pr`. With no `ready` at
+`deadlines.incident_ready_minutes` (default 20) it logs `INCIDENT-CLOCK <lane> ready`,
+naming the missing milestones and the minutes each phase took. A later milestone counts
+for the earlier ones, and each threshold logs once per launch. A `-opus` lane is clocked
+and gets no fallback of its own; a lane whose `<lane>-opus` already has a live dispatch or
+a launch in flight gets no second. A fix lane gets one Opus fallback: a lane an incident
+executor adopted gets none from the clock while that executor's own Opus backup is launching
+or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
+stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
+settles, and `show` prints each clocked lane's minutes and milestones.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
 from the desk inbox itself or one that carries `--re`; a record that is no directive logs
@@ -81,8 +101,8 @@ and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:
 says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
 repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load. The
 runner counts no Sprites and sets no limit: the provider admits or refuses each one.
-`place=local` keeps a `cpu=high` launch on the Mac. Fable, incident, and a `role=desk`
-or `role=watch` brief stay local whatever the line says. A lane name a Sprite refuses,
+`place=local` keeps a `cpu=high` launch on the Mac. Fable, incident, an incident clock
+fallback, and a `role=desk` or `role=watch` brief stay local whatever the line says. A lane name a Sprite refuses,
 or a Sprite launch whose receipts prove worker-start never ran, a provider refusal
 among them, starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
 The proof is read from the brief's `.worker` directory: no `<lane>.json`,
@@ -123,7 +143,7 @@ inbox append or an exiting launch or judge, and its sweep shows only dispatches 
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-UNBOUND and UNOWNED to blocker, any *-FAILED to defect, and all other labels to report.
+UNBOUND, UNOWNED, LOST, and INCIDENT-CLOCK to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -140,6 +160,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -159,6 +180,7 @@ import cci
 import inboxes
 import prompt_screen
 from holds import HELD_LANE, HELD_PR, HOLD_ALL, RELEASE_LINE
+from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -168,7 +190,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -230,6 +252,31 @@ ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<w
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
+NO_INCIDENT = "none"
+ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
+FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
+CLOCK = "incident-clock"
+MILESTONE_STATUSES = "milestone-statuses"
+CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
+CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
+READY_REPORT = "READY"
+CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
+FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
+
+# {backup}: Opus fallback for {lane}
+
+You are the Opus fallback for `{lane}`. The orca desk's incident clock started you
+{minutes} minutes after `{lane}` launched, because `{lane}` had posted no {missing}.
+Work the incident in the brief below in parallel with `{lane}`; the first PR wins.
+Before you start, read what `{lane}` has posted with
+`cci tail --drive {drive} --lane {lane} --since 2h`, so you repeat none of it.
+Post on cci as `{backup}`, and address `{lane}` and `root` on every record.
+Wherever the brief below tells its lane to post or report as `{lane}`, post as
+`{backup}`.
+
+The brief `{lane}` was launched on follows, unchanged.
+
+{brief}"""
 CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
 CPU_HIGH = re.compile(CCX_KEY.format("cpu=high"), re.MULTILINE)
 PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
@@ -320,6 +367,30 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
+def incident_fix(model: str, brief: Path) -> bool:
+    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a brief naming no role but fix or incident."""
+    roles = set(ROLE.findall(brief.read_text())) if brief.is_file() else set()
+    return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NO_INCIDENT}))
+
+
+def clock_mark(record: dict) -> str:
+    """The incident clock milestone a lane's cci record marks, or empty: its kind, or `ready` for a `report` whose text starts READY."""
+    if record["kind"] == "report":
+        return "ready" if record["text"].startswith(READY_REPORT) else ""
+    return record["kind"] if record["kind"] in (*CLOCK_MILESTONES, *CLOCK_ENDS) else ""
+
+
+def whole_minutes(start: datetime, end: datetime) -> int:
+    return int((end - start).total_seconds() // 60)
+
+
+def clock_phases(launched: datetime, reached: dict[str, str], now: datetime) -> str:
+    """How long each phase of an incident lane took, from its milestones' own stamps: `launch to mechanism 7 min, mechanism to PR 6 min, PR to now 7 min`."""
+    marks = sorted((actions.parse_stamp(at), CLOCK_MILESTONES[name]) for name, at in reached.items() if name in CLOCK_MILESTONES)
+    points = [(launched, "launch"), *marks, (now, "now")]
+    return ", ".join(f"{start} to {end} {whole_minutes(at, until)} min" for (at, start), (until, end) in itertools.pairwise(points))
+
+
 def sprite_placed(brief: Path) -> bool:
     if not brief.is_file():
         return False
@@ -389,6 +460,9 @@ class Config:
     enqueue_minutes: int
     hold_minutes: int
     release_start_minutes: int
+    incident_mechanism_minutes: int
+    incident_pr_minutes: int
+    incident_ready_minutes: int
     judge_model: str
     landing: dict | None
     alert_facts: Path | None
@@ -418,6 +492,9 @@ class Config:
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
             hold_minutes=deadlines.get("hold_minutes", 15),
             release_start_minutes=deadlines.get("release_start_minutes", 10),
+            incident_mechanism_minutes=deadlines.get("incident_mechanism_minutes", 10),
+            incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
+            incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
@@ -530,8 +607,8 @@ class Orca:
     def lane_of(self, handle: str) -> str:
         return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
-    def show(self, lane: str) -> Dispatch | None:
-        dispatch = self.receipt(lane)
+    def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
+        dispatch = dispatch or self.receipt(lane)
         shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
         if not shown.get("ok"):
             return None
@@ -763,7 +840,10 @@ class Runner:
                     self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
-            self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
+            self.tail_failed(failure)
+
+    def tail_failed(self, failure: CciTailFailed) -> None:
+        self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
 
     def cci_record(self, seq: int) -> dict | None:
         out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
@@ -1010,9 +1090,9 @@ class Runner:
         answered = {message.get("thread_id") for message in received}
         return next((message["id"] for message in sorted(mine, key=lambda message: message["created_at"], reverse=True) if message["id"] not in answered), "")
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool) -> tuple[actions.Action, bool]:
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False) -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent})
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -1198,6 +1278,8 @@ class Runner:
         spec = json.loads(action.target)
         argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
         env = {**self.config.launch_env, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
+        if spec.get("fast"):
+            env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
 
     def launch_sprite(self, container: str, lane: str, action: actions.Action) -> None:
@@ -1211,7 +1293,7 @@ class Runner:
 
     def sprite_refusal(self, lane: str, spec: dict) -> str | None:
         """None when the launch goes to a Sprite; why it stays local otherwise, empty when it was never a Sprite candidate."""
-        if not self.config.sprite or spec["model"] in SPRITE_LOCAL_MODELS or not sprite_placed(Path(spec["brief"])):
+        if not self.config.sprite or spec["model"] in SPRITE_LOCAL_MODELS or spec.get("fast") or not sprite_placed(Path(spec["brief"])):
             return ""
         if not SPRITE_LANE.fullmatch(lane):
             return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
@@ -1378,12 +1460,19 @@ class Runner:
             self.keep(message)
             body = " ".join((message.get("body") or "").split())[:300]
             self.escalate(message["id"], kind, lane, f"{subject}: {body}")
+            self.stamp_status(lane, message["id"], kind.lower())
         elif message["type"] in ("decision_gate", "handoff"):
             self.keep(message)
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
         else:
             return False
         return True
+
+    def stamp_status(self, lane: str, message: str, name: str) -> None:
+        """Keep when a lane's milestone status arrived on its container, where the incident clock reads it beside the lane's cci records."""
+        container = lane_container(lane)
+        if container in self.book.store.ids():
+            self.book.edit(container, lambda incident: incident.facts.setdefault(MILESTONE_STATUSES, {}).setdefault(message, {"name": name, "at": self.book.stamp()}))
 
     def acknowledge(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
         """Apply a lane's started/done reply only from the dispatch that owns the container; a pending dispatch's first ack takes ownership first."""
@@ -1566,6 +1655,109 @@ class Runner:
         for container in self.book.containers(LANE_PREFIX):
             self.overdue(container, container.removeprefix(LANE_PREFIX))
 
+    def incident_clock(self) -> None:
+        """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock."""
+        for container in self.book.containers(LANE_PREFIX):
+            lane = container.removeprefix(LANE_PREFIX)
+            incident = self.book.load(container)
+            launch = next((action for action in reversed(incident.actions.values()) if action.kind == "launch" and action.status == "verified"), None)
+            kept = incident.facts.get(CLOCK) or {}
+            current = bool(launch) and kept.get("key") == launch.action_id
+            if not launch or (current and kept["ended"]):
+                continue
+            spec = json.loads(launch.target)
+            if not incident_fix(spec["model"], Path(spec["brief"])) or not (dispatch := self.orca.show(lane)):
+                continue
+            launched = actions.parse_stamp(launch.verification_receipt["at"])
+            clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
+            if dispatch.id != launch.dispatch_id:
+                clock["ended"] = f"relaunched as dispatch {dispatch.id}"
+            elif dispatch.status in INACTIVE:
+                clock["ended"] = f"dispatch {dispatch.status}"
+            else:
+                try:
+                    clock["reached"] = self.reached(container, lane, launched)
+                except CciTailFailed as failure:
+                    self.tail_failed(failure)
+                    continue
+                clock["ended"] = next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
+                if not clock["ended"]:
+                    self.overrun(lane, launch, launched, clock["reached"])
+            if clock != kept:
+                self.book.edit(container, lambda incident, clock=clock: incident.facts.update({CLOCK: clock}))
+
+    def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
+        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run."""
+        kinds = (*CLOCK_MILESTONES, *CLOCK_ENDS, "report")
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", lane, *(f"--kind={kind}" for kind in kinds))
+        marks = [(mark, record["at"]) for record in posted if record["drive"] == self.config.drive and record["lane"] == lane and (mark := clock_mark(record))]
+        marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
+        reached: dict[str, str] = {}
+        for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
+            if actions.parse_stamp(at) >= launched:
+                reached.setdefault(name, at)
+        return reached
+
+    def overrun(self, lane: str, launch: actions.Action, launched: datetime, reached: dict[str, str]) -> None:
+        """Log each threshold the lane has passed without its milestone or a later one, once per launch; the mechanism and PR thresholds launch the Opus fallback first, and the ready threshold names the gap."""
+        elapsed = whole_minutes(launched, self.now())
+        limits = {"mechanism": self.config.incident_mechanism_minutes, "opened": self.config.incident_pr_minutes, "ready": self.config.incident_ready_minutes}
+        names = list(CLOCK_MILESTONES)
+        missing = names[max((names.index(name) + 1 for name in reached if name in names), default=0) :]
+        for name in missing:
+            label = CLOCK_MILESTONES[name]
+            log = f"escalation:{CLOCK}:{launch.dispatch_id}:{name}"
+            if elapsed < limits[name] or self.book.known(RUNNER, log):
+                continue
+            phases = clock_phases(launched, reached, self.now())
+            if name == "ready":
+                text = f"not ready {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; missing {', '.join(CLOCK_MILESTONES[gap] for gap in missing)}; {phases}"
+            else:
+                text = f"no {label} {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; {phases} | {self.fallback(lane, launch, label, elapsed)}"
+            self.record(log, f"INCIDENT-CLOCK {lane} {label.lower()}: {text}")
+
+    def fallback(self, lane: str, launch: actions.Action, missing: str, minutes: int) -> str:
+        """Launch `<lane>-opus` once per clocked launch, on opus xhigh in Claude fast mode, from the lane's own brief under a fallback header attached to the briefs log; the clause returned tells the blocker what was done."""
+        backup = f"{lane}{CLOCK_FALLBACK}"
+        key = f"{CLOCK}:{launch.dispatch_id}"
+        if lane.endswith(CLOCK_FALLBACK):
+            return f"{lane} is itself an Opus fallback, so none is launched for it"
+        if self.book.known(lane_container(backup), key):
+            return f"the Opus fallback {backup} is already launched"
+        if rival := self.executor_backup(lane):
+            return f"no fallback launched for {backup}: the incident executor's Opus backup {rival} is launching or live, and a fix lane gets one Opus fallback"
+        brief = self.brief_for(lane)
+        if not brief:
+            return f"no fallback launched for {backup}: {lane} has no brief file"
+        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief):
+            return f"no fallback launched for {backup}: {refusal}"
+        text = FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text())
+        if failure := self.attach(f"{backup}.full.md", text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min"):
+            return f"no fallback launched for {backup}: the brief did not attach: {failure}"
+        attached = self.attachment(f"{backup}.full.md")
+        if attached is None:
+            return f"no fallback launched for {backup}: the attached brief has no path"
+        self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
+        return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
+
+    def executor_backup(self, lane: str) -> str:
+        """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
+        store = actions.Store()
+        for incident in map(store.load, store.ids()):
+            backup = latest(incident, "dispatch:backup")
+            if backup is None or incident.facts["adopted"].get("fix") != lane:
+                continue
+            if backup.status in actions.OPEN or (backup.status == "verified" and (shown := self.orca.show(backup.target, backup.dispatch_id)) and shown.status not in INACTIVE):
+                return backup.target
+        return ""
+
+    def clock_line(self, clock: dict) -> str:
+        launched = actions.parse_stamp(clock["launched"])
+        marks = sorted((actions.parse_stamp(at), name) for name, at in clock["reached"].items())
+        reached = ", ".join(f"{CLOCK_MILESTONES.get(name, name)} +{whole_minutes(launched, at)} min" for at, name in marks)
+        status = f"stopped: {clock['ended']}" if clock["ended"] else f"{whole_minutes(launched, self.now())} min of {self.config.incident_ready_minutes}"
+        return f"- incident clock [{status}] launched {pacific(launched)}; {reached or 'no milestone yet'}"
+
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
         if policy := self.landing_policy():
@@ -1574,6 +1766,8 @@ class Runner:
         for container in [*self.book.containers(LANE_PREFIX), LANDING]:
             incident = self.book.load(container)
             lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
+            if clock := incident.facts.get(CLOCK):
+                lines.append(self.clock_line(clock))
             for action in sorted(incident.actions.values(), key=lambda action: action.accepted_at):
                 if action.kind in ("send", "policy"):
                     continue
@@ -2045,6 +2239,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                 runner.sweep()
                 swept = runner.now()
         runner.deadlines_orca()
+        runner.incident_clock()
         runner.aged_holds()
         runner.flush()
         runner.write_view()
