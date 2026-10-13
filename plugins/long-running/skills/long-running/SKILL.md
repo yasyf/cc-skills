@@ -25,7 +25,9 @@ The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefe
 from `/live-dashboard` `reference/keeping-live.md`; `alerts-desk` when the drive touches
 production; and one priority desk per owner-named #1-priority outcome while that
 outcome is open. Once the drive has posted to Slack, the Slack watch lane is standing
-too, briefed from `reference/slack-watch-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
+too, briefed from `reference/slack-watch-brief.md`. When the owner names a Slack
+channel for the drive's updates, `comms-desk` is standing, briefed from
+`reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
 not a subagent. Its landing process shares the store and runs D3, D14, and D16
 where the checkout carries `stack-enqueue`.
 The root spawns a subagent for every task with a body, including its own routine work.
@@ -694,6 +696,19 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
 - An incident's comms lane takes its authority from the grant id on each executor
   event and posts without a root turn; the root is told, not asked
   (`reference/active-alert-brief.md`).
+
+**The drive's updates channel.** The turn the owner names a channel for the drive's
+updates, the root records the owner's words as the channel's grant and spawns
+`comms-desk` from `reference/comms-desk-brief.md`. The grant is two literal
+`cc-slack grant` commands quoting those words: `--channel <id>` for top-level posts,
+and `--channel <id> --thread '*'` for a reply in every thread of the channel. Neither
+waits on a board or a second owner ask. Under them the comms desk answers a human's
+question in the channel within 15 minutes without asking the root; only a reply that
+commits the drive to new behaviour goes to the root first.
+
+*Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
+channel, when the drive-start grant covered top-level posts only and the thread grant
+sat on an owner board.*
 
 The pack's `root_context` hook blocks the root's Slack reads and never its approved Slack writes.
 

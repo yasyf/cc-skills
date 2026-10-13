@@ -40,6 +40,8 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`;
      that opens with "_(<name>'s Claude)_". Relay each new human reply to
      <root agent name> in one SendMessage line: who, what they said, the permalink,
      and the lane from the thread's post row that asked.
+     A human message in the drive's updates channel, <updates channel id>, goes to
+     comms-desk instead.
   4. Read `cci digest --drive <drive> --since 0 --json` for open holds. When a hold
      waits `until reply in <channel>/<thread_ts>`, post the lift in the same poll:
      `cci post --drive <drive> --lane <watch lane name> --kind lift --to <fence owner>
