@@ -81,7 +81,9 @@ may have left a remote worker: it becomes `unverifiable` and logs
 names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
-blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
+blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
+admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
+which goes to the lane as a blocker. It gates only tips the ledger lists as `ours` and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
@@ -146,7 +148,12 @@ MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
-RETRYABLE = frozenset({"blocked", "superseded", "foreign"})
+RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped"})
+BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
+ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
+OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
+MERGE_ACTIVITY = "### Merge activity"
+DROP_BLOCKER = re.compile(r"merge conflicts?|Failed CI \(|downstack failures on PR #")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 WAKE_SECONDS = 0.25
@@ -1495,6 +1502,10 @@ def enqueue_key(prefix: list[str], verdicts: dict) -> str:
     return "enqueue:" + ",".join(f"{pr}@{verdicts[pr]['sha'] if pr in verdicts else ''}" for pr in prefix)
 
 
+def enqueued_heads(key: str) -> dict[str, str]:
+    return dict(entry.split("@", 1) for entry in key.split("#")[0].removeprefix("enqueue:").split(","))
+
+
 def judge_verdict(done: Done) -> dict:
     if done.code != 0:
         return {"verdict": "escalate", "text": f"the judge failed: {(done.err or done.out).strip()[-200:]}"}
@@ -1572,7 +1583,11 @@ class Landing:
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
             self.runner.escalate(f"foreign:{base}", "FOREIGN", f"#{tip}", f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
             return
-        attempts = [action for action in self.book.actions(LANDING, kind="enqueue") if action.action_id.split("#")[0] == base]
+        enqueues = self.book.actions(LANDING, kind="enqueue")
+        ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
+        if any(sha and ejected.get(pr) == sha for pr, sha in enqueued_heads(base).items()):
+            return
+        attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
             return
         policy = self.runner.landing_policy()
@@ -1631,13 +1646,45 @@ class Landing:
     def verify(self, rows: dict[str, dict]) -> None:
         for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
             prefix = action.target.split(",")
-            if action.response["outcome"] not in ("enqueued", "noop") or not all(rows.get(pr, {}).get("state") == "landed" for pr in prefix):
+            if action.response["outcome"] not in ADMITTED or not all(rows.get(pr, {}).get("state") == "landed" for pr in prefix):
                 continue
             receipt = {"landed": {pr: rows[pr].get("landed_sha", "") for pr in prefix}, "at": self.book.stamp()}
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.verify(key, receipt))
         for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
             top = action.target.split(",")[-1]
             self.restack(top, rows)
+
+    def requeue(self, rows: dict[str, dict]) -> None:
+        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, and unheld; a drop for a conflict or a red check goes to the lane as a blocker instead."""
+        believed = {
+            action.action_id: [pr for pr, sha in enqueued_heads(action.action_id).items() if sha and pr in rows and rows[pr].get("state", "open") == "open" and rows[pr].get("head", "").startswith(sha)]
+            for action in self.book.actions(LANDING, kind="enqueue", status="completed")
+            if action.response["outcome"] in BELIEVED_QUEUED
+        }
+        numbers = sorted({pr for prs in believed.values() for pr in prs}, key=int)
+        if not numbers:
+            return
+        done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
+        if done.code != 0:
+            return
+        queue = {str(entry["number"]): entry["queue"] for entry in json.loads(done.out)}
+        for key, prs in believed.items():
+            dropped = {pr: self.drop_reason(pr) for pr in prs if queue[pr] in OUT_OF_QUEUE}
+            if not dropped or None in dropped.values():
+                continue
+            blockers = {pr: reason for pr, reason in dropped.items() if DROP_BLOCKER.search(reason)}
+            for pr, reason in blockers.items():
+                sha = enqueued_heads(key)[pr]
+                self.route(f"dropped:{pr}:{sha}:{hashlib.sha1(reason.encode()).hexdigest()[:8]}", rows[pr].get("lane", ""), f"#{pr} {sha}: the merge queue dropped it: {reason}. Fix and push; the desk enqueues the new head.", pr)
+            drop = {"outcome": "ejected" if blockers else "dropped", "drop": dropped, "ejected": {pr: enqueued_heads(key)[pr] for pr in blockers}, "dropped_at": self.book.stamp()}
+            self.book.attempt(LANDING, lambda incident, key=key, drop=drop: setattr(incident.action(key), "response", {**incident.action(key).response, **drop}))
+
+    def drop_reason(self, pr: str) -> str | None:
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "comments"])
+        if done.code != 0:
+            return None
+        activity = [comment["body"] for comment in json.loads(done.out)["comments"] if comment["body"].startswith(MERGE_ACTIVITY)]
+        return next((line.strip() for line in reversed(activity[-1].splitlines()) if line.strip()), "") if activity else ""
 
     def restack(self, landed_pr: str, rows: dict[str, dict]) -> None:
         landed = rows.get(landed_pr, {})
@@ -1701,6 +1748,7 @@ class Landing:
         self.reconcile()
         self.verify(rows)
         self.verify_restacks(rows)
+        self.requeue(rows)
         self.gate(rows, self.held(rows))
         self.enqueue()
         self.runner.overdue(LANDING, "landing")

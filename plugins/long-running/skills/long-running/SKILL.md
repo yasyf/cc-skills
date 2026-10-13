@@ -866,7 +866,10 @@ and `reconcile`, reads rows, and gates every tracked open stack tip in parallel:
 `stack-enqueue <tip> --check [--whole] [--hold <n>...]`. The gate selects the largest
 ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
 and runs independent enqueues in parallel. It permits another attempt for the
-same heads only when earlier attempts are proven to have enqueued nothing.
+same heads only when earlier attempts are proven to have enqueued nothing, or
+when `ccx vcs pr status` reads a believed-queued PR `not queued` or `evicted` at
+the head it admitted. A drop whose Merge activity comment names a conflict or a
+red check goes to the lane as a blocker instead; any other drop is gated again.
 
 Every enqueue re-reads the root's holds file, including every open ledger row
 whose lane is named as `lane:<name>`. The command is
