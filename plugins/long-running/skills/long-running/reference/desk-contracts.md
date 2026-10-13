@@ -277,12 +277,12 @@ is exactly `held: <reason> until <stamp>`, `in the queue since <stamp>`,
 under D3 in the same turn. The next refresh records that label as
 `in the queue, labelled outside the desk`; the desk does not treat it as a bypass.
 
-## Self-enqueue, and reconcile every ready stack in parallel
+## The desk enqueues, and reconciles every ready stack in parallel
 
 One desk ran on a 20-minute pacer, put the label on one report at a time, and sent an
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
-**Lanes self-enqueue under D1; the desk reconciles every three minutes.** Read the
+**Lanes never enqueue under D1; the desk and its runner enqueue and reconcile every three minutes.** Read the
 root's holds file and rebuild a fresh numeric held file at every enqueue under
 D1/D3, including every PR `ledger.py held --drive <drive>` prints and all open PR rows of held lanes from
 `ledger.py show --ledger <id> --json`. A clean report's largest ready, unheld,
