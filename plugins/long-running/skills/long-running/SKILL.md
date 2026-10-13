@@ -1600,7 +1600,7 @@ Team mailbox: <absolute path: `<team dir>/inboxes/<lane>.json`, the team dir bei
   `inboxes.py mailbox <any live teammate>` prints; never built from the drive id>.
   Confirm it at spawn with `inboxes.py mailbox <lane>`. Claude Code delivers your mail
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
-Keep record text under 400 characters; `cci post` refuses longer text. Attach the body with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
+Keep record text to one line; `cci post` spills text over 400 characters to a file, posts its first line, and prints the path. Attach a body you wrote with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register once at start through hooks.
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
