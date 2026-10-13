@@ -12,9 +12,9 @@ The brief below is ready to paste; fill the angle brackets.
 ## Root discipline
 
 The root owns rulings, dispatch, the holds file, and one summary to the owner.
-Only the root edits the holds file. Each line names held PRs as `#<n>` and whole
-held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is
-held, so a reason names another PR without the `#`.
+Only the root edits the holds file, through `holds.py add|rm|list`. Each line names
+held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every
+`#<n>` in the file is held, so a reason names another PR without the `#`.
 
 When the owner reviews every PR before it lands, the root writes one
 `hold:all <reason>` line. The landing runner then holds every open ledger row

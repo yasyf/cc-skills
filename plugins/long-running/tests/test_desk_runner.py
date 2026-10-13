@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import actions
+import holds
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/desk-runner.py"
@@ -767,6 +768,22 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_holds_py_entries_reach_stack_enqueue(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    holds_file = str(tmp_path / "holds.md")
+    assert holds.main(["--file", holds_file, "add", "--pr", "29020", "--reason", "owner hold until the parity waves land"]) == 0
+    assert holds.main(["--file", holds_file, "add", "--lane", "d4", "--reason", "ships whole"]) == 0
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
+    landing_pass(shell, config)
+    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert checks and all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
 
 
 def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, config, tmp_path):
