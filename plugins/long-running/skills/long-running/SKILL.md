@@ -29,7 +29,7 @@ channel or thread, the Slack watch lane is standing too, briefed from
 `reference/slack-watch-brief.md`. When the owner names a Slack
 channel for the drive's updates, `comms-desk` is standing, briefed from
 `reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
-not a subagent. Its landing process shares the store and runs D3, D14, and D16
+not a subagent. Its landing process shares the store and runs D3, D14, D16, and D20
 where the checkout carries `stack-enqueue`.
 The root spawns a subagent for every task with a body, including its own routine work.
 
@@ -866,7 +866,7 @@ Each report is a message in the root's window, and each landing is a wait. The d
 one long-lived lane, `landing-desk`, that takes those reports and reconciles landings.
 
 Lanes never enqueue under D1. Where the checkout carries `stack-enqueue`,
-`desk-runner.py run --desk landing` owns D3, D14, and D16, including for shards.
+`desk-runner.py run --desk landing` owns D3, D14, D16, and D20, including for shards.
 The landing desk never enqueues beside it. Without that script, the desk keeps
 the `ledger.py label` path. The root owns the holds file and priority PRs under D3.
 It receives P0 lines immediately and a summary every 30 minutes.
@@ -1165,6 +1165,38 @@ artifact rebases and regenerates it on ejection, never resolving the file by han
 many independent PR stacks merging as possible, and shaping them carefully to avoid
 conflicts".*
 
+**D20. A fast-tracked fix that lands with a `Release-With` line starts its release in that pass.**
+A fix reaches users when its components are released, not when its squash is on the
+base branch. When a ledger row lands carrying the `merge-fast` label and the PR body
+has a `Release-With:` line, the landing runner posts one cci `release` record to the
+release owner and the root in the pass that reads the landing. The record carries
+`--topic <pr> --pr <pr>`, the squash sha, the components the line names, and the
+instruction to start that release now. The release owner is `landing.release_owner`
+in `runner.json`, a cci `--to` address such as `peer:<session>`, and the landing
+process requires it to start.
+
+The release owner starts the release and posts
+`cci post --drive <drive> --lane <lane> --kind release --pr <pr> --target <component> --text <build>`.
+A `release` record from another lane, stamped after the landing, that names one of
+the components with `--target` or the PR with `--pr` settles the landing. Until one
+arrives the runner posts one `blocker` to the release owner and the root every
+`deadlines.release_start_minutes` after the landing, 10 by default, each with the
+minutes elapsed.
+
+The root ends them by starting the release and posting that record. When the release
+is in hand another way, the root replies to the release record or a blocker with
+`--re <seq>` or `--resolves <seq>`. A record cci refuses, such as one addressed to a
+`peer:` session that has ended, reaches the root as `RELEASE-FAILED` once per step
+and is posted again on the next pass. The runner reads the label from the ledger
+row's `labels` and the body with one `gh pr view <pr> --json body` per landing. A
+landing older than the landing runner's first pass sends nothing.
+
+*Prevents a landed fix waiting on a release nobody started. On 2026-10-13 monorepo
+#36642, the fix for a customer-facing break, landed at 15:42Z through the merge queue
+with the `merge-fast` label and a `Release-With` line naming `sand`. The release
+owner's session was busy, the landing runner said nothing about a release, and the
+root started the `sand` release by hand about 50 minutes later.*
+
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
 the routing, the label history, and the landing. A refresh that cannot reach the forge
@@ -1182,7 +1214,7 @@ See Lane rotation.
 processes with one config and store: `run --desk orca` and `run --desk landing`.
 Restarting either is idempotent. The orca process alone consumes the Run mailbox;
 let an existing desk finish its pass and end its loop before starting it. Keep
-the old session open. The landing process runs D3, D14, and D16 where the
+the old session open. The landing process runs D3, D14, D16, and D20 where the
 checkout carries `stack-enqueue`.
 
 Each orca pass writes `orca-runner.heartbeat.json` beside `orca.desk_inbox` with its

@@ -3,7 +3,7 @@
 `desk-runner.py` owns Orca worker traffic and ready-prefix landing. Run two detached
 processes against one config and store: `run --desk orca` and `run --desk landing`.
 No model-operated orca-desk sits between the root and Orca. Where the checkout
-carries `stack-enqueue`, the landing runner runs D3, D14, and D16; the
+carries `stack-enqueue`, the landing runner runs D3, D14, D16, and D20; the
 landing-desk lane keeps the duties in [its brief](landing-desk-brief.md).
 
 *Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 going to a
@@ -167,7 +167,8 @@ key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
 labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
-text limit and attachment rule.
+text limit and attachment rule. A landing's release record and its blockers use
+`--kind release` and `--kind blocker` with `--to <landing.release_owner>,root --topic <pr> --pr <pr>`.
 
 `monitor-watch.py --alert-inbox` keeps writing alert lines to `orca-desk.md`.
 The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
@@ -202,6 +203,11 @@ the receipt directory orca-launch.sh writes by default, and launches with
 relayed to like one the runner launched, with no receipts to copy; never set
 `ORCA_LAUNCH_STATE` on a hand launch. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
+
+`landing.release_owner` is required by `run --desk landing`, which exits on a config
+without it. It is the cci `--to` address of the lane that starts releases, such as
+`peer:<session name>` for a session bound to another drive.
+`deadlines.release_start_minutes` is the step between the blockers D20 posts, 10 by default.
 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
 `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
@@ -260,7 +266,8 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     "launch_minutes": 15,
     "load_hold_minutes": 5,
     "hold_minutes": 15,
-    "enqueue_minutes": 15
+    "enqueue_minutes": 15,
+    "release_start_minutes": 10
   },
   "judge_model": "claude-sonnet-5-5",
   "landing": {
@@ -269,6 +276,7 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     "checkout": "/absolute/monorepo/worktree",
     "holds": "/absolute/drive/holds.md",
     "fidelity_lane": "fidelity-desk",
+    "release_owner": "peer:<release session>",
     "interval_seconds": 180,
     "policy": {
       "rule": "prefix",
@@ -469,6 +477,23 @@ first PR above it. Orca lanes receive a relay; other lanes receive
 It verifies a restack route when the child's head moves or the child lands. The
 landing-desk lane never enqueues or duplicates these restack routes beside the runner.
 
+A row that lands carrying the `merge-fast` label, with a `Release-With:` line in the
+PR body, gets one cci record in the pass that reads the landing:
+`cci post --drive <drive> --lane desk-runner --kind release --to <landing.release_owner>,root --topic <pr> --pr <pr> --text "<squash, components, start the release now>"`.
+The runner reads the label from the row's `labels` and the body with one
+`gh pr view <pr> --json body`. From then on each pass reads `cci tail --kind=release`
+and the root's records. A `release` record from any lane but `desk-runner`, stamped
+at or after the landing, that names one of the components with `--target` or the PR
+with `--pr` settles the landing. So does a record the drive's root posts with `--re`
+or `--resolves` naming the release record or one of its blockers.
+
+Until then the runner posts one `blocker` to the same two addresses at each
+`deadlines.release_start_minutes` step after the landing, with the minutes elapsed.
+A landing first read after a step has passed gets the `release` record then and its
+first blocker at the next step. A landing older than the landing runner's first pass
+sends nothing. A `merge-fast` landing whose body has no `Release-With:` line is read
+once and sends nothing.
+
 A `BLOCKED` head other than `held` routes once per head and blocker. The runner
 re-runs the gate immediately before creating the route, suppressing a blocker
 that has already cleared. Orca delivery can occur later; the gate is not re-read
@@ -512,6 +537,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
+| `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. cci refused the record, most often because the `peer:` session ended, so correct `landing.release_owner` and restart the landing runner. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
 
