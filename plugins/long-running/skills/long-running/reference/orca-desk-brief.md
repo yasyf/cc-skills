@@ -169,21 +169,25 @@ own case before it reports ready. The lane closes its ready report and its
 `worker_done` with one `UNFIXED <lane>: <case>` line per known case the fix does not
 cover, or `UNFIXED <lane>: none`. When an incident fix lane's `worker_done` message, or its
 `ready:` or `fix-live:` Run status, carries such lines in its body, the runner
-launches `<lane>-case<n>` on incident xhigh for each case in the same pass, with no
-root turn. It fills `reference/unfixed-case-brief.md` with the case verbatim, the
-parent lane, the path of the parent's brief, and the PRs the parent's cci `opened`
-records name. It attaches that brief to the briefs log as `<lane>-case<n>.full.md`
-and logs:
+launches `<first>-case<n>` on incident xhigh for each case in the same pass, with no
+root turn. `<first>` is the lane's name without its trailing `-opus` and `-case<n>`
+parts, so every case lane of one incident sits beside the first fix lane. The runner
+fills `reference/unfixed-case-brief.md` with the case verbatim, the reporting lane,
+the path of that lane's brief, and the PRs its cci `opened` records name. It attaches
+that brief to the briefs log as `<first>-case<n>.full.md` and logs:
 
 ```text
-INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <lane>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
+INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
 ```
 
-A case launches once per lane, however often the lane reports it, and
-`UNFIXED <lane>: none` launches nothing. The case brief carries the same reproduce
-step and `UNFIXED` field, so a case lane's own uncovered cases launch further case
-lanes, and the clock above covers each one. A lane that is not an incident fix lane
-launches nothing this way.
+Only a line that names the reporting lane counts, and `UNFIXED <lane>: none`
+launches nothing. A case launches once across a lane, its `-opus` fallback, and its
+case lanes, however often and by whichever of them it is reported. A case whose
+launch is refused, or whose brief does not attach, logs `not launched` with the
+reason and launches on the next report that names it. The case brief carries the
+same reproduce step and `UNFIXED` field, so a case lane's own uncovered cases launch
+further case lanes, and the clock above covers each one. A lane that is not an
+incident fix lane launches nothing this way.
 
 *Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
 neighbouring case while the reporter's own thread still failed, and two edge cases

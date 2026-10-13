@@ -3228,7 +3228,7 @@ def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in
     brief = clocked_lane(shell, config, tmp_path)
     shell.sleep(60)
     lane_record(shell, LANE, "opened", prs=[4250])
-    lane_record(shell, LANE, "opened", prs=[4242])
+    lane_record(shell, LANE, "opened", prs=[4242, "yasyf/cc-skills#77", "4250"])
     unfixed_report(shell, LANE, kind, *CASES)
     orca_pass(shell, config)
     lanes = [f"{LANE}-case1", f"{LANE}-case2"]
@@ -3238,7 +3238,7 @@ def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in
         text = path.read_text()
         assert text.startswith(f"ccx: lane={lane} role=incident effort=xhigh\n") and "{" not in text
         assert f"The case, in the words of `{LANE}`:\n{case}\n" in text
-        assert f"`{LANE}` works from the brief at {brief}." in text and "Its pull requests so far: #4242 #4250." in text
+        assert f"`{LANE}` works from the brief at {brief}." in text and "Its pull requests so far: #4242 #4250 yasyf/cc-skills#77." in text
         assert "Reproduce the case above exactly as written" in text and f"`UNFIXED {lane}: none`" in text
     assert shell.entries == [f"INCIDENT {LANE}: unfixed case brief for {lane}: {case}" for lane, case in zip(lanes, CASES, strict=True)]
     assert incident_lines(shell) == [
@@ -3282,27 +3282,60 @@ def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothi
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
 
 
-def test_a_case_lanes_own_unfixed_case_launches_a_further_case_lane(shell, config, tmp_path):
+def test_a_case_lanes_own_unfixed_cases_launch_beside_it_and_only_the_new_one(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     unfixed_report(shell, LANE, "ready", CASES[0])
     orca_pass(shell, config)
     case = f"{LANE}-case1"
     shell.launch(case, f"ctx_{case}")
     orca_pass(shell, config)
-    unfixed_report(shell, case, "worker_done", CASES[1])
+    unfixed_report(shell, case, "worker_done", *CASES)
     orca_pass(shell, config)
-    assert [call[1] for call in launches(shell)] == [LANE, case, f"{case}-case1"]
-    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in shell.attachments[f"{case}-case1.full.md"].read_text()
-    assert [line.split(" | ")[1].split(" launching")[0] for line in incident_lines(shell, case)] == [f"case lane {case}-case1"]
+    assert [call[1] for call in launches(shell)] == [LANE, case, f"{LANE}-case2"]
+    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in shell.attachments[f"{LANE}-case2.full.md"].read_text()
+    assert [line.split(" | ")[1].split(" launching")[0] for line in incident_lines(shell, case)] == [f"case lane {LANE}-case2"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == list(CASES)
 
 
-def test_a_case_lane_whose_brief_fails_to_attach_is_named_and_not_launched(shell, config, tmp_path):
+def test_a_case_the_opus_fallback_reports_too_launches_one_case_lane(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    backup = f"{LANE}-opus"
+    shell.launch(backup, f"ctx_{backup}")
+    orca_pass(shell, config)
+    unfixed_report(shell, LANE, "ready", CASES[0])
+    unfixed_report(shell, backup, "ready", *CASES)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, backup, f"{LANE}-case1", f"{LANE}-case2"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == list(CASES)
+
+
+@pytest.mark.parametrize(("lane", "first"), [("a-fix", "a-fix"), ("a-fix-opus", "a-fix"), ("a-fix-case2", "a-fix"), ("a-fix-case2-opus-case11", "a-fix"), ("a-fix-cases", "a-fix-cases"), ("opus-case", "opus-case")])
+def test_a_fallback_or_case_lane_descends_from_the_lane_without_those_endings(lane, first):
+    assert runner_module.first_lane(lane) == first
+
+
+def test_an_unfixed_line_that_names_another_lane_launches_nothing(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.receive({"subject": f"ready: READY {LANE}: #4242 green", "body": f"UNFIXED another-fix: {CASES[0]}", "from_handle": f"term_ctx_{LANE}"})
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+
+
+def test_a_case_lane_whose_brief_fails_to_attach_is_named_and_launches_on_the_next_report(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.attach_error = "error: cc-notes: ref lock held"
+    unfixed_report(shell, LANE, "ready", CASES[0])
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and "unfixed-cases" not in incident(tmp_path, f"desk-lane-{LANE}").facts
+    assert incident_lines(shell) == [f"INCIDENT {LANE} 11:00: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
+    shell.attach_error = ""
     unfixed_report(shell, LANE, "worker_done", CASES[0])
     orca_pass(shell, config)
-    assert len(launches(shell)) == 1
-    assert incident_lines(shell) == [f"INCIDENT {LANE} 11:00: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == [CASES[0]]
 
 
 def test_a_ready_status_from_the_run_escalates_and_stops_the_clock(shell, config, tmp_path):
@@ -3334,9 +3367,9 @@ def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_fiel
     assert "`UNFIXED alerts-api-0305-fix: none`" in text and "{" not in text
 
 
-def test_the_unfixed_grammar_reads_bullets_and_code_ticks_and_names_each_case_once():
-    body = "done.\nUNFIXED a-fix: one\n- UNFIXED a-fix:   two  words \n> `UNFIXED a-fix: three`\nUNFIXED a-fix: one\nUNFIXED a-fix: none\nsee UNFIXED a-fix: four\n"
-    assert runner_module.unfixed_cases(body) == ["one", "two words", "three"]
+def test_the_unfixed_grammar_reads_bullets_and_code_ticks_and_names_each_of_the_lanes_cases_once_as_written():
+    body = "done.\nUNFIXED a-fix: one\n- UNFIXED a-fix:   two  words \n> `UNFIXED a-fix: three`\nUNFIXED a-fix: one\nUNFIXED a-fix: two words\nUNFIXED a-fix: none\nsee UNFIXED a-fix: four\nUNFIXED b-fix: five\n"
+    assert runner_module.unfixed_cases(body, "a-fix") == {"one": "one", "two words": "two  words", "three": "three"}
 
 
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):

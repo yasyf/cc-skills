@@ -47,6 +47,9 @@ Do:
      Each limit you pass without its record sends a blocker to the root, who tells
      the owner.
   3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
+     Before each push, build and vet the packages you touched: `go build` and
+     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
+     locally; CI grades them.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the

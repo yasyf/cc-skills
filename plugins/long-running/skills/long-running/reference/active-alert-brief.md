@@ -318,7 +318,10 @@ Do:
      agreed design whole. A first PR that leaves out part of a ruling (its
      footers, its judge, its entry point) changes what the code means, so it is
      a hold, never a "static first" split; mitigate through the apply instead.
-  5. Open the PR through <submit skill>, then record it:
+  5. Before each push, build and vet the packages you touched: `go build` and
+     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
+     locally; CI grades them.
+     Open the PR through <submit skill>, then record it:
      `incident.py note --incident <incident id> --pr <PR number>`.
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.

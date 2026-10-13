@@ -519,10 +519,12 @@ case is not ready, and the root never tells a reporter "fixed" on one.
 
 The lane closes its ready report and its `worker_done` with one
 `UNFIXED <lane>: <case>` line per known case the fix does not cover, or
-`UNFIXED <lane>: none`. For each case the runner launches `<lane>-case<n>` on
-incident xhigh in the same pass, on a brief filled from
-`reference/unfixed-case-brief.md`, and logs it as `INCIDENT <lane> …: its fix does
-not cover: <case> | case lane <lane>-case<n> launching …`. The root ratifies the
+`UNFIXED <lane>: none`. For each case the runner launches `<first>-case<n>` on
+incident xhigh in the same pass, where `<first>` is the first fix lane of the
+incident, on a brief filled from `reference/unfixed-case-brief.md`. It logs the
+launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane
+<first>-case<n> launching …`. A case launches once, whether the fix lane, its
+`-opus` fallback, or a case lane reports it. The root ratifies the
 case lane and keeps the reporter told that the case is still open. It never parks
 a named case for later while the break is live.
 
