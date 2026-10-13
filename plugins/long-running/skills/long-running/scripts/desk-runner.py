@@ -18,9 +18,14 @@ dispatch can never start or finish an action.
 A relay is accepted, then started and completed by the lane itself: it replies
 `started <key>` and `done <key>: <result>` on the action's thread. The send is its own
 `send:` action, delivery evidence only. A send whose response is lost becomes
-`unverifiable` and is settled from Orca's request receipt or the recipient's mailbox,
-never resent blindly. An accepted relay to a lane with no live dispatch and no launch in
-flight fails at once as `RELAY-FAILED`.
+`unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
+With neither thirty seconds on, the runner sends the relay once more on the same thread
+and logs `RESENT` when that send is delivered. A resend lost the same way logs `LOST`
+with the relay text on the record's path, and nothing is sent a third time. A send with
+a receipt is never resent. An accepted relay to a lane with no live dispatch and no
+launch in flight fails at once as `RELAY-FAILED`. A relay record over cci's
+400-character text limit, which cci clips, is refused as `RELAY-FAILED` naming the
+limit, and nothing is relayed.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail, and
 checks relay deadlines. Each pass takes the Run's oldest unacknowledged Delivery before
@@ -144,7 +149,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -172,10 +177,13 @@ SHOW_WORKERS = 8
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
+RESEND_AFTER = timedelta(seconds=30)
+RESEND = ":resend"
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
+UNREAD = "unread"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
@@ -511,12 +519,13 @@ class Orca:
             live=observation.get("status") == "live",
         )
 
-    def thread_message(self, terminal: str, thread: str) -> dict | None:
+    def mailbox(self, terminal: str) -> list[dict] | None:
         listed = self.call("orchestration", "check", "--terminal", terminal, "--all")
-        return next((message for message in (listed.get("result") or {}).get("messages") or [] if message.get("thread_id") == thread), None)
+        return (listed.get("result") or {}).get("messages") or [] if listed.get("ok") else None
 
     def request_state(self, request: str) -> str:
-        return (self.call("orchestration", "request-show", "--request", request).get("result") or {}).get("state", "absent")
+        shown = self.call("orchestration", "request-show", "--request", request)
+        return (shown.get("result") or {}).get("state", "absent") if shown.get("ok") else UNREAD
 
     def wake(self, terminal: str, text: str) -> bool:
         screen = self.call("terminal", "read", "--terminal", terminal, "--screen")
@@ -526,12 +535,26 @@ class Orca:
         return True
 
 
+def clipped_by_cci(record: dict) -> bool:
+    return len(record["text"]) == CCI_TEXT and record["text"].endswith("…") and bool((record.get("refs") or {}).get("path"))
+
+
 def request_id(reply: dict) -> str:
     return ((reply.get("error") or {}).get("data") or {}).get("orchestrationRequestId", "")
 
 
 def thread_of(container: str, key: str) -> str:
     return f"{container}/{key}"
+
+
+def delivers(message: dict, container: str, action: actions.Action) -> bool:
+    if action.kind == "reply":
+        return message.get("thread_id") == json.loads(action.target)["reply_to"] and (message.get("body") or "").rstrip().endswith(f"({action.authority_ref})")
+    return message.get("thread_id") == thread_of(container, action.action_id)
+
+
+def resent(tries: list[actions.Action]) -> bool:
+    return any(attempt.action_id.endswith(RESEND) for attempt in tries)
 
 
 class Runner:
@@ -702,7 +725,7 @@ class Runner:
                     if record["lane"] == ROOT:
                         self.root_reply(record, self.cci_record(record["re"]))
                 elif record["source"] != already_read:
-                    self.cci_line(record["seq"], record["text"].strip())
+                    self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
             self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
@@ -722,11 +745,18 @@ class Runner:
             return
         text = " ".join(record["text"].split())
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
-            self.relay_to(at, at, decide["lane"], text, decide["msg"])
+            if not self.refused_over_limit(at, at, decide["lane"], record):
+                self.relay_to(at, at, decide["lane"], text, decide["msg"])
             return
         dispatch = self.orca.show(closed["lane"])
-        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)):
+        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)) and not self.refused_over_limit(at, at, closed["lane"], record):
             self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", question)
+
+    def refused_over_limit(self, at: str, key: str, about: str, record: dict) -> bool:
+        if not clipped_by_cci(record):
+            return False
+        self.record(f"escalation:relay:{at}", f"RELAY-FAILED {key} {about}: the record is over cci's {CCI_TEXT}-character text limit and cci kept only its first {CCI_TEXT} characters; nothing was relayed; post it again within {CCI_TEXT} characters, or as several relays")
+        return True
 
     def cci_tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -734,7 +764,11 @@ class Runner:
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
 
-    def cci_line(self, seq: int, line: str) -> None:
+    def cci_line(self, record: dict) -> None:
+        seq, line = record["seq"], record["text"].strip()
+        directive = INBOX_DIRECTIVE.match(line)
+        if directive and directive["verb"] == "relay" and self.refused_over_limit(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record):
+            return
         if not self.inbox_line(f"cci#{seq}", line):
             self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, or a reply with --re; nothing was done")
 
@@ -1009,7 +1043,7 @@ class Runner:
         tries = self.sends(container, action.action_id, dispatch.id)
         if any(attempt.status != "failed" for attempt in tries):
             return
-        if len(tries) >= SEND_ATTEMPTS:
+        if len(tries) >= SEND_ATTEMPTS or resent(tries):
             self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}")
             return
         send_id = f"send:{action.action_id}:{dispatch.id}#{len(tries) + 1}"
@@ -1043,7 +1077,7 @@ class Runner:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
 
     def reconcile_sends(self, container: str, lane: str) -> None:
-        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; absent both, escalate once and never resend."""
+        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; once both reads succeed and show neither, `RESEND_AFTER` on, resend it once on the same thread, and report a resend lost the same way as LOST."""
         cutoff = self.now() - ORPHANED_SEND
         for send in self.book.actions(container, kind="send", status="started"):
             if actions.parse_stamp(send.started_at) < cutoff:
@@ -1052,18 +1086,50 @@ class Runner:
             action = self.book.load(container).actions[send.authority_ref]
             request = (send.response or {}).get("request_id", "")
             state = self.orca.request_state(request) if request else "absent"
-            if state == "pending":
+            if state in ("pending", UNREAD):
                 continue
             dispatch = self.orca.show(lane)
-            if state == "completed" and dispatch and dispatch.id == send.target:
-                self.post(container, dispatch, action, send.action_id, request)
+            current = dispatch if dispatch and dispatch.id == send.target else None
+            if state == "completed" and current:
+                self.post(container, current, action, send.action_id, request)
                 continue
-            terminal = dispatch.terminal if dispatch and dispatch.id == send.target else ""
-            found = self.orca.thread_message(terminal, thread_of(container, action.action_id)) if terminal else None
+            mailbox = self.orca.mailbox(current.terminal) if current else []
+            if mailbox is None:
+                continue
+            found = next((message for message in mailbox if delivers(message, container, action)), None)
             if found:
-                self.book.attempt(container, lambda incident, key=send.action_id: incident.complete(key, {"message": found["id"], "at": found.get("created_at", self.book.stamp()), "reconciled": True}))
-            else:
+                receipt = {"message": found["id"], "at": found.get("created_at", self.book.stamp()), "reconciled": True}
+                self.book.attempt(container, lambda incident, key=send.action_id, receipt=receipt: incident.complete(key, receipt))
+                if action.kind == "reply":
+                    self.book.attempt(container, lambda incident, key=action.action_id, receipt=receipt: (incident.start(key, self.now()), incident.complete(key, receipt)))
+            elif not current or current.status in INACTIVE:
                 self.escalate(f"{container}/{send.action_id}", "UNVERIFIABLE", lane, f"{action.authority_ref} send to {send.target} lost its response; Orca holds no receipt and no message on its thread; it was not resent")
+            elif self.now() - actions.parse_stamp(send.started_at) >= RESEND_AFTER:
+                if resent(self.sends(container, action.action_id, current.id)):
+                    self.report_lost(container, lane, action, send)
+                else:
+                    self.resend(container, current, action, send)
+        for send in self.book.actions(container, kind="send", status="completed"):
+            if send.action_id.endswith(RESEND):
+                self.record(f"escalation:resent:{container}/{send.action_id}", f"RESENT {send.authority_ref} {lane}: the first send to {send.target} lost its response with no receipt and no message on its thread; sent once more on the same thread and delivered")
+
+    def report_lost(self, container: str, lane: str, action: actions.Action, send: actions.Action) -> None:
+        log = f"escalation:lost:{container}/{send.action_id}"
+        if self.book.known(RUNNER, log):
+            return
+        self.keep({"id": action.action_id, "body": json.loads(action.target)["text"]})
+        self.record(log, f"LOST {action.action_id} {lane}: both sends to {send.target} lost their response; Orca holds no receipt and no message on its thread; it was not sent a third time; this record's path holds the relay text for the root to deliver by hand")
+
+    def resend(self, container: str, dispatch: Dispatch, action: actions.Action, send: actions.Action) -> None:
+        send_id = f"{send.action_id}{RESEND}"
+
+        def retire_and_start(incident: actions.Incident) -> None:
+            incident.fail(send.action_id, f"response lost with no receipt and no message on its thread; resent as {send_id}")
+            incident.accept(send_id, "send", dispatch.id, action.action_id, self.now())
+            incident.start(send_id, self.now(), dispatch_id=dispatch.id)
+
+        if self.book.attempt(container, retire_and_start):
+            self.post(container, dispatch, action, send_id, "")
 
     def launch_log(self, container: str, key: str) -> Path:
         return (self.config.store or actions.incidents_dir()).parent / "desk-runner-launches" / f"{container}-{key}.out"

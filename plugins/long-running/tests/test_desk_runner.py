@@ -53,6 +53,9 @@ class FakeShell(runner_module.Shell):
         self.inboxes: dict[str, list[dict]] = {}
         self.questions: list[dict] = []
         self.lose_sends = 0
+        self.lose_replies = 0
+        self.reject_sends = 0
+        self.mailbox_down = False
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
         self.stale_out = ""
@@ -225,6 +228,9 @@ class FakeShell(runner_module.Shell):
             dispatch = self.dispatches[argv[3]]
             return self.ok({"dispatch": {"status": dispatch["status"]}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb == ["orchestration", "send"]:
+            if self.reject_sends:
+                self.reject_sends -= 1
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "refused"}}), "")
             if self.garble_sends:
                 self.garble_sends -= 1
                 return runner_module.Done(1, "", "socket hang up")
@@ -240,6 +246,9 @@ class FakeShell(runner_module.Shell):
             self.inboxes.setdefault(self.dispatches[to]["terminal"], []).append(message)
             return self.ok({"message": message})
         if verb == ["orchestration", "reply"]:
+            if self.lose_replies:
+                self.lose_replies -= 1
+                return runner_module.Done(1, "", "socket hang up")
             return self.ok({"message": {"id": self.next_id("msg")}})
         if verb == ["orchestration", "request-show"]:
             return self.ok({"state": self.requests.get(argv[3], "absent")})
@@ -250,6 +259,8 @@ class FakeShell(runner_module.Shell):
             if argv[3].startswith("run:"):
                 assert argv[3:] == ["run:run_1", "--all", "--types", "question"]
                 return self.ok({"messages": self.questions})
+            if self.mailbox_down:
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable"}}), "")
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
         if verb == ["orchestration", "inbox"]:
             assert argv[2:4] == ["--terminal", "run:run_1"]
@@ -439,17 +450,146 @@ def test_a_moved_generation_has_one_owner_and_the_stale_dispatch_is_stood_down(s
     assert len(stood) == 1 and "Do not execute R625" in stood[0][stood[0].index("--body") + 1]
 
 
-def test_a_lost_send_with_no_receipt_is_unverifiable_and_never_resent(shell, config, tmp_path):
+def send_statuses(tmp_path: Path) -> list[str]:
+    return [action.status for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"]
+
+
+def later_pass(shell: FakeShell, config: Path) -> None:
+    shell.clock += runner_module.RESEND_AFTER
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+
+def test_a_lost_send_waits_for_proof_before_it_is_resent(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.lose_sends = 1
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
     for _ in range(3):
         orca_pass(shell, config)
     assert len(shell.sends()) == 1
-    sends = [action for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"]
-    assert [action.status for action in sends] == ["unverifiable"]
-    lines = escalations(shell)
-    assert len(lines) == 1 and "UNVERIFIABLE" in lines[0] and "not resent" in lines[0]
+    assert send_statuses(tmp_path) == ["unverifiable"]
+    assert escalations(shell) == []
+
+
+def test_a_lost_send_found_on_the_lanes_thread_is_settled_and_never_resent(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_late", "thread_id": thread("R625"), "created_at": "2026-10-01T18:00:05Z"}]
+    later_pass(shell, config)
+    later_pass(shell, config)
+    assert len(shell.sends()) == 1
+    [send] = [action for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"]
+    assert (send.status, send.response) == ("completed", {"message": "msg_late", "at": "2026-10-01T18:00:05Z", "reconciled": True})
+    assert escalations(shell) == []
+
+
+@pytest.mark.parametrize("fault", ["lose_sends", "garble_sends"])
+def test_a_lost_send_with_no_receipt_is_resent_once_on_its_thread_and_delivered(shell, config, tmp_path, fault):
+    shell.launch(LANE, "ctx_a")
+    setattr(shell, fault, 1)
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    later_pass(shell, config)
+    later_pass(shell, config)
+    first, second = shell.sends()
+    assert first == second and "--retry-request" not in second
+    assert second[second.index("--thread-id") + 1] == thread("R625")
+    assert send_statuses(tmp_path) == ["failed", "completed"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R625"].status == "accepted"
+    assert escalations(shell) == [
+        f"RESENT R625 {LANE}: the first send to ctx_a lost its response with no receipt and no message on its thread; sent once more on the same thread and delivered"
+    ]
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R625")]
+
+
+def test_a_resend_lost_too_reports_lost_with_the_relay_text_and_sends_no_third(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 2
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    later_pass(shell, config)
+    assert len(shell.sends()) == 2 and escalations(shell) == []
+    for _ in range(3):
+        later_pass(shell, config)
+    assert len(shell.sends()) == 2
+    assert send_statuses(tmp_path) == ["failed", "unverifiable"]
+    [post] = shell.posts
+    assert (post["kind"], post["to"], post["topic"]) == ("blocker", "root", "R625")
+    assert post["text"].startswith(f"LOST R625 {LANE}: both sends to ctx_a lost their response; Orca holds no receipt and no message on its thread; it was not sent a third time")
+    assert Path(post["path"]).read_text().split("\n\n")[1] == "rebase onto dev\n"
+
+
+def test_a_lost_send_to_a_dispatch_no_longer_live_is_unverifiable_and_never_resent(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.dispatches["ctx_a"]["status"] = "completed"
+    later_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert send_statuses(tmp_path) == ["unverifiable"]
+    assert [line for line in escalations(shell) if line.startswith("UNVERIFIABLE")] == [
+        f"UNVERIFIABLE desk-lane-{LANE}/send:R625:ctx_a#1 {LANE}: R625 send to ctx_a lost its response; Orca holds no receipt and no message on its thread; it was not resent"
+    ]
+
+
+def test_a_lost_reply_found_on_the_questions_thread_completes_and_is_never_resent(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_replies = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "30s", "--reply-to", "msg_q9")
+    orca_pass(shell, config)
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_late", "thread_id": "msg_q9", "body": "30s\n\n(R625)", "created_at": "2026-10-01T18:00:05Z"}]
+    later_pass(shell, config)
+    assert len(replies(shell)) == 1
+    assert send_statuses(tmp_path) == ["completed"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R625"].status == "completed"
+    assert escalations(shell) == []
+
+
+def test_a_lost_send_is_not_resent_while_the_mailbox_cannot_be_read(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.mailbox_down = True
+    later_pass(shell, config)
+    later_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert send_statuses(tmp_path) == ["unverifiable"]
+    assert escalations(shell) == []
+    shell.mailbox_down = False
+    later_pass(shell, config)
+    assert len(shell.sends()) == 2
+
+
+def test_a_resend_orca_rejects_is_never_followed_by_a_third_send(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.reject_sends = 1
+    for _ in range(3):
+        later_pass(shell, config)
+    assert len(shell.sends()) == 2
+    assert send_statuses(tmp_path) == ["failed", "failed"]
+    [line] = escalations(shell)
+    assert line.startswith(f"SEND-FAILED desk-lane-{LANE}/send:R625:ctx_a {LANE}: R625 to ctx_a failed 2 times: ")
+
+
+def test_a_lost_reply_with_no_receipt_is_resent_once(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_old", "thread_id": "msg_q9", "body": "300s\n\n(R600)", "created_at": "2026-10-01T17:55:00Z"}]
+    shell.lose_replies = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "30s", "--reply-to", "msg_q9")
+    orca_pass(shell, config)
+    later_pass(shell, config)
+    later_pass(shell, config)
+    first, second = replies(shell)
+    assert first == second
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R625"].status == "completed"
+    assert [line.split(":")[0] for line in escalations(shell)] == [f"RESENT R625 {LANE}"]
 
 
 def test_a_lost_send_orca_recorded_replays_its_receipt_once(shell, config, tmp_path):
@@ -460,10 +600,11 @@ def test_a_lost_send_orca_recorded_replays_its_receipt_once(shell, config, tmp_p
     request = next(iter(action.response["request_id"] for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"))
     shell.requests[request] = "completed"
     orca_pass(shell, config)
-    orca_pass(shell, config)
+    later_pass(shell, config)
     sends = shell.sends()
     assert len(sends) == 2 and sends[1][sends[1].index("--retry-request") + 1] == request
-    assert [action.status for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"] == ["completed"]
+    assert send_statuses(tmp_path) == ["completed"]
+    assert escalations(shell) == []
 
 
 def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, config, tmp_path):
@@ -1176,14 +1317,14 @@ def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):
     assert "Z" not in view.split("\n", 1)[1].replace("desk-lane", "")
 
 
-def test_a_send_with_no_parseable_reply_is_unverifiable_not_retried(shell, config, tmp_path):
+def test_a_send_with_no_parseable_reply_is_unverifiable_not_failed(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.garble_sends = 1
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
     for _ in range(3):
         orca_pass(shell, config)
     assert len(shell.sends()) == 1
-    assert "UNVERIFIABLE" in escalations(shell)[0]
+    assert send_statuses(tmp_path) == ["unverifiable"]
 
 
 def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_deadline(shell, config, tmp_path):
@@ -2120,6 +2261,48 @@ def test_a_root_reply_to_a_lane_with_no_open_question_relays_nothing(shell, conf
     cci_record(shell, kind="answer", to=[LANE], re=ask, text="Prose ready")
     orca_pass(shell, config)
     assert replies(shell) == [] and shell.sends() == [] and escalations(shell) == []
+
+
+def clipped_text(text: str) -> str:
+    return (text + "x" * runner_module.CCI_TEXT)[: runner_module.CCI_TEXT - 1] + "…"
+
+
+def test_a_relay_record_cci_clipped_at_its_text_limit_is_refused_naming_the_limit(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    cci_record(shell, to=["orca-desk"], text=clipped_text(f"R20 (8:20 AM) orca-desk: relay to {LANE}: Requirement: "), refs={"path": "/blobs/f727f5487a4aee3f.txt"})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.sends() == []
+    assert escalations(shell) == [
+        "RELAY-FAILED R20 inbox: the record is over cci's 400-character text limit and cci kept only its first 400 characters; nothing was relayed; post it again within 400 characters, or as several relays"
+    ]
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "R20")]
+
+
+def test_a_relay_record_exactly_at_the_text_limit_is_relayed_whole(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    text = clipped_text(f"R20 orca-desk: relay to {LANE}: Requirement: ")
+    cci_record(shell, to=["orca-desk"], text=text, refs={})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith(text.split(": ", 2)[2] + "\n")
+
+
+def test_a_clipped_root_reply_to_a_decide_is_refused_and_answers_nothing(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
+    cci_record(shell, kind="answer", to=[LANE], re=decide, text=clipped_text("30s NLB delay, because "), refs={"path": "/blobs/a16e1fea5c0bf21e.txt"})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert replies(shell) == []
+    assert escalations(shell) == [
+        f"RELAY-FAILED cci#34767 {LANE}: the record is over cci's 400-character text limit and cci kept only its first 400 characters; nothing was relayed; post it again within 400 characters, or as several relays"
+    ]
 
 
 def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, config, tmp_path):

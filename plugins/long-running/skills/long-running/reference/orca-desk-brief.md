@@ -326,11 +326,18 @@ move the original action. A transfer changes logical ownership, never a session.
 A done reply records completion; verification needs the action's external receipt.
 
 The runner settles an `unverifiable` send through Orca `request-show` and
-`--retry-request`, or the recipient's mailbox. Without either proof it remains
-`unverifiable` and emits `UNVERIFIABLE`; never resend it blindly. An unparseable
-CLI response currently becomes `failed` and enters the send retry path, so that
-response shape lacks this guarantee. A launch with neither a launch line nor a
-new receipt is `UNVERIFIABLE`, never relaunched automatically.
+`--retry-request`, or the recipient's mailbox. An unparseable CLI response is
+`unverifiable` too. With neither proof thirty seconds after the send, the runner
+sends the relay once more on the same thread, under the same key, and emits
+`RESENT` when that send is delivered. A resend lost the same way emits `LOST`,
+and its record's path holds the relay text; the runner sends nothing a third
+time. A send to a dispatch that is no longer the lane's live one stays
+`unverifiable` and emits `UNVERIFIABLE`. A launch with neither a launch line nor
+a new receipt is `UNVERIFIABLE`, never relaunched automatically.
+
+A relay record over cci's 400-character text limit reaches the runner clipped,
+so the runner refuses it as `RELAY-FAILED` naming the limit and relays nothing.
+Post it again within 400 characters, or as several relays.
 
 ## Orca passes and standing rules
 
@@ -475,6 +482,8 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
+| `RESENT` | None; the relay's first send was lost with no receipt and the second was delivered on the same thread. |
+| `LOST` | Deliver the relay text at the record's path to the lane by hand; both sends were lost and the runner sends no third. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
