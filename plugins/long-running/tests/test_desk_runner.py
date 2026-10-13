@@ -180,7 +180,8 @@ class FakeShell(runner_module.Shell):
             for record in self.records
             if record["seq"] > since
             and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
-            and ("--lane" not in argv or argv[argv.index("--lane") + 1] == record["lane"])
+            and ("--lane" not in argv or argv[argv.index("--lane") + 1] == record.get("lane"))
+            and ("--pr" not in argv or int(argv[argv.index("--pr") + 1]) in record.get("refs", {}).get("prs", []))
             and (not kinds or record.get("kind") in kinds)
         ]
         if "--limit" in argv:
@@ -663,6 +664,19 @@ def gate(*lines: str, would: str = "") -> str:
     return "\n".join(lines) + (f"\nwould enqueue {would} in one call\n" if would else "\nenqueued nothing: the bottom PR is BLOCKED\n")
 
 
+def grade(shell: FakeShell, pr: str, text: str, lane: str = "fidelity-desk") -> int:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": [int(pr)]}, "text": f"fidelity: {text}"})
+    return seq
+
+
+def grade_gated_heads_ok(shell: FakeShell) -> None:
+    for outs in shell.gates.values():
+        for out in outs:
+            for verdict in runner_module.VERDICT_LINE.finditer(out[1] if isinstance(out, tuple) else out):
+                grade(shell, verdict["pr"], f"ok F307 at {verdict['sha'][:7]}")
+
+
 def stack_rows(**states: str) -> list[dict]:
     return [
         {"pr": "28997", "lane": "artifact-retry", "branch": "a/1", "base": "dev", "head": "aaaa111111", "state": states.get("28997", "open"), "reported_head": "aaaa111111", "landed_sha": "f00d000001"},
@@ -675,6 +689,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     shell.launch(LANE, "ctx_a")
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE\n")
     shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
     landing_pass(shell, config)
@@ -725,11 +740,13 @@ def test_an_open_pr_skipped_as_not_ours_escalates_once_per_head(shell, config, t
 def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
     landing_pass(shell, config)
     cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling")
     assert escalations(shell) == []
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111112 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
     landing_pass(shell, config)
     assert "--whole" in shell.enqueues()[-1]
 
@@ -739,6 +756,7 @@ def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, conf
     shell.launch(LANE, "ctx_a")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 not approved by poetic-svc"), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     assert not [call for call in shell.sends() if "approved" in call[call.index("--body") + 1]]
@@ -798,6 +816,7 @@ def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, co
     ]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.gates["28349"] = [gate("#28349 GREEN dddd444444 graphite READY", would="#28349")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
@@ -811,6 +830,7 @@ def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_p
     ]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.gates["28349"] = [gate("#28349 GREEN dddd444444 graphite READY", would="#28349")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
@@ -828,6 +848,7 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     shell.gates["28400"] = [gate("#28400 GREEN eeee555555 graphite READY", would="#28400")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
     landing_pass(shell, config)
@@ -862,6 +883,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["36487 36501"] = (0, "enqueue #36463 #36487 #36501: {}\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -914,15 +936,113 @@ def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     (tmp_path / "holds.md").write_text("release #29020 owner reviewed\n")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     landing_pass(shell, config)
     assert all("--hold" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
     assert len(shell.enqueues()) == 1
 
 
+def lone_green_pr(shell: FakeShell) -> None:
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+
+
+def blockers(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["kind"] == "blocker"]
+
+
+def test_a_head_the_fidelity_lane_graded_ok_is_enqueued(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307,F321 at cccc333. The restack onto dev has a range-diff of '='.")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert blockers(shell) == [] and escalations(shell) == []
+
+
+def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path):
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", "missing F307 at cccc333 (View fix). It carries no test.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
+    [blocker] = blockers(shell)
+    assert blocker["to"] == f"{LANE},fidelity-desk" and blocker["topic"] == "29020"
+    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; fidelity-desk graded this head on cci #{seq}: fidelity: missing F307 at cccc333 (View fix). It carries no test."
+
+
+def test_an_ok_at_an_older_head_only_is_blocked(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok, same rows as head bbbb222. This head has an identical diff (a restack).")
+    grade(shell, "29020", "ok, unchanged: measurement only.")
+    grade(shell, "28349", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; no review from fidelity-desk starting `fidelity: ok` names this head"
+
+
+def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    seq = grade(shell, "29020", "missing F335 at cccc333: the sealed read is not folded in.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"cci #{seq}: fidelity: missing F335" in blocker["text"]
+    grade(shell, "29020", "ok F307,F335 at cccc333333.")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and len(blockers(shell)) == 1
+
+
+def test_one_ungraded_pr_keeps_its_whole_prefix_out_of_the_queue(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]
+    grade(shell, "28997", "ok F307 at aaaa111.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = [post for post in blockers(shell) if post["topic"] == "29016"]
+    assert blocker["to"] == "artifact-retry,fidelity-desk" and not [post for post in blockers(shell) if post["topic"] == "28997"]
+    assert blocker["text"].startswith("#29016 bbbb222222: nothing in #28997 #29016 was enqueued; no review from fidelity-desk")
+
+
+def test_the_fidelity_lane_is_the_one_runner_json_names(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = "parity-desk"
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and blockers(shell)[0]["to"] == f"{LANE},parity-desk"
+    grade(shell, "29020", "ok F307 at cccc333.", lane="parity-desk")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    seq = grade(shell, "29020", "missing F307 at cccc333.")
+    landing.enqueue()
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "blocked" and "no fidelity: ok from fidelity-desk at the head of #29020" in action.response["out"]
+
+
 def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    grade_gated_heads_ok(shell)
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
@@ -949,6 +1069,7 @@ def enqueues_of(tmp_path: Path) -> dict[str, actions.Action]:
 def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -969,6 +1090,7 @@ def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell
 def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     shell.queue["29020"] = "evicted"
@@ -985,6 +1107,7 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
 def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(shell, config, tmp_path):
     shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
     shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
     shell.queue["29016"] = "not queued"
@@ -996,6 +1119,7 @@ def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(s
     assert len([post for post in shell.posts if post["kind"] == "blocker"]) == 1
     shell.rows[1] |= {"head": "bbbb333333", "reported_head": "bbbb333333"}
     shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", "#29016 GREEN bbbb333333 graphite READY", would="#29016")]
+    grade_gated_heads_ok(shell)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
 
@@ -1003,6 +1127,7 @@ def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(s
 def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     shell.rows = [{"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
@@ -1097,6 +1222,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
         gate("#28997 GREEN aaaa111111 graphite READY", would="#28997"),
         gate("#28997 GREEN abab111111 graphite READY", would="#28997"),
     ]
+    grade_gated_heads_ok(shell)
     shell.enqueue_out["28997"] = (0, "enqueue #28997: {}\n")
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
@@ -1113,6 +1239,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
 def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    grade_gated_heads_ok(shell)
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)

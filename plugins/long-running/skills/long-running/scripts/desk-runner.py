@@ -87,7 +87,12 @@ which goes to the lane as a blocker. It gates only tips the ledger lists as `our
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
-the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A worker's question goes to a Sonnet-low judge with the lane's
+the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A prefix
+enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
+the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
+`fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
+Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
+in its prefix is enqueued. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
@@ -153,6 +158,10 @@ RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped"})
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
+FIDELITY_LANE = "fidelity-desk"
+FIDELITY_OK = "fidelity: ok"
+FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
+SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
 DROP_BLOCKER = re.compile(r"merge conflicts?|Failed CI \(|downstack failures on PR #")
 SWEEP_EVERY = timedelta(minutes=5)
@@ -1531,6 +1540,7 @@ class Landing:
         self.ledger = config["ledger"]
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
+        self.fidelity_lane = config.get("fidelity_lane", FIDELITY_LANE)
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -1597,8 +1607,34 @@ class Landing:
                 elif match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
                     self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tips, held)
 
+    def fidelity(self, pr: str, sha: str) -> dict | None:
+        drive = self.runner.config.drive
+        reviews = cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", self.fidelity_lane, "--pr", pr)
+        grades = [
+            record
+            for record in reviews
+            if (record["kind"], record["lane"], record["drive"]) == ("review", self.fidelity_lane, drive)
+            and record["text"].startswith(FIDELITY_GRADES)
+            and sha
+            and any(sha.startswith(named) or named.startswith(sha) for named in SHORT_SHA.findall(record["text"]))
+        ]
+        return max(grades, key=lambda record: record["seq"], default=None)
+
+    def ungraded(self, heads: dict[str, str]) -> dict[str, dict | None]:
+        grades = {pr: self.fidelity(pr, sha) for pr, sha in heads.items()}
+        return {pr: grade for pr, grade in grades.items() if not (grade and grade["text"].startswith(FIDELITY_OK))}
+
+    def refuse_ungraded(self, heads: dict[str, str], ungraded: dict[str, dict | None], rows: dict[str, dict]) -> None:
+        for pr, grade in ungraded.items():
+            key = f"fidelity:{pr}:{heads[pr]}:{grade['seq'] if grade else 'ungraded'}"
+            if self.book.known(LANDING, key):
+                continue
+            why = f"{self.fidelity_lane} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_lane} starting `{FIDELITY_OK}` names this head"
+            to = ",".join(filter(None, [rows[pr].get("lane"), self.fidelity_lane]))
+            self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
+
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
-        """One enqueue per exact set of prefix heads, every one a PR a drive lane opened; a fresh attempt only after every earlier one enqueued nothing."""
+        """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
             self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
@@ -1609,6 +1645,10 @@ class Landing:
             return
         attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
+            return
+        heads = enqueued_heads(base)
+        if ungraded := self.ungraded(heads):
+            self.refuse_ungraded(heads, ungraded, rows)
             return
         policy = self.runner.landing_policy()
         authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
@@ -1635,6 +1675,10 @@ class Landing:
         current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh[-800:], "at": self.book.stamp()}))
+            return
+        if ungraded := self.ungraded(enqueued_heads(key)):
+            self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_lane} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
         done = self.shell.run(self.enqueue_argv(tops, held, check=False))
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
@@ -1676,7 +1720,7 @@ class Landing:
             self.restack(top, rows)
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, and unheld; a drop for a conflict or a red check goes to the lane as a blocker instead."""
+        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a conflict or a red check goes to the lane as a blocker instead."""
         believed = {
             action.action_id: [pr for pr, sha in enqueued_heads(action.action_id).items() if sha and pr in rows and rows[pr].get("state", "open") == "open" and rows[pr].get("head", "").startswith(sha)]
             for action in self.book.actions(LANDING, kind="enqueue", status="completed")
@@ -1739,13 +1783,16 @@ class Landing:
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
                 self.runner.send(lane_container(lane), dispatch, relay)
         else:
-            self.book.accept(LANDING, key, "bus", json.dumps({"lane": lane, "pr": pr, "text": text}), key, None)
-            self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-            done = self.runner.cci_post("blocker", text, lane, pr, key)
-            if done.code == 0:
-                self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
-            else:
-                self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
+            self.post_blocker(key, lane, text, pr)
+
+    def post_blocker(self, key: str, to: str, text: str, pr: str) -> None:
+        self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text}), key, None)
+        self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
+        done = self.runner.cci_post("blocker", text, to, pr, key)
+        if done.code == 0:
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
+        else:
+            self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
 
     def verify_restacks(self, rows: dict[str, dict]) -> None:
         """A restack route is verified once its PR's head moves or the PR lands."""
