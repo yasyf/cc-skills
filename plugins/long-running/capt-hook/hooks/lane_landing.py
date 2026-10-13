@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
@@ -15,6 +16,9 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
+INTERPRETERS = frozenset({"python", "python3", "uv", "bash", "sh", "zsh"})
+GH_REPO_FLAGS = frozenset({"-R", "--repo"})
+FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
@@ -42,13 +46,31 @@ def label_args(args: tuple[str, ...]) -> set[str]:
     return {label.strip().casefold() for value in values for label in value.split(",")}
 
 
+def field(arg: str) -> str:
+    return next((arg.removeprefix(flag) for flag in FIELD_FLAGS if arg.startswith(flag) and len(arg) > len(flag)), arg)
+
+
 def labelled_fields(args: tuple[str, ...]) -> set[str]:
-    return {value.casefold() for arg in args if (pair := arg.split("=", 1))[0] in LABEL_FIELDS for value in pair[1:]}
+    return {value.casefold() for arg in args if (pair := field(arg).split("=", 1))[0] in LABEL_FIELDS for value in pair[1:]}
+
+
+def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
+    kept: list[str] = []
+    skip = False
+    for arg in argv:
+        if skip:
+            skip = False
+        elif arg in GH_REPO_FLAGS:
+            skip = True
+        elif not arg.startswith(("--repo=", "-R=")):
+            kept.append(arg)
+    return tuple(kept)
 
 
 def landing_verb(call: Call) -> str | None:
-    argv = call.verb_argv
-    if call.name == "stack-enqueue":
+    argv = without_repo((call.name, *call.args)) if call.name == "gh" else call.verb_argv
+    script = next((Path(arg).name for arg in call.args[:3] if Path(arg).name == "stack-enqueue"), None) if call.name in INTERPRETERS else None
+    if call.name == "stack-enqueue" or script:
         return None if READ_ONLY_ENQUEUE & set(call.args) else "stack-enqueue"
     if argv[:2] == ("gt", "merge"):
         return "gt merge"
@@ -71,6 +93,10 @@ def landing_verb(call: Call) -> str | None:
         Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Block(pattern=r"`L23-dashboard-wasm-follower`"),
         Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gt merge`"),
         Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
+        Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
+        Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh api labels`"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Block(),
         Input(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr edit --add-label`"),
         Input(command="gh pr edit 36023 --add-label=docs,MERGE-FAST", agent_id=LANE, state=ACTIVE): Block(),
         Input(command="gh issue edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Block(),
