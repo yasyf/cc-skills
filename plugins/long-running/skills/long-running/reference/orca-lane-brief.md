@@ -175,30 +175,18 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - On every PR open, push, and READY: `ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   READY is `--verdict clean --text "READY ..."`; the desk reads only this cci record.
-- The moment your stack has a green, approved bottom prefix, re-read the holds file.
-  Before each enqueue, write a fresh digits-only file with
-  `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`
-  and append every open PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
-  Never cache the held set or self-enqueue above a held PR or any PR of a held
-  lane. Under a `hold:all` line, never self-enqueue; the landing runner lands
-  what the root releases. Report `held` on your tip with the held PR named and leave release to
-  the root. Where the checkout carries an enqueue script, call it directly as
-  `stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
-  numeric file is empty; it requires at least one number, never a filename.
-  Argparse exit 2 otherwise reads as unsettled. Report the enqueue with
-  `ledger.py report --drive <drive>`; refresh records it as labelled outside the desk.
-  `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
-  `ledger.py label --repo <owner/name> --ledger <id> --pr <prefix top>
-  --expect-head <sha> --checkout <worktree>`; mirrored ledger holds are the guard.
-  Enqueue the largest contiguous green, approved, unheld bottom prefix as one batch.
-  Never wait for the PRs above it. After it lands, restack the rest with
-  `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
-  No ruling needed.
-- After opening or enqueueing a PR, run
+- Never enqueue, merge, or add a `merge` or `merge-fast` label: the landing desk is the
+  only enqueuer, and the pack's `lane_landing` hook refuses `stack-enqueue`, `gt merge`,
+  `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
+  the landing runner enqueues the largest green, approved, unheld bottom prefix against the
+  holds file. On a held PR or a PR of a held lane, report `held` on your tip with the held
+  PR named and leave release to the root. After the prefix lands, restack the rest with
+  `ccx vcs stack submit`.
+- After opening a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
   (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
-  then re-enqueue at once when the gates pass and the holds file permits it.
+  then report the new head; the landing runner re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
 - GitHub budget: GraphQL is one 5000-point hourly budget for the whole account, 1 point
   per call. Watch PRs only through `ccx vcs pr watch --state <file>` or REST

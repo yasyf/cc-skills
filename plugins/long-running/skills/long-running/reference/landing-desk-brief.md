@@ -2,7 +2,7 @@
 
 Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane
 that opens a PR. It is the message queue and the landing coordinator for the whole drive:
-lanes self-enqueue under D1, it reconciles, and the root receives P0 lines immediately
+lanes never enqueue under D1, it and its runner enqueue and reconcile, and the root receives P0 lines immediately
 and a summary every 30 minutes. Where the checkout carries `stack-enqueue`,
 `desk-runner.py run --desk landing` owns ready-prefix enqueue, per-head gate
 blockers, and post-landing restacks (D3, D14, D16). The landing desk never
@@ -20,12 +20,13 @@ When the owner reviews every PR before it lands, the root writes one
 `hold:all <reason>` line. The landing runner then holds every open ledger row
 except the PRs named on `release #<n>` lines and the open PRs of lanes named on
 `release lane:<name>` lines; an explicit hold or a rules-review block still
-wins. Lanes never self-enqueue under `hold:all`, and the desk mirrors no hold
+wins. The desk mirrors no hold
 for a `release` line. Deleting the `hold:all` line ends the mode.
 
-Lanes self-enqueue under D1 with a fresh numeric held file at each call. They never enqueue above a held PR or any
-PR of a held lane; they report `held` on the tip, name the held PR, and leave
-release to the root. The desk mirrors the holds file's entries with
+Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. The runner
+and the desk build a fresh numeric held file at each enqueue and never enqueue above a
+held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
+PR, and leaves release to the root. The desk mirrors the holds file's entries with
 `ledger.py hold` and lifts them when the root removes them.
 
 For priority PRs flagged by the owner or blocking a release or a user, the root checks gates itself
@@ -91,7 +92,7 @@ You are landing-desk: the message queue and landing coordinator for this drive.
 Model opus. You run for the whole drive and never end a turn waiting.
 Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
-Authority: reconcile landings; lanes enqueue their own stacks under D1. The
+Authority: reconcile landings; you are the only enqueuer, and lanes never enqueue under D1. The
   landing runner owns D3, D14, and D16 where stack-enqueue exists. Read
   GitHub through `ledger.py` and `ccx vcs pr status`, with the Buildkite build list
   for CI and `ccx vcs pr watch` for transitions; add and
@@ -303,8 +304,8 @@ Do, in this order, forever:
      and the movers, label anyway, and let the landing grade the tree it applies.
      A rebase is asked for on a merge conflict or after a bottom prefix lands.
   4. Route ejections and conflicts to the owning lane at once when the watch or
-     a pass shows them. The lane rebases and re-enqueues from its own watch under D1
-     the moment its restack is green; every other ready stack still enqueues this pass.
+     a pass shows them. The lane rebases from its own watch under D1 and the runner
+     re-enqueues the moment its restack is green; every other ready stack still enqueues this pass.
      `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it

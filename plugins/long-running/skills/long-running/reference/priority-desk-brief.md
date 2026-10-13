@@ -101,9 +101,9 @@ Do, in this order, every iteration:
      Never make one REST status call per PR. Check landed claims against the
      `(#N)` squash on the freshly fetched base branch under R7.
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
-     - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes also
-       self-enqueue under D1; never above a held PR or any PR of a held lane.
-       They report `held` on the tip, name the held PR, and leave release to the root.
+     - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
+       enqueue under D1; never enqueue above a held PR or any PR of a held lane.
+       Lanes report `held` on the tip, name the held PR, and leave release to the root.
        Before every enqueue, re-read the root's holds file. Each line names held
        PRs as #<n> and whole lanes as lane:<name>, then the reason. Build a fresh
        digits-only file with `{ grep -o '#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
