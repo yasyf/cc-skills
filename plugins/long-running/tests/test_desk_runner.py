@@ -873,6 +873,33 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
 
+def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    shell.gates["36487 36501"] = [
+        gate(
+            "#36463 GREEN aaaa111111 graphite READY",
+            "#36487 GREEN bbbb222222 graphite READY",
+            "#36501 GREEN cccc333333 graphite READY",
+            "#36530 BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #36487 #36501; name it too or pass --partial to leave it out",
+        )
+    ]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "FOREIGN" in lines[0] and "#36530 would ride the batch" in lines[0]
+    assert shell.enqueues() == []
+
+
+def test_a_whole_policy_gates_each_tip_of_a_fork_alone(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    assert cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling") == 0
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 is stacked beside the top")]
+    shell.gates["36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36487 BLOCKED bbbb222222 is stacked beside the top")]
+    landing_pass(shell, config)
+    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks and all(len(list(itertools.takewhile(str.isdigit, call[1:]))) == 1 and "--whole" in call for call in checks)
+
+
 def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_silently(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
     shell.gates["29020"] = [(2, "", "usage: stack-enqueue PR [PR ...]\nstack-enqueue: error: unrecognized arguments: 28349\n")]

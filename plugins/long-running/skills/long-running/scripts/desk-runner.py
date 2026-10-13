@@ -167,6 +167,7 @@ SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
+UNNAMED_RIDER = "rides the batch through"
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
@@ -1552,9 +1553,12 @@ class Landing:
         numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
-    def enqueue_argv(self, tips: list[str], held: list[str], check: bool) -> list[str]:
+    def whole(self) -> bool:
         policy = self.runner.landing_policy()
-        whole = ["--whole"] if policy and json.loads(policy.target)["rule"] == "whole" else []
+        return bool(policy) and json.loads(policy.target)["rule"] == "whole"
+
+    def enqueue_argv(self, tips: list[str], held: list[str], check: bool) -> list[str]:
+        whole = ["--whole"] if self.whole() else []
         return [str(self.checkout / STACK_ENQUEUE), *tips, *(["--check"] if check else []), *whole, *(arg for pr in held for arg in ("--hold", pr))]
 
     def trees(self, rows: dict[str, dict]) -> list[list[str]]:
@@ -1576,7 +1580,7 @@ class Landing:
         for pr, row in open_rows.items():
             if not row.get("ours") and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
-        trees = self.trees(rows)
+        trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         with ThreadPoolExecutor(max(1, len(trees))) as pool:
             gated = list(zip(trees, pool.map(lambda tips: self.shell.run(self.enqueue_argv(tips, held, check=True)), trees), strict=True))
         for tips, done in gated:
@@ -1588,7 +1592,9 @@ class Landing:
             if would := WOULD_ENQUEUE.search(done.out):
                 self.accept(tips, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
             for pr, match in verdicts.items():
-                if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
+                if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
+                    self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+                elif match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
                     self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tips, held)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
