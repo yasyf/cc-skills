@@ -788,6 +788,23 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     assert shell.sends() == [] and escalations(shell) == []
 
 
+def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    (tmp_path / "holds.md").write_text("#36525 lands only after the Switch batch (#35413 deletes the SandSQL sandbox exclusion) and without its infra/rows/datadog/sandsql.ts hunk\n")
+    shell.rows = [
+        {"pr": "35413", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "36525", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["35413"] = [gate("#35413 GREEN cccc333333 graphite READY", would="#35413")]
+    shell.gates["36525"] = [gate("#36525 BLOCKED dddd444444 held")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["35413"] = (0, "enqueue #35413\n")
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert calls and all(call[call.index("--hold") :] == ["--hold", "36525"] for call in calls)
+    assert [call[1] for call in shell.enqueues()] == ["35413"]
+
+
 def test_holds_py_entries_reach_stack_enqueue(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     holds_file = str(tmp_path / "holds.md")

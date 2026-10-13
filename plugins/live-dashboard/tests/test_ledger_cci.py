@@ -13,12 +13,18 @@ def records(params, extra=()):
 
 def test_holds_join_the_ledger_and_the_holds_file(tmp_path):
     table = ledger.held_prs(fake(tmp_path, replies={LEDGER: fixture("ledger-rows.json")}), ledger="L1", holds=FIXTURES / "holds.md")
-    assert [(row["key"], row["file"], row["since"]) for row in table.rows] == [("101", "line 1, line 2", "2026-10-06T20:21:59Z"), ("102", "line 2", "2026-10-06T20:21:59Z")]
+    assert [(row["key"], row["file"], row["since"]) for row in table.rows] == [("101", "line 1, line 2", "2026-10-06T20:21:59Z"), ("102", "", "2026-10-06T20:21:59Z")]
     assert table.rows[0]["reason"] == "owner standing: no PR lands until owner reviews"
 
 
 def test_a_lifted_hold_line_names_nothing(tmp_path):
-    assert [line["prs"] for line in ledger.hold_lines(FIXTURES / "holds.md")] == [[], ["101", "102"]]
+    assert [line["prs"] for line in ledger.hold_lines(FIXTURES / "holds.md")] == [[], ["101"]]
+
+
+def test_a_hold_line_names_only_its_leading_pr(tmp_path):
+    path = tmp_path / "holds.md"
+    path.write_text("#36525 lands only after the Switch batch (#35413 deletes the SandSQL sandbox exclusion) and without its infra/rows/datadog/sandsql.ts hunk\n")
+    assert [line["prs"] for line in ledger.hold_lines(path)] == [["36525"]]
 
 
 def test_asks_drop_delivered_and_answered_rows_and_join_cci_asks_to_the_owner(tmp_path):

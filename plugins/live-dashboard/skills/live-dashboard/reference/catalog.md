@@ -140,7 +140,7 @@ Reads: `gh api rate_limit`.
 _Which PRs are held, why, and what lifts each hold?_
 
 **Held PRs.** Open ledger PRs carrying a hold (reason, since, until), joined with the lines of a holds file that name the PR by
-`#N` or its lane by `lane:<name>`; a line containing LIFT, LIFTED or LIFTS counts as lifted and is skipped.
+a leading `#N` or its lane by `lane:<name>`; a line containing LIFT, LIFTED or LIFTS counts as lifted and is skipped.
 
 Reads: `ccn ledger row list`, `holds file`.
 

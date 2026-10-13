@@ -8,7 +8,7 @@ from livedash.components import bus
 
 ASK_PREFIX = "ask/"
 REVIEW_PREFIX = "review/"
-HOLD_SUBJECT = re.compile(r"(?<![\w/])#(?P<pr>\d{2,6})\b|\blane:(?P<lane>[\w.-]+)")
+HOLD_SUBJECT = re.compile(r"^#(?P<pr>\d+)\b|\blane:(?P<lane>[\w.-]+)")
 LIFTED = re.compile(r"\bLIFT(?:ED|S)?\b")
 SETTLED_STATES = frozenset({"live", "landed", "done", "backlog"})
 DONE_ASKS = frozenset({"dropped", "answered", "delivered"}) | SETTLED_STATES
@@ -66,7 +66,7 @@ def hold_lines(path: Path) -> list[dict]:
 @component("held-prs", "Held PRs", question="Which PRs are held, why, and what lifts each hold?", reads=["ccn ledger row list", "holds file"], every="1m")
 def held_prs(ctx: Context, *, ledger: str, holds: Path | None = None) -> Table:
     """Open ledger PRs carrying a hold (reason, since, until), joined with the lines of a holds file that name the PR by
-    `#N` or its lane by `lane:<name>`; a line containing LIFT, LIFTED or LIFTS counts as lifted and is skipped."""
+    a leading `#N` or its lane by `lane:<name>`; a line containing LIFT, LIFTED or LIFTS counts as lifted and is skipped."""
     all_rows = rows(ctx, ledger)
     lines = hold_lines(holds) if holds else []
     out = []
