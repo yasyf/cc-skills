@@ -3765,6 +3765,12 @@ def test_every_desk_incident_brief_template_carries_the_standing_orders_no_rollb
     assert "  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
 
 
+@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
+def test_every_desk_incident_brief_template_names_the_component_that_served_the_failing_request(template):
+    text = " ".join(template.read_text().split())
+    assert "which component served the failing request: a cloud run is served by the cloud, never by their machine" in text
+
+
 def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
     orca_pass(shell, config)
     desk_inbox(tmp_path, ROOT_ALERT)
