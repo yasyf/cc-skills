@@ -3741,7 +3741,7 @@ def test_a_case_lane_the_root_stopped_by_hand_is_withdrawn_and_never_offered_aga
     shell.dispatches["ctx_case1"] |= {"status": "failed", "fenced": True}
     offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": "term_ctx_case1"})
     orca_pass(shell, config)
-    unfixed_report(shell, f"{LANE}-case1", "worker_done", "a third case")
+    unfixed_report(shell, f"{LANE}-case1", "worker_done", "a third case", from_handle="term_ctx_case1")
     orca_pass(shell, config)
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert f"WITHDRAWN {offer['id']} {LANE}-case1: withdrawn by a stop of dispatch ctx_case1, so it is not dispatched again and its question needs no answer: {offer['subject']}" in escalations(shell)
