@@ -5,6 +5,7 @@ import re
 import time
 import uuid
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -83,13 +84,34 @@ def task_label(agent: Subagent) -> str | None:
     return prompt[:TASK_LABEL_CHARS] + "..." if len(prompt) > TASK_LABEL_CHARS else prompt
 
 
+def task_keys(agent: Subagent) -> Iterator[str | None]:
+    yield agent.meta["description"]
+    yield task_label(agent)
+
+
+def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]]) -> dict[str, str]:
+    if team not in rosters:
+        rosters[team] = session_tree.team_members(evt, team)
+    return rosters[team]
+
+
 def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
     teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
     rosters: dict[str, dict[str, str]] = {}
+    candidates = [
+        agent
+        for agent in session_tree.subagents(evt)
+        if agent.name and (agent.meta.get("teamName") or agent.agent_id in live_subagents)
+    ]
+    plausible = {
+        agent.name
+        for agent in candidates
+        if not (team := agent.meta.get("teamName")) or (teammate_tasks and agent.name in team_roster(evt, team, rosters))
+    }
     newest: dict[str, Subagent] = {}
-    for agent in session_tree.subagents(evt):
-        if not agent.name or (not agent.meta.get("teamName") and agent.agent_id not in live_subagents):
+    for agent in candidates:
+        if agent.name not in plausible:
             continue
         if agent.started and (agent.name not in newest or agent.started > newest[agent.name].started):
             newest[agent.name] = agent
@@ -101,10 +123,9 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     lanes = []
     for agent, turn in active:
         if team := agent.meta.get("teamName"):
-            roster = rosters.setdefault(team, session_tree.team_members(evt, team))
-            if agent.name not in roster:
+            if agent.name not in team_roster(evt, team, rosters):
                 continue
-            if not (label := next((key for key in (agent.meta["description"], task_label(agent)) if teammate_tasks[key]), None)):
+            if not (label := next((key for key in task_keys(agent) if teammate_tasks[key]), None)):
                 continue
             teammate_tasks[label] -= 1
         if turn:

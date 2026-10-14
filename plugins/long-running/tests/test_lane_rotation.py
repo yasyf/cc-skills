@@ -150,6 +150,19 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return now
 
 
+@pytest.fixture
+def parsed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    names: list[str] = []
+    parse_transcript = session_tree.parse
+
+    def recording(path: Path):
+        names.append(path.stem.removeprefix("agent-a").rsplit("-", 1)[0])
+        return parse_transcript(path)
+
+    monkeypatch.setattr(session_tree, "parse", recording)
+    return names
+
+
 @dataclass
 class Stop:
     tree: Tree
@@ -495,6 +508,78 @@ def test_lanes_sharing_a_description_each_need_their_own_task(tree: Tree, clock:
 
     assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]).evt())] == ["desk-a"]
     assert sorted(lane.name for lane in lane_rotation.live_lanes(stop(tree, [task, task]).evt())) == ["desk-a", "desk-b"]
+
+
+def test_each_team_roster_is_read_once_per_scan(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    tasks = [tree.lane("desk-a", 450_000), tree.lane("desk-b", 450_000), tree.lane("scout", 450_000, team="scout-team")]
+    read: list[str] = []
+    team_members = session_tree.team_members
+
+    def recording(evt: StopEvent, team: str) -> dict[str, str]:
+        read.append(team)
+        return team_members(evt, team)
+
+    monkeypatch.setattr(session_tree, "team_members", recording)
+
+    lanes = lane_rotation.live_lanes(stop(tree, tasks).evt())
+
+    assert (sorted(lane.name for lane in lanes), sorted(read)) == (["desk-a", "desk-b", "scout"], ["scout-team", TEAM])
+
+
+def test_lanes_off_their_roster_are_never_parsed(tree: Tree, parsed: list[str]) -> None:
+    task = tree.lane("desk", 450_000)
+    for hours in (9, 6):
+        tree.lane("retired", 550_000, spawned=ROOT_AT - timedelta(hours=hours))
+        tree.kill("retired")
+
+    lanes = lane_rotation.live_lanes(stop(tree, [task]).evt())
+
+    assert ([lane.name for lane in lanes], parsed) == (["desk"], ["desk"])
+
+
+def test_teammates_are_never_parsed_while_no_teammate_task_runs(tree: Tree, parsed: list[str]) -> None:
+    tree.lane("stopped", 550_000)
+    reviewer = tree.lane("reviewer", 420_000, team=None, description="Reviewer")
+
+    lanes = lane_rotation.live_lanes(stop(tree, [reviewer]).evt())
+
+    assert ([lane.name for lane in lanes], parsed) == (["reviewer"], ["reviewer"])
+
+
+def test_newer_lane_off_its_roster_still_hides_an_older_namesake_on_another_roster(tree: Tree, parsed: list[str]) -> None:
+    task = tree.lane("desk", 450_000, spawned=ROOT_AT - timedelta(hours=5))
+    tree.lane("desk", 450_000, team="next-team", spawned=ROOT_AT - timedelta(hours=1))
+    tree.kill("desk", "next-team")
+
+    assert lane_rotation.live_lanes(stop(tree, [task]).evt()) == []
+    assert parsed == ["desk", "desk"]
+
+
+def test_newer_teammate_without_a_task_still_hides_a_running_subagent_namesake(tree: Tree) -> None:
+    reviewer = tree.lane("reviewer", 420_000, team=None, spawned=ROOT_AT - timedelta(hours=5))
+    tree.lane("reviewer", 450_000, spawned=ROOT_AT - timedelta(hours=1))
+
+    assert lane_rotation.live_lanes(stop(tree, [reviewer]).evt()) == []
+
+
+def test_prompt_label_is_read_only_once_the_description_has_no_task_left(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared = "Lane brief (long-running drive release-v3, root = s"
+    tasks = [
+        tree.lane("desk-a", 450_000, description=shared, behind=timedelta(minutes=1)),
+        tree.lane("desk-b", 450_000, description=shared, prompt="You are lane `desk-b`.", behind=timedelta(minutes=2)),
+    ]
+    labelled: list[str] = []
+    task_label = lane_rotation.task_label
+
+    def recording(agent: session_tree.Subagent) -> str | None:
+        labelled.append(agent.name)
+        return task_label(agent)
+
+    monkeypatch.setattr(lane_rotation, "task_label", recording)
+
+    lanes = lane_rotation.live_lanes(stop(tree, tasks).evt())
+
+    assert ([lane.name for lane in lanes], labelled) == (["desk-a", "desk-b"], ["desk-b"])
 
 
 def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
