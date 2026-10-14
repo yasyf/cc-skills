@@ -101,7 +101,9 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     lanes = []
     for agent, turn in active:
         if team := agent.meta.get("teamName"):
-            roster = rosters.setdefault(team, session_tree.team_members(evt, team))
+            if team not in rosters:
+                rosters[team] = session_tree.team_members(evt, team)
+            roster = rosters[team]
             if agent.name not in roster:
                 continue
             if not (label := next((key for key in (agent.meta["description"], task_label(agent)) if teammate_tasks[key]), None)):
