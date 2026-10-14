@@ -1438,7 +1438,7 @@ class Runner:
 
     def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
         key = action.action_id
-        text = f"{key} launch failed after {self.config.load_hold_minutes}m held, {held}; submit it under a new key with --owner-directed to start it now"
+        text = f"{key} launch failed after {self.config.load_hold_minutes}m held, {held}; move the load off this Mac, then submit it under a new key"
         if not self.book.attempt(container, lambda incident: incident.fail(key, text)):
             return
         self.escalate(f"{container}/{key}", "LAUNCH-HELD", lane, text)
@@ -1877,7 +1877,7 @@ class Runner:
                 continue
             key = f"{CLOCK}:{launch.dispatch_id}"
             tries = [action for action in self.book.actions(lane_container(backup), kind="launch") if action.action_id in (key, f"{key}{RETRY}")]
-            if not tries or any(action.status != "failed" for action in tries):
+            if not tries or any(action.status != "failed" for action in tries) or self.executor_backup(lane):
                 continue
             brief = json.loads(tries[0].target)["brief"]
             if len(tries) == 1:

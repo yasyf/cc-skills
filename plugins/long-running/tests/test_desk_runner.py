@@ -3548,6 +3548,19 @@ def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shel
     assert len([line for line in clock_lines(shell) if " in-process: " in line]) == 1
 
 
+def test_no_retry_or_in_process_fallback_while_the_executors_backup_is_live(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    shell.cpu_load = 40
+    orca_pass(shell, config)
+    executor_backup(shell, "verified")
+    shell.dispatches["ctx_backup"] = {"status": "dispatched", "terminal": "term_backup"}
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == []
+    assert list(incident(tmp_path, f"desk-lane-{LANE}-opus").actions) == [f"incident-clock:ctx_{LANE}"]
+
+
 def test_no_in_process_fallback_once_the_lanes_clock_has_stopped(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(10 * 60)
