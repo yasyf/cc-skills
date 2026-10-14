@@ -60,8 +60,10 @@ Every incident fix lane the runner launched is on a clock from its verified laun
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
 an `incident=`, unless that brief names a role other than `fix` or `incident`. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
-`not-ours`, `stopped`, and `stand-down`, a `report` that starts `READY`, and its
-`mechanism:`, `ready:`, and `fix-live:` Run statuses. With no mechanism at
+`not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `MECHANISM`
+or `READY`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses. A lane's records
+count under `<name>` and `<name>-fix` alike, since the desk launches `<name>-fix` and its
+lane may post as `<name>`. With no mechanism at
 `deadlines.incident_mechanism_minutes` (default 10), or no PR at
 `deadlines.incident_pr_minutes` (default 15), the runner launches `<lane>-opus` once per
 launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
@@ -301,7 +303,9 @@ MILESTONE_STATUSES = "milestone-statuses"
 MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
 CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
-READY_REPORT = "READY"
+TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
+TEXT_MARK_KINDS = ("report", "incident")
+FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
@@ -444,10 +448,16 @@ def unfixed_cases(text: str, lane: str) -> dict[str, str]:
 
 
 def clock_mark(record: dict) -> str:
-    """The incident clock milestone a lane's cci record marks, or empty: its kind, or `ready` for a `report` whose text starts READY."""
-    if record["kind"] == "report":
-        return "ready" if record["text"].startswith(READY_REPORT) else ""
+    """The incident clock milestone a lane's cci record marks, or empty: its kind, or `mechanism` or `ready` for a `report` or `incident` whose text starts MECHANISM or READY."""
+    if record["kind"] in TEXT_MARK_KINDS:
+        return mark["mark"].lower() if (mark := TEXT_MARK.match(record["text"])) else ""
     return record["kind"] if record["kind"] in (*CLOCK_MILESTONES, *CLOCK_ENDS) else ""
+
+
+def lane_aliases(lane: str) -> tuple[str, str]:
+    """The names one incident lane posts under: the desk launches `<name>-fix`, and its lane may post as `<name>`."""
+    base = lane.removesuffix(FIX_ALIAS)
+    return base, f"{base}{FIX_ALIAS}"
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -1130,9 +1140,10 @@ class Runner:
         return " ".join(sorted(prs)) or "none opened yet"
 
     def lane_records(self, lane: str, *kinds: str) -> list[dict]:
-        """A lane's own cci records of these kinds on this drive; `cci tail` also returns the caller's peer mail, which is dropped."""
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", lane, *(f"--kind={kind}" for kind in kinds))
-        return [record for record in posted if record["drive"] == self.config.drive and record["lane"] == lane and record["kind"] in kinds]
+        """A lane's own cci records of these kinds on this drive, under either of its `lane_aliases`; `cci tail` also returns the caller's peer mail, which is dropped."""
+        names = lane_aliases(lane)
+        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in names for arg in ("--lane", name)), *(f"--kind={kind}" for kind in kinds))
+        return [record for record in posted if record["drive"] == self.config.drive and record["lane"] in names and record["kind"] in kinds]
 
     def holds(self, slug: str) -> list[actions.Action]:
         return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
@@ -1831,7 +1842,7 @@ class Runner:
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
         """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run."""
-        marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, "report") if (mark := clock_mark(record))]
+        marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, *TEXT_MARK_KINDS) if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):

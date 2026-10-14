@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 
 from cc_transcript.models import AssistantEvent
 from captain_hook import (
@@ -19,8 +21,9 @@ from captain_hook import (
     Tool,
     on,
 )
+from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, script
 from .nudges import queue_nudge
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
@@ -31,10 +34,14 @@ INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Launch the incident fix lane through the orca-desk: `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]`. "
-    "An Agent spawn on an incident is a support lane with a `ccx: role=<role>` "
-    "line in its brief; a non-incident fix lane says `ccx: incident=none`."
+    "Launch the incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or as an Agent named `<name>-fix` "
+    "once `desk-launch.py refused <name>-fix --session <id>` prints a load refusal. "
+    "A support lane's brief says `ccx: role=<role>`; a non-incident fix lane says `ccx: incident=none`."
 )
+REFUSAL = [sys.executable, str(script("desk-launch.py")), "refused"]
+REFUSED = " ".join(REFUSAL)
+LOAD_REFUSAL = "LAUNCH-FAILED desk-lane-api-1n80-fix/R474 api-1n80-fix: R474 refused on load 42 above 32 cores; nothing was launched"
+REFUSAL_TIMEOUT_SECONDS = 20
 INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on the Orca incident alias; tooling, support, and repush lanes may spawn here")
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
@@ -67,6 +74,15 @@ def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
     return bool(INCIDENT_NAME.match(call.agent_name or "") or any(INCIDENT_BRIEF.search(line) for line in lines))
 
 
+def refused_on_load(evt: BaseHookEvent, lane: str) -> bool:
+    argv = [*REFUSAL, lane, "--session", evt.session_id]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=REFUSAL_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    except subprocess.TimeoutExpired:
+        return False
+    return done.returncode == 0 and bool(done.stdout.strip())
+
+
 def spawn(name: str, prompt: str, **extra: object) -> Input:
     return Input(tool="Agent", tool_input={"name": name, "prompt": prompt}, state=ACTIVE, **extra)
 
@@ -76,15 +92,19 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     only_if=[Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests={
-        spawn("pr-review-pipeline-fix", "CI incident, effort high.", decide=CONFIRMED): Block(pattern=r"desk-launch\.py incident <name> <fix-brief>"),
-        spawn("incident-api-1n80-fix", "Fix it.", decide=CONFIRMED): Block(),
-        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=UNCONFIRMED): Allow(),
+        spawn("pr-review-pipeline-fix", "CI incident, effort high.", decide=CONFIRMED, commands={REFUSED: ""}): Block(
+            pattern=r"desk-launch\.py incident <name> <fix-brief>[\s\S]*desk-launch\.py refused <name>-fix"
+        ),
+        spawn("incident-api-1n80-fix", "Fix it.", decide=CONFIRMED, commands={REFUSED: ""}): Block(),
+        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED, commands={REFUSED: ""}): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED, commands={REFUSED: ""}): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED, commands={REFUSED: LOAD_REFUSAL}): Allow(),
+        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED, commands={REFUSED: LOAD_REFUSAL}): Allow(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=UNCONFIRMED, commands={REFUSED: ""}): Allow(),
         spawn("lane-failing-fix", f"ccx: incident=none\n{INCIDENT_TURN}"): Allow(),
         spawn("flappy-monitors-2", NOT_AN_INCIDENT): Allow(),
         spawn("ignore-protect-preview", INCIDENT_ADJACENT): Allow(),
-        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", decide=UNCONFIRMED): Allow(),
+        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", decide=UNCONFIRMED, commands={REFUSED: ""}): Allow(),
         spawn("incident-runner", "ccx: role=tooling tooling-lane=incident-runner\nLane incident-runner."): Allow(),
         spawn("incident-api-1n80-evidence", "ccx: role=evidence\nEvidence lane for the incident."): Allow(),
         spawn("ledger-fix", "ccx: role=fix\nFix the ledger."): Allow(),
@@ -99,11 +119,12 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
         return None
     lines = prose(call)
     role = evt.annotations.get("role")
-    if role == FIX_ROLE and any(INCIDENT_AUTHORITY.search(line) for line in lines):
-        return evt.block(INCIDENT_ROUTE)
-    if role in (None, FIX_ROLE) and incident_spawn(call, lines[:1]):
-        return evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX)
-    return None
+    authorized = role == FIX_ROLE and any(INCIDENT_AUTHORITY.search(line) for line in lines)
+    if not authorized and not (role in (None, FIX_ROLE) and incident_spawn(call, lines[:1])):
+        return None
+    if call.agent_name and refused_on_load(evt, call.agent_name):
+        return None
+    return evt.block(INCIDENT_ROUTE) if authorized else evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX)
 
 
 def last_reply(evt: BaseHookEvent) -> str:

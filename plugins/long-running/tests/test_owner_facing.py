@@ -81,7 +81,14 @@ class Root:
 
 
 @pytest.fixture
-def root(tmp_path: Path) -> Root:
+def refused(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    lanes: list[str] = []
+    monkeypatch.setattr(owner_facing, "refused_on_load", lambda evt, lane: lane in lanes)
+    return lanes
+
+
+@pytest.fixture
+def root(tmp_path: Path, refused: list[str]) -> Root:
     return Root(tmp_path)
 
 
@@ -145,3 +152,11 @@ def test_a_fix_lane_naming_an_outage_without_authority_goes_to_the_model(root: R
 )
 def test_declared_support_and_non_incident_fix_lanes_pass(root: Root, name: str, prompt: str) -> None:
     assert root.spawn(name, prompt) is None
+
+
+def test_a_fix_lane_the_desk_refused_on_load_spawns_in_process(root: Root, refused: list[str]) -> None:
+    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80.\nAuthority: Incident Turn."
+    refused.append("api-1n80-fix")
+
+    assert root.spawn("api-1n80-fix", prompt) is None
+    assert root.spawn("api-1n81-fix", prompt) == owner_facing.INCIDENT_ROUTE

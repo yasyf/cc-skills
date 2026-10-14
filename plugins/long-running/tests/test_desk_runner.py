@@ -212,12 +212,13 @@ class FakeShell(runner_module.Shell):
         assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
         since = int(argv[argv.index("--since") + 1])
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
+        lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
         found = [
             record
             for record in self.records
             if record["seq"] > since
             and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
-            and ("--lane" not in argv or argv[argv.index("--lane") + 1] == record.get("lane"))
+            and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or int(argv[argv.index("--pr") + 1]) in record.get("refs", {}).get("prs", []))
             and (not kinds or record.get("kind") in kinds)
         ]
@@ -3314,12 +3315,14 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     assert len(launches(shell)) == 2 and len(shell.entries) == 1
 
 
-@pytest.mark.parametrize("source", ["status", "cci"])
+@pytest.mark.parametrize("source", ["status", "cci", "base-name"])
 def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shell, config, tmp_path, capsys, source):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
     if source == "status":
         shell.receive({"subject": "mechanism: wrong selector", "from_handle": f"term_ctx_{LANE}"})
+    elif source == "base-name":
+        lane_record(shell, LANE.removesuffix("-fix"), "incident", text="MECHANISM d121062c confirmed")
     else:
         lane_record(shell, LANE, "mechanism")
     orca_pass(shell, config)
@@ -3360,7 +3363,7 @@ def test_an_opened_pr_stops_the_pr_threshold_and_counts_for_the_mechanism(shell,
     assert clock_lines(shell) == [] and len(launches(shell)) == 1
 
 
-@pytest.mark.parametrize(("kind", "text"), [("ready", "READY #4242 green at 9c0b891"), ("report", "READY #4242 green at 9c0b891")])
+@pytest.mark.parametrize(("kind", "text"), [("ready", "READY #4242 green at 9c0b891"), ("report", "READY #4242 green at 9c0b891"), ("incident", "READY --fast GREEN #4242")])
 def test_a_ready_record_stops_the_clock(shell, config, tmp_path, capsys, kind, text):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)

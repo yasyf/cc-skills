@@ -128,14 +128,14 @@ Every incident fix lane the runner launched is on a clock from its verified laun
 A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
 line says `role=incident` or names an `incident=`. A brief that names another role,
 such as `role=evidence`, is never clocked, and neither is `incident=none`. On each
-pass the runner reads the lane's own cci records and its `mechanism:`, `ready:`, and
-`fix-live:` Run statuses:
+pass the runner reads the lane's own cci records, posted as `<name>` or `<name>-fix`,
+and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
 
 | Minutes since launch | Missing | The runner |
 |---|---|---|
-| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
+| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status, or a `report` or `incident` that starts `MECHANISM` | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
 | `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
-| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
+| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` or `incident` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
 
 A fallback whose Orca launch fails is launched once more under `<key>:retry`. After a
 second failure, while the lane's clock runs, the runner logs
@@ -628,7 +628,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. |
 | `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `STATUS-DUE` | The drive's updates channel has had no status post for `deadlines.status_minutes`. The comms desk posts it under the standing grant; the root answers its fact asks and never asks the owner whether to post. The record goes to `root` and `comms-desk` on topic `status`, once per window. |
-| `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile. Never wait the load out. The key is the ten-minute window. |
+| `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
