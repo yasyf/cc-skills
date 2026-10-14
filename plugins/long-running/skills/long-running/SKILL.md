@@ -1542,7 +1542,11 @@ an Orca worktree checkout times out, so no launch starts. Each ten minutes of it
 `LOAD-HIGH` blocker to the root, which moves the load that turn: a pass, backfill, dry
 run, or bulk rewrite goes to in-region compute (R15), never waits it out. An incident
 launch or one submitted with `--owner-directed` fails at once with `LAUNCH-FAILED`, and
-the root launches that lane in its own session. Any other launch stays accepted, `show`
+the root launches that lane in its own session. The pack's Agent hook lets that spawn
+through when it is named for the refused lane and, within 30 minutes, the runner posted
+`LAUNCH-FAILED … refused on load` for it, or a `LOAD-HIGH` and no verdict for it;
+`desk-launch.py refused <lane> --session <id>` prints the record the hook reads. Any
+other launch stays accepted, `show`
 marks it `HELD` with the load and its age, and after `deadlines.load_hold_minutes`
 (default 5) it fails with a `LAUNCH-HELD` escalation and a Run mailbox message. It never
 kills a worker to lower load. A Sprite launch never reads Mac load.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,7 +33,8 @@ class Drive:
     def __call__(self, drive: str, *argv: str) -> str:
         self.calls.append((drive, *argv))
         if argv[0] == "grep":
-            return "".join(f"{json.dumps(record)}\n" for record in reversed(self.records) if "orca-desk: " in record["text"])
+            lane = flag(argv, "--lane")
+            return "".join(f"{json.dumps(record)}\n" for record in reversed(self.records) if record["lane"] == lane and re.search(argv[1], record["text"]))
         if argv[0] == "post":
             record = {"seq": self.records[-1]["seq"] + 1, "lane": flag(argv, "--lane"), "kind": flag(argv, "--kind"), "to": [flag(argv, "--to")], "text": flag(argv, "--text")}
             self.records.append(record)
@@ -97,3 +99,50 @@ def test_a_missing_brief_posts_nothing(drive, tmp_path):
     with pytest.raises(SystemExit):
         desk_launch.main(["incident", "inc-x", str(tmp_path / "missing.md")])
     assert [call for call in drive.calls if call[1] == "post"] == []
+
+
+LOAD_HIGH = "LOAD-HIGH load:2026-10-14T03:0 runner: load 42 above 32 cores: Orca launches are refused while it lasts"
+ON_LOAD = "LAUNCH-FAILED desk-lane-inc-x-fix/R474 inc-x-fix: R474 refused on load 42 above 32 cores; nothing was launched, and the root launches it in-process or once the load is moved"
+
+
+def runner(drive: Drive, *texts: str) -> None:
+    for text in texts:
+        drive.records.append({"seq": drive.records[-1]["seq"] + 1, "lane": "desk-runner", "kind": "defect", "text": text})
+
+
+@pytest.mark.parametrize("lane", ["inc-x", "inc-x-fix"])
+def test_a_load_refusal_of_the_fix_lane_clears_an_in_process_launch(drive, capsys, lane):
+    runner(drive, LOAD_HIGH, ON_LOAD)
+    assert desk_launch.main(["refused", lane, "--drive", "d"]) == 0
+    assert capsys.readouterr().out == f"{ON_LOAD}\n"
+    [grep] = [call for call in drive.calls if call[1] == "grep"]
+    assert flag(grep, "--lane") == "desk-runner" and flag(grep, "--since") == "30m" and grep[0] == "d"
+
+
+def test_load_high_clears_a_lane_the_runner_has_no_verdict_for(drive, capsys):
+    runner(drive, LOAD_HIGH, "LAUNCHED R12 other-fix: dispatch ctx_o terminal term_o")
+    assert desk_launch.main(["refused", "inc-x-fix", "--drive", "d"]) == 0
+    assert capsys.readouterr().out == f"{LOAD_HIGH}\n"
+
+
+@pytest.mark.parametrize(
+    "texts",
+    [
+        (),
+        (ON_LOAD, "LAUNCHED R475 inc-x-fix: dispatch ctx_fix terminal term_fix"),
+        (LOAD_HIGH, "LAUNCH-FAILED desk-lane-inc-x-fix/R475 inc-x-fix: orca-launch.sh exited 1"),
+    ],
+)
+def test_no_load_refusal_as_the_lanes_newest_verdict_exits_one(drive, capsys, texts):
+    runner(drive, *texts)
+    assert desk_launch.main(["refused", "inc-x", "--drive", "d"]) == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_a_session_reads_its_drive_from_the_registry(drive, monkeypatch):
+    monkeypatch.setattr(desk_launch.registry, "find", lambda name, session: {"state_dir": "/s/prog"} if session == "s1" else None)
+    runner(drive, ON_LOAD)
+    assert desk_launch.main(["refused", "inc-x", "--session", "s1"]) == 0
+    assert [call[0] for call in drive.calls if call[1] == "grep"] == ["prog"]
+    with pytest.raises(SystemExit, match="no drive in the registry claims session s2"):
+        desk_launch.main(["refused", "inc-x", "--session", "s2"])

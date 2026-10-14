@@ -3,6 +3,7 @@
 
     desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--drive D] [--lane L] [--timeout-seconds S]
     desk-launch.py lane <lane> <model> <effort> <brief> [--now] [--drive D] [--lane L] [--timeout-seconds S]
+    desk-launch.py refused <lane> (--drive D | --session ID)
 
 STDLIB ONLY. `incident` launches `<name>-fix`, and `<name>-evidence` when an evidence brief is
 given, each `NOW incident xhigh`, the Incident Turn's route. `lane` launches one lane on any
@@ -15,6 +16,10 @@ until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, `UNVERIFIA
 dispatch and terminal of a launched lane. It exits 0 when every lane launched, 1 when any
 settled otherwise, and 2 when one has not settled within `--timeout-seconds`; a withdrawal
 of an unsettled key is `cci post --kind go --to orca-desk --text "orca-desk: withdraw R<n>"`.
+`refused` prints the runner record from the last 30 minutes that sends `<lane>`, or its
+`-fix` alias, to an in-process launch, and exits 1 when there is none: the lane's newest
+verdict when it is a `LAUNCH-FAILED` refused on load, or the newest `LOAD-HIGH` when the
+lane has no verdict at all. `--session` reads the drive from the drive registry.
 """
 
 from __future__ import annotations
@@ -29,11 +34,17 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import drive as registry
+
 DESK = "orca-desk"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
 VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
+LOAD_HIGH = "LOAD-HIGH "
+LOAD_REFUSAL = re.compile(r"^LAUNCH-FAILED .*: R\d+ refused on load ")
+REFUSAL_WINDOW = "30m"
+FIX_ALIAS = "-fix"
 POLL_SECONDS = 2
 BUDGET = "30000"
 
@@ -59,6 +70,28 @@ def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, Path]]
         briefs = [("fix", args.fix_brief), *([("evidence", args.evidence_brief)] if args.evidence_brief else [])]
         return [(f"{args.name}-{role}", "incident", "xhigh", True, brief) for role, brief in briefs]
     return [(args.target, args.model, args.effort, args.now, args.brief)]
+
+
+def refusal(drive: str, lane: str) -> str:
+    posted = records(cci(drive, "grep", "LOAD-HIGH|LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE", "--lane", RUNNER, "--since", REFUSAL_WINDOW, "--json", "--budget", BUDGET))
+    newest = sorted(posted, key=lambda record: record["seq"], reverse=True)
+    names = {lane, f"{lane}{FIX_ALIAS}"}
+    verdicts = [record["text"] for record in newest if (verdict := VERDICT.match(record["text"])) and verdict["lane"] in names]
+    if verdicts:
+        return verdicts[0] if LOAD_REFUSAL.match(verdicts[0]) else ""
+    return next((record["text"] for record in newest if record["text"].startswith(LOAD_HIGH)), "")
+
+
+def refused(args: argparse.Namespace) -> int:
+    drive = args.drive
+    if args.session:
+        if not (entry := registry.find(None, args.session)):
+            sys.exit(f"no drive in the registry claims session {args.session}")
+        drive = registry.cci_drive(entry)
+    if text := refusal(drive, args.target):
+        print(text)
+        return 0
+    return 1
 
 
 def post(drive: str, author: str, topic: str, key: int, lane: str, model: str, effort: str, now: bool, brief: Path) -> int:
@@ -101,7 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     lane.add_argument("effort")
     lane.add_argument("brief", type=Path)
     lane.add_argument("--now", action="store_true", help="owner-directed: skip the runner's load hold")
+    load = verbs.add_parser("refused", help="print the runner's load refusal that sends <lane> to an in-process launch")
+    load.add_argument("target", metavar="lane")
+    which = load.add_mutually_exclusive_group(required=True)
+    which.add_argument("--drive", default="")
+    which.add_argument("--session", default="")
     args = parser.parse_args(argv)
+    if args.verb == "refused":
+        return refused(args)
     planned = launches(args)
     for _, _, _, _, brief in planned:
         if not brief.is_file():
