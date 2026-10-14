@@ -11,7 +11,7 @@
     {
       "name": "captain-hook",
       "marketplace": "captain-hook",
-      "version": ">=12.90.3"
+      "version": ">=12.94.0"
     },
     {
       "name": "live-dashboard",
