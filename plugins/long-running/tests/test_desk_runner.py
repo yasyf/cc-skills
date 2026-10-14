@@ -261,7 +261,15 @@ class FakeShell(runner_module.Shell):
             return self.ok({"run": self.bound_run()})
         if verb == ["orchestration", "worker-show"]:
             dispatch = self.dispatches[argv[3]]
-            return self.ok({"dispatch": {"status": dispatch["status"]}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
+            fence = {"capabilityRevokedAt": "2026-10-01T18:00:00Z"} if dispatch.get("fenced") else {}
+            return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
+        if verb in (["orchestration", "worker-stop"], ["orchestration", "worker-abandon"]):
+            assert argv[2] == "--dispatch"
+            dispatch = self.dispatches[argv[3]]
+            if verb[1] == "worker-stop" and dispatch.get("fenced"):
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_inactive"}}), "")
+            dispatch |= {"status": "failed", "fenced": True}
+            return self.ok({"state": "stopped" if verb[1] == "worker-stop" else "abandoned", "processAction": "terminated"})
         if verb == ["orchestration", "send"]:
             if self.reject_sends:
                 self.reject_sends -= 1
@@ -2844,19 +2852,28 @@ def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp
     assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")] == [f"WITHDRAWN R20 {LANE}: by R21; nothing was launched"]
 
 
-def test_a_withdraw_of_a_started_launch_or_an_unknown_key_fails_visibly(shell, config, tmp_path):
+def stops(shell: FakeShell) -> list[list[str]]:
+    return [call[2:5] for call in shell.calls if call[:2] == ["orca", "orchestration"] and call[2] in ("worker-stop", "worker-abandon")]
+
+
+def withdrawals(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("WITHDRAW")]
+
+
+def test_a_withdraw_of_a_launched_key_stops_its_dispatch_and_an_unknown_target_fails_visibly(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20", "R22 orca-desk: withdraw R19", "R23 orca-desk: withdraw the duplicates")
+    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20", "R22 orca-desk: withdraw R19", "R23 orca-desk: withdraw the duplicates", "R24 orca-desk: withdraw nobody-fix")
     orca_pass(shell, config)
-    assert len(launches(shell)) == 1
-    assert [line for line in escalations(shell) if line.startswith("WITHDRAW")] == [
-        f"WITHDRAW-FAILED R21 {LANE}: launch R20 is verified; nothing was withdrawn",
-        "WITHDRAW-FAILED R22 R19: the runner holds no launch under R19; nothing was withdrawn",
+    assert len(launches(shell)) == 1 and stops(shell) == [["worker-stop", "--dispatch", "ctx_n"]]
+    assert withdrawals(shell) == [
+        f"WITHDRAWN R20 {LANE}: by R21; dispatch ctx_n stopped (stopped), and no report of it launches a case lane",
+        "WITHDRAW-FAILED R22 R19: the runner holds no launch or lane under R19; nothing was withdrawn",
         f"WITHDRAW-FAILED R23 inbox: one withdrawal per line, in the form `{runner_module.WITHDRAW_GRAMMAR}`; nothing was withdrawn",
+        "WITHDRAW-FAILED R24 nobody-fix: the runner holds no launch or lane under nobody-fix; nothing was withdrawn",
     ]
 
 
@@ -3660,19 +3677,71 @@ def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothi
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
 
 
-def test_a_case_lanes_own_unfixed_cases_launch_beside_it_and_only_the_new_one(shell, config, tmp_path):
+def test_a_case_lanes_own_unfixed_cases_launch_nothing_and_reach_the_root(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     unfixed_report(shell, LANE, "ready", CASES[0])
     orca_pass(shell, config)
     case = f"{LANE}-case1"
     shell.launch(case, f"ctx_{case}")
     orca_pass(shell, config)
-    unfixed_report(shell, case, "worker_done", *CASES)
+    unfixed_report(shell, case, "worker_done", CASES[1])
     orca_pass(shell, config)
-    assert [call[1] for call in launches(shell)] == [LANE, case, f"{LANE}-case2"]
-    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in shell.attachments[f"{LANE}-case2.full.md"].read_text()
-    assert [line.split(" | ")[1].split(" launching")[0] for line in incident_lines(shell, case)] == [f"case lane {LANE}-case2"]
-    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == list(CASES)
+    assert [call[1] for call in launches(shell)] == [LANE, case]
+    assert [line for line in escalations(shell) if line.startswith("UNFIXED ")] == [
+        f"UNFIXED {case} 11:00: {CASES[1]} | no case lane launched: {case} is itself a case lane; root decides whether the case needs a lane"
+    ]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == [CASES[0]]
+
+
+def two_case_lanes(shell: FakeShell, config: Path, tmp_path: Path) -> dict:
+    clocked_lane(shell, config, tmp_path)
+    message = unfixed_report(shell, LANE, "ready", *CASES)
+    orca_pass(shell, config)
+    for n in (1, 2):
+        shell.launch(f"{LANE}-case{n}", f"ctx_case{n}")
+    orca_pass(shell, config)
+    return message
+
+
+def test_a_withdraw_names_a_case_lane_or_its_launch_id_and_stops_its_dispatch(shell, config, tmp_path):
+    message = two_case_lanes(shell, config, tmp_path)
+    desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}-case1", f"R22 orca-desk: withdraw unfixed:{message['id']}:2")
+    orca_pass(shell, config)
+    assert stops(shell) == [["worker-stop", "--dispatch", "ctx_case1"], ["worker-stop", "--dispatch", "ctx_case2"]]
+    assert withdrawals(shell) == [
+        f"WITHDRAWN {LANE}-case1 {LANE}-case1: by R21; dispatch ctx_case1 stopped (stopped), and no report of it launches a case lane",
+        f"WITHDRAWN unfixed:{message['id']}:2 {LANE}-case2: by R22; dispatch ctx_case2 stopped (stopped), and no report of it launches a case lane",
+    ]
+
+
+def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_offer_asks_no_one(shell, config, tmp_path):
+    two_case_lanes(shell, config, tmp_path)
+    desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}")
+    orca_pass(shell, config)
+    unfixed_report(shell, LANE, "worker_done", "SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane")
+    offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": f"term_ctx_{LANE}"})
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
+    assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
+    assert [line for line in escalations(shell) if line.startswith(("UNFIXED ", "WITHDRAWN "))] == [
+        f"WITHDRAWN {LANE} {LANE}: by R21; dispatch ctx_{LANE} stopped (stopped), and no report of it launches a case lane",
+        f"UNFIXED {LANE} 11:00: SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane | no case lane launched: the root withdrew {LANE} (R21); root decides whether the case needs a lane",
+        f"WITHDRAWN {offer['id']} {LANE}: withdrawn by R21, so it is not dispatched again and its question needs no answer: {offer['subject']}",
+    ]
+
+
+def test_a_case_lane_the_root_stopped_by_hand_is_withdrawn_and_never_offered_again(shell, config, tmp_path):
+    two_case_lanes(shell, config, tmp_path)
+    shell.dispatches["ctx_case1"] |= {"status": "failed", "fenced": True}
+    offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": "term_ctx_case1"})
+    orca_pass(shell, config)
+    unfixed_report(shell, f"{LANE}-case1", "worker_done", "a third case")
+    orca_pass(shell, config)
+    assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
+    assert f"WITHDRAWN {offer['id']} {LANE}-case1: withdrawn by a stop of dispatch ctx_case1, so it is not dispatched again and its question needs no answer: {offer['subject']}" in escalations(shell)
+    assert incident(tmp_path, f"desk-lane-{LANE}-case1").facts["withdrawn"] == {"dispatch": "ctx_case1", "by": "a stop of dispatch ctx_case1"}
+    assert [line.split(" | ")[1] for line in escalations(shell) if line.startswith("UNFIXED ")] == [f"no case lane launched: the root withdrew {LANE}-case1 (a stop of dispatch ctx_case1); root decides whether the case needs a lane"]
+    assert len(launches(shell)) == 3
 
 
 def test_a_case_the_opus_fallback_reports_too_launches_one_case_lane(shell, config, tmp_path):
