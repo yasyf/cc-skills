@@ -25,8 +25,15 @@ Standing orders, fixed in this template:
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+    this Mac.
+  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
+    stops the fix.
 
 Do:
+  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
+     through the walker. The fence holds only other releases of the target, never
+     the fix.
   1. Reproduce the case above exactly as written: the thread, run, request, or
      monitor query it names. Record it failing now, before you change anything.
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;

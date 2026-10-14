@@ -825,6 +825,10 @@ def test_the_fix_brief_names_the_report_time_and_carries_the_standing_orders(sto
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+    this Mac.
+  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
+    stops the fix.
 """ in brief
     assert "go build" not in brief and "go vet" not in brief
 

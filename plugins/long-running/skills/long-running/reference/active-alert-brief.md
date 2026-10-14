@@ -291,6 +291,10 @@ Standing orders, fixed in this template:
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+    this Mac.
+  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
+    stops the fix.
 
 Design rulings on this subsystem, verbatim; the fix calls their entry point:
   <design rulings>
@@ -299,12 +303,9 @@ Design rulings on this subsystem, verbatim; the fix calls their entry point:
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
 Do:
-  0. Rollback first. If a release, apply, or deploy in the 2 hours before onset
-     touched the alert's target, first roll it back to that target's previous
-     applied commit under the apply authority above, with 0 deletes and 0 replaces.
-     Diagnose after the rollback is live. A forward fix is never the first move
-     while a rollback is available. A rollback plan with a delete or replace
-     stops for the owner.
+  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
+     through the walker. The fence holds only other releases of the target, never
+     the fix.
   1. Start at the named code path now, while evidence is still arriving.
      Never wait for a diagnosis verdict before starting the fix. Read the
      reporter's case from telemetry first: the client versions of their team
@@ -389,9 +390,9 @@ Finish: when the PR is noted and any production apply is verified, report to
   final reply. Never report live from a mute.
 ```
 
-*Prevents release-v3's starvation fix proposing a forward api apply with 9 deletes
-after executor release #292 at 3:52 PM Pacific on 2026-10-03. Its first brief
-steered away from a revert; the root had to order the executor rollback at 4:44 PM.*
+*Prevents the 2026-10-14 brief for hsbc-entries-write-fix opening on a rollback step
+against the owner's standing rule: "stop doing fucking rollbacks, dont rollback, fix
+it".*
 
 ## Evidence lane brief
 

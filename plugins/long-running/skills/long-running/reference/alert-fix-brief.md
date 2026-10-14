@@ -21,6 +21,10 @@ Standing orders, fixed in this template:
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+  - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
+    this Mac.
+  - A tooling failure gets a same-turn tooling lane plus the hand path; it never
+    stops the fix.
 
 Telemetry first. Before any ask reaches the reporter, read what the platform already
   records about their case, and put each answer in the evidence:
@@ -35,14 +39,11 @@ Telemetry first. Before any ask reaches the reporter, read what the platform alr
   makes it unnecessary, such as the client version on every request.
 
 Do:
-  0. Rollback first. If a release, apply, or deploy in the 2 hours before onset
-     touched the alert's target, first roll it back to that target's previous
-     applied commit under the drive's apply authority, with 0 deletes and 0 replaces.
-     Diagnose after the rollback is live. A forward fix is never the first move
-     while a rollback is available. A rollback plan with a delete or replace
-     stops for the owner.
-  1. With no such release, apply, or deploy, start at the code path the alert names
-     while evidence is still arriving. Never wait for a diagnosis verdict.
+  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
+     through the walker. The fence holds only other releases of the target, never
+     the fix.
+  1. Start at the code path the alert names while evidence is still arriving.
+     Never wait for a diagnosis verdict.
   2. Before you name a mechanism, read the last 24 hours of the
      production-operations log:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
@@ -79,7 +80,7 @@ Do:
      `worker_done` body. The desk launches an incident lane for each case at once,
      so no case waits as backlog.
 
-Log: every rollback, apply, or other state-changing production command you run
+Log: every apply, release, or other state-changing production command you run
   gets one line on that log in the same turn:
   `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
