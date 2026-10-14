@@ -136,6 +136,11 @@ Track through `ledger.py`. Where the checkout carries stack-enqueue, never
   the repo has no script. Never use scripts of your own.
   Other gaps in `ledger.py` are a `RULING NEEDED`.
 
+Readers first (D21): grade every tracked PR's diff for a change to a format another
+  build reads. A writer with no `Readers-First: #<reader PR> live in <release>` line gets
+  `cci post --kind hold --pr <n> --text "readers-first: no reader named"`. Never lift a
+  readers-first hold yourself; the root lifts it once the release is live on every client.
+
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
