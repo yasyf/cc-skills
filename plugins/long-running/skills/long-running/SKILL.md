@@ -779,9 +779,19 @@ waits on a board or a second owner ask. Under them the comms desk answers a huma
 question in the channel within 15 minutes without asking the root; only a reply that
 commits the drive to new behaviour goes to the root first.
 
+The drive posts a status delta to that channel at least every hour, incidents or not,
+under the same standing grant and with no per-post approval: what landed, what went
+live, what broke and its state, and what comes next. The comms desk records each one
+as a cci `posted` record on topic `status`. The root sets `status.channel` in the orca
+runner's config at spawn, and after `deadlines.status_minutes` (default 60) with no such
+record the runner posts `STATUS-DUE` to the root and the comms desk, once an hour until
+one goes out. The root never answers it by asking the owner whether to post.
+
 *Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
 channel, when the drive-start grant covered top-level posts only and the thread grant
-sat on an owner board.*
+sat on an owner board. Also prevents the sprint channel's silence from 10:43 AM into the
+evening of 2026-10-13: "you haven't posted an update since 10am in the main update
+channel".*
 
 The pack's `root_context` hook blocks the root's Slack reads and never its approved Slack writes.
 

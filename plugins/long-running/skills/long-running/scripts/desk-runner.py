@@ -80,6 +80,12 @@ executor adopted gets none from the clock while that executor's own Opus backup 
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
 settles, and `show` prints each clocked lane's minutes and milestones.
+With `status.channel` set to the drive's updates channel, each orca pass reads the drive's
+newest cci record of kind `posted` on topic `status`, the comms desk's record of its hourly
+status post. Once `deadlines.status_minutes` (default 60) pass with none, timed from that
+record or from the first pass that saw the channel, the runner posts one `STATUS-DUE`
+blocker to `root` and `comms-desk` on topic `status`, and one more for each further
+`deadlines.status_minutes` without one.
 When an incident fix lane's `worker_done` message, or its `ready:` or `fix-live:` Run
 status, carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -332,6 +338,9 @@ UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>R\d+)$")
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
+COMMS_DESK = "comms-desk"
+STATUS_TOPIC = "status"
+STATUS_CLOCK = "status-clock"
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -524,6 +533,8 @@ class Config:
     incident_mechanism_minutes: int
     incident_pr_minutes: int
     incident_ready_minutes: int
+    status_minutes: int
+    status_channel: str | None
     judge_model: str
     landing: dict | None
     alert_facts: Path | None
@@ -556,6 +567,8 @@ class Config:
             incident_mechanism_minutes=deadlines.get("incident_mechanism_minutes", 10),
             incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
+            status_minutes=deadlines.get("status_minutes", 60),
+            status_channel=raw.get("status", {}).get("channel"),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
@@ -1890,6 +1903,36 @@ class Runner:
                 f"INCIDENT-CLOCK {lane} in-process: the Orca launch of the Opus fallback {backup} failed twice: {reasons} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {brief}",
             )
 
+    def status_clock(self) -> None:
+        """With `status.channel` set, post one `STATUS-DUE` blocker to the root and the comms desk for each `deadlines.status_minutes` the drive goes without a `posted` record on topic `status`, timed from the newest such record or the first pass that saw the channel; the post carries its window's start as its cci id, so a lost save resends the same record."""
+        if not self.config.status_channel:
+            return
+        moment = self.now()
+        kept = self.book.load(RUNNER).facts.get(STATUS_CLOCK)
+        try:
+            newer = cci.records(self.cci_tail, self.config.drive, "--kind=posted", f"--topic={STATUS_TOPIC}", since=kept["seq"] if kept else 0)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
+        posts = [record for record in newer if record["drive"] == self.config.drive and record["kind"] == "posted" and record.get("topic") == STATUS_TOPIC]
+        clock = {"at": posts[-1]["at"], "seq": posts[-1]["seq"]} if posts else kept or {"at": actions.stamp(moment), "seq": 0}
+        if clock != kept:
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({STATUS_CLOCK: clock}))
+        told = actions.parse_stamp(clock["at"])
+        nagged = [actions.parse_stamp(action.started_at) for action in self.book.actions(RUNNER, kind="status-due", status="completed")]
+        since = max([told, *nagged])
+        if moment - since < timedelta(minutes=self.config.status_minutes):
+            return
+        last = f"the last went out at {pacific(told)}, cci #{clock['seq']}" if clock["seq"] else f"none since the runner started watching at {pacific(told)}"
+        text = f"STATUS-DUE {STATUS_TOPIC} runner: {whole_minutes(told, moment)} min with no status post in {self.config.status_channel}; {last}. {COMMS_DESK}: post the delta since then now, under the channel's standing grant, with no approval. root: answer it if it asks for facts"
+        key = f"status-due:{actions.stamp(since)}"
+        action, _ = self.book.accept(RUNNER, key, "status-due", text, "runner", None)
+        if action.status != "accepted":
+            return
+        done = self.cci_post("blocker", action.target, f"{ROOT},{COMMS_DESK}", STATUS_TOPIC, key, record_id=key)
+        if done.code == 0:
+            self.book.attempt(RUNNER, lambda incident: (incident.start(key, moment), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+
     def executor_backup(self, lane: str) -> str:
         """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
         store = actions.Store()
@@ -2448,6 +2491,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.deadlines_orca()
         runner.incident_clock()
         runner.in_process()
+        runner.status_clock()
         runner.aged_holds()
         runner.flush()
         runner.write_view()
