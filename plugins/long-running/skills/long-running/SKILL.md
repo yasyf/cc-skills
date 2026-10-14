@@ -497,10 +497,12 @@ on one incident while the fix lost about 5 minutes.*
 Alert intake runs before the root wakes. A monitor transition never launches a
 lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
 <link> :: <what fired>`, which the runner records and launches nothing on. The
-alerts desk appends `orca-desk: incident <slug> <link> :: <what fired>` only when
-it judges a lane necessary, and the Slack watch lane appends one for each incident
-report. For an `incident` line the runner fills `reference/alert-fix-brief.md` with
-drive facts from `alert.facts`, attaches it to the briefs log as
+alerts desk appends `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what
+fired>` only when it judges a lane necessary, and the Slack watch lane appends one
+for each incident report. `reported` is the first report's Pacific time; the brief
+names it and the 20-minute bar runs from it. For an `incident` line the runner
+fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`,
+attaches it to the briefs log as
 `<slug>-fix.full.md`, and launches `<slug>-fix` on incident xhigh at once; a repeat
 relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 

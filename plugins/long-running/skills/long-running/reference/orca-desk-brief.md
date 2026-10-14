@@ -104,7 +104,7 @@ A monitor transition and an incident launch are each one line in the same inbox:
 
 ```text
 orca-desk: alert <slug> <link> :: <what fired>
-orca-desk: incident <slug> <link> :: <what fired>
+orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 ```
 
 `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the

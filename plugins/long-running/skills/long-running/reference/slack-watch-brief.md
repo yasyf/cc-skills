@@ -69,8 +69,8 @@ Incidents:
   runs in any channel above is incident intake, including bot posts. In the same
   poll, append one line to the incident inbox and SendMessage the root with its
   permalink:
-  `orca-desk: incident <channel name without #>-<HHMM> <permalink> :: <who/what, one line>`.
-  Use the message's Pacific HHMM. Write the line before advancing the cursor.
+  `orca-desk: incident <channel name without #>-<HHMM> <permalink> reported=<HH:MM> :: <who/what, one line>`.
+  Use the message's Pacific time for both. Write the line before advancing the cursor.
 
 Links:
   A Slack permalink, a `<channel id> p<digits>` or `<channel id> <ts>` reference, or

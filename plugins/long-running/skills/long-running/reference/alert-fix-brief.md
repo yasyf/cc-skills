@@ -15,6 +15,13 @@ fences the target, and runs comms. Read the evidence as it grows with
 Drive facts:
 {facts}
 
+Standing orders, fixed in this template:
+  - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
+    report, by {due} PT; the desk's limits below run from your launch, inside it.
+  - "stop asking people for things you can collect yourself": never ask a reporter
+    for a version, id, or log the platform records; read it from telemetry first.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+
 Telemetry first. Before any ask reaches the reporter, read what the platform already
   records about their case, and put each answer in the evidence:
   - the client build: the reporter's team's client versions from the metrics, and
@@ -41,8 +48,8 @@ Do:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
      An entry on the alert's target inside the onset window is the first mechanism
      to test; quote it with its authorizing answer in the mechanism line below.
-     You are on the orca desk's 20-minute clock from your launch. It reads the cci
-     records you post as `{lane}`. Post each line with `cci post --drive <drive>
+     The orca desk's clock runs from your launch. It reads the cci records you
+     post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {slug} --text "<line>"`,
      using the cci drive and deploy lane from the drive facts; attach longer
      evidence with `--path`:
@@ -59,9 +66,6 @@ Do:
      Each limit you pass without its record sends a blocker to the root, who tells
      the owner.
   3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
-     Before each push, build and vet the packages you touched: `go build` and
-     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
-     locally; CI grades them.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the

@@ -24,6 +24,7 @@ under R16.
 
 ```sh
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
+  --reported <ISO time of the first report> \
   --bus <cci drive> --comms-lane <comms lane name> --root-lane <root agent name> \
   --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> \
   --common "$(ccn -R <repo checkout> attachment path <briefs log> common.md)" \
@@ -284,6 +285,13 @@ Verified facts, do not re-derive:
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
+Standing orders, fixed in this template:
+  - Reported <report time> PT. The bar is fixed and live within 20 minutes of the
+    report, by <due time> PT; the desk's limits below run from your launch, inside it.
+  - "stop asking people for things you can collect yourself": never ask a reporter
+    for a version, id, or log the platform records; read it from telemetry first.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+
 Design rulings on this subsystem, verbatim; the fix calls their entry point:
   <design rulings>
   entry point: <entry point>
@@ -323,10 +331,7 @@ Do:
      agreed design whole. A first PR that leaves out part of a ruling (its
      footers, its judge, its entry point) changes what the code means, so it is
      a hold, never a "static first" split; mitigate through the apply instead.
-  5. Before each push, build and vet the packages you touched: `go build` and
-     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
-     locally; CI grades them.
-     Open the PR through <submit skill>, then record it:
+  5. Open the PR through <submit skill>, then record it:
      `incident.py note --incident <incident id> --pr <PR number>`.
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.

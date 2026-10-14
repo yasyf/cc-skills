@@ -91,7 +91,8 @@ On each printed line, in the same turn:
      pipeline. Skip a flap that recovered before your read, a monitor whose
      `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
      append one line to the orca desk inbox:
-     `orca-desk: incident dd-<id> <link> :: <what fired>`
+     `orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>`,
+     where `reported` is the transition's Pacific time from `at`.
      When a log entry on the monitor's target explains the transition, launch
      nothing and quote the entry in the report. When unsure, launch nothing and
      say so in the report; the root decides.

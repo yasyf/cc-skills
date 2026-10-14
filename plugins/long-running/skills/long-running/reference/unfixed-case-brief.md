@@ -19,17 +19,21 @@ drive from the drive facts.
 Drive facts:
 {facts}
 
+Standing orders, fixed in this template:
+  - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
+    report, by {due} PT; the desk's limits below run from your launch, inside it.
+  - "stop asking people for things you can collect yourself": never ask a reporter
+    for a version, id, or log the platform records; read it from telemetry first.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+
 Do:
   1. Reproduce the case above exactly as written: the thread, run, request, or
      monitor query it names. Record it failing now, before you change anything.
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;
      otherwise, start from a fresh trunk. Ship it through submit-pr and enqueue it
      `--fast`.
-     Before each push, build and vet the packages you touched: `go build` and
-     `go vet` on them for Go, the repo's typecheck otherwise. Never run tests
-     locally; CI grades them.
-  3. You are on the orca desk's 20-minute clock from your launch. It reads the cci
-     records you post as `{lane}`. Post each line with `cci post --drive <drive>
+  3. The orca desk's clock runs from your launch. It reads the cci records you
+     post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {parent} --text "<line>"`,
      using the cci drive and deploy lane from the drive facts; attach longer
      evidence with `--path`:

@@ -54,8 +54,9 @@ dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
 runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
-`orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
-lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
+`orca-desk: incident` line in the same form, with `reported=<HH:MM>` before the `::` naming
+the first report's Pacific time, which the alerts desk writes when it judges a lane necessary,
+launches `<slug>-fix` on the incident alias from the alert-fix brief.
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
 an `incident=`, unless that brief names a role other than `fix` or `incident`. Each pass
@@ -280,7 +281,7 @@ LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
-INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> :: <what fired>"
+INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM Pacific> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
 WITHDRAW_GRAMMAR = "orca-desk: withdraw R<n>"
@@ -289,6 +290,8 @@ RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*)
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
+INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d) :: (?P<what>\S.*)$")
+INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
@@ -1059,7 +1062,7 @@ class Runner:
     def incident_line(self, at: str, key: str, rest: str) -> None:
         """Launch the alert's incident fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
         log = f"escalation:incident:{at}"
-        spec = ALERT_SPEC.match(rest)
+        spec = INCIDENT_SPEC.match(rest)
         if not spec:
             self.record(log, f"INCIDENT-FAILED {key} inbox: one incident per line, in the form `{INCIDENT_GRAMMAR}`; nothing was launched")
             return
@@ -1077,7 +1080,8 @@ class Runner:
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
         incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
-        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=self.drive_facts())
+        reported = datetime.strptime(spec["reported"], "%H:%M")
+        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=self.config.briefs_log, facts=self.drive_facts())
         brief, failure = self.attach_brief(lane, text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}")
         if brief is None:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
@@ -1118,7 +1122,7 @@ class Runner:
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
         text = UNFIXED_TEMPLATE.read_text().format(
-            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), log=self.config.briefs_log, facts=self.drive_facts()
+            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
         )
         brief, failure = self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
         if brief is None:
