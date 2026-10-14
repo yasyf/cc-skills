@@ -400,6 +400,23 @@ step, or an owner-directed step; those run at once.
 2026-09-30, until the 12:35Z mass kill, and apply-restate-1255 holding an
 owner-ordered Buildkite apply on load 428 until the root answered (2026-10-02).*
 
+A batch job never runs on the orchestrator's machine. A data pass, a backfill, a dry
+run of one, and a bulk rewrite run on in-region compute, one process per bucket or
+team, and the Mac runs only the root, its desks, and its lanes. That holds for a
+container on the Mac, a "small" pass, and a brief that says "run it from this Mac";
+the lane names the box it will use before it starts and refuses to start on the Mac.
+A one-shot read, such as one run's dry run or a metadata listing, is not a batch job.
+Every pass brief names its compute: the box recipe, the region, and the bucket or
+team each process owns.
+
+*Prevents the L15 journal-rewrite write passes of 2026-10-13. HSBC, AIG, and a Demo
+Team container ran on the Mac, drove its load to 85-105 on 32 CPUs, and timed out
+every Orca worktree checkout ("index still differs from HEAD after 180s"), so four
+incident lanes failed to launch. The Mac's link caused most of the pass's own
+failures too. Owner: "never fucking run these locally, wtf is wrong with you, always
+run it in ec2, make sure to never fuck that up again" and "get rid of all local batch
+jobs ... run those on ec2".*
+
 **R16. An active production alert gets its executor in the same turn.** An active
 alert or outage on any surface counts: a Datadog monitor, a Sentry alert, an
 `#outage` report, an on-call page, a broken CI or review pipeline, or an alert or
@@ -1762,6 +1779,8 @@ Do:
      duplicate. Building alongside it is a return-early-with-options case.
   1. <step>
   2. <step>
+Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box recipe,
+  region, and the bucket or team each process owns; never this Mac. "none" otherwise>.
 Escalate early, do not improvise: scope surprise, an assumption the code refutes,
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
 AskUserQuestion is unavailable; on a decision, take the brief's default, log it with
