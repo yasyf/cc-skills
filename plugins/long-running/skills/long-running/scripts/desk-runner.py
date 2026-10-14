@@ -186,6 +186,13 @@ and `comms-desk`, on topic `owner-update`, naming the minutes, that record's seq
 time, and the live incident lanes, and one more for each further thirty minutes of
 silence. The runner holds no Claude session to DM from, so the comms desk DMs the owner
 that line.
+`run --desk landing` also names each plan unit left with no lane. A unit is a lane holding
+open ledger rows, and it is staffed while Orca shows that lane's dispatch unsettled. While
+any dispatch on the Run is live, a unit unstaffed for thirty minutes gets one
+`DECIDE unit:<lane>` per thirty-minute window, naming the minutes, each open PR with its
+mergeable and test state, and every holds-file line on the lane or its PRs, a `hold:all`
+line included unless a `release` line frees the unit. A held unit is reported like any
+other, so the hold is read again.
 """
 
 from __future__ import annotations
@@ -337,6 +344,8 @@ ROOT = "root"
 COMMS_DESK = "comms-desk"
 UPDATE_KINDS = ("owner", "posted")
 OWNER_SILENCE = timedelta(minutes=30)
+UNSTAFFED = "unstaffed"
+UNSTAFFED_MINUTES = 30
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -1219,6 +1228,14 @@ class Runner:
         done = self.cci_post("blocker", text, f"{ROOT},{COMMS_DESK}", "owner-update", key, record_id=key)
         if done.code == 0:
             self.book.attempt(RUNNER, lambda incident: (incident.start(key, moment), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+
+    def live_lanes(self) -> set[str]:
+        """Every lane whose current dispatch Orca shows unsettled; a dispatch a sweep already named settled is not asked about."""
+        settled = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
+        lanes = [lane for lane in self.orca.lanes() if f"reclaim:{self.orca.receipt(lane)}" not in settled]
+        with ThreadPoolExecutor(SHOW_WORKERS) as pool:
+            shown = list(pool.map(self.orca.show, lanes))
+        return {lane for lane, dispatch in zip(lanes, shown) if dispatch and dispatch.status not in INACTIVE}
 
     def incident_lane(self, monitors: set[str], lane: str) -> str | None:
         """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
@@ -2423,6 +2440,34 @@ class Landing:
                 receipt = {"head": row.get("head", ""), "state": row.get("state", ""), "at": self.book.stamp()}
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
 
+    def unstaffed(self, rows: dict[str, dict]) -> None:
+        """While any dispatch is live, ask the root once per `UNSTAFFED_MINUTES` about each lane whose open PRs have had no live dispatch that long, a held lane included, quoting every holds-file line on the lane or its PRs and a `hold:all` no release frees it from. A lane with no open PR left loses its clock on every pass."""
+        units: dict[str, list[str]] = {}
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            if row.get("state", "open") == "open" and row.get("lane"):
+                units.setdefault(row["lane"], []).append(pr)
+        live = self.runner.live_lanes()
+        moment = self.runner.now()
+        seen = self.book.load(LANDING).facts.get(UNSTAFFED, {})
+        idle = {lane: seen.get(lane, actions.stamp(moment)) for lane in units if lane not in live and (live or lane in seen)}
+        if idle != seen:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({UNSTAFFED: idle}))
+        if not live:
+            return
+        entries = holds.read(self.holds)
+        releases = [entry for entry in entries if entry.release]
+        for lane, since in idle.items():
+            minutes = int((moment - actions.parse_stamp(since)).total_seconds() // 60)
+            if minutes < UNSTAFFED_MINUTES:
+                continue
+            open_prs = ", ".join(f"#{pr} {rows[pr].get('mergeable_state', 'ungraded')}/{rows[pr].get('test_state', 'ungraded')}" for pr in units[lane])
+            unit = {pr: rows[pr] for pr in units[lane]}
+            held = "".join(f"; hold `{entry.line}`" for entry in entries if holds.held([entry, *releases], unit) & set(unit))
+            self.runner.record(
+                f"escalation:unstaffed:{lane}:{since}:{minutes // UNSTAFFED_MINUTES}",
+                f"DECIDE unit:{lane} {lane}: {minutes} min with no live lane; open {open_prs}{held} | the root relaunches the lane, reassigns the unit, or posts the record it waits on",
+            )
+
     def run(self) -> None:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
@@ -2441,6 +2486,7 @@ class Landing:
         if not unread and (held := self.held(rows)) is not None:
             self.gate(rows, held)
             self.enqueue()
+        self.unstaffed(rows)
         self.runner.overdue(LANDING, "landing")
 
 

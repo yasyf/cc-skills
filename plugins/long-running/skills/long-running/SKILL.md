@@ -426,6 +426,11 @@ executor owns the incident, through the final reply:
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
 
+An incident adds lanes. It never stops a lane on the plan and never leaves one
+unstarted. Every status to the owner names each open plan unit and the lane on it,
+and the landing runner sends the root a `DECIDE unit:<lane>` for any unit left 30
+minutes with no live lane.
+
 When the root launches an incident pair itself, the launch is one command:
 
 ```sh

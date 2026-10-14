@@ -4097,3 +4097,113 @@ def test_a_silence_blocker_cci_refuses_is_posted_once_on_a_later_pass(shell, con
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert [post["text"].split(" min ")[0] for post in silences(shell)] == ["OWNER-SILENT owner-update runner: 31"]
+
+
+UNSTAFFED_ASK = "the root relaunches the lane, reassigns the unit, or posts the record it waits on"
+
+
+def plan_units(shell: FakeShell) -> None:
+    shell.rows = [
+        {"pr": "36601", "lane": "queue-hold", "branch": "q/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "mergeable_state": "clean", "test_state": "success"},
+        {"pr": "36700", "lane": LANE, "branch": "t/1", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "mergeable_state": "blocked", "test_state": "failure"},
+        {"pr": "36500", "lane": "landed-lane", "branch": "l/1", "base": "dev", "head": "cccc333333", "state": "landed", "reported_head": "cccc333333", "landed_sha": "f00d000003"},
+    ]
+    shell.gates["36601"] = [gate("#36601 BLOCKED aaaa111111 held")]
+    shell.gates["36700"] = [gate("#36700 BLOCKED bbbb222222 held")]
+
+
+def test_an_open_unit_with_no_live_lane_for_thirty_minutes_gets_one_decide_per_window(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    plan_units(shell)
+    landing_pass(shell, config)
+    shell.sleep(29 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    shell.sleep(60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert escalations(shell) == [f"DECIDE unit:queue-hold queue-hold: 30 min with no live lane; open #36601 clean/success | {UNSTAFFED_ASK}"]
+    assert [post["kind"] for post in shell.posts] == ["decide"]
+    shell.sleep(30 * 60)
+    landing_pass(shell, config)
+    assert [line.split(" min ")[0] for line in escalations(shell)] == ["DECIDE unit:queue-hold queue-hold: 30", "DECIDE unit:queue-hold queue-hold: 60"]
+
+
+def test_an_unstaffed_unit_on_hold_is_still_reported_with_its_hold_lines(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    plan_units(shell)
+    holds_file = str(tmp_path / "holds.md")
+    assert holds.main(["--file", holds_file, "add", "--pr", "36601", "--reason", "held behind #36590"]) == 0
+    assert holds.main(["--file", holds_file, "add", "--lane", "queue-hold", "--reason", "waits on the queue fix"]) == 0
+    assert holds.main(["--file", holds_file, "add", "--pr", "36700", "--reason", "another unit"]) == 0
+    landing_pass(shell, config)
+    shell.sleep(30 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == [
+        "DECIDE unit:queue-hold queue-hold: 30 min with no live lane; open #36601 clean/success; hold `#36601 held behind #36590`; hold `lane:queue-hold waits on the queue fix`"
+        f" | {UNSTAFFED_ASK}"
+    ]
+
+
+@pytest.mark.parametrize("status", [None, "completed"])
+def test_no_unit_is_reported_while_no_dispatch_is_live(shell, config, tmp_path, status):
+    if status:
+        shell.launch(LANE, "ctx_a", status=status)
+    plan_units(shell)
+    landing_pass(shell, config)
+    shell.sleep(3600)
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+
+
+def test_a_unit_whose_lane_went_live_and_settled_again_restarts_its_clock(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    plan_units(shell)
+    landing_pass(shell, config)
+    shell.sleep(20 * 60)
+    shell.launch("queue-hold", "ctx_q")
+    landing_pass(shell, config)
+    shell.dispatches["ctx_q"]["status"] = "failed"
+    shell.sleep(20 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    shell.sleep(30 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == [f"DECIDE unit:queue-hold queue-hold: 30 min with no live lane; open #36601 clean/success | {UNSTAFFED_ASK}"]
+
+
+def test_a_lane_whose_prs_closed_while_nothing_was_live_starts_a_fresh_clock_on_its_next_pr(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    plan_units(shell)
+    landing_pass(shell, config)
+    shell.dispatches["ctx_a"]["status"] = "completed"
+    shell.rows[0] |= {"state": "landed", "landed_sha": "f00d000004"}
+    shell.sleep(10 * 60)
+    landing_pass(shell, config)
+    assert incident(tmp_path, "desk-landing").facts["unstaffed"] == {}
+    shell.launch(LANE, "ctx_b")
+    shell.rows.append(
+        {"pr": "36900", "lane": "queue-hold", "branch": "q/2", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "mergeable_state": "clean", "test_state": "success"}
+    )
+    shell.gates["36900"] = [gate("#36900 BLOCKED dddd444444 held")]
+    shell.sleep(50 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    shell.sleep(30 * 60)
+    landing_pass(shell, config)
+    assert escalations(shell) == [f"DECIDE unit:queue-hold queue-hold: 30 min with no live lane; open #36900 clean/success | {UNSTAFFED_ASK}"]
+
+
+@pytest.mark.parametrize(
+    ("release", "quoted"),
+    [("", True), ("release #36700\n", True), ("release lane:queue-hold\n", False), ("release #36601\n", False)],
+)
+def test_an_unstaffed_unit_under_hold_all_is_reported_with_that_line_unless_a_release_frees_it(shell, config, tmp_path, release, quoted):
+    shell.launch(LANE, "ctx_a")
+    plan_units(shell)
+    (tmp_path / "holds.md").write_text(f"hold:all freeze until the release lands\n{release}")
+    landing_pass(shell, config)
+    shell.sleep(30 * 60)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert ("; hold `hold:all freeze until the release lands`" in line) is quoted
