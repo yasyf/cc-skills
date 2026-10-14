@@ -233,6 +233,7 @@ Target: <files, component, or environment in scope>.
 Change: <the outcome to produce, such as "one failing database never blocks a release", never a design>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
+Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box recipe, region, and the bucket or team each process owns; never this Mac (SKILL.md R15). "none" otherwise>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <relevant register rules, their linked answer ids, and the entry point (symbol at file:line) each requires; or "none">.
 Design check: before READY-FOR-SHIP, post `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>` as a `contract` record on the bus and keep building; never wait for a confirm. The coordinator withdraws it only on a mismatch; a change that leaves out part of a ruling holds.
@@ -281,6 +282,8 @@ Rotate: write the handoff doc, then send worker_done naming its id.
   rules verbatim. It cites their answer ids and names the entry point as a symbol at file:line.
 - Each lane's Ownership excludes every other lane's files. If two lanes edit a shared
   file, the second is a stacked child of the first.
+- A lane that runs a pass, backfill, dry run, or bulk rewrite names in-region compute
+  on its `Compute:` line. A brief that runs one on the Mac is rewritten before launch.
 - Every command in `common.md` runs as written from a lane's worktree.
 - The `<lane>.full.md` attachment contains the shared contract followed by the lane
   section. Resolve its path with `ccn attachment path` before launch.
