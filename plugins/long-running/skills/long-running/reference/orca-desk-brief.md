@@ -233,7 +233,7 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `LOST`, and `INCIDENT-CLOCK` use `blocker`, any `*-FAILED` uses
+`UNBOUND`, `UNOWNED`, `LOST`, `INCIDENT-CLOCK`, and `HOLDS-UNREAD` use `blocker`, any `*-FAILED` uses
 `defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
@@ -625,6 +625,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
+| `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |

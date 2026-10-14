@@ -133,7 +133,12 @@ which goes to the lane as a blocker. It gates only tips the ledger lists as `our
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
-the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A prefix
+the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
+`<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
+parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
+may hold something the runner cannot name. The runner checks the file first thing on each pass, an empty ledger included: on such a pass it
+gates and enqueues nothing, and logs `HOLDS-UNREAD` once per distinct line, quoting it. Each enqueue re-reads the file under the same
+rule just before its call and completes as `blocked` on such a line. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
@@ -156,7 +161,7 @@ inbox append or an exiting launch or judge, and its sweep shows only dispatches 
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-UNBOUND, UNOWNED, LOST, and INCIDENT-CLOCK to blocker, any *-FAILED to defect, and all other labels to report.
+UNBOUND, UNOWNED, LOST, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -190,9 +195,9 @@ from zoneinfo import ZoneInfo
 
 import actions
 import cci
+import holds
 import inboxes
 import prompt_screen
-from holds import HELD_LANE, HELD_PR, HOLD_ALL, RELEASE_LINE
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -203,7 +208,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -1955,22 +1960,36 @@ class Landing:
     def ledger_py(self, *argv: str) -> Done:
         return self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv], env={"CLAUDE_LONG_RUNNING_DRIVE": self.runner.config.drive})
 
-    def rows(self) -> dict[str, dict]:
+    def rows(self) -> dict[str, dict] | None:
+        """Every ledger PR row by number, or None when the ledger cannot be listed: an unread ledger is not an empty one."""
         done = self.ledger_py("list", "--ledger", self.ledger, "--json")
-        return {row["pr"]: row for row in json.loads(done.out)} if done.code == 0 else {}
+        return {row["pr"]: row for row in json.loads(done.out)} if done.code == 0 else None
 
-    def held(self, rows: dict[str, dict]) -> list[str]:
-        text = self.holds.read_text() if self.holds.is_file() else ""
-        releases = "\n".join(RELEASE_LINE.findall(text))
-        holding = RELEASE_LINE.sub("", text)
-        lanes = set(HELD_LANE.findall(holding))
-        numbers = set(HELD_PR.findall(holding)) | {pr for pr, row in rows.items() if (row.get("lane") in lanes and row.get("state", "open") == "open") or row.get("rules_blocked")}
-        if HOLD_ALL.search(holding):
-            released_lanes = set(HELD_LANE.findall(releases))
-            released = set(HELD_PR.findall(releases)) | {pr for pr, row in rows.items() if row.get("lane") in released_lanes}
-            numbers |= {pr for pr, row in rows.items() if row.get("state", "open") == "open"} - released
+    def held(self, rows: dict[str, dict]) -> list[str] | None:
+        """Every PR the holds file, a rules-review block, or an open cci hold keeps out of the queue, from one read of the file; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
+        entries = holds.read(self.holds)
+        if self.holds_unread(entries, rows):
+            return None
+        numbers = holds.held(entries, rows) | {pr for pr, row in rows.items() if row.get("rules_blocked")}
         numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
+
+    def holds_unread(self, entries: list[holds.Entry], rows: dict[str, dict]) -> bool:
+        """Whether `entries` carry a line the desk cannot hold by, each escalated once: a line no form matches, or a lane line naming a lane no ledger row carries in any state. Such a line may hold something the desk cannot name, so nothing is gated or enqueued on that read."""
+        faults = {
+            entry.line: f"no form matches the holds-file line `{entry.line}`, so the desk enqueues nothing until it is fixed"
+            f" | in {self.holds} write `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`"
+            for entry in entries
+            if entry.unknown
+        }
+        faults |= {
+            line: f"the holds-file line `{line}` names lane {', '.join(lanes)}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
+            f" | in {self.holds} hold each PR as `#<pr> <why>`, or delete the line"
+            for line, lanes in holds.rowless(entries, rows).items()
+        }
+        for line, text in faults.items():
+            self.runner.escalate(f"holds:{hashlib.sha1(line.encode()).hexdigest()[:8]}", "HOLDS-UNREAD", "landing", text)
+        return bool(faults)
 
     def whole(self) -> bool:
         policy = self.runner.landing_policy()
@@ -2073,11 +2092,14 @@ class Landing:
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         prefix = action.target.split(",")
-        rows = self.rows()
+        rows = self.rows() or {}
         if any(not rows.get(pr, {}).get("ours") for pr in prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
             return
         held = self.held(rows)
+        if held is None:
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
+            return
         tops = prefix_tops(prefix, rows)
         fresh = self.shell.run(self.enqueue_argv(tops, held, check=True)).out
         would = WOULD_ENQUEUE.search(fresh)
@@ -2296,6 +2318,9 @@ class Landing:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         rows = self.rows()
+        if rows is None:
+            return
+        unread = self.holds_unread(holds.read(self.holds), rows)
         if not rows:
             return
         self.reconcile()
@@ -2303,8 +2328,9 @@ class Landing:
         self.releases(rows)
         self.verify_restacks(rows)
         self.requeue(rows)
-        self.gate(rows, self.held(rows))
-        self.enqueue()
+        if not unread and (held := self.held(rows)) is not None:
+            self.gate(rows, held)
+            self.enqueue()
         self.runner.overdue(LANDING, "landing")
 
 

@@ -6,6 +6,12 @@
 A line holds the one PR its leading `#<n>` names; every later `#<n>` is prose. A reason
 never carries `lane:<name>`, and a PR line whose reason says the PR should land is refused:
 remove its hold instead. Name the file with `--file`, or with `--config` for a desk-runner config.
+
+This module is the one parse of that file. A line is a PR hold, a lane hold written
+`lane:<name> R`, `<lane> HOLD R`, or `HOLD <lane> R`, a `hold:all R` line, a `release #<n>`
+or `release lane:<name>` line, or blank. Any other line is unknown: `list` says so, and the
+landing runner enqueues nothing while one stands. `held` resolves the entries against ledger rows,
+and `rowless` names each lane line whose lane no ledger row carries, which stops the runner too.
 """
 
 from __future__ import annotations
@@ -14,11 +20,13 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 HELD_PR = re.compile(r"^#(\d+)", re.MULTILINE)
 HELD_LANE = re.compile(r"\blane:(\S+)")
+LANE_HOLD = re.compile(r"^(?:HOLD\s+([\w.-]+)|([\w.-]+)\s+HOLD)(?=\s|$)")
 HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
 RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
 LANE_NAME = re.compile(r"^[\w.-]+$")
@@ -47,11 +55,23 @@ class Entry:
 
     @property
     def lanes(self) -> list[str]:
-        return [] if self.release else HELD_LANE.findall(self.line)
+        if self.release:
+            return []
+        named = LANE_HOLD.match(self.line)
+        return [*HELD_LANE.findall(self.line), *filter(None, named.groups() if named else ())]
 
     @property
     def holds_all(self) -> bool:
         return bool(HOLD_ALL.match(self.line))
+
+    @property
+    def freed(self) -> str:
+        named = RELEASE_LINE.match(self.line)
+        return named[1] if named else ""
+
+    @property
+    def unknown(self) -> bool:
+        return bool(self.line.strip()) and not (self.release or self.holds_all or self.prs or self.lanes)
 
     def describe(self) -> str:
         if self.release:
@@ -59,7 +79,7 @@ class Entry:
         held = [*(f"#{pr}" for pr in self.prs), *(f"lane:{lane}" for lane in self.lanes)]
         if self.holds_all:
             held.insert(0, "every open row")
-        return f"holds {', '.join(held)}" if held else "holds nothing"
+        return f"holds {', '.join(held)}" if held else "matches no form; the landing runner enqueues nothing until it is fixed"
 
 
 def holds_path(args: argparse.Namespace) -> Path:
@@ -70,6 +90,24 @@ def holds_path(args: argparse.Namespace) -> Path:
 
 def read(path: Path) -> list[Entry]:
     return [Entry(line) for line in path.read_text().splitlines()] if path.is_file() else []
+
+
+def held(entries: Sequence[Entry], rows: dict[str, dict]) -> set[str]:
+    """Every PR `entries` hold: the PR a `#<n>` line leads with, each open row of a lane a lane line names, and under `hold:all` each open row no `release` line names by number or by lane. A lane with no open row holds nothing."""
+    open_rows = {pr for pr, row in rows.items() if row.get("state", "open") == "open"}
+    lanes = {lane for entry in entries for lane in entry.lanes}
+    numbers = {pr for entry in entries for pr in entry.prs} | {pr for pr in open_rows if rows[pr].get("lane") in lanes}
+    if any(entry.holds_all for entry in entries):
+        freed = "\n".join(entry.freed for entry in entries)
+        freed_lanes = set(HELD_LANE.findall(freed))
+        numbers |= open_rows - set(HELD_PR.findall(freed)) - {pr for pr, row in rows.items() if row.get("lane") in freed_lanes}
+    return numbers
+
+
+def rowless(entries: Sequence[Entry], rows: dict[str, dict]) -> dict[str, list[str]]:
+    """Each lane line naming a lane no row carries in any state, with those lanes: such a line holds nothing, now or once a PR opens under another lane name."""
+    carried = {row.get("lane") for row in rows.values()}
+    return {entry.line: missing for entry in entries if (missing := [lane for lane in entry.lanes if lane not in carried])}
 
 
 def write(path: Path, entries: list[Entry]) -> None:
@@ -117,7 +155,7 @@ def without(entry: Entry, kind: str, name: str) -> Entry | None:
     kept = [*(entry.prs if kind == "lane" else []), *(lane for lane in entry.lanes if kind == "pr" or lane != name)]
     if not kept and not entry.holds_all:
         return None
-    if remaining.release or remaining.prs + remaining.lanes != kept:
+    if remaining.release or remaining.unknown or remaining.prs + remaining.lanes != kept:
         raise Refused(f"removing {token.pattern} from `{entry.line}` would leave `{remaining.line}`, which {remaining.describe()}; split that line by hand")
     return remaining
 

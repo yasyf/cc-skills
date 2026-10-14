@@ -29,6 +29,11 @@ RULING = "Requirement: " + "the release holds until the canary reads back green.
 PARAGRAPHS = "Ruling, in three parts:\n\n- hold the release; relay the canary result to walker\n- " + "rebuild each failed head once, " * 15 + "then stop\n\nReport on this thread."
 FAST_SQUASH = "5e11a9d0c2b47f6e8a1d3c5b7f9e0a2c4d6b8e1f"
 FAST_BODY = "Resume uploads a pre-session-rows thread instead of refusing.\n\nRelease-With: sand\n"
+PUBLISH_LANE = "phase-b-replace-publish-command"
+SIZING_LANE = "phase-b-executor-sidecar-sizing"
+PUBLISH_HOLD = f"{PUBLISH_LANE} HOLD (L34 re-land, revert of #36397): no enqueue until root posts 'L32 pass done' (F189)"
+SIZING_HOLD = f"{SIZING_LANE} HOLD (L35 drop sessions-backfill/upload): no enqueue until root posts 'L32 pass done'"
+UNREAD_HOLD = f"{PUBLISH_LANE}: no enqueue until root posts 'L32 pass done' (F189)"
 
 
 class Process:
@@ -72,6 +77,7 @@ class FakeShell(runner_module.Shell):
         self.activity: dict[str, str] = {}
         self.bodies: dict[str, str] = {}
         self.rows: list[dict] = []
+        self.ledger_code = 0
         self.verdict = {"verdict": "answer", "text": "the brief says yes"}
         self.launch_line = ""
         self.cpu_load = 1.0
@@ -170,7 +176,9 @@ class FakeShell(runner_module.Shell):
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
-            return runner_module.Done(0, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]) if verb == "list" else f"{verb} ok\n", "")
+            if verb != "list":
+                return runner_module.Done(0, f"{verb} ok\n", "")
+            return runner_module.Done(self.ledger_code, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]), "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
         if argv[:2] == ["cci", "post"]:
@@ -1211,6 +1219,167 @@ def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     landing_pass(shell, config)
     assert all("--hold" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
     assert len(shell.enqueues()) == 1
+
+
+def phase_b_rows() -> list[dict]:
+    return [
+        {"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"},
+        {"pr": "36934", "lane": SIZING_LANE, "branch": "s/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "36935", "lane": PUBLISH_LANE, "branch": "p/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+    ]
+
+
+def stack_enqueue_calls(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        PUBLISH_HOLD,
+        f"HOLD {PUBLISH_LANE} (L34 re-land, revert of #36397): no enqueue until root posts 'L32 pass done' (F189)",
+        f"lane:{PUBLISH_LANE} no enqueue until root posts 'L32 pass done' (F189)",
+    ],
+)
+def test_each_lane_form_holds_the_open_rows_of_the_lane_it_names(shell, config, tmp_path, line):
+    (tmp_path / "holds.md").write_text(f"{line}\n")
+    shell.rows = phase_b_rows()
+    shell.gates["36934"] = [gate("#36934 GREEN dddd444444 graphite READY", would="#36934")]
+    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["36934"] = (0, "enqueue #36934\n")
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36935"] for call in stack_enqueue_calls(shell))
+    assert [call[1] for call in shell.enqueues()] == ["36934"]
+    assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_the_two_lane_lines_the_reader_dropped_hold_both_lanes(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n{SIZING_HOLD}\n")
+    shell.rows = phase_b_rows()
+    shell.gates["36934"] = [gate("#36934 BLOCKED dddd444444 held")]
+    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36934", "36935"] for call in stack_enqueue_calls(shell))
+    assert shell.enqueues() == [] and escalations(shell) == []
+
+
+@pytest.mark.parametrize("line", [PUBLISH_HOLD, f"HOLD {PUBLISH_LANE} (L34 re-land)", f"lane:{PUBLISH_LANE} waits for the L32 pass"])
+def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escalates_once(shell, config, tmp_path, line):
+    holds_file = tmp_path / "holds.md"
+    holds_file.write_text(f"{line}\n")
+    shell.rows = [{"pr": "36935", "lane": "ship-l34-reland", "branch": "p/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["36935"] = [gate("#36935 GREEN cccc333333 graphite READY", would="#36935")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["36935"] = (0, "enqueue #36935\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
+    assert escalations(shell) == [
+        f"HOLDS-UNREAD holds:{hashlib.sha1(line.encode()).hexdigest()[:8]} landing: the holds-file line `{line}` names lane {PUBLISH_LANE}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
+        f" | in {holds_file} hold each PR as `#<pr> <why>`, or delete the line"
+    ]
+    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["blocker"]
+    holds_file.write_text("#36935 HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'\n")
+    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36935"] for call in stack_enqueue_calls(shell))
+    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+
+
+def test_a_lane_line_whose_rows_have_all_landed_holds_nothing_and_stops_nothing(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n")
+    lone_green_pr(shell)
+    shell.rows.append({"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"})
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    assert all("--hold" not in call for call in stack_enqueue_calls(shell))
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
+
+
+def test_a_holds_line_no_form_matches_stops_every_enqueue_and_escalates_once_per_line(shell, config, tmp_path):
+    holds_file = tmp_path / "holds.md"
+    holds_file.write_text(f"#28349 owner review\n{UNREAD_HOLD}\n")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
+    assert escalations(shell) == [
+        f"HOLDS-UNREAD holds:{hashlib.sha1(UNREAD_HOLD.encode()).hexdigest()[:8]} landing: no form matches the holds-file line `{UNREAD_HOLD}`, so the desk enqueues nothing until it is fixed"
+        f" | in {holds_file} write `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`"
+    ]
+    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["blocker"]
+    holds_file.write_text(f"{UNREAD_HOLD}\n36935 waits for the L32 pass\n")
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) == []
+    assert [line.split("`")[1] for line in escalations(shell)] == [UNREAD_HOLD, "36935 waits for the L32 pass"]
+    holds_file.write_text("#28349 owner review\n")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 2
+
+
+def test_a_bad_holds_line_added_after_the_gate_stops_the_enqueue_it_was_about_to_make(shell, config, tmp_path):
+    holds_file = tmp_path / "holds.md"
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    gated = shell.stack_enqueue
+
+    def gate_then_add(argv: list[str]) -> runner_module.Done:
+        holds_file.write_text(f"{UNREAD_HOLD}\n")
+        return gated(argv)
+
+    shell.stack_enqueue = gate_then_add
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(stack_enqueue_calls(shell)) == 1
+    [action] = enqueues_of(tmp_path).values()
+    assert (action.status, action.response["outcome"]) == ("completed", "blocked")
+    assert [line.split("`")[1] for line in escalations(shell)] == [UNREAD_HOLD]
+    shell.stack_enqueue = gated
+    holds_file.write_text("")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+
+
+def test_a_lane_line_on_an_empty_ledger_posts_its_blocker_and_an_unlistable_ledger_posts_none(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n")
+    shell.ledger_code = 1
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    shell.ledger_code = 0
+    landing_pass(shell, config)
+    assert [line.split("`")[1] for line in escalations(shell)] == [PUBLISH_HOLD] and stack_enqueue_calls(shell) == []
+
+
+def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_makes_no_other_stack_enqueue_call(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    grade_gated_heads_ok(shell)
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
+    key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
+    with store.owned("desk-landing", 0) as live:
+        live.start(key, shell.now())
+    shell.sleep(16 * 60)
+    shell.statuses = "#28997 QUEUED_TO_MERGE aaaa111111 open review APPROVED on dev\n"
+    (tmp_path / "holds.md").write_text(f"{UNREAD_HOLD}\n")
+    landing_pass(shell, config)
+    action = store.load("desk-landing").actions[key]
+    assert (action.status, action.response["outcome"]) == ("completed", "enqueued")
+    assert [call[-1] for call in stack_enqueue_calls(shell)] == ["--status"]
+    assert [line.split("`")[1] for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == [UNREAD_HOLD]
+
+
+def test_a_blank_holds_line_is_no_error(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text("\n#28349 owner review\n   \n\n")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    assert stack_enqueue_calls(shell) and all(held_in(call) == ["28349"] for call in stack_enqueue_calls(shell))
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
 
 
 def lone_green_pr(shell: FakeShell) -> None:
