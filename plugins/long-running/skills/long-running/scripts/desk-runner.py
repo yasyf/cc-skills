@@ -71,7 +71,11 @@ fallback header it attaches to the briefs log as `<lane>-opus.full.md`, and logs
 naming the missing milestones and the minutes each phase took. A later milestone counts
 for the earlier ones, and each threshold logs once per launch. A `-opus` lane is clocked
 and gets no fallback of its own; a lane whose `<lane>-opus` already has a live dispatch or
-a launch in flight gets no second. A fix lane gets one Opus fallback: a lane an incident
+a launch in flight gets no second. When the Orca launch of `<lane>-opus` fails, on load or
+otherwise, the runner launches it once more under `<key>:retry`; when that fails too while
+the lane's clock runs, it logs `INCIDENT-CLOCK <lane> in-process`, naming both failures and
+the fallback brief, for the root to start `<lane>-opus` in its own session as a
+`long-running:lane-ship` Agent. A fix lane gets one Opus fallback: a lane an incident
 executor adopted gets none from the clock while that executor's own Opus backup is launching
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
@@ -107,10 +111,12 @@ the binding was obtained, at start and before each pass that launches. Started f
 terminal that is not the Run's coordinator, or from no Orca terminal, it refuses to start
 and prints the rebind command; a binding lost mid-run holds every launch and escalates
 UNBOUND once. `rebind` runs `orca orchestration run-use` from the current terminal and
-records it; `show` prints the binding first. An incident or `--owner-directed` launch starts whatever
-the load; any other launch waits while the 1-minute load is above the core count, for
-at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
-and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
+records it; `show` prints the binding first. No Mac launch starts while the 1-minute load
+is above the core count, because an Orca worktree checkout times out under that load, and
+each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
+incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
+waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
+cci and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
 says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
 repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load. The
 runner counts no Sprites and sets no limit: the provider admits or refuses each one.
@@ -213,7 +219,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -250,6 +256,7 @@ ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
 RESEND_LIMIT = 10
 RESEND = ":resend"
+RETRY = ":retry"
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
@@ -1370,8 +1377,11 @@ class Runner:
         if not self.bound_for_launch():
             return
         refusal = self.sprite_refusal(lane, spec)
-        if refusal is not None and (held := self.load_hold(action)):
-            if self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
+        if refusal is not None and (held := self.load_refusal()):
+            self.move_load(held)
+            if spec["urgent"]:
+                self.refuse_launch(container, lane, action, held)
+            elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                 self.expire_launch(container, lane, action, held)
             return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
@@ -1408,12 +1418,23 @@ class Runner:
             return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
         return None
 
-    def load_hold(self, action: actions.Action) -> str:
-        """Why an accepted launch is waiting on load, or empty when it may start; incident and owner-directed launches never wait."""
+    def load_refusal(self) -> str:
+        """Why no launch may start on the Mac now, or empty while the 1-minute load is at or below the core count."""
         load, cores = self.shell.load(), self.shell.cores()
-        if json.loads(action.target)["urgent"] or load <= cores:
+        if load <= cores:
             return ""
         return f"load {load:.0f} above {cores} cores"
+
+    def move_load(self, held: str) -> None:
+        """Tell the root, once per ten minutes, that launches are refused on load and that the load has to move."""
+        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
+
+    def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
+        """Fail an incident or owner-directed launch at once on load, since it cannot wait out the hold."""
+        key = action.action_id
+        text = f"{key} refused on {held}; nothing was launched, and the root launches it in-process or once the load is moved"
+        if self.book.attempt(container, lambda incident: incident.fail(key, text)):
+            self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, text)
 
     def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
         key = action.action_id
@@ -1845,6 +1866,30 @@ class Runner:
         self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
         return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
 
+    def in_process(self) -> None:
+        """While a fix lane's clock runs, launch its Opus fallback once more after a failed Orca launch, and after a second failure tell the root to start it in-process."""
+        for container in self.book.containers(LANE_PREFIX):
+            lane = container.removeprefix(LANE_PREFIX)
+            incident = self.book.load(container)
+            launch, clock = fix_launch(incident), incident.facts.get(CLOCK) or {}
+            backup = f"{lane}{CLOCK_FALLBACK}"
+            if not launch or clock.get("key") != launch.action_id or clock["ended"] or lane_container(backup) not in self.book.store.ids():
+                continue
+            key = f"{CLOCK}:{launch.dispatch_id}"
+            tries = [action for action in self.book.actions(lane_container(backup), kind="launch") if action.action_id in (key, f"{key}{RETRY}")]
+            if not tries or any(action.status != "failed" for action in tries):
+                continue
+            brief = json.loads(tries[0].target)["brief"]
+            if len(tries) == 1:
+                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief)):
+                    self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, True, fast=True)
+                continue
+            reasons = " | ".join(action.reason or "" for action in tries)
+            self.record(
+                f"escalation:{CLOCK}:{launch.dispatch_id}:in-process",
+                f"INCIDENT-CLOCK {lane} in-process: the Orca launch of the Opus fallback {backup} failed twice: {reasons} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {brief}",
+            )
+
     def executor_backup(self, lane: str) -> str:
         """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
         store = actions.Store()
@@ -1880,7 +1925,7 @@ class Runner:
                 at += [f"started {pacific(actions.parse_stamp(action.started_at))}"] if action.started_at else []
                 at += [f"{action.status} {pacific(actions.parse_stamp(receipt['at']))}"] if (receipt := action.verification_receipt or action.response) and "at" in receipt else []
                 status = action.status
-                if action.kind == "launch" and status == "accepted" and (held := self.load_hold(action)):
+                if action.kind == "launch" and status == "accepted" and (held := self.load_refusal()):
                     status = f"HELD {held} for {int((self.now() - actions.parse_stamp(action.accepted_at)).total_seconds() // 60)}m"
                 lines.append(f"- {action.action_id} {action.kind} [{status}] {' '.join(at)}")
         return "\n".join(lines) + "\n"
@@ -2402,6 +2447,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                 swept = runner.now()
         runner.deadlines_orca()
         runner.incident_clock()
+        runner.in_process()
         runner.aged_holds()
         runner.flush()
         runner.write_view()

@@ -518,6 +518,11 @@ turn, and ratifies the fallback the line names. Both lanes keep running, and
 the first PR wins. A fix lane gets one Opus fallback. When the incident executor
 adopted the lane, its 15-minute backup and the clock's `<lane>-opus` each stand
 down while the other is launching or live.
+When the Orca launch of `<lane>-opus` fails, on load or otherwise, the runner launches
+it once more. When that fails too, it posts `INCIDENT-CLOCK <lane> in-process` naming
+both failures and the fallback brief. The root starts `<lane>-opus` that turn in its
+own session, an `Agent` of type `long-running:lane-ship` on opus in fast mode with that
+brief, and never retries Orca a third time.
 `ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, or a settled dispatch
 stops the clock. `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
@@ -1451,14 +1456,24 @@ relaunches a worker or guesses an answer to its prompt.
 (release v3, 2026-09-30). Also prevents the hook approval that froze a coordinator and
 its in-process lane until the owner pointed at it (orca-remote-managed, 2026-10-10).*
 
-**O14. Hold launches while load exceeds the core count, for a bounded time.** The
-runner reads the 1-minute load before each launch. An incident launch or one submitted with
-`--owner-directed` starts whatever the load. Above the core count any other launch
-stays accepted, `show` marks it `HELD` with the load and its age, and after
-`deadlines.load_hold_minutes` (default 5) it fails with a `LAUNCH-HELD` escalation and
-a Run mailbox message. It never kills a worker to lower load.
+**O14. Refuse launches while load exceeds the core count, and tell the root to move the
+load.** The runner reads the 1-minute load before each Mac launch. Above the core count
+an Orca worktree checkout times out, so no launch starts. Each ten minutes of it posts one
+`LOAD-HIGH` blocker to the root, which moves the load that turn: a pass, backfill, dry
+run, or bulk rewrite goes to in-region compute (R15), never waits it out. An incident
+launch or one submitted with `--owner-directed` fails at once with `LAUNCH-FAILED`, and
+the root launches that lane in its own session. Any other launch stays accepted, `show`
+marks it `HELD` with the load and its age, and after `deadlines.load_hold_minutes`
+(default 5) it fails with a `LAUNCH-HELD` escalation and a Run mailbox message. It never
+kills a worker to lower load. A Sprite launch never reads Mac load.
 
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
+
+*Also prevents the evening of 2026-10-13. Local passes held the Mac at load 85 to 105
+on 32 CPUs, every Orca worktree checkout timed out after 180 s, and four incident
+launches failed one by one, the clock's Opus fallback among them, before the root
+started that fallback in its own session by hand. Owner: "stop failing on broken
+tooling".*
 
 **O15. Preserve the codex and incident launch routes.** `sol`, `codex`, and
 `gpt-*` use `orca-launch.sh` on Orca's codex agent, on the standard tier.

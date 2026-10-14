@@ -64,7 +64,8 @@ R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute pa
 ```
 
 The runner does what `launch --key R<n>` does with the same model, effort, and
-brief; `NOW` is `--owner-directed`, so the launch skips the load hold. An incident
+brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
+waiting out the hold. An incident
 fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW incident xhigh brief=<path>`;
 only `incident` runs on the fast tier, and plain `sol` is the standard tier. A line without `R<n>` takes the key
 `inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
@@ -135,6 +136,11 @@ pass the runner reads the lane's own cci records and its `mechanism:`, `ready:`,
 | `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
 | `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
 | `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
+
+A fallback whose Orca launch fails is launched once more under `<key>:retry`. After a
+second failure, while the lane's clock runs, the runner logs
+`INCIDENT-CLOCK <lane> in-process: the Orca launch of the Opus fallback <lane>-opus failed twice: <reasons> | root: start <lane>-opus in-process now, ...`
+with the fallback brief's path, and launches nothing more for it.
 
 A later milestone counts for the earlier ones, so an opened PR also settles the
 mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
@@ -233,7 +239,7 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `LOST`, `INCIDENT-CLOCK`, and `HOLDS-UNREAD` use `blocker`, any `*-FAILED` uses
+`UNBOUND`, `UNOWNED`, `LOST`, `INCIDENT-CLOCK`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
 `defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
@@ -514,11 +520,13 @@ never types a guessed answer. Stale unread mail gets one terminal wake per messa
 typed only at the lane's plain empty prompt; completed or failed dispatch mail emits
 `STALE-MAIL`.
 
-**O14. Hold launches under load, for a bounded time.** Before each launch, the
-runner reads the 1-minute load average. Incident and `--owner-directed` launches
-never wait. Above the core count any other launch stays accepted and `show` marks it
-`HELD`; after `deadlines.load_hold_minutes` it fails with a `LAUNCH-HELD`
-escalation and a Run mailbox message. It never kills a worker to lower load.
+**O14. Refuse launches under load and tell the root to move it.** Before each Mac
+launch, the runner reads the 1-minute load average. Above the core count no launch
+starts, and each ten minutes of it posts one `LOAD-HIGH` blocker to the root.
+Incident and `--owner-directed` launches fail at once with `LAUNCH-FAILED`. Any other
+launch stays accepted and `show` marks it `HELD`; after `deadlines.load_hold_minutes`
+it fails with a `LAUNCH-HELD` escalation and a Run mailbox message. It never kills a
+worker to lower load.
 
 **O15. Preserve the codex and incident routes.** `sol`, `codex`, and `gpt-*` use
 Orca's codex agent on the standard tier. `incident xhigh` uses `gpt-6.1-sol`, a
@@ -616,7 +624,8 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. |
-| `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `ready`, clear what holds the missing milestone. The key is the lane. |
+| `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
+| `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
