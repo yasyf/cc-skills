@@ -59,6 +59,7 @@ class FakeShell(runner_module.Shell):
         self.delivery: list[dict] = []
         self.arriving: list[dict] = []
         self.inbox_error = None
+        self.orca_down = None
         self.inboxes: dict[str, list[dict]] = {}
         self.questions: list[dict] = []
         self.lose_sends = 0
@@ -155,6 +156,8 @@ class FakeShell(runner_module.Shell):
         self.calls.append(list(argv))
         name = Path(argv[0]).name
         if argv[0] == "orca":
+            if self.orca_down and argv[2] not in ("run-current", "run-show"):
+                return self.orca_down
             return self.orca(argv[1:-1])
         if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
             return self.ccn(argv[3:])
@@ -275,6 +278,8 @@ class FakeShell(runner_module.Shell):
             self.generation += 1
             return self.ok({"run": self.bound_run()})
         if verb == ["orchestration", "worker-show"]:
+            if argv[3] not in self.dispatches:
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_not_found", "message": f"no dispatch {argv[3]}"}}), "")
             dispatch = self.dispatches[argv[3]]
             fence = {"capabilityRevokedAt": "2026-10-01T18:00:00Z"} if dispatch.get("fenced") else {}
             return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
@@ -2102,6 +2107,71 @@ def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_de
     assert shell.sends() == [] and replies(shell) == []
 
 
+def test_a_dispatch_orca_answers_is_gone_fails_its_relay(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    del shell.dispatches["ctx_a"]
+    cli(shell, config, "relay", "--key", "R635", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    assert escalations(shell) == [f"RELAY-FAILED R635 {LANE}: no live dispatch; nothing was relayed"]
+
+
+def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_ends(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "R437", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.dispatches["ctx_a"]["status"] = "completed"
+    cli(shell, config, "relay", "--key", "R440", "--lane", LANE, "--text", "post the status")
+    for _ in range(3):
+        orca_pass(shell, config)
+    container = incident(tmp_path, f"desk-lane-{LANE}")
+    assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "failed")
+    assert len(shell.sends()) == 1
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
+
+
+UNREACHABLE_FAILURES = [
+    runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "Could not connect to the running Orca app. Restart Orca."}}), ""),
+    runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}), ""),
+    runner_module.Done(1, "", "connect ECONNREFUSED"),
+]
+
+
+@pytest.mark.parametrize("failure", UNREACHABLE_FAILURES)
+def test_an_orca_blip_changes_no_relay_and_logs_one_unreachable_and_one_back(shell, config, tmp_path, failure):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "R437", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.orca_down = failure
+    cli(shell, config, "relay", "--key", "R440", "--lane", LANE, "--text", "post the status")
+    for _ in range(3):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    container = incident(tmp_path, f"desk-lane-{LANE}")
+    assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "accepted")
+    [down] = escalations(shell)
+    assert down.startswith("ORCA-UNREACHABLE orca:") and "reads no dispatch as gone and fails no relay" in down
+    shell.orca_down = None
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [call[call.index("--thread-id") + 1] for call in shell.sends()] == [thread("R437"), thread("R440")]
+    lines = escalations(shell)
+    assert len(lines) == 2 and lines[1].startswith("ORCA-BACK orca-back:") and "for 3 min" in lines[1]
+    assert not any(line.startswith("RELAY-FAILED") for line in lines)
+
+
+def test_a_second_orca_outage_logs_its_own_streak(shell, config, tmp_path):
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    orca_pass(shell, config)
+    shell.orca_down = None
+    orca_pass(shell, config)
+    shell.sleep(60)
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split()[0] for line in escalations(shell)] == ["ORCA-UNREACHABLE", "ORCA-BACK", "ORCA-UNREACHABLE"]
+    assert runner_module.UNREACHABLE_FACT in incident(tmp_path, "desk-runner").facts
+
+
 def test_a_judge_runs_beside_the_pass_and_answers_once_it_exits(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
@@ -2269,13 +2339,13 @@ def test_mail_that_reaches_the_run_behind_the_cursor_is_relayed_before_its_deliv
     orca_pass(shell, config)
     assert stray["read"] and note["read"]
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == fixed["sequence"]
-    assert [line for line in escalations(shell) if "ORCA-INBOX" not in line] == [
+    assert [line for line in escalations(shell) if not line.startswith("ORCA-")] == [
         f"OUTCOME {fixed['id']} {LANE}: worker_done ? dispatch=ctx_a: fixed",
         f"OUTCOME {stray['id']} {LANE}: worker_done ? dispatch=ctx_a: sent to the terminal",
         f"UNRELAYED {note['id']} {LANE}: status from term_ctx_a at sequence {note['sequence']}, behind cursor {fixed['sequence']}, has no relay record and its type has no relay: direct note",
     ]
     orca_pass(shell, config)
-    assert len(escalations(shell)) == 4
+    assert len(escalations(shell)) == 5
 
 
 def test_nothing_dispatches_before_the_first_read_sets_the_cursor(shell, config, tmp_path):
@@ -2386,11 +2456,10 @@ def test_first_read_starts_at_the_newest_sequence_without_replaying_history(shel
     assert [line.split()[1] for line in escalations(shell)] == [fresh["id"]]
 
 
-@pytest.mark.parametrize("failure", [runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "socket closed"}}), ""), runner_module.Done(1, "", "socket closed")])
-def test_inbox_errors_escalate_once_per_bucket_without_advancing_the_cursor(shell, config, tmp_path, failure):
+def test_inbox_errors_escalate_once_per_bucket_without_advancing_the_cursor(shell, config, tmp_path):
     orca_pass(shell, config)
     fresh = shell.receive({"type": "worker_done", "subject": "fresh"})
-    shell.inbox_error = failure
+    shell.inbox_error = runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "socket closed"}}), "")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == 0
@@ -2425,6 +2494,28 @@ def test_the_orca_loop_waits_ten_seconds_between_quiet_passes(shell, config, tmp
         runner_module.run_orca(runner, False)
     assert set(sleeps) == {runner_module.WAKE_SECONDS}
     assert [later - earlier for earlier, later in itertools.pairwise(passes)] == [timedelta(seconds=runner_module.PASS_SECONDS)] * 2
+
+
+def test_the_orca_loop_backs_off_while_orca_gives_no_answer_and_resets_when_it_answers(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    passes = []
+
+    def write_view():
+        passes.append(shell.now())
+        if len(passes) == 5:
+            shell.orca_down = None
+        if len(passes) == 8:
+            raise RuntimeError("end loop")
+
+    def sleep(seconds):
+        shell.clock += timedelta(seconds=seconds)
+
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    monkeypatch.setattr(runner, "write_view", write_view)
+    monkeypatch.setattr(shell, "sleep", sleep)
+    with pytest.raises(RuntimeError, match="end loop"):
+        runner_module.run_orca(runner, False)
+    assert [(later - earlier).total_seconds() for earlier, later in itertools.pairwise(passes)] == [20, 40, 80, 120, 120, 10, 10]
 
 
 def test_a_desk_inbox_append_ends_the_wait_at_once(shell, config, tmp_path, monkeypatch):

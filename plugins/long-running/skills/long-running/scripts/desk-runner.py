@@ -26,7 +26,14 @@ resends all lost the same way log `LOST` once, with the count and the relay text
 the record's path, and nothing more is sent. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
-launch in flight fails at once as `RELAY-FAILED`. `cci post` keeps only the first
+launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
+a delivered relay is never failed or reported again. A lane has no live dispatch only
+when it has no receipt or Orca answers that its dispatch is gone. When Orca gives no
+answer, a runtime or connection error, a timeout, or output that is not its JSON, the
+pass stops there and changes no dispatch's liveness and no relay's state. The first
+such pass logs `ORCA-UNREACHABLE` once for the streak, each failed pass doubles the
+wait before the next, up to two minutes, and the first pass Orca answers again logs
+`ORCA-BACK`. `cci post` keeps only the first
 line of a text over its 400-character limit in the record, clipped, and writes the
 whole text to a file the record names by path. The runner reads a relay record's or a
 root reply's text from that file and relays all of it, line breaks kept: a relay's
@@ -284,6 +291,9 @@ SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
+UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
+UNREACHABLE_FACT = "orca-unreachable"
+UNREACHABLE_WAIT = timedelta(minutes=2)
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
 ROUTED_BLOCKER = re.compile(r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|(?:rules-review|fidelity) (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)")
@@ -397,6 +407,10 @@ class Done:
 
 
 class CciTailFailed(RuntimeError):
+    pass
+
+
+class OrcaUnreachable(RuntimeError):
     pass
 
 
@@ -703,6 +717,13 @@ class Orca:
         except json.JSONDecodeError:
             return {"ok": False, "error": {"code": UNPARSEABLE, "message": (done.out or done.err).strip()[:300]}}
 
+    def ask(self, *argv: str) -> dict:
+        """`call`, raising OrcaUnreachable when Orca gave no answer: a runtime or connection error, a timeout, or output that is not its JSON."""
+        reply = self.call(*argv)
+        if not reply.get("ok") and (error := reply["error"])["code"] in UNREACHABLE:
+            raise OrcaUnreachable(": ".join(filter(None, [error["code"], error.get("message")])))
+        return reply
+
     def receipt(self, lane: str) -> str:
         """The lane's current dispatch, or empty while no launch has written a whole receipt."""
         path = self.config.receipts / f"{lane}.json"
@@ -722,8 +743,9 @@ class Orca:
         return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
     def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
+        """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; raises OrcaUnreachable when Orca gives no answer."""
         dispatch = dispatch or self.receipt(lane)
-        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        shown = self.ask("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
         if not shown.get("ok"):
             return None
         result = shown["result"]
@@ -799,6 +821,7 @@ class Runner:
         self.sprites: set[str] = set()
         self.judging: dict[str, subprocess.Popen] = {}
         self.pass_binding: dict | None = None
+        self.unreachable_passes = 0
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -810,6 +833,26 @@ class Runner:
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
+
+    def orca_down(self, down: OrcaUnreachable) -> None:
+        """Count a pass Orca gave no answer to, and log `ORCA-UNREACHABLE` once for the streak it starts or continues."""
+        self.unreachable_passes += 1
+        streak = self.book.edit(RUNNER, lambda incident: dict(incident.facts.setdefault(UNREACHABLE_FACT, {"since": self.book.stamp(), "error": str(down)})))
+        since = pacific(actions.parse_stamp(streak["since"]))
+        self.escalate(f"orca:{streak['since']}", "ORCA-UNREACHABLE", "runner", f"{streak['error']}; since {since} the runner reads no dispatch as gone and fails no relay, and retries each pass with backoff up to {int(UNREACHABLE_WAIT.total_seconds())}s; ORCA-BACK follows when Orca answers")
+
+    def orca_back(self) -> None:
+        """End an unreachable streak with one `ORCA-BACK` once a pass Orca answered completes."""
+        self.unreachable_passes = 0
+        if UNREACHABLE_FACT not in self.book.load(RUNNER).facts:
+            return
+        streak = self.book.edit(RUNNER, lambda incident: incident.facts.pop(UNREACHABLE_FACT, None))
+        if streak:
+            since = actions.parse_stamp(streak["since"])
+            self.escalate(f"orca-back:{streak['since']}", "ORCA-BACK", "runner", f"Orca answers again; it gave no answer from {pacific(since)} for {whole_minutes(since, self.now())} min ({streak['error']})")
+
+    def pass_wait(self) -> float:
+        return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
     def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "") -> Done:
         """Post one cci record; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
@@ -1387,7 +1430,7 @@ class Runner:
             self.reconcile_sends(container, lane)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
-        """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each as RELAY-FAILED now."""
+        """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each relay no send delivered as RELAY-FAILED now."""
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
             for action in relays:
@@ -1397,8 +1440,13 @@ class Runner:
             return
         reason = f"no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}"
         for action in relays:
+            if self.delivered(container, action):
+                continue
             if self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
                 self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAY-FAILED {action.action_id} {lane}: {reason}; nothing was relayed")
+
+    def delivered(self, container: str, action: actions.Action) -> bool:
+        return any(send.authority_ref == action.action_id and send.status == "completed" for send in self.book.actions(container, kind="send"))
 
     def sends(self, container: str, key: str, dispatch: str) -> list[actions.Action]:
         prefix = f"send:{key}:{dispatch}"
@@ -1656,7 +1704,7 @@ class Runner:
         unrelayed = {message["id"] for message in delivery.get("messages") or [] if message["type"] != "heartbeat"} - set(facts.get(relayed, []))
         limit = INBOX_PAGE_SIZE
         while True:
-            reply = self.orca.call("orchestration", "inbox", "--terminal", f"run:{self.config.run}", "--limit", str(limit))
+            reply = self.orca.ask("orchestration", "inbox", "--terminal", f"run:{self.config.run}", "--limit", str(limit))
             if not reply["ok"]:
                 self.escalate(f"orca-inbox:{actions.stamp(self.now())[:15]}", "ORCA-INBOX", "runner", json.dumps(reply["error"]))
                 return cursor is not None
@@ -2650,18 +2698,23 @@ def run_orca(runner: Runner, once: bool) -> int:
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
             rotated = runner.now()
-        if runner.check():
-            runner.reap()
-            runner.resume_judges()
-            runner.read_inbox()
-            runner.read_cci()
-            runner.deliver()
-            if runner.now() - swept >= SWEEP_EVERY:
-                runner.sweep()
-                swept = runner.now()
-        runner.deadlines_orca()
-        runner.incident_clock()
-        runner.in_process()
+        try:
+            if runner.check():
+                runner.reap()
+                runner.resume_judges()
+                runner.read_inbox()
+                runner.read_cci()
+                runner.deliver()
+                if runner.now() - swept >= SWEEP_EVERY:
+                    runner.sweep()
+                    swept = runner.now()
+            runner.deadlines_orca()
+            runner.incident_clock()
+            runner.in_process()
+        except OrcaUnreachable as down:
+            runner.orca_down(down)
+        else:
+            runner.orca_back()
         runner.status_clock()
         runner.aged_holds()
         runner.flush()
@@ -2669,7 +2722,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.beat()
         if once:
             return 0
-        runner.idle(PASS_SECONDS)
+        runner.idle(runner.pass_wait())
 
 
 def run_landing(runner: Runner, once: bool) -> int:
@@ -2682,6 +2735,8 @@ def run_landing(runner: Runner, once: bool) -> int:
             landing.run()
         except CciTailFailed as failure:
             runner.tail_failed(failure)
+        except OrcaUnreachable as down:
+            runner.orca_down(down)
         runner.flush()
         if once:
             return 0

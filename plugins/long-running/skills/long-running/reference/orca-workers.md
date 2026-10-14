@@ -413,8 +413,9 @@ age starts at creation; an inbox line's age starts at dispatch completion.
 A lost connection or a `runtime_unavailable` error retries once, then prints
 `connection-lost` and exits 1. Any other Orca error prints
 `error <code>: <message>` and exits 1 without retrying. The runner's separate Run
-inbox read emits `ORCA-INBOX` on failure and keeps its saved cursor for the next
-pass. It never restarts Orca. [orca-desk-brief.md](orca-desk-brief.md) gives the loop
+inbox read emits `ORCA-INBOX` on an Orca error and keeps its saved cursor for the next
+pass. When Orca gives no answer at all, it logs `ORCA-UNREACHABLE` once per streak
+and `ORCA-BACK` when Orca answers again. It never restarts Orca. [orca-desk-brief.md](orca-desk-brief.md) gives the loop
 and escalation contract.
 
 ## Worked example: a v3 drive
