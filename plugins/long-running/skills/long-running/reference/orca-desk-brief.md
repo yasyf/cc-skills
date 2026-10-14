@@ -407,7 +407,9 @@ per desk. Restarting a runner never means relaunching its workers.
 
 The orca process rewrites `orca-runner.heartbeat.json` beside the desk inbox every
 pass, and its `restart` field is the command to run from the bound terminal when the
-`desk_liveness` hook reports `LAUNCH-FAILED`.
+`desk_liveness` hook reports `LAUNCH-FAILED`. The hook finds that file under the
+drive registry's `state_dir`, in `inbox/`, so the desk inbox has to sit at
+`<state_dir>/inbox/orca-desk.md`.
 
 For the cci cutover, the root adds `drive` to the runner config, confirms
 `orca.desk_inbox`, and restarts both runners. Its records keep arriving over the

@@ -1402,7 +1402,10 @@ pid, pass time, and restart command. A `cci post` that fails stays queued for th
 pass instead of stopping the runner. When a Bash append to `orca-desk.md` finds that
 heartbeat missing, more than 30 seconds old, or its process gone, the `desk_liveness`
 hook answers `LAUNCH-FAILED` with the restart command, and the restarted runner reads
-the appended line from its saved cursor.
+the appended line from its saved cursor. The hook reads the heartbeat in the
+`inbox/` directory under the `state_dir` that the drive registry records for the
+session, so the check holds however the command spells the inbox path, such as
+`$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
 
 The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 `inbox-rotate.py` records time and stream-end marks and archives through the newest
