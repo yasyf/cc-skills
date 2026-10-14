@@ -155,7 +155,9 @@ launch's receipts are copied beside the local ones. `run --desk landing` gates a
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
 admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
-which goes to the lane as a blocker. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
+which goes to the lane as a blocker. A gate's `BLOCKED` verdict goes to the lane once per head and blocker only for red CI,
+a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
+missing approval, and never for a PR that is held or stacked above a held PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
@@ -284,6 +286,8 @@ UNPARSEABLE = "unparseable"
 UNREAD = "unread"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
+ROUTED_BLOCKER = re.compile(r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|(?:rules-review|fidelity) (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)")
+BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure )")
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
@@ -2125,6 +2129,25 @@ def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
 
+def routed_blocker(detail: str) -> str:
+    segments = detail.split("; ")
+    if not any(ROUTED_BLOCKER.match(segment) for segment in segments):
+        return ""
+    return "; ".join(segment for segment in segments if ROUTED_BLOCKER.match(segment) or BLOCKER_HINT.match(segment))
+
+
+def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
+    by_branch = {row.get("branch"): pr for pr, row in open_rows.items()}
+    covered = set()
+    for pr in open_rows:
+        below = pr
+        while below is not None and below not in held:
+            below = by_branch.get(open_rows[below].get("base"))
+        if below is not None:
+            covered.add(pr)
+    return covered
+
+
 def pr_name(pr: int | str) -> str:
     """A cci PR reference in prose: a bare number as `#12`, `owner/repo#12` as written."""
     return str(pr) if "#" in str(pr) else f"#{pr}"
@@ -2226,6 +2249,7 @@ class Landing:
             if not row.get("ours") and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
+        covered = under_hold(open_rows, held)
         with ThreadPoolExecutor(max(1, len(trees))) as pool:
             gated = list(zip(trees, pool.map(lambda tips: self.shell.run(self.enqueue_argv(tips, held, check=True)), trees), strict=True))
         for tips, done in gated:
@@ -2239,8 +2263,8 @@ class Landing:
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
                     self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
-                elif match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
-                    self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tips, held)
+                elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered and (blocker := routed_blocker(match["detail"])):
+                    self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, held)
 
     def fidelity(self, pr: str, sha: str) -> dict | None:
         drive = self.runner.config.drive
@@ -2510,7 +2534,7 @@ class Landing:
             return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tips, held, check=True)).out)}
         current = fresh.get(pr)
-        if current and current["verdict"] == "BLOCKED" and current["detail"] == blocker:
+        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
             self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
 
     def routed(self, key: str, lane: str) -> bool:

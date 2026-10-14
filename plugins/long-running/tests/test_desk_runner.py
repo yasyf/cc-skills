@@ -1045,22 +1045,117 @@ def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config
 def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 not approved by poetic-svc"), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 changes requested by poetic-svc on bbbb222222"), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
-    assert not [call for call in shell.sends() if "approved" in call[call.index("--body") + 1]]
+    assert not [call for call in shell.sends() if "changes requested" in call[call.index("--body") + 1]]
     assert escalations(shell) == []
 
 
 def test_a_blocker_still_present_at_send_time_goes_to_the_lane_once(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 not approved by poetic-svc")]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 changes requested by poetic-svc on cccc333333")]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    asked = [call for call in shell.sends() if "not approved" in call[call.index("--body") + 1]]
+    asked = [call for call in shell.sends() if "changes requested" in call[call.index("--body") + 1]]
     assert len(asked) == 1
+
+
+def relayed(shell: FakeShell) -> list[str]:
+    return [call[call.index("--body") + 1].split("\n\n")[0] for call in shell.sends()]
+
+
+ONE_ROW = {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "graphite FAILING_REQUIRED",
+        "rules-review failure: R1 names a missing monitor",
+        "fidelity failure: cci #61407 fidelity: missing F307 at cccc333",
+        "graphite MERGE_CONFLICTS; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit",
+        "conflicts with origin/dev in go/a.go; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit",
+        "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit",
+        "changes requested by forge-pr-reviewer[bot] on cccc333333",
+        "ejected from the merge queue Oct 13, 1:06 AM UTC because Failed CI (test-unit), and no head was pushed since; read the failure in its Merge activity comment and push the fix as a new head before enqueueing again",
+    ],
+)
+def test_red_ci_a_conflict_a_review_ask_or_an_ejection_goes_to_the_lane(shell, config, tmp_path, detail):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {detail}")]
+    landing_pass(shell, config)
+    assert relayed(shell) == [f"#29020 cccc333333: {detail}"]
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "CI running (graphite RUNNING)",
+        "graphite WAITING_ON_DOWNSTACK",
+        "graphite NEEDS_CODEOWNER_APPROVALS; ai-review in progress",
+        "graphite REBASING; retry when restacked",
+        "rules-review in progress on head",
+        "not approved by poetic-svc",
+    ],
+)
+def test_a_pending_check_or_a_missing_approval_is_never_routed(shell, config, tmp_path, detail):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {detail}")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.sends() == [] and shell.posts == [] and escalations(shell) == []
+
+
+def test_a_conflict_beside_a_running_check_routes_once_without_the_check(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [ONE_ROW]
+    running = gate("#29020 BLOCKED cccc333333 CI running (graphite RUNNING); conflicts with origin/dev in go/a.go")
+    red = gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED; conflicts with origin/dev in go/a.go")
+    shell.gates["29020"] = [running, running, gate("#29020 BLOCKED cccc333333 conflicts with origin/dev in go/a.go"), red, red]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go"]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go", "#29020 cccc333333: graphite FAILING_REQUIRED; conflicts with origin/dev in go/a.go"]
+
+
+def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    (tmp_path / "holds.md").write_text("#37102 HOLD until reworked into replan B1\n")
+    shell.rows = [
+        {"pr": "37102", "lane": LANE, "branch": "r/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "37103", "lane": LANE, "branch": "r/2", "base": "r/1", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+        {"pr": "37156", "lane": LANE, "branch": "r/3", "base": "r/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+    ]
+    shell.gates["37156"] = [
+        gate(
+            "#37102 BLOCKED aaaa111111 held; graphite FAILING_REQUIRED",
+            "#37103 BLOCKED bbbb222222 conflicts with origin/dev in go/a.go",
+            "#37156 BLOCKED cccc333333 CI running (graphite RUNNING); sits above held #37102",
+        )
+    ]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.sends() == [] and shell.posts == []
+    (tmp_path / "holds.md").write_text("")
+    shell.gates["37156"] = [
+        gate(
+            "#37102 BLOCKED aaaa111111 graphite FAILING_REQUIRED",
+            "#37103 BLOCKED bbbb222222 conflicts with origin/dev in go/a.go",
+            "#37156 BLOCKED cccc333333 CI running (graphite RUNNING)",
+        )
+    ]
+    landing_pass(shell, config)
+    assert sorted(relayed(shell)) == [
+        "#37102 aaaa111111: graphite FAILING_REQUIRED",
+        "#37103 bbbb222222: conflicts with origin/dev in go/a.go",
+    ]
 
 
 def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, config, tmp_path):
@@ -1071,7 +1166,7 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
         {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
     ]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 not approved by poetic-svc; held")]
+    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 changes requested by poetic-svc on dddd444444; held")]
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
@@ -1185,7 +1280,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
         "#36487 GREEN bbbb222222 graphite READY",
         "#36501 GREEN cccc333333 graphite READY",
         "#36510 BLOCKED dddd444444 held",
-        "#36520 BLOCKED eeee555555 failed check runs: test",
+        "#36520 BLOCKED eeee555555 graphite FAILING_REQUIRED",
     )
     shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
