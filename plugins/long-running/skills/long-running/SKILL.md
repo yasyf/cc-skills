@@ -380,8 +380,19 @@ the owner to ask. A lane that cannot spawn records a `ccn papercut` and names th
 defect in its report, and the root dispatches the tooling lane on reading it. The
 capt-hook `tooling_nudge` hook flags these signals; the rule holds without it.
 
+A lesson is a process fix. When the root, a lane, or a retro names a lesson, a rule,
+or a "fix for next time", the skill or tool PR that encodes it opens in that same turn,
+from a lane spawned for it, unprompted. A lesson that lives in a status, a memory file,
+or a retro card alone is not landed. A patch made under incident pressure is recorded
+as a reconcile item the turn it ships, and the drive replaces it with the fundamental
+fix as its own lane, never as backlog.
+
 *Prevents the release-v3 R137 and R138 rulings of 2026-09-30 living only in the
-drive's inbox files until this skill change.* *Also prevents the owner asking three
+drive's inbox files until this skill change. Also prevents 2026-10-12 and 2026-10-13,
+when lessons named in reports waited for the owner to ask: "you keep saying concrete
+fixes for next time but not once have you opened a skill PR without me prompting", and
+"clean up all the shitty bandaids you did today into a proper set of fundamental
+fixes".* *Also prevents the owner asking three
 times on 2026-10-01 for tool fixes the root had worked around: the ccx submodule
 refusal, Orca message delivery, and the ledger gap.*
 
@@ -527,6 +538,18 @@ brief, and never retries Orca a third time.
 stops the clock. `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
 limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
+
+An incident adds lanes. It never stops a lane on the plan and never leaves one
+unstarted: at every incident spawn the root also dispatches each open plan unit with no
+live lane, and holds only a plan lane that edits the files the fix edits. Every status
+to the owner names each open plan unit and the lane on it next to the incident's state.
+Every incident fix lane aims to be fix-live within 20 minutes of its launch.
+
+*Prevents the plan of 2026-10-13 standing still for six to seven hours a unit while
+every lane worked incidents. Owner: "when there are incidents yes every lane should
+focus on fixing them but you should still let background lanes also keep chugging on
+main plan", and "you need to not fuck around during incidents and get them fixed in
+20 mins max, always".*
 
 *Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
 hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
@@ -1324,6 +1347,27 @@ first pass sends nothing, and neither does a landed row with no `landed_at`.
 with the `merge-fast` label and a `Release-With` line naming `sand`. The release
 owner's session was busy, the landing runner said nothing about a release, and the
 root started the `sand` release by hand about 50 minutes later.*
+
+**D21. A format change lands readers first.** A PR that changes a format another build
+reads, such as a journal, seal, session, manifest, or any stored file or row, is a
+writer. Its readers ship first, in their own PR, and that PR's release is live on every
+client that reads the format before the writer is enqueued: browser bundle, desktop
+app, local daemon, and server. A client that never restarts on its own counts until it
+refuses the old build. The writer's body carries
+`Readers-First: #<reader PR> live in <release>` for each reader, and never a
+`Release-With` that pairs it with its reader.
+
+The writer's lane posts `cci post --kind hold --pr <writer> --text "readers-first:
+#<reader> not live on every client"` when it opens the writer, so the landing runner
+refuses it under D1 until the root lifts that hold with `lift --resolves <seq>`, naming
+the release and its live read-back. The landing desk grades each tracked PR's diff for a
+format change and posts the same hold, reason "readers-first: no reader named", on a
+writer with no `Readers-First:` line.
+
+*Prevents the breaks of 2026-10-13: the two-tier seal, segment links, and migration
+passes went live while old daemons and bundles still read the old format, and resume,
+forks, SoFi mounts, Chime, and a reporter's cloud run all failed with "cannot read"
+errors that each got a forward patch.*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
@@ -2646,6 +2690,15 @@ Label every hand-written progress or handoff doc `progress:<slug>`, the slug in 
 plan's pointer line, whatever else it carries; the hook refuses a root `doc add` whose
 title says `progress` or `pre-compact`, or whose labels name another `progress:` slug,
 without it.
+
+A doc that more than one writer edits, such as a progress doc whose register a desk
+stamps, is edited only through `ccn doc edit <id> --checkout` run immediately before
+the edit, then the edit to that file, then `ccn doc edit <id> --apply`. Never
+`--body` from a copy read earlier, and never apply a checkout taken before another
+writer's change.
+
+*Prevents progress doc 75c873ec losing the fidelity desk's register stamps twice on
+2026-10-13, when root edits applied from older copies overwrote F343 to F351.*
 
 Write each compaction's narrative as its own doc, self-contained, and add an addendum as
 another doc when more happens before the compaction. The hook never folds, trims, or
