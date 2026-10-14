@@ -15,6 +15,18 @@ fences the target, and runs comms. Read the evidence as it grows with
 Drive facts:
 {facts}
 
+Telemetry first. Before any ask reaches the reporter, read what the platform already
+  records about their case, and put each answer in the evidence:
+  - the client build: the reporter's team's client versions from the metrics, and
+    the version their failing requests carried;
+  - the run, session, or thread record the report names, and which component served
+    the failing request: a cloud run is served by the cloud, never by their machine;
+  - server logs and Sentry for that request, searched by the user's and team's ids;
+  - the release and deploy timeline for the component that served it.
+  Ask the reporter, through comms, only for what none of these hold, such as what
+  they saw on screen. When the same ask recurs, the fix includes the telemetry that
+  makes it unnecessary, such as the client version on every request.
+
 Do:
   0. Rollback first. If a release, apply, or deploy in the 2 hours before onset
      touched the alert's target, first roll it back to that target's previous

@@ -770,6 +770,38 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
   event and posts without a root turn; the root is told, not asked
   (`reference/active-alert-brief.md`).
 
+**Reporter threads.** A thread where a person reported a break gets these rules from
+every lane that writes in it, and the incident and Slack lane briefs carry them:
+
+- Telemetry before asks. Never ask a reporter for a client version, an id, a log line,
+  or a reproduction step that metrics, logs, Sentry, or our own run and session records
+  hold. The incident fix brief lists those reads first. A reporter is asked only for
+  what cannot be read, such as what they saw, at most once. An ask that keeps recurring
+  becomes a tooling lane that puts the fact in telemetry, such as the client version on
+  every request.
+- Architecture before cause. Before any message names a cause on a reporter's machine,
+  the lane states which component served the failing request and shows that the request
+  reached the reporter's client. A cloud run is served by the cloud. Every cause the
+  lanes have not proven is called suspected, to the owner and in the thread.
+- One message per reporter turn. Between two messages from the reporter the drive posts
+  at most one. A fix going live, a lane's new ask, or a correction waits for the
+  reporter's next message or is edited into the standing line. A root-directed line
+  counts against the thread too.
+- One writer per thread. One lane writes in a thread; every other lane routes through
+  it. A Claude post there that is not one of this drive's own posts comes from another
+  session. The writer stops posting, and the root tells the owner in that turn which
+  thread and which post.
+
+*Prevents the reporter threads of 2026-10-13. The comms desk asked a reporter for
+`sand --version` while the alerts desk could read his team's client versions from
+metrics, and posted 21 lines in one thread, three of them since the reporter last spoke.
+The root also named a reporter's local sand as the cause of a failure in a cloud run,
+and blamed another reporter's old client for a blob error the lane had called unproven.
+Owner: "stop asking people for things you can collect yourself", "why don't you fucking
+report that sand version in the header or something so you stop asking people", "its a
+cloud run so what does it have to do with his local sand?", and in the thread itself,
+"lol sorry for the insane spam here".*
+
 **The drive's updates channel.** The turn the owner names a channel for the drive's
 updates, the root records the owner's words as the channel's grant and spawns
 `comms-desk` from `reference/comms-desk-brief.md`. The grant is two literal

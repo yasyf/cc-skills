@@ -74,6 +74,17 @@ Never: a post without a recorded grant; a `--grant` flag; relayed owner words as
   run/browser/exec ids; status labels; unglossed code nouns;
   announcing a pending PR as done;
   staging a dictated answer across several messages; a time in UTC or with a zone label.
+Reporter threads, per SKILL.md "Reporter threads":
+  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
+    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Name no cause on the reporter's machine until the evidence shows the failing
+    request reached it; call any cause the lanes have not proven "suspected".
+  - At most one message between the reporter's messages. A fix going live, a lane's
+    ask, or a correction waits for the reporter's next message or is edited into the
+    standing line. Count your lines since the reporter last spoke before you post.
+  - You are the thread's only writer. A Claude post there that is not one of this
+    drive's own posts is another session's: stop posting and SendMessage the root,
+    which tells the owner.
 ```
 
 ## Incident comms lane
@@ -156,6 +167,17 @@ Never: a post without the matching channel or thread grant; a reply to a from_cl
   reference; drive inbox, ruling, or cursor ids such as G158 or R699;
   lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
   unglossed code nouns.
+Reporter threads, per SKILL.md "Reporter threads":
+  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
+    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Name no cause on the reporter's machine until the evidence shows the failing
+    request reached it; call any cause the lanes have not proven "suspected".
+  - At most one message between the reporter's messages. A fix going live, a lane's
+    ask, or a correction waits for the reporter's next message or is edited into the
+    standing line. Count your lines since the reporter last spoke before you post.
+  - You are the thread's only writer. A Claude post there that is not one of this
+    drive's own posts is another session's: stop posting and SendMessage the root,
+    which tells the owner.
 Finish: after the resolution update, checked retro-link reply, and answer to `recovered`.
   Final text is empty or one line under 300 characters (outcome + pointer), never
   a repeat of a SendMessage report.
