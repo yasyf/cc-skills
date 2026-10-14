@@ -993,6 +993,15 @@ lane, and nothing in its prefix is enqueued. The check runs again just before
 the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
 `fidelity-desk`; a drive with no fidelity lane enqueues nothing through the runner.
 
+The runner also mirrors each grade onto GitHub. On every pass it sets commit
+status `fidelity` on each open row's head the fidelity lane graded: `success`
+for `fidelity: ok`, `failure` for `fidelity: missing`, described by the grade's
+first line and its cci seq, once per grade record. A head with no grade gets
+no status. stack-enqueue reads that status and refuses a head whose `fidelity`
+is not `success`, whoever calls it, so the grade binds a hand run and another
+drive's desk as well. A `failure` shows as a red check on the PR; the fidelity
+lane grades a head whatever that check reads and never waits on it.
+
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
 monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
 it landed as 2b06f105 without its test, because the gate read only
