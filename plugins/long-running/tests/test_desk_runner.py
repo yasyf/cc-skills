@@ -4080,6 +4080,20 @@ def test_a_status_post_restarts_the_hour_and_the_next_blocker_names_it(shell, co
     assert post["text"] == f"STATUS-DUE status runner: 60 min with no status post in #epd-sprint; the last went out at 11:30, cci #{seq}. {STATUS_ASK}"
 
 
+def test_a_status_blocker_posted_late_still_opens_the_next_window_at_its_due_time(shell, config, tmp_path):
+    with_status(config)
+    orca_pass(shell, config)
+    shell.sleep(60 * 60)
+    shell.post_error = "cci: daemon restarting"
+    orca_pass(shell, config)
+    shell.post_error = ""
+    shell.sleep(50 * 60)
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [post["id"] for post in status_posts(shell)] == ["status-due:2026-10-01T18:00:00Z", "status-due:2026-10-01T19:00:00Z"]
+
+
 def test_a_status_blocker_cci_refused_is_sent_again_as_the_same_record(shell, config, tmp_path):
     with_status(config)
     orca_pass(shell, config)

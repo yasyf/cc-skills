@@ -1904,7 +1904,7 @@ class Runner:
             )
 
     def status_clock(self) -> None:
-        """With `status.channel` set, post one `STATUS-DUE` blocker to the root and the comms desk for each `deadlines.status_minutes` the drive goes without a `posted` record on topic `status`, timed from the newest such record or the first pass that saw the channel; the post carries its window's start as its cci id, so a lost save resends the same record."""
+        """With `status.channel` set, post one `STATUS-DUE` blocker to the root and the comms desk for each `deadlines.status_minutes` the drive goes without a `posted` record on topic `status`, timed from the newest such record or the first pass that saw the channel; the post carries its window's start as its cci id, so a lost save resends the same record, and the next window opens at this one's due time whenever the post went out."""
         if not self.config.status_channel:
             return
         moment = self.now()
@@ -1921,7 +1921,8 @@ class Runner:
         told = actions.parse_stamp(clock["at"])
         nagged = [actions.parse_stamp(action.started_at) for action in self.book.actions(RUNNER, kind="status-due", status="completed")]
         since = max([told, *nagged])
-        if moment - since < timedelta(minutes=self.config.status_minutes):
+        due = since + timedelta(minutes=self.config.status_minutes)
+        if moment < due:
             return
         last = f"the last went out at {pacific(told)}, cci #{clock['seq']}" if clock["seq"] else f"none since the runner started watching at {pacific(told)}"
         text = f"STATUS-DUE {STATUS_TOPIC} runner: {whole_minutes(told, moment)} min with no status post in {self.config.status_channel}; {last}. {COMMS_DESK}: post the delta since then now, under the channel's standing grant, with no approval. root: answer it if it asks for facts"
@@ -1931,7 +1932,7 @@ class Runner:
             return
         done = self.cci_post("blocker", action.target, f"{ROOT},{COMMS_DESK}", STATUS_TOPIC, key, record_id=key)
         if done.code == 0:
-            self.book.attempt(RUNNER, lambda incident: (incident.start(key, moment), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+            self.book.attempt(RUNNER, lambda incident: (incident.start(key, due), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
 
     def executor_backup(self, lane: str) -> str:
         """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
