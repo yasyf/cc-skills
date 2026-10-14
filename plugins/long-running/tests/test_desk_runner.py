@@ -88,6 +88,7 @@ class FakeShell(runner_module.Shell):
         self.attach_error = ""
         self.attach_code = 1
         self.unresolved: set[str] = set()
+        self.logs: dict[str, str] = {"briefs1": "briefs: d1"}
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
@@ -155,11 +156,8 @@ class FakeShell(runner_module.Shell):
         name = Path(argv[0]).name
         if argv[0] == "orca":
             return self.orca(argv[1:-1])
-        if argv[:5] == ["ccn", "-R", str(self.root / "checkout"), "attachment", "path"] and argv[5] == "briefs1":
-            path = None if argv[6] in self.unresolved else self.attachments.get(argv[6])
-            return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[6]}")
-        if argv[:6] == ["ccn", "-R", str(self.root / "checkout"), "log", "append", "briefs1"]:
-            return self.append(argv[6:])
+        if argv[:3] == ["ccn", "-R", str(self.root / "checkout")]:
+            return self.ccn(argv[3:])
         if name == "orca-check.sh":
             assert argv[1:] == ["--stale"]
             return runner_module.Done(0, self.stale_out, "")
@@ -225,6 +223,23 @@ class FakeShell(runner_module.Shell):
         if "--limit" in argv:
             found = found[-int(argv[argv.index("--limit") + 1]) :]
         return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in found), "")
+
+    def ccn(self, argv: list[str]) -> runner_module.Done:
+        if argv[:2] == ["attachment", "path"] and argv[2] in self.logs:
+            path = None if argv[3] in self.unresolved else self.attachments.get(argv[3])
+            return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[3]}")
+        if argv[:2] == ["log", "append"] and argv[2] in self.logs:
+            return self.append(argv[3:])
+        if argv[:2] == ["log", "show"]:
+            return runner_module.Done(0, f"id: {argv[2]}\n", "") if argv[2] in self.logs else runner_module.Done(1, "", f'not-found: entity not found: no log matches "{argv[2]}"')
+        if argv == ["log", "list", "--json"]:
+            return runner_module.Done(0, json.dumps([{"id": log, "title": title} for log, title in self.logs.items()]), "")
+        if argv[:2] == ["log", "add"]:
+            assert argv[3:] == ["--label", "program:d1", "--json"]
+            log = f"log{len(self.logs) + 1}"
+            self.logs[log] = argv[2]
+            return runner_module.Done(0, json.dumps({"id": log, "title": argv[2]}), "")
+        raise AssertionError(f"unexpected ccn call {argv}")
 
     def append(self, flags: list[str]) -> runner_module.Done:
         assert flags[0] == "--entry" and flags[2] == "--attach" and flags[4:] == ["--replace"]
@@ -3196,6 +3211,33 @@ def test_a_monitor_alert_line_launches_nothing_and_records_the_transition(shell,
     assert shell.entries == []
     [line] = escalations(shell)
     assert line.startswith("ALERT dd-312516332 ") and "no lane launched; the alerts desk writes `orca-desk: incident" in line
+
+
+def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_briefs_log_and_the_incident_still_launches(shell, config, tmp_path):
+    orca_pass(shell, config)
+    del shell.logs["briefs1"]
+    shell.logs["b2"] = "briefs: d1"
+    shell.launch_line = "dd-7-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    desk_inbox(tmp_path, "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx")
+    orca_pass(shell, config)
+    shell.launch("dd-7-fix", "ctx_n")
+    orca_pass(shell, config)
+    brief = shell.attachments["dd-7-fix.full.md"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-7-fix", "incident", "xhigh", str(brief)]]
+    assert f"ccn -R {tmp_path / 'checkout'} attachment path b2 dd-7-evidence.md" in brief.read_text()
+    lines = escalations(shell)
+    assert lines[0].startswith("BRIEFS-LOG briefs-log:briefs1 runner: briefs log briefs1 does not resolve") and "briefs now attach to b2 (briefs: d1)" in lines[0]
+    assert lines[1].startswith("INCIDENT dd-7 ") and "fix lane dd-7-fix launching on incident xhigh" in lines[1]
+
+
+def test_a_drive_with_no_briefs_log_creates_its_briefs_log_at_start(shell, config):
+    raw = json.loads(config.read_text())
+    raw["orca"]["briefs"] = {"repo": raw["orca"]["briefs"]["repo"]}
+    config.write_text(json.dumps(raw))
+    shell.logs.clear()
+    orca_pass(shell, config)
+    assert shell.logs == {"log1": "briefs: d1"}
+    assert [line for line in escalations(shell) if line.startswith("BRIEFS-LOG ")] == [f"BRIEFS-LOG briefs-log:unset runner: briefs log (unset) does not resolve on {raw['orca']['briefs']['repo']}; briefs now attach to log1 (briefs: d1), so set orca.briefs.log to it"]
 
 
 def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_incident_fix_lane_once(shell, config, tmp_path):

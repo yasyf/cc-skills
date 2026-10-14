@@ -308,7 +308,10 @@ launch with no ready line and no such proof logs `SPRITE-UNVERIFIABLE` and launc
 nothing locally.
 A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
 
-Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
+Generated fix briefs are attachments on `orca.briefs.log`. The runner checks that
+log at start and before every brief it attaches. When the log is unset or no longer
+resolves, the runner switches to the drive's `briefs: <drive>` log, creating it if
+missing, and logs `BRIEFS-LOG` naming the new id for the config. `alert.facts` names
 the file whose contents go into each brief: drive checkout, apply authority,
 target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
 `NOT-OURS` lines.
