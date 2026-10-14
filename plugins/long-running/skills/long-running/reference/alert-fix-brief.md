@@ -66,7 +66,9 @@ Do:
        stops the clock.
      Each limit you pass without its record sends a blocker to the root, who tells
      the owner.
-  3. Build the durable fix, ship it via submit-pr, and enqueue it `--fast`.
+  3. Build the durable fix and ship it via submit-pr. Once CI is green and the
+     bots approved, post READY with the exact head; the landing desk owns enqueue.
+     Never run stack-enqueue, rebase, or push a queued branch.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the

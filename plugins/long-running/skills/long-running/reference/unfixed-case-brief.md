@@ -39,8 +39,9 @@ Do:
      cloud run is served by the cloud, never by their machine. Record it failing
      now, before you change anything.
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;
-     otherwise, start from a fresh trunk. Ship it through submit-pr and enqueue it
-     `--fast`.
+     otherwise, start from a fresh trunk. Ship it through submit-pr. Once CI is
+     green and the bots approved, post READY with the exact head; the landing desk
+     owns enqueue. Never run stack-enqueue, rebase, or push a queued branch.
   3. The orca desk's clock runs from your launch. It reads the cci records you
      post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {parent} --text "<line>"`,
