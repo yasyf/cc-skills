@@ -396,20 +396,18 @@ fixes".* *Also prevents the owner asking three
 times on 2026-10-01 for tool fixes the root had worked around: the ccx submodule
 refusal, Orca message delivery, and the ledger gap.*
 
-**R15. CI is the verifier, never the box.** A lane never runs a whole-package build or
-suite locally: no `buck2 build`, `cargo build`, `yarn tsc:*`, `bun test`, jest, or
-`go test ./...`. It pushes and reads CI. The only local runs are the one failing test
-that reproduces a red CI step, or a single artifact the brief names. Those run one at a
-time with parallelism capped at `-j 8` or the tool's equivalent. Machine load governs only those local runs: before
-starting one, a lane reads the 1-minute load, and above the core count it posts one
-`HELD on load <load>/<cores>: <command>` status line to the Run mailbox
-(`orca orchestration send --type status`) and waits at most 5 minutes before running it
-anyway. Load never holds a Buildkite build, a hand apply of a saved plan, an incident
-step, or an owner-directed step; those run at once.
+**R15. CI is the verifier, never the box.**
+Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+That holds for one failing test and a single artifact as much as for a whole package.
+Machine load never holds a Buildkite build, a hand apply of a saved plan, an
+incident step, or an owner-directed step; those run at once.
 
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill, and apply-restate-1255 holding an
 owner-ordered Buildkite apply on load 428 until the root answered (2026-10-02).*
+*Also prevents lanes reproducing red CI with one local test after the owner withdrew
+that allowance on 2026-10-13 (answer 7e82747, register F341) and ordered at 2:42 PM
+"no local compiles anywhere; CI grades" (F348).*
 
 A batch job never runs on the orchestrator's machine. A data pass, a backfill, a dry
 run of one, and a bulk rewrite run on in-region compute, one process per bucket or
@@ -1572,9 +1570,8 @@ launch needs a reporting route, never another launch. Inline lanes still use
 **O16. Place each lane on a Sprite or the Mac; high-CPU lanes default to a Sprite.**
 The launching model places a lane on its brief's `ccx:` line, with `place=remote` for
 a Sprite or `place=local` for the Mac. With neither key, a `cpu=high` lane goes to a
-Sprite and every other lane launches locally; `cpu=high` marks a build, a test
-reproduction, a sweep, or heavy research. An explicit `place=` wins over `cpu=high`
-in both directions. Fable, incident, an incident clock fallback, and a standing
+Sprite and every other lane launches locally; `cpu=high` marks a sweep or
+heavy research. An explicit `place=` wins over `cpu=high` in both directions. Fable, incident, an incident clock fallback, and a standing
 desk's `role=desk` or `role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
 says what a Sprite holds and when to choose each.
 
@@ -1851,9 +1848,8 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 standing desk: `orca-launch.sh` gives it a contract that loops until rotation and
 sends `worker_done` only then, naming the handoff doc
 ([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)). `cpu=high` marks a
-build, test reproduction, sweep, or heavy research lane, which goes to a Sprite by
-default. `place=remote` or `place=local` places any lane yourself and wins over that
-default (O16).
+sweep or heavy research lane, which goes to a Sprite by default. `place=remote` or
+`place=local` places any lane yourself and wins over that default (O16).
 
 A brief states the outcome ("one failing database never blocks a release"), never a
 design ("report it in the Switch; reuse the handoffz and census readers"). Step 0 of
@@ -1942,13 +1938,7 @@ Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to 
   where a hook misreads the command, and name that hook in your report.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
-Verify through CI: never run a whole-package build or suite locally (buck2/cargo build,
-  `yarn tsc:*`, `bun test`, jest, `go test ./...`). Run locally only the one failing test
-  that reproduces a red CI step, or a single artifact this brief names, one at a time with
-  `-j 8` or the tool's equivalent. Load governs only those local runs: above the core
-  count, post `HELD on load <load>/<cores>: <command>` to the Run mailbox and wait at most
-  5 minutes. Never hold a Buildkite build, a saved-plan apply, an incident step, or an
-  owner-directed step on load.
+Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
 GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
   per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
@@ -1965,7 +1955,7 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
   head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
 
-For implementation and test lanes, prefer the repository's canonical remote
+For implementation lanes, prefer the repository's canonical remote
 entrypoint when it provides one. In Forge-AI/monorepo, follow
 [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md).
 It defaults to Sprite prepare+attach and the already-owned native Run with its

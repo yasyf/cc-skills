@@ -824,7 +824,7 @@ def test_the_fix_brief_names_the_report_time_and_carries_the_standing_orders(sto
     report, by 10:40am PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
-  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
 """ in brief
     assert "go build" not in brief and "go vet" not in brief
 
