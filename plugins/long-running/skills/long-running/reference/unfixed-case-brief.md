@@ -35,7 +35,9 @@ Do:
      through the walker. The fence holds only other releases of the target, never
      the fix.
   1. Reproduce the case above exactly as written: the thread, run, request, or
-     monitor query it names. Record it failing now, before you change anything.
+     monitor query it names, and which component served the failing request: a
+     cloud run is served by the cloud, never by their machine. Record it failing
+     now, before you change anything.
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;
      otherwise, start from a fresh trunk. Ship it through submit-pr and enqueue it
      `--fast`.
