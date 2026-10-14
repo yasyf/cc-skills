@@ -58,6 +58,14 @@ heads pass. The sweep mirrors each verdict into the head's `rules-review` commit
 status, so stack-enqueue refuses a pending or failing head even when a lane runs
 it directly.
 
+The landing runner does the same for fidelity grades. It sets commit status
+`fidelity` on each open PR's head the fidelity lane graded, `success` for
+`fidelity: ok` and `failure` for `fidelity: missing`, and stack-enqueue refuses
+a head whose `fidelity` is not `success`. A head with no grade carries no such
+status. A `failure` is a red check on the PR by design: it means the head was
+graded missing, not that CI failed, so read the status description, which
+quotes the grade and its cci seq, before routing a red build to the lane.
+
 Only the root writes override lines in the root inbox, relaying the owner or
 deciding itself:
 `R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.

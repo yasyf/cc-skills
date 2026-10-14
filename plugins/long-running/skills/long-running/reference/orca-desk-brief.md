@@ -552,6 +552,19 @@ Without an ok the runner enqueues nothing from the prefix and posts one cci
 again just before the enqueue call and completes the action as `blocked` when
 the ok is gone. `landing.fidelity_lane` names the lane, default `fidelity-desk`.
 
+Each pass also mirrors the newest grade of every open row's head into that
+head's `fidelity` commit status: `success` for `fidelity: ok`, `failure` for
+`fidelity: missing`, with the grade's first line and cci seq as the description.
+It posts once per grade record and keeps the action in the landing container
+as `status:<pr>:<head>:<seq>`, so a restart does not post a completed status
+again. A post GitHub took whose completion was never written is sent once more,
+identical. A head with no grade gets no status. A `cci tail` that fails skips
+the mirror for that pass and logs `CCI-TAIL-FAILED`. stack-enqueue reads the status on every call and refuses
+a head whose `fidelity` is not `success`, which is how a grade binds a caller
+that reads no cci. The fidelity lane posts no status itself; it keeps naming
+the head in each `review` record, and it grades a head whatever its `fidelity`
+check reads.
+
 After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
 first PR above it. Orca lanes receive a relay; other lanes receive
 `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"`.
@@ -625,6 +638,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `SEND-FAILED` | Resolve a send that failed three explicit attempts, or a resend Orca rejected. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
+| `STATUS-FAILED` | Read GitHub's refusal of the `fidelity` commit status the line names; a token or rate limit is the usual cause. The runner posts the status again on every pass until GitHub takes it, and until then stack-enqueue cannot see that grade. |
 | `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |

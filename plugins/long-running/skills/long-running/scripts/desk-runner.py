@@ -144,7 +144,12 @@ the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that 
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. The enqueue call pins every PR of the prefix to that graded head with
-`--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. A PR whose ledger row lands carrying the `merge-fast`
+`--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. On every pass the runner also mirrors the newest grade
+of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
+described by the grade's first line and cci seq, once per grade record, so a caller that reads no cci, such as a hand run of
+stack-enqueue, finds the grade on the head. A head with no grade gets no status, and a post GitHub refuses logs `STATUS-FAILED`
+once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
+else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
 `release` record on the drive from another lane, stamped after the landing, names one of those components with `--target` or the
@@ -226,6 +231,8 @@ OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 FIDELITY_LANE = "fidelity-desk"
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
+FIDELITY_STATUS = "fidelity"
+STATUS_TEXT = 140
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
 DROP_BLOCKER = re.compile(r"merge conflicts?|Failed CI \(|downstack failures on PR #")
@@ -2061,6 +2068,36 @@ class Landing:
             to = ",".join(filter(None, [rows[pr].get("lane"), self.fidelity_lane]))
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
+    def mirror_grades(self, rows: dict[str, dict]) -> None:
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so any caller of stack-enqueue reads the grade off the head. A head with no grade gets no status. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            head = row.get("head", "")
+            if row.get("state", "open") != "open":
+                continue
+            try:
+                grade = self.fidelity(pr, head)
+            except CciTailFailed as failure:
+                self.runner.tail_failed(failure)
+                return
+            if not grade:
+                continue
+            key = f"status:{pr}:{head}:{grade['seq']}"
+            action, _ = self.book.accept(LANDING, key, "status", pr, f"cci #{grade['seq']}", None)
+            if action.status != "accepted":
+                continue
+            description = f"cci #{grade['seq']} {grade['text'].splitlines()[0]}"
+            payload = {
+                "state": "success" if grade["text"].startswith(FIDELITY_OK) else "failure",
+                "context": FIDELITY_STATUS,
+                "description": description if len(description) <= STATUS_TEXT else description[: STATUS_TEXT - 1] + "…",
+            }
+            done = self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
+            if done.code == 0:
+                self.book.attempt(LANDING, lambda incident, key=key, payload=payload: (incident.start(key, self.runner.now()), incident.complete(key, {**payload, "at": self.book.stamp()})))
+            else:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
+
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
@@ -2328,6 +2365,7 @@ class Landing:
         self.releases(rows)
         self.verify_restacks(rows)
         self.requeue(rows)
+        self.mirror_grades(rows)
         if not unread and (held := self.held(rows)) is not None:
             self.gate(rows, held)
             self.enqueue()
@@ -2379,7 +2417,10 @@ def run_landing(runner: Runner, once: bool) -> int:
     interval = runner.config.landing.get("interval_seconds", 180)
     while True:
         started = runner.now()
-        landing.run()
+        try:
+            landing.run()
+        except CciTailFailed as failure:
+            runner.tail_failed(failure)
         runner.flush()
         if once:
             return 0

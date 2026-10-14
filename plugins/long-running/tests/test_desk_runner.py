@@ -73,6 +73,8 @@ class FakeShell(runner_module.Shell):
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
+        self.head_statuses: list[dict] = []
+        self.status_error = ""
         self.queue: dict[str, str] = {}
         self.activity: dict[str, str] = {}
         self.bodies: dict[str, str] = {}
@@ -94,6 +96,7 @@ class FakeShell(runner_module.Shell):
         self.posts: list[dict] = []
         self.records: list[dict] = []
         self.tail_error = ""
+        self.tail_failures = 0
         self.post_error = ""
         self.post_out = ""
         self.post_ids: dict[str, int] = {}
@@ -167,6 +170,12 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+        if argv[:2] == ["gh", "api"]:
+            assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
+            if self.status_error:
+                return runner_module.Done(1, "", self.status_error)
+            self.head_statuses.append({"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)})
+            return runner_module.Done(0, "{}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
@@ -195,6 +204,9 @@ class FakeShell(runner_module.Shell):
         raise AssertionError(f"unexpected call {argv}")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
+        if self.tail_failures:
+            self.tail_failures -= 1
+            return runner_module.Done(1, "", "cci: daemon restarting")
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
         assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
@@ -1486,6 +1498,129 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
     [action] = enqueues_of(tmp_path).values()
     assert action.response["outcome"] == "blocked" and "no fidelity: ok from fidelity-desk at the head of #29020" in action.response["out"]
+
+
+def held_pr(shell: FakeShell, tmp_path: Path, head: str = "cccc333333") -> None:
+    (tmp_path / "holds.md").write_text("#29020 owner review\n")
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": head, "state": "open", "reported_head": head}]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED {head} held")]
+
+
+def fidelity_statuses(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(status["sha"], status["state"]) for status in shell.head_statuses]
+
+
+@pytest.mark.parametrize(("text", "state"), [("ok F307 at cccc333.", "success"), ("missing F307 at cccc333 (View fix).", "failure")])
+def test_a_fidelity_grade_sets_the_fidelity_commit_status_on_the_graded_head(shell, config, tmp_path, text, state):
+    held_pr(shell, tmp_path)
+    seq = grade(shell, "29020", text)
+    landing_pass(shell, config)
+    assert shell.head_statuses == [{"sha": "cccc333333", "state": state, "context": "fidelity", "description": f"cci #{seq} fidelity: {text}"}]
+    assert escalations(shell) == []
+
+
+def test_the_status_describes_the_grade_by_its_first_line_clipped_to_the_github_limit(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    first_line = "missing F328 at cccc333 (#29020). " + "The sandbox build of this head is still owed. " * 4
+    seq = grade(shell, "29020", f"{first_line}\nNote for root: a second line.")
+    landing_pass(shell, config)
+    [status] = shell.head_statuses
+    assert (status["sha"], status["state"]) == ("cccc333333", "failure")
+    assert len(status["description"]) == 140 and status["description"] == f"cci #{seq} fidelity: {first_line}"[:139] + "…"
+
+
+def test_the_status_is_on_the_head_before_the_gate_reads_it(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if call[:2] == ["gh", "api"] or Path(call[0]).name == "stack-enqueue"]
+    assert calls[0] == ["gh", "api", "repos/Forge-AI/monorepo/statuses/cccc333333", "--method", "POST", "--input", "-"]
+    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
+
+
+def test_a_new_head_gets_a_status_only_once_the_fidelity_lane_grades_it(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    held_pr(shell, tmp_path, head="dddd444444")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")]
+    grade(shell, "29020", "missing F307 at dddd444 (View fix).")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "failure")]
+
+
+def test_a_regrade_of_the_same_head_flips_its_status(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    grade(shell, "29020", "missing F307 at cccc333 (View fix).")
+    landing_pass(shell, config)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "failure"), ("cccc333333", "success")]
+
+
+def test_a_restarted_runner_does_not_post_a_status_again(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    seq = grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")]
+    action = incident(tmp_path, "desk-landing").actions[f"status:29020:cccc333333:{seq}"]
+    assert (action.kind, action.status, action.response["state"]) == ("status", "completed", "success")
+
+
+def test_a_head_with_no_grade_gets_no_status(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.rows.append({"pr": "28300", "lane": "d6", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"})
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    grade(shell, "28349", "ok F307 at cccc333.")
+    grade(shell, "28300", "ok F307 at ffff666.")
+    grade(shell, "29020", "ok F307 at cccc333.", lane="rules-desk")
+    landing_pass(shell, config)
+    assert shell.head_statuses == [] and escalations(shell) == []
+    assert [action for action in incident(tmp_path, "desk-landing").actions.values() if action.kind == "status"] == []
+
+
+def test_one_failed_cci_read_skips_the_mirror_for_that_pass_and_the_gate_still_runs(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.tail_failures = 1
+    landing_pass(shell, config)
+    assert shell.head_statuses == [] and len(shell.enqueues()) == 1
+    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail"]
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")]
+
+
+def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.tail_error = "cci: daemon unavailable"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.head_statuses == [] and stack_enqueue_calls(shell) == []
+    assert escalations(shell) == ["CCI-TAIL-FAILED cci-tail:2026-10-01T18:0 runner: cci tail exited 1: cci: daemon unavailable"]
+    shell.tail_error = ""
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
+
+
+def test_a_status_github_refuses_is_escalated_once_and_posted_on_a_later_pass(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    seq = grade(shell, "29020", "ok F307 at cccc333.")
+    shell.status_error = "gh: API rate limit exceeded (HTTP 403)"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.head_statuses == []
+    assert escalations(shell) == [
+        f"STATUS-FAILED status:29020:cccc333333:{seq} #29020: GitHub refused the `fidelity` commit status on cccc333333: gh: API rate limit exceeded (HTTP 403); the runner posts it again on the next pass"
+    ]
+    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["defect"]
+    shell.status_error = ""
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(escalations(shell)) == 1
 
 
 def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, config, tmp_path):
