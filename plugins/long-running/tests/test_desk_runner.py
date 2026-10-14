@@ -3846,6 +3846,13 @@ def test_every_desk_incident_brief_template_names_the_component_that_served_the_
     assert "which component served the failing request: a cloud run is served by the cloud, never by their machine" in text
 
 
+@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
+def test_every_desk_incident_brief_template_leaves_enqueue_to_the_landing_desk(template):
+    text = " ".join(template.read_text().split())
+    assert "post READY with the exact head; the landing desk owns enqueue. Never run stack-enqueue, rebase, or push a queued branch." in text
+    assert "enqueue it `--fast`" not in text
+
+
 def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
     orca_pass(shell, config)
     desk_inbox(tmp_path, ROOT_ALERT)
