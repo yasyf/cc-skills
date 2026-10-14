@@ -255,8 +255,10 @@ dispatches that held a 32-core machine at load 100 to 600 (release v3, 2026-10-0
 
 **R210. Load is the only launch throttle.** Working workers have no cap. Before each
 launch, read `uptime`; while the 1-minute load average is above the core count
-(`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
-Incident and owner-directed launches are exempt and start at once.
+(`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it, and
+move the load: a pass, backfill, dry run, or bulk rewrite goes to in-region compute.
+An incident or owner-directed lane does not wait; it launches in-process, in the
+root's own session, until the load is gone.
 
 The runtime drops connections under load. Retry after 30 seconds; never restart
 Orca to recover a connection. Handles belong to one runtime. After a restart,

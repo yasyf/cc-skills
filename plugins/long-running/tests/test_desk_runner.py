@@ -884,13 +884,21 @@ def launches(shell: FakeShell) -> list[list[str]]:
 
 
 @pytest.mark.parametrize(("model", "flags"), [("incident", ()), ("opus", ("--owner-directed",))])
-def test_an_incident_or_owner_directed_launch_never_waits_on_load(shell, config, tmp_path, model, flags):
+def test_an_incident_or_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path, model, flags):
     brief = tmp_path / "fix.md"
     brief.write_text("brief")
     shell.cpu_load = 140
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
     orca_pass(shell, config)
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, model, "xhigh", str(brief)]]
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
+    assert action.status == "failed" and action.reason == "R638 refused on load 140 above 8 cores; nothing was launched, and the root launches it in-process or once the load is moved"
+    assert escalations(shell) == [
+        "LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute",
+        f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {action.reason}",
+    ]
+    assert [post["kind"] for post in shell.posts] == ["blocker", "defect"]
 
 
 def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_deadline(shell, config, tmp_path):
@@ -901,7 +909,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     for _ in range(4):
         orca_pass(shell, config)
         shell.sleep(60)
-    assert launches(shell) == [] and escalations(shell) == []
+    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     for _ in range(3):
         shell.sleep(60)
@@ -909,8 +917,8 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     assert launches(shell) == []
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
     assert action.status == "failed" and "load 40 above 8 cores" in action.reason
-    [line] = escalations(shell)
-    assert "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
+    [load, line] = escalations(shell)
+    assert load.startswith("LOAD-HIGH load:") and "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
     [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
     assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
 
@@ -2685,9 +2693,8 @@ def test_the_launch_grammar_names_the_key_lane_route_and_brief(line, key, lane, 
     assert (directive["verb"], directive["key"], spec["lane"], spec["now"], spec["model"], spec["effort"], spec["brief"]) == ("launch", key, lane, now, model, effort, brief)
 
 
-def test_an_inbox_launch_line_launches_once_and_now_skips_the_load_hold(shell, config, tmp_path):
+def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
-    shell.cpu_load = 140
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_inbox(tmp_path, f"R1907 (7:0x PM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
@@ -2833,7 +2840,7 @@ def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp
     orca_pass(shell, config)
     assert launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R20"].status == "failed"
-    assert escalations(shell) == [f"WITHDRAWN R20 {LANE}: by R21; nothing was launched"]
+    assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")] == [f"WITHDRAWN R20 {LANE}: by R21; nothing was launched"]
 
 
 def test_a_withdraw_of_a_started_launch_or_an_unknown_key_fails_visibly(shell, config, tmp_path):
@@ -2860,9 +2867,10 @@ def test_a_root_cci_withdraw_of_a_launch_record_withdraws_it_and_is_no_directive
     orca_pass(shell, config)
     cci_record(shell, kind="withdraw", to=["orca-desk"], re=launch, text="withdraw R30; relaunching under R32")
     cci_record(shell, to=["orca-desk"], text=f"R32 (11:51 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    shell.cpu_load = 1.0
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
-    assert escalations(shell)[0] == f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"
+    assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")][0] == f"WITHDRAWN R30 {LANE}: by cci#34767; nothing was launched"
 
 
 def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tmp_path):
@@ -3082,7 +3090,6 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     facts.write_text("apply authority: 0 deletes and 0 replaces while the alert is active\n")
     raw = json.loads(config.read_text())
     config.write_text(json.dumps({**raw, "alert": {"facts": str(facts)}}))
-    shell.cpu_load = 140
     shell.launch_line = "dd-312516332-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_inbox(tmp_path, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
@@ -3501,6 +3508,69 @@ def test_the_clock_logs_nothing_while_cci_cannot_be_read(shell, config, tmp_path
     shell.tail_error = ""
     orca_pass(shell, config)
     assert len(clock_lines(shell)) == 1
+
+
+def test_an_opus_fallback_whose_orca_launch_fails_once_is_launched_once_more(shell, config, tmp_path):
+    brief = clocked_lane(shell, config, tmp_path)
+    backup = f"{LANE}-opus"
+    shell.launch_line = f"{backup} failed worktree checkout: index still differs from HEAD after 180s\n"
+    shell.sleep(10 * 60)
+    for _ in range(3):
+        orca_pass(shell, config)
+    shell.launch_line = f"{backup} ready task=task_1 dispatch=ctx_opus terminal=term_ctx_opus worktree=/w\n"
+    for _ in range(2):
+        orca_pass(shell, config)
+    fallback = shell.attachments[f"{backup}.full.md"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], *[[str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]] * 2]
+    tries = incident(tmp_path, f"desk-lane-{backup}").actions
+    assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "verified")]
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == []
+
+
+def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    shell.cpu_load = 40
+    for _ in range(4):
+        orca_pass(shell, config)
+    backup = f"{LANE}-opus"
+    fallback = shell.attachments[f"{backup}.full.md"]
+    assert len(launches(shell)) == 1
+    tries = incident(tmp_path, f"desk-lane-{backup}").actions
+    assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "failed")]
+    refused = "refused on load 40 above 8 cores; nothing was launched, and the root launches it in-process or once the load is moved"
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == [
+        f"INCIDENT-CLOCK {LANE} in-process: the Orca launch of the Opus fallback {backup} failed twice: incident-clock:ctx_{LANE} {refused} | incident-clock:ctx_{LANE}:retry {refused} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {fallback}"
+    ]
+    assert [line.split()[0] for line in escalations(shell)].count("LOAD-HIGH") == 1
+    for _ in range(2):
+        orca_pass(shell, config)
+    assert len([line for line in clock_lines(shell) if " in-process: " in line]) == 1
+
+
+def test_no_retry_or_in_process_fallback_while_the_executors_backup_is_live(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    shell.cpu_load = 40
+    orca_pass(shell, config)
+    executor_backup(shell, "verified")
+    shell.dispatches["ctx_backup"] = {"status": "dispatched", "terminal": "term_backup"}
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == []
+    assert list(incident(tmp_path, f"desk-lane-{LANE}-opus").actions) == [f"incident-clock:ctx_{LANE}"]
+
+
+def test_no_in_process_fallback_once_the_lanes_clock_has_stopped(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(10 * 60)
+    shell.cpu_load = 40
+    orca_pass(shell, config)
+    lane_record(shell, LANE, "ready")
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert [line for line in clock_lines(shell) if " in-process: " in line] == []
+    assert list(incident(tmp_path, f"desk-lane-{LANE}-opus").actions) == [f"incident-clock:ctx_{LANE}"]
 
 
 def test_a_fallback_for_a_high_cpu_incident_brief_stays_on_the_mac(shell, config, tmp_path):
