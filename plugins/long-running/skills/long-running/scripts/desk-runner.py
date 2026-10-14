@@ -489,6 +489,10 @@ def whole_minutes(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds() // 60)
 
 
+def ccn_failure(done: Done) -> str:
+    return (done.err or done.out).strip()[-300:] or f"ccn exited {done.code}"
+
+
 def clock_phases(launched: datetime, reached: dict[str, str], now: datetime) -> str:
     """How long each phase of an incident lane took, from its milestones' own stamps: `launch to mechanism 7 min, mechanism to PR 6 min, PR to now 7 min`."""
     marks = sorted((actions.parse_stamp(at), CLOCK_MILESTONES[name]) for name, at in reached.items() if name in CLOCK_MILESTONES)
@@ -589,7 +593,7 @@ class Config:
             run=orca["run"],
             receipts=Path.home() / LAUNCH_STATE / orca["run"],
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
-            briefs_log=orca["briefs"]["log"],
+            briefs_log=orca["briefs"].get("log", ""),
             launch_env=orca.get("launch_env", {}),
             sprite=orca.get("sprite"),
             gc=orca.get("gc"),
@@ -1146,8 +1150,11 @@ class Runner:
             return
         incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
         reported = datetime.strptime(spec["reported"], "%H:%M")
-        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=self.config.briefs_log, facts=self.drive_facts())
-        brief, failure = self.attach_brief(lane, text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}")
+        brief, failure = self.attach_brief(
+            lane,
+            lambda briefs: ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+            f"INCIDENT {slug}: fix brief for {lane}: {what} {link}",
+        )
         if brief is None:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
             return
@@ -1157,9 +1164,11 @@ class Runner:
     def drive_facts(self) -> str:
         return self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
 
-    def attach_brief(self, lane: str, text: str, entry: str) -> tuple[Path | None, str]:
-        """Attach a generated brief to the briefs log as `<lane>.full.md`; its path, or why it has none."""
-        if failure := self.attach(f"{lane}.full.md", text, entry):
+    def attach_brief(self, lane: str, render: Callable[[str], str], entry: str) -> tuple[Path | None, str]:
+        """Attach the brief `render` writes for the resolved briefs log to that log as `<lane>.full.md`; its path, or why it has none."""
+        if failure := self.resolve_briefs_log():
+            return None, f"the briefs log did not resolve: {failure}"
+        if failure := self.attach(f"{lane}.full.md", render(self.config.briefs_log), entry):
             return None, f"the brief did not attach: {failure}"
         brief = self.attachment(f"{lane}.full.md")
         return (brief, "") if brief else (None, "the attached brief has no path")
@@ -1191,10 +1200,14 @@ class Runner:
 
     def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
         """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
-        text = UNFIXED_TEMPLATE.read_text().format(
-            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
+        prs = self.opened_prs(parent, launch)
+        return self.attach_brief(
+            lane,
+            lambda briefs: UNFIXED_TEMPLATE.read_text().format(
+                lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=prs, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=briefs, facts=self.drive_facts()
+            ),
+            f"INCIDENT {parent}: unfixed case brief for {lane}: {case}",
         )
-        return self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
 
     def case_lane(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> bool:
         """Launch a case lane on the incident alias from the unfixed-case brief, freshly attached to the briefs log, and say whether the launch was taken; the root ratifies from the INCIDENT line."""
@@ -1764,18 +1777,38 @@ class Runner:
         candidates = [Path(path) for path in launched[-1:]] + [self.attachment(f"{lane}.full.md"), self.attachment(f"{lane}.md")]
         return next((path for path in candidates if path and path.is_file()), None)
 
+    def briefs(self, *argv: str) -> Done:
+        return self.shell.run(["ccn", "-R", self.config.briefs_repo, *argv])
+
+    def resolve_briefs_log(self) -> str:
+        """Keep `orca.briefs.log` on a log that resolves: the configured one while `ccn log show` finds it, else the drive's `briefs: <drive>` log, created when the clone has none, with the repoint reported to root; why it could not, or ""."""
+        stale = self.config.briefs_log
+        if stale and self.briefs("log", "show", stale).code == 0:
+            return ""
+        title = f"briefs: {self.config.drive}"
+        listed = self.briefs("log", "list", "--json")
+        if listed.code != 0:
+            return ccn_failure(listed)
+        found = [log["id"] for log in json.loads(listed.out) if log["title"] == title]
+        if not found:
+            added = self.briefs("log", "add", title, "--label", f"program:{self.config.drive}", "--json")
+            if added.code != 0:
+                return ccn_failure(added)
+            found = [json.loads(added.out)["id"]]
+        self.config.briefs_log = found[0]
+        self.escalate(f"briefs-log:{stale or 'unset'}", "BRIEFS-LOG", "runner", f"briefs log {stale or '(unset)'} does not resolve on {self.config.briefs_repo}; briefs now attach to {found[0]} ({title}), so set orca.briefs.log to it")
+        return ""
+
     def attachment(self, name: str) -> Path | None:
-        done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "attachment", "path", self.config.briefs_log, name])
+        done = self.briefs("attachment", "path", self.config.briefs_log, name)
         return Path(done.out.strip()) if done.code == 0 else None
 
     def attach(self, name: str, text: str, entry: str) -> str:
         with tempfile.TemporaryDirectory() as staging:
             path = Path(staging) / name
             path.write_text(text)
-            done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "log", "append", self.config.briefs_log, "--entry", entry, "--attach", str(path), "--replace"])
-        if done.code == 0:
-            return ""
-        return (done.err or done.out).strip()[-300:] or f"ccn exited {done.code}"
+            done = self.briefs("log", "append", self.config.briefs_log, "--entry", entry, "--attach", str(path), "--replace")
+        return "" if done.code == 0 else ccn_failure(done)
 
     def judge(self, message: dict, lane: str) -> None:
         """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""
@@ -1988,7 +2021,7 @@ class Runner:
         if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief):
             return f"no fallback launched for {backup}: {refusal}"
         text = FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text())
-        attached, failure = self.attach_brief(backup, text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
+        attached, failure = self.attach_brief(backup, lambda _: text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
             return f"no fallback launched for {backup}: {failure}"
         self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
@@ -2610,6 +2643,8 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.flush()
         print(runner.unbound(state), file=sys.stderr)
         return 3
+    if failure := runner.resolve_briefs_log():
+        runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     while True:
         if runner.now() - rotated >= ROTATE_EVERY:
