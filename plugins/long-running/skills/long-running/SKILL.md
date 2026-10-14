@@ -1246,9 +1246,12 @@ Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefi
 
 **D14. Grade a moved or unreported head like any other.** Every tracked current
 head takes D3's gates without a report. Where `stack-enqueue` exists, the landing
-runner routes each `BLOCKED` head except `held` once per head and blocker. It
-re-runs the gate immediately before creating the route and suppresses a blocker
-that already cleared.
+runner routes a `BLOCKED` head once per head and blocker only for red CI, a
+merge conflict, a changes-requested review or fidelity grade, or a queue
+ejection. A pending or running check or a missing approval is never routed, and
+a PR that is held or stacked above a held PR gets no route until the hold lifts.
+It re-runs the gate immediately before creating the route and suppresses a
+blocker that already cleared.
 
 Orca delivery can follow later; this is not a recheck at
 that later send. Orca lanes receive a relay; other lanes receive
