@@ -100,9 +100,12 @@ lane's brief, and the PRs its cci `opened` records name, attached to the briefs 
 for the root to ratify. Only a line that names the reporting lane counts, and
 `UNFIXED <lane>: none` launches nothing. A case launches once across a lane and its `-opus`
 fallback, however often and by whichever of them it is reported, and a case whose launch is
-refused launches on the next report that names it. Case lanes are one generation: an
-`UNFIXED` line from a case lane, or from a lane the root withdrew, launches nothing and logs
-`UNFIXED <lane> <time>: <case> | no case lane launched: …` for the root to decide. A case
+refused launches on the next report that names it. Case lanes are one generation: a new
+case a case lane reports launches nothing and logs a `DECIDE` that carries the ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, from a brief
+already attached. A case already known, such as a case lane's own, launches nothing, and a
+new case from a lane the root withdrew logs
+`UNFIXED <lane> <time>: <case> | no case lane launched: …` and launches nothing. A case
 lane is an incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
@@ -1158,28 +1161,36 @@ class Runner:
         return (brief, "") if brief else (None, "the attached brief has no path")
 
     def unfixed(self, lane: str, message: dict) -> None:
-        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Case lanes are one generation: a case lane, or a lane the root withdrew, launches none, and its cases go to the root."""
+        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Case lanes are one generation: a new case from a case lane goes to the root as a `DECIDE` carrying its launch line, and a case from a lane the root withdrew launches nothing and goes to the root as one line."""
         cases = unfixed_cases(message.get("body") or "", lane)
         if not cases or lane_container(lane) not in self.book.store.ids():
             return
         launch = fix_launch(self.book.load(lane_container(lane)))
         if not launch:
             return
-        if why := self.no_cases_from(lane):
-            for index, case in enumerate(cases.values(), 1):
-                self.record(f"escalation:unfixed:{message['id']}:{index}", f"UNFIXED {lane} {pacific(self.now())}: {case} | no case lane launched: {why}; root decides whether the case needs a lane")
-            return
         first = first_lane(lane)
         container = self.lane(first)
+        by = self.withdrawn_by(lane)
+        offered = 0
         for index, (known, case) in enumerate(cases.items(), 1):
             taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
-            if known not in taken and self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, f"unfixed:{message['id']}:{index}"):
+            key = f"unfixed:{message['id']}:{index}"
+            if known in taken:
+                continue
+            if by:
+                self.record(f"escalation:{key}", f"UNFIXED {lane} {pacific(self.now())}: {case} | no case lane launched: the root withdrew {lane} ({by})")
+            elif is_case_lane(lane):
+                offered += 1
+                self.offer_case(f"{first}{CASE}{len(taken) + offered}", lane, launch, case, key)
+            elif self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, key):
                 self.book.edit(container, lambda incident, taken=[*taken, known]: incident.facts.update({UNFIXED_CASES: taken}))
 
-    def no_cases_from(self, lane: str) -> str:
-        if by := self.withdrawn_by(lane):
-            return f"the root withdrew {lane} ({by})"
-        return f"{lane} is itself a case lane" if is_case_lane(lane) else ""
+    def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
+        """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
+        text = UNFIXED_TEMPLATE.read_text().format(
+            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
+        )
+        return self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
 
     def case_lane(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> bool:
         """Launch a case lane on the incident alias from the unfixed-case brief, freshly attached to the briefs log, and say whether the launch was taken; the root ratifies from the INCIDENT line."""
@@ -1188,16 +1199,22 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
-        text = UNFIXED_TEMPLATE.read_text().format(
-            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
-        )
-        brief, failure = self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
+        brief, failure = self.case_brief(lane, parent, launch, case)
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
         self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
         self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
         return True
+
+    def offer_case(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> None:
+        """Past the one-generation cap, put a case lane's new case to the root as a `DECIDE` carrying the launch line that starts its lane from an attached brief."""
+        head = f"DECIDE {key} {parent}: a case lane reports a new case, past the one-generation cap: {case}"
+        brief, failure = self.case_brief(lane, parent, launch, case)
+        if brief is None:
+            self.record(f"escalation:{key}", f"{head} | no launch line: {failure}")
+            return
+        self.record(f"escalation:{key}", f"{head} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`")
 
     def opened_prs(self, lane: str, launch: actions.Action) -> str:
         """The PRs a lane's own cci `opened` records name since its launch, each once, as `#1 owner/repo#2`."""

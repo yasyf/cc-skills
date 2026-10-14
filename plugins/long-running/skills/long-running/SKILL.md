@@ -563,11 +563,14 @@ incident xhigh in the same pass, where `<first>` is the first fix lane of the
 incident, on a brief filled from `reference/unfixed-case-brief.md`. It logs the
 launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane
 <first>-case<n> launching …`. A case launches once, whether the fix lane or its
-`-opus` fallback reports it. Case lanes are one generation: a case lane's own
-`UNFIXED` lines, and those of a lane the root withdrew, launch nothing and reach the
-root as `UNFIXED <lane> …: <case> | no case lane launched: …`. The root ratifies the
-case lane and keeps the reporter told that the case is still open. It never parks
-a named case for later while the break is live.
+`-opus` fallback reports it. Case lanes are one generation. A new case from a case
+lane launches nothing; it reaches the root as a `DECIDE` that carries the ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, so the
+root starts the lane by posting it. A case lane echoing its own case launches
+nothing. A new case from a lane the root withdrew reaches the root as
+`UNFIXED <lane> …: <case> | no case lane launched: …` and launches nothing. The root
+ratifies the case lane and keeps the reporter told that the case is still open. It
+never parks a named case for later while the break is live.
 
 *Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
 neighbouring case while the reporter's own thread still failed, and two edge cases
@@ -576,7 +579,8 @@ the fix lane had named sat as backlog for two hours until a customer hit them.*
 *Case lanes stay one generation because of the 10:37 AM Oct 14 loop. The runner
 refused the root's withdrawals of five case lanes, which carried no `R<n>`. The
 withdrawn case5 then echoed its own `UNFIXED` line, and the runner launched case6
-from it.*
+from it. A new case still reaches the root with its launch line ready, so the cap
+drops none (fidelity F340).*
 
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change

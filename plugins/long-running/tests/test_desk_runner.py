@@ -3677,19 +3677,25 @@ def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothi
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
 
 
-def test_a_case_lanes_own_unfixed_cases_launch_nothing_and_reach_the_root(shell, config, tmp_path):
+def test_a_case_lanes_new_case_reaches_the_root_with_its_launch_line_and_its_own_case_launches_nothing(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     unfixed_report(shell, LANE, "ready", CASES[0])
     orca_pass(shell, config)
     case = f"{LANE}-case1"
     shell.launch(case, f"ctx_{case}")
     orca_pass(shell, config)
-    unfixed_report(shell, case, "worker_done", CASES[1])
+    message = unfixed_report(shell, case, "worker_done", *CASES)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, case]
-    assert [line for line in escalations(shell) if line.startswith("UNFIXED ")] == [
-        f"UNFIXED {case} 11:00: {CASES[1]} | no case lane launched: {case} is itself a case lane; root decides whether the case needs a lane"
+    brief = shell.attachments[f"{LANE}-case2.full.md"]
+    line = f"orca-desk: launch {LANE}-case2 NOW incident xhigh brief={brief}"
+    assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
+        f"DECIDE unfixed:{message['id']}:2 {case}: a case lane reports a new case, past the one-generation cap: {CASES[1]} | to launch its lane, post `{line}`"
     ]
+    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in brief.read_text()
+    desk_inbox(tmp_path, f"R40 {line}")
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, case, f"{LANE}-case2"]
     assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == [CASES[0]]
 
 
@@ -3725,7 +3731,7 @@ def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert [line for line in escalations(shell) if line.startswith(("UNFIXED ", "WITHDRAWN "))] == [
         f"WITHDRAWN {LANE} {LANE}: by R21; dispatch ctx_{LANE} stopped (stopped), and no report of it launches a case lane",
-        f"UNFIXED {LANE} 11:00: SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane | no case lane launched: the root withdrew {LANE} (R21); root decides whether the case needs a lane",
+        f"UNFIXED {LANE} 11:00: SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane | no case lane launched: the root withdrew {LANE} (R21)",
         f"WITHDRAWN {offer['id']} {LANE}: withdrawn by R21, so it is not dispatched again and its question needs no answer: {offer['subject']}",
     ]
 
@@ -3740,7 +3746,7 @@ def test_a_case_lane_the_root_stopped_by_hand_is_withdrawn_and_never_offered_aga
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert f"WITHDRAWN {offer['id']} {LANE}-case1: withdrawn by a stop of dispatch ctx_case1, so it is not dispatched again and its question needs no answer: {offer['subject']}" in escalations(shell)
     assert incident(tmp_path, f"desk-lane-{LANE}-case1").facts["withdrawn"] == {"dispatch": "ctx_case1", "by": "a stop of dispatch ctx_case1"}
-    assert [line.split(" | ")[1] for line in escalations(shell) if line.startswith("UNFIXED ")] == [f"no case lane launched: the root withdrew {LANE}-case1 (a stop of dispatch ctx_case1); root decides whether the case needs a lane"]
+    assert [line.split(" | ")[1] for line in escalations(shell) if line.startswith(("UNFIXED ", "DECIDE "))] == [f"no case lane launched: the root withdrew {LANE}-case1 (a stop of dispatch ctx_case1)"]
     assert len(launches(shell)) == 3
 
 
