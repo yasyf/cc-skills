@@ -290,7 +290,7 @@ Standing orders, fixed in this template:
     report, by <due time> PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
     for a version, id, or log the platform records; read it from telemetry first.
-  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
 
 Design rulings on this subsystem, verbatim; the fix calls their entry point:
   <design rulings>
