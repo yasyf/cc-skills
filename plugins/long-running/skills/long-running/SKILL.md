@@ -539,16 +539,10 @@ stops the clock. `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
 limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
 
-An incident adds lanes. It never stops a lane on the plan and never leaves one
-unstarted: at every incident spawn the root also dispatches each open plan unit with no
-live lane, and holds only a plan lane that edits the files the fix edits. Every status
-to the owner names each open plan unit and the lane on it next to the incident's state.
-Every incident fix lane aims to be fix-live within 20 minutes of its launch.
+Every incident fix lane aims to be fix-live within 20 minutes of its launch, and the
+root treats a lane past that as a miss to act on in that turn, never as normal.
 
-*Prevents the plan of 2026-10-13 standing still for six to seven hours a unit while
-every lane worked incidents. Owner: "when there are incidents yes every lane should
-focus on fixing them but you should still let background lanes also keep chugging on
-main plan", and "you need to not fuck around during incidents and get them fixed in
+*Owner, 2026-10-13: "you need to not fuck around during incidents and get them fixed in
 20 mins max, always".*
 
 *Prevents the seven incidents of 2026-10-13, which ran from 57 minutes to over four
