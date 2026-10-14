@@ -395,6 +395,9 @@ starting one, a lane reads the 1-minute load, and above the core count it posts 
 (`orca orchestration send --type status`) and waits at most 5 minutes before running it
 anyway. Load never holds a Buildkite build, a hand apply of a saved plan, an incident
 step, or an owner-directed step; those run at once.
+The pack's `load_guard` hook holds the ceiling for those local runs. At a 1-minute load of
+0.75 times the CPU count or more, which is 24 on a 32-CPU Mac, it blocks a local compile,
+typecheck, or test command, and the lane commits, runs `ccx vcs ship`, and reads the CI log.
 
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill, and apply-restate-1255 holding an
