@@ -5,6 +5,8 @@ import json
 import os
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,6 +17,7 @@ from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.transcripts import lift_session
+from captain_hook.util import reqenv
 from fire import fire
 from hooks import lane_rotation, nudges, session_tree, task_list, turns
 from hooks.compaction_handoff import TURN_WINDOW, CompactionState
@@ -186,6 +189,10 @@ def stop(tree: Tree, tasks: list[dict]) -> Stop:
 
 def rotate_lanes(handle: Stop) -> None:
     assert fire(lane_rotation, handle.evt()) == []
+
+
+def request(tree: Tree) -> reqenv.RequestOverrides:
+    return reqenv.RequestOverrides(env=dict(os.environ), cwd=str(tree.claude.parent), client_ppid=os.getppid(), session_id="0123456789abcdef")
 
 
 def deliver(tree: Tree, text: str, at: datetime) -> None:
@@ -580,6 +587,169 @@ def test_prompt_label_is_read_only_once_the_description_has_no_task_left(tree: T
     lanes = lane_rotation.live_lanes(stop(tree, tasks).evt())
 
     assert ([lane.name for lane in lanes], labelled) == (["desk-a", "desk-b"], ["desk-b"])
+
+
+def test_the_four_stop_callers_of_one_request_share_one_scan(tree: Tree, clock: list[float], parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+
+    with reqenv.use_request(request(tree)):
+        lane_rotation.ask_lanes_to_rotate(handle.evt())
+        lane_rotation.escalate_unrotated_lanes(handle.evt())
+        stale = task_list.drifted(handle.evt(), handle.evt().tasks, clock[0])
+        loose = task_list.untracked(handle.evt(), handle.evt().tasks, clock[0])
+
+    assert (parsed, len(tree.inbox("desk")), stale, loose) == (["desk"], 1, {}, [])
+
+
+def test_a_request_keeps_its_first_scan_and_the_next_request_scans_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    tokens: list[int] = []
+
+    for grown in (460_000, 470_000):
+        with reqenv.use_request(request(tree)):
+            tokens.append(lane_rotation.live_lanes(handle.evt())[0].turn.tokens)
+            tree.grow("desk", grown)
+            tokens.append(lane_rotation.live_lanes(handle.evt())[0].turn.tokens)
+
+    assert (tokens, parsed) == ([450_000, 450_000, 460_000, 460_000], ["desk", "desk"])
+
+
+def test_outside_a_request_every_call_scans(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+
+    before = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+    tree.grow("desk", 460_000)
+    after = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+
+    assert (before, after, parsed) == (450_000, 460_000, ["desk", "desk"])
+
+
+def test_each_caller_gets_its_own_list_of_the_shared_lanes(tree: Tree) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+
+    with reqenv.use_request(request(tree)):
+        first = lane_rotation.live_lanes(handle.evt())
+        kept = first[0]
+        first.clear()
+        second = lane_rotation.live_lanes(handle.evt())
+
+    assert (first, [lane.name for lane in second], second[0] is kept) == ([], ["desk"], True)
+
+
+def test_concurrent_hooks_of_one_request_scan_once(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    entered, release = threading.Event(), threading.Event()
+    scans: list[str] = []
+    parse_transcript = session_tree.parse
+
+    def slow(path: Path):
+        scans.append(path.name)
+        entered.set()
+        assert release.wait(10)
+        return parse_transcript(path)
+
+    monkeypatch.setattr(session_tree, "parse", slow)
+
+    with reqenv.use_request(request(tree)), ThreadPoolExecutor(max_workers=4) as pool:
+        hooks = [pool.submit(copy_context().run, lane_rotation.live_lanes, handle.evt()) for _ in range(4)]
+        assert entered.wait(10)
+        release.set()
+        seen = [[lane.name for lane in hook.result(timeout=10)] for hook in hooks]
+
+    assert (seen, len(scans)) == ([["desk"]] * 4, 1)
+
+
+def test_a_failed_scan_is_not_kept_for_the_request(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    team_members = session_tree.team_members
+    failures = [OSError("disk")]
+
+    def flaky(evt: StopEvent, team: str) -> dict[str, str]:
+        if failures:
+            raise failures.pop()
+        return team_members(evt, team)
+
+    monkeypatch.setattr(session_tree, "team_members", flaky)
+
+    with reqenv.use_request(request(tree)):
+        with pytest.raises(OSError, match="disk"):
+            lane_rotation.live_lanes(handle.evt())
+        lanes = lane_rotation.live_lanes(handle.evt())
+
+    assert [lane.name for lane in lanes] == ["desk"]
+
+
+def test_an_abandoned_scan_stops_at_the_next_transcript_and_is_not_kept(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane(name, 450_000) for name in ("desk-a", "desk-b", "desk-c")])
+    bound = request(tree)
+    parsed: list[str] = []
+    parse_transcript = session_tree.parse
+
+    def abandoning(path: Path):
+        parsed.append(path.name)
+        bound.abandon.set()
+        return parse_transcript(path)
+
+    monkeypatch.setattr(session_tree, "parse", abandoning)
+
+    with reqenv.use_request(bound):
+        with pytest.raises(reqenv.Abandoned):
+            lane_rotation.live_lanes(handle.evt())
+        stopped = len(parsed)
+        bound.abandon.clear()
+        monkeypatch.setattr(session_tree, "parse", parse_transcript)
+        lanes = lane_rotation.live_lanes(handle.evt())
+
+    assert (stopped, sorted(lane.name for lane in lanes)) == (1, ["desk-a", "desk-b", "desk-c"])
+
+
+def test_an_abandoned_scan_reads_no_turn_once_its_caller_is_gone(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane(name, 450_000) for name in ("desk-a", "desk-b")])
+    bound = request(tree)
+    parsed: list[str] = []
+    turns: list[str] = []
+    parse_transcript, turn_of = session_tree.parse, lane_rotation.turn_of
+
+    def last_parse_abandons(path: Path):
+        parsed.append(path.name)
+        if len(parsed) == 2:
+            bound.abandon.set()
+        return parse_transcript(path)
+
+    def recording(events, *, sidechain: bool = False):
+        turns.append("turn")
+        return turn_of(events, sidechain=sidechain)
+
+    monkeypatch.setattr(session_tree, "parse", last_parse_abandons)
+    monkeypatch.setattr(lane_rotation, "turn_of", recording)
+
+    with reqenv.use_request(bound), pytest.raises(reqenv.Abandoned):
+        lane_rotation.live_lanes(handle.evt())
+
+    assert (len(parsed), turns) == (2, [])
+
+
+def test_an_abandoned_scan_builds_no_lane_once_its_caller_is_gone(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    bound = request(tree)
+    lines: list[str] = []
+    turn_of, rotation_line = lane_rotation.turn_of, lane_rotation.rotation_line
+
+    def last_turn_abandons(events, *, sidechain: bool = False):
+        bound.abandon.set()
+        return turn_of(events, sidechain=sidechain)
+
+    def recording(model: str, hint: str | None, project: Path | None) -> int:
+        lines.append(model)
+        return rotation_line(model, hint, project)
+
+    monkeypatch.setattr(lane_rotation, "turn_of", last_turn_abandons)
+    monkeypatch.setattr(lane_rotation, "rotation_line", recording)
+
+    with reqenv.use_request(bound), pytest.raises(reqenv.Abandoned):
+        lane_rotation.live_lanes(handle.evt())
+
+    assert lines == []
 
 
 def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:

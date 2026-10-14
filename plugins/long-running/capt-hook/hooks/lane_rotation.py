@@ -25,6 +25,7 @@ from captain_hook import (
     on,
     workflow_state,
 )
+from captain_hook.util import reqenv
 
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
@@ -49,6 +50,7 @@ FLUSHED = re.compile(r"flushed\b", re.IGNORECASE)
 FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
 NUMBERED = re.compile(r"(.+)-(\d+)")
 HANDOFF = "-handoff"
+LIVE_LANES = "long-running.live-lanes"
 
 
 @workflow_state("long_running_rotation")
@@ -95,7 +97,8 @@ def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]
     return rosters[team]
 
 
-def live_lanes(evt: BaseHookEvent) -> list[Lane]:
+def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
+    reqenv.checkpoint()
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
     teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
     rosters: dict[str, dict[str, str]] = {}
@@ -111,17 +114,19 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     }
     newest: dict[str, Subagent] = {}
     for agent in candidates:
+        reqenv.checkpoint()
         if agent.name not in plausible:
             continue
         if agent.started and (agent.name not in newest or agent.started > newest[agent.name].started):
             newest[agent.name] = agent
-    active = sorted(
-        ((agent, turn_of(agent.events, sidechain=True)) for agent in newest.values()),
-        key=lambda lane: lane[1].at if lane[1] else lane[0].started,
-        reverse=True,
-    )
+    active = []
+    for agent in newest.values():
+        reqenv.checkpoint()
+        active.append((agent, turn_of(agent.events, sidechain=True)))
+    active.sort(key=lambda lane: lane[1].at if lane[1] else lane[0].started, reverse=True)
     lanes = []
     for agent, turn in active:
+        reqenv.checkpoint()
         if team := agent.meta.get("teamName"):
             if agent.name not in team_roster(evt, team, rosters):
                 continue
@@ -140,7 +145,11 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
                     told_to_stand_down=session_tree.stand_down_delivered(agent.events),
                 )
             )
-    return lanes
+    return tuple(lanes)
+
+
+def live_lanes(evt: BaseHookEvent) -> list[Lane]:
+    return list(reqenv.shared(LIVE_LANES, lambda: scan_lanes(evt)))
 
 
 def finished(evt: BaseHookEvent, lanes: list[Lane]) -> set[str]:
