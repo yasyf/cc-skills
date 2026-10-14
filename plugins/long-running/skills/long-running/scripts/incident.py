@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The incident executor: one durable owner for an active incident, from intake to the final reply.
 
-    incident.py open    --kind pr-review|alert --thread URL --onset ISO --bus ID --comms-lane NAME --root-lane NAME
+    incident.py open    --kind pr-review|alert --thread URL --onset ISO --reported ISO --bus ID --comms-lane NAME --root-lane NAME
                         --checkout DIR [--incident ID] [--pipeline SLUG] [--target NAME] [--repo OWNER/NAME] [--trunk BRANCH]
                         [--alert URL] [--code-path TEXT] [--runbook TEXT] [--adopt ROLE=LANE]...
                         [--grant NAME=REF]... [--expect-config TEXT] [--repair-pr N] [--orca-run ID --orca-repo ID] [--common PATH]
@@ -73,6 +73,7 @@ CLAUDE_FAST_MODE = """--settings '{"fastMode":true}'"""
 ADOPTABLE = ("fix", "evidence")
 GRANTS = ("thread", "channel", "sync", "rebuild")
 BACKUP_AFTER = timedelta(minutes=15)
+DUE_AFTER = timedelta(minutes=20)
 CLOCK_FALLBACK = "-opus"
 COMMS_DEADLINE = timedelta(minutes=2)
 SYNC_DEADLINE = timedelta(minutes=10)
@@ -605,6 +606,8 @@ class Runner:
             "bus id": facts["bus"],
             "incident topic": topic(self.incident_id),
             "incident id": self.incident_id,
+            "report time": pacific(facts["reported"]),
+            "due time": pacific(parse_stamp(facts["reported"]) + DUE_AFTER),
             "alert link": facts["alert"],
             "named code path": facts["code_path"],
             "runbook": facts.get("runbook") or "n/a",
@@ -964,6 +967,7 @@ def cmd_open(args: argparse.Namespace, store: Store, shell: Shell) -> int:
         "runbook": args.runbook,
         "adopted": dict(args.adopt),
         "onset": args.onset,
+        "reported": args.reported,
         "bus": args.bus,
         "comms_lane": args.comms_lane,
         "root_lane": args.root_lane,
@@ -1052,6 +1056,7 @@ def build_parser() -> argparse.ArgumentParser:
     open_cmd.add_argument("--incident", help="the incident id; default the UTC month, day, hour, and minute")
     open_cmd.add_argument("--thread", required=True, help="the Slack permalink the incident answers in")
     open_cmd.add_argument("--onset", required=True, help="ISO time the outage began; failed builds since then are owned")
+    open_cmd.add_argument("--reported", required=True, help="ISO time of the first report; the fix is due live 20 minutes later")
     open_cmd.add_argument("--bus", required=True)
     open_cmd.add_argument("--comms-lane", required=True)
     open_cmd.add_argument("--root-lane", required=True)

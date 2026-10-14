@@ -15,6 +15,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 REPLAY = json.loads((FIXTURES / "pr-review-replay.json").read_text())
 ONSET = parse_stamp(REPLAY["onset"])
 INTAKE = parse_stamp(REPLAY["intake"])
+REPORTED = "2026-10-01T17:20:10Z"
 REPAIR = REPLAY["repair"]
 PR_OPENED = parse_stamp("2026-10-01T17:35:00Z")
 OLD_CONFIG = "steps:\n  - commands:\n      - yarn workspace pr-reviewer build\n"
@@ -239,7 +240,7 @@ def open_incident(store: Store, clock: Clock, grants: dict | None = None, kind: 
     argv = [
         "open", "--kind", kind, "--incident", "pr-review-1001", *(["--target", "api"] if kind == "alert" else []),
         "--thread", "https://forge-ai.slack.com/archives/C0BQSADC7SS/p1790875497000000",
-        "--onset", REPLAY["onset"], "--bus", "bus1", "--comms-lane", "incident-comms", "--root-lane", "release-v3",
+        "--onset", REPLAY["onset"], "--reported", REPORTED, "--bus", "bus1", "--comms-lane", "incident-comms", "--root-lane", "release-v3",
         "--checkout", "/monorepo", "--expect-config", "infra/generate.ts", "--orca-run", "run1", "--orca-repo", "repo1",
     ]
     for name, ref in (GRANTS if grants is None else grants).items():
@@ -742,7 +743,7 @@ def test_open_takes_the_alert_link_code_path_and_runbook(store, clock):
     incident_id = open_incident(store, clock, kind="alert")
     facts = store.load(incident_id).facts
     assert (facts["alert"], facts["code_path"], facts["runbook"], facts["adopted"]) == (facts["thread"], "the api service", None, {})
-    assert incident.main(["open", "--kind", "alert", "--incident", "x2", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--alert", "https://forge-rf.sentry.io/issues/7766636402/", "--runbook", "4950740", "--adopt", "fix=api-1n85-fix"], store, clock) == 0
+    assert incident.main(["open", "--kind", "alert", "--incident", "x2", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--reported", REPORTED, "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--alert", "https://forge-rf.sentry.io/issues/7766636402/", "--runbook", "4950740", "--adopt", "fix=api-1n85-fix"], store, clock) == 0
     facts = store.load("x2").facts
     assert (facts["alert"], facts["runbook"], facts["adopted"]) == ("https://forge-rf.sentry.io/issues/7766636402/", "4950740", {"fix": "api-1n85-fix"})
 
@@ -795,7 +796,7 @@ ENTRY_POINT = "releaseDAG at go/ci/release.go:170"
 
 
 def test_open_records_the_rulings_and_entry_point_the_fix_brief_quotes(store, clock, fake):
-    assert incident.main(["open", "--kind", "alert", "--incident", "x3", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--ruling", RULING, "--entry-point", ENTRY_POINT], store, clock) == 0
+    assert incident.main(["open", "--kind", "alert", "--incident", "x3", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--reported", REPORTED, "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--ruling", RULING, "--entry-point", ENTRY_POINT], store, clock) == 0
     assert (store.load("x3").facts["rulings"], store.load("x3").facts["entry_point"]) == ([RULING], ENTRY_POINT)
     drive(Runner(store, "x3", world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
 
@@ -811,6 +812,21 @@ def test_a_brief_with_no_rulings_says_so_and_asks_nothing(store, clock, fake):
     brief = (store.root / incident_id / f"incident-{incident_id}-fix.full.md").read_text()
     assert "  none recorded for this subsystem\n  entry point: none named\n" in brief
     assert fake.asks == []
+
+
+def test_the_fix_brief_names_the_report_time_and_carries_the_standing_orders(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert")
+    drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+
+    brief = (store.root / incident_id / f"incident-{incident_id}-fix.full.md").read_text()
+    assert """Standing orders, fixed in this template:
+  - Reported 10:20am PT. The bar is fixed and live within 20 minutes of the
+    report, by 10:40am PT; the desk's limits below run from your launch, inside it.
+  - "stop asking people for things you can collect yourself": never ask a reporter
+    for a version, id, or log the platform records; read it from telemetry first.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+""" in brief
+    assert "go build" not in brief and "go vet" not in brief
 
 
 def test_a_design_check_reaches_the_root_once_and_its_confirmation_is_a_milestone(store, clock, fake):

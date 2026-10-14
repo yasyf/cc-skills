@@ -3093,7 +3093,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     config.write_text(json.dumps({**raw, "alert": {"facts": str(facts)}}))
     shell.launch_line = "dd-312516332-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    desk_inbox(tmp_path, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 reported=23:48 :: Datadog OK -> Alert Run assignment starved")
     orca_pass(shell, config)
     shell.launch("dd-312516332-fix", "ctx_n")
     orca_pass(shell, config)
@@ -3104,6 +3104,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     text = brief.read_text()
     assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
     assert "Rollback first" in text and "{" not in text
+    assert "  - Reported 23:48 PT. The bar is fixed and live within 20 minutes of the\n    report, by 00:08 PT;" in text
     assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
     assert not (tmp_path / "incidents").exists()
     lines = [line for line in escalations(shell)]
@@ -3111,7 +3112,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
-ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
+ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 reported=03:03 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
 
 
 def root_brief(tmp_path: Path, monitor: str) -> Path:
@@ -3209,7 +3210,7 @@ def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(
     shell.attachments["dd-7-fix.full.md"] = last
     shell.launch("dd-7-fix", "ctx_old", status="completed")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert again")
+    desk_inbox(tmp_path, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:02 :: Datadog OK -> Alert again")
     orca_pass(shell, config)
     brief = shell.attachments["dd-7-fix.full.md"]
     assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "incident", "xhigh", str(brief)]]
@@ -3219,7 +3220,7 @@ def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(
 def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config, tmp_path):
     shell.attach_error = "error: cc-notes: ref lock held"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R41 orca-desk: incident dd-8 https://app.datadoghq.com/monitors/8 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R41 orca-desk: incident dd-8 https://app.datadoghq.com/monitors/8 reported=11:02 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
     [line] = escalations(shell)
@@ -3229,7 +3230,7 @@ def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config,
 def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
     shell.attach_code = -9
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R42 orca-desk: incident dd-9 https://app.datadoghq.com/monitors/9 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R42 orca-desk: incident dd-9 https://app.datadoghq.com/monitors/9 reported=11:02 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -3239,7 +3240,7 @@ def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, 
 def test_an_incident_whose_attached_brief_has_no_path_launches_nothing(shell, config, tmp_path):
     shell.unresolved.add("dd-10-fix.full.md")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R43 orca-desk: incident dd-10 https://app.datadoghq.com/monitors/10 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R43 orca-desk: incident dd-10 https://app.datadoghq.com/monitors/10 reported=11:02 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -3727,11 +3728,36 @@ def test_a_ready_status_from_the_run_escalates_and_stops_the_clock(shell, config
 
 
 def test_the_unfixed_case_brief_renders_with_every_field_filled():
-    fields = {"lane": "dd-7-fix-case1", "parent": "dd-7-fix", "case": "resume of thread T123 still fails", "parent_brief": "/lfs/parent.md", "prs": "#4242", "onset": "11:20", "log": "briefs1", "facts": "apply authority: 0 deletes"}
+    fields = {"lane": "dd-7-fix-case1", "parent": "dd-7-fix", "case": "resume of thread T123 still fails", "parent_brief": "/lfs/parent.md", "prs": "#4242", "onset": "11:20", "reported": "11:20", "due": "11:40", "log": "briefs1", "facts": "apply authority: 0 deletes"}
     text = runner_module.UNFIXED_TEMPLATE.read_text().format(**fields)
     assert "{" not in text and all(value in text for value in fields.values())
     assert "fix proven only on a synthetic or neighbouring case is not ready." in text
     assert "`UNFIXED dd-7-fix-case1: none`" in text and "`READY dd-7-fix-case1: " in text
+
+
+def test_an_incident_line_without_the_report_time_launches_nothing(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R44 orca-desk: incident dd-11 https://app.datadoghq.com/monitors/11 :: Datadog OK -> Alert")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [line] = escalations(shell)
+    assert line == f"INCIDENT-FAILED R44 inbox: one incident per line, in the form `{runner_module.INCIDENT_GRAMMAR}`; nothing was launched"
+
+
+STANDING_ORDERS = """Standing orders, fixed in this template:
+  - Reported {} PT. The bar is fixed and live within 20 minutes of the
+    report, by {} PT; the desk's limits below run from your launch, inside it.
+  - "stop asking people for things you can collect yourself": never ask a reporter
+    for a version, id, or log the platform records; read it from telemetry first.
+  - Verification: no local test runs, builds, typechecks or lint; CI grades.
+"""
+
+
+@pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
+def test_every_desk_incident_brief_template_carries_the_standing_orders_and_no_local_build(template):
+    text = template.read_text()
+    assert STANDING_ORDERS.format("{reported}", "{due}") in text
+    assert "go build" not in text and "go vet" not in text and "typecheck otherwise" not in text
 
 
 def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
