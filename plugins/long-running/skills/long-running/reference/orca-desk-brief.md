@@ -81,15 +81,20 @@ root: each takes the next `R<n>` past the root's newest `orca-desk:` record, pos
 with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
-A launch the runner accepted and has not started, such as one held on load, is
-withdrawn with one line:
+A launch or a lane is withdrawn with one line naming its launch key, `R<m>` or a case
+launch's `unfixed:<msg>:<n>`, or the lane itself:
 
 ```text
 R<n> (<time>) orca-desk: withdraw R<m>
+R<n> (<time>) orca-desk: withdraw <lane>
 ```
 
-The runner fails the launch under `R<m>` and logs `WITHDRAWN R<m> <lane>`. A launch
-already started or settled, or a key that holds no launch, logs `WITHDRAW-FAILED`.
+The runner fails a launch it accepted and has not started, such as one held on load,
+and stops a launched dispatch with worker-stop, as `orca-gc --done` does. It logs
+`WITHDRAWN` and marks the lane withdrawn, so the lane's `UNFIXED` lines launch no case
+lane and Orca's offer to dispatch it again logs `WITHDRAWN`, not `DECIDE`. A launch
+still starting, a settled launch with no dispatch, a key or lane that holds nothing, or
+a worker-stop Orca refuses logs `WITHDRAW-FAILED`.
 A root `cci post --kind withdraw --re <seq>` whose record is a launch line addressed
 to `orca-desk` withdraws that launch the same way. Any other record carrying `--re`
 is a reply, never a directive, so it logs no `DIRECTIVE-FAILED`.

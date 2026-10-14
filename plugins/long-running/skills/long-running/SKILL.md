@@ -468,7 +468,7 @@ that `orca-launch.sh` names in its brief, so it never asks the root for prose. T
 root answers a lane's question with `cci post --kind answer --to <lane> --re <seq>`
 on the lane's ask or on the runner's `DECIDE`. The runner relays that answer as the
 reply to the lane's open Orca question, so no question is left open. It withdraws
-an unstarted launch with `orca-desk: withdraw R<n>`.
+a launch or a lane with `orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
 *Prevents the 11:49 PM Oct 11 incident launch: two unaddressed launch lines, a
 withdrawal the runner rejected, a codex lane that asked the root for PR prose, and
@@ -562,14 +562,25 @@ The lane closes its ready report and its `worker_done` with one
 incident xhigh in the same pass, where `<first>` is the first fix lane of the
 incident, on a brief filled from `reference/unfixed-case-brief.md`. It logs the
 launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane
-<first>-case<n> launching …`. A case launches once, whether the fix lane, its
-`-opus` fallback, or a case lane reports it. The root ratifies the
-case lane and keeps the reporter told that the case is still open. It never parks
-a named case for later while the break is live.
+<first>-case<n> launching …`. A case launches once, whether the fix lane or its
+`-opus` fallback reports it. Case lanes are one generation. A new case from a case
+lane launches nothing; it reaches the root as a `DECIDE` that carries the ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, so the
+root starts the lane by posting it. A case lane echoing its own case launches
+nothing. A new case from a lane the root withdrew reaches the root as
+`UNFIXED <lane> …: <case> | no case lane launched: …` and launches nothing. The root
+ratifies the case lane and keeps the reporter told that the case is still open. It
+never parks a named case for later while the break is live.
 
 *Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
 neighbouring case while the reporter's own thread still failed, and two edge cases
 the fix lane had named sat as backlog for two hours until a customer hit them.*
+
+*Case lanes stay one generation because of the 10:37 AM Oct 14 loop. The runner
+refused the root's withdrawals of five case lanes, which carried no `R<n>`. The
+withdrawn case5 then echoed its own `UNFIXED` line, and the runner launched case6
+from it. A new case still reaches the root with its launch line ready, so the cap
+drops none (fidelity F340).*
 
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
@@ -1407,10 +1418,11 @@ and logs `LAUNCHED` or `LAUNCH-FAILED`. A
 carrying the same line is read the same way; post it there or append it to the file,
 never both, since a key held twice logs `LAUNCH-FAILED`. `desk-launch.py lane <lane>
 <model> <effort> <brief> [--now]` does both steps: it takes the next `R<n>`, posts the
-line, and waits for the runner's verdict. An `orca-desk: withdraw R<n>` line fails a
-launch the runner accepted and has not started, such as one held on load, and logs
-`WITHDRAWN`; `WITHDRAW-FAILED` names a launch already started or a key that holds
-none. A root `cci post --kind withdraw --re <seq>` of a launch record does the same. The root never `SendMessage`s a desk. It
+line, and waits for the runner's verdict. An `orca-desk: withdraw <target>` line,
+naming `R<n>`, a case launch's `unfixed:<msg>:<n>`, or a lane, fails a launch the
+runner accepted and has not started, stops a launched dispatch with worker-stop, marks
+the lane withdrawn, and logs `WITHDRAWN`; `WITHDRAW-FAILED` names a launch still
+starting, a target that holds nothing, or a stop Orca refused. A root `cci post --kind withdraw --re <seq>` of a launch record does the same. The root never `SendMessage`s a desk. It
 receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.

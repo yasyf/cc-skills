@@ -98,17 +98,28 @@ lane's brief, and the PRs its cci `opened` records name, attached to the briefs 
 `<first>-case<n>.full.md`. The runner logs
 `INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching …`
 for the root to ratify. Only a line that names the reporting lane counts, and
-`UNFIXED <lane>: none` launches nothing. A case launches once across a lane, its `-opus`
-fallback, and its case lanes, however often and by whichever of them it is reported, and a
-case whose launch is refused launches on the next report that names it. A case lane is an
-incident fix lane, so the clock covers it.
+`UNFIXED <lane>: none` launches nothing. A case launches once across a lane and its `-opus`
+fallback, however often and by whichever of them it is reported, and a case whose launch is
+refused launches on the next report that names it. Case lanes are one generation: a new
+case a case lane reports launches nothing and logs a `DECIDE` that carries the ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, from a brief
+already attached. A case already known, such as a case lane's own, launches nothing, and a
+new case from a lane the root withdrew logs
+`UNFIXED <lane> <time>: <case> | no case lane launched: …` and launches nothing. A case
+lane is an incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
 from the desk inbox itself or one that carries `--re`; a record that is no directive logs
 `DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
-sequence. An `orca-desk: withdraw R<n>` line fails each launch under `R<n>` the runner accepted
-and has not started, logging `WITHDRAWN`, or `WITHDRAW-FAILED` for a launch already started or
-settled or a key that holds none. Each root cci record carrying `--re`, read in sequence
+sequence. An `orca-desk: withdraw <target>` line names a launch key, `R<n>` or a case
+launch's `unfixed:<msg>:<n>`, or a lane. It fails each launch under the key, or each of the
+lane's launches, that the runner accepted and has not started, and stops the dispatch the
+key or lane launched with worker-stop, as `orca-gc --done` does, logging `WITHDRAWN`. The
+lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
+leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
+case lane whose dispatch the root stopped by hand is marked the same way. A launch still
+starting, a settled launch with no dispatch, a key or lane the runner holds nothing under,
+or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each root cci record carrying `--re`, read in sequence
 order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
 reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
@@ -284,7 +295,7 @@ ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
 INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM Pacific> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
-WITHDRAW_GRAMMAR = "orca-desk: withdraw R<n>"
+WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>"
 INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(?P<text>\S.*)$", re.DOTALL)
 LANE_LIST = re.compile(r", (?:and )?| and ")
@@ -342,7 +353,10 @@ SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
 LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
-WITHDRAW_SPEC = re.compile(r"^ (?P<target>R\d+)$")
+WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
+LAUNCH_KEY = re.compile(r"R\d+|unfixed:[\w-]+:\d+|inbox@\S+")
+WITHDRAWN = "withdrawn"
+FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
 COMMS_DESK = "comms-desk"
@@ -439,6 +453,10 @@ def fix_launch(incident: actions.Incident) -> actions.Action | None:
 def first_lane(lane: str) -> str:
     """The lane an incident's fallback and case lanes descend from: the name without its trailing `-opus` and `-case<n>` parts."""
     return LINEAGE.sub("", lane)
+
+
+def is_case_lane(lane: str) -> bool:
+    return CASE in lane.removeprefix(first_lane(lane))
 
 
 def unfixed_cases(text: str, lane: str) -> dict[str, str]:
@@ -662,6 +680,7 @@ class Dispatch:
     terminal: str
     status: str
     live: bool
+    fenced: bool = False
 
 
 class Orca:
@@ -707,7 +726,17 @@ class Orca:
             terminal=(result.get("terminal") or {}).get("handle") or self.terminal(lane),
             status=result["dispatch"]["status"],
             live=observation.get("status") == "live",
+            fenced=bool(result["dispatch"].get("capabilityRevokedAt")),
         )
+
+    def stop(self, dispatch: str) -> tuple[str, str]:
+        """Fence the dispatch as `orca-gc --done` does: worker-stop, or worker-abandon once Orca already fenced it; its state, or empty and the error code."""
+        stopped = self.call("orchestration", "worker-stop", "--dispatch", dispatch)
+        if not stopped.get("ok") and stopped["error"]["code"] == FENCED:
+            stopped = self.call("orchestration", "worker-abandon", "--dispatch", dispatch)
+        if not stopped.get("ok"):
+            return "", stopped["error"]["code"]
+        return stopped["result"]["state"], ""
 
     def mailbox(self, terminal: str) -> list[dict] | None:
         listed = self.call("orchestration", "check", "--terminal", terminal, "--all")
@@ -1031,18 +1060,50 @@ class Runner:
         self.withdraw(at, key, spec["target"])
 
     def withdraw(self, at: str, key: str, target: str) -> None:
-        """Fail each launch under `target` that the runner accepted and has not started, so it never launches; a started or settled launch stays as it is."""
+        """Withdraw the launch under a launch key, or every launch of a lane named: a launch not yet started fails, so it never launches, and a launched dispatch is stopped and its lane marked withdrawn."""
         log = f"escalation:withdraw:{at}"
-        held = [(container, action) for container in self.book.containers(LANE_PREFIX) if (action := self.book.load(container).actions.get(target)) and action.kind == "launch"]
+        keyed = bool(LAUNCH_KEY.fullmatch(target))
+        if keyed:
+            held = [(container.removeprefix(LANE_PREFIX), [action]) for container in self.book.containers(LANE_PREFIX) if (action := self.book.load(container).actions.get(target)) and action.kind == "launch"]
+        else:
+            known = lane_container(target) in self.book.store.ids()
+            held = [(target, self.book.actions(lane_container(target), kind="launch") if known else [])] if known or self.orca.receipt(target) else []
         if not held:
-            self.record(log, f"WITHDRAW-FAILED {key} {target}: the runner holds no launch under {target}; nothing was withdrawn")
-        for container, action in held:
-            lane = container.removeprefix(LANE_PREFIX)
-            if action.status != "accepted":
-                self.record(f"{log}:{lane}", f"WITHDRAW-FAILED {key} {lane}: launch {target} is {action.status}; nothing was withdrawn")
-                continue
-            self.book.edit(container, lambda incident: incident.fail(target, f"withdrawn by {key}"))
-            self.record(f"{log}:{lane}", f"WITHDRAWN {target} {lane}: by {key}; nothing was launched")
+            self.record(log, f"WITHDRAW-FAILED {key} {target}: the runner holds no launch or lane under {target}; nothing was withdrawn")
+        for lane, launches in held:
+            for action in launches:
+                if action.status == "accepted":
+                    self.book.edit(self.lane(lane), lambda incident, action=action: incident.fail(action.action_id, f"withdrawn by {key}"))
+                    self.record(f"{log}:{lane}:{action.action_id}", f"WITHDRAWN {action.action_id} {lane}: by {key}; nothing was launched")
+                elif action.status == "started":
+                    self.record(f"{log}:{lane}:{action.action_id}", f"WITHDRAW-FAILED {key} {lane}: launch {action.action_id} is still starting; withdraw it again once it logs LAUNCHED")
+            if keyed:
+                dispatch = launches[0].dispatch_id if launches[0].status == "verified" else None
+            else:
+                dispatch = self.orca.receipt(lane)
+            if dispatch:
+                self.stop_withdrawn(f"{log}:{lane}", key, target, lane, dispatch)
+            elif keyed and launches[0].status not in ("accepted", "started"):
+                self.record(f"{log}:{lane}", f"WITHDRAW-FAILED {key} {lane}: launch {target} is {launches[0].status}; nothing was withdrawn")
+
+    def stop_withdrawn(self, log: str, key: str, target: str, lane: str, dispatch: str) -> None:
+        """Mark the lane's dispatch withdrawn, so no report of it launches a case lane and Orca's offer to dispatch it again asks no one, then stop it unless it already settled."""
+        self.book.edit(self.lane(lane), lambda incident: incident.facts.update({WITHDRAWN: {"dispatch": dispatch, "by": key}}))
+        shown = self.orca.show(lane, dispatch)
+        if shown and shown.status in INACTIVE:
+            self.record(log, f"WITHDRAWN {target} {lane}: by {key}; dispatch {dispatch} was already {shown.status}, and no report of it launches a case lane")
+            return
+        state, error = self.orca.stop(dispatch)
+        if not state:
+            self.record(log, f"WITHDRAW-FAILED {key} {lane}: worker-stop of dispatch {dispatch} failed: {error}; it is marked withdrawn, so no report of it launches a case lane; stop it with orca-gc --done")
+            return
+        self.record(log, f"WITHDRAWN {target} {lane}: by {key}; dispatch {dispatch} stopped ({state}), and no report of it launches a case lane")
+
+    def withdrawn_by(self, lane: str) -> str:
+        """Who withdrew the lane's current dispatch, or empty."""
+        container = lane_container(lane)
+        mark = (self.book.load(container).facts.get(WITHDRAWN) or {}) if container in self.book.store.ids() else {}
+        return mark.get("by", "") if mark and mark["dispatch"] == self.orca.receipt(lane) else ""
 
     def alert_line(self, at: str, key: str, rest: str) -> None:
         """Record a monitor transition and launch nothing, or relay a repeat to the fix lane already on it; the alerts desk decides whether an incident lane is necessary."""
@@ -1100,7 +1161,7 @@ class Runner:
         return (brief, "") if brief else (None, "the attached brief has no path")
 
     def unfixed(self, lane: str, message: dict) -> None:
-        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes."""
+        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Case lanes are one generation: a new case from a case lane goes to the root as a `DECIDE` carrying its launch line, and a case from a lane the root withdrew launches nothing and goes to the root as one line."""
         cases = unfixed_cases(message.get("body") or "", lane)
         if not cases or lane_container(lane) not in self.book.store.ids():
             return
@@ -1109,10 +1170,27 @@ class Runner:
             return
         first = first_lane(lane)
         container = self.lane(first)
+        by = self.withdrawn_by(lane)
+        offered = 0
         for index, (known, case) in enumerate(cases.items(), 1):
             taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
-            if known not in taken and self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, f"unfixed:{message['id']}:{index}"):
+            key = f"unfixed:{message['id']}:{index}"
+            if known in taken:
+                continue
+            if by:
+                self.record(f"escalation:{key}", f"UNFIXED {lane} {pacific(self.now())}: {case} | no case lane launched: the root withdrew {lane} ({by})")
+            elif is_case_lane(lane):
+                offered += 1
+                self.offer_case(f"{first}{CASE}{len(taken) + offered}", lane, launch, case, key)
+            elif self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, key):
                 self.book.edit(container, lambda incident, taken=[*taken, known]: incident.facts.update({UNFIXED_CASES: taken}))
+
+    def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
+        """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
+        text = UNFIXED_TEMPLATE.read_text().format(
+            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
+        )
+        return self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
 
     def case_lane(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> bool:
         """Launch a case lane on the incident alias from the unfixed-case brief, freshly attached to the briefs log, and say whether the launch was taken; the root ratifies from the INCIDENT line."""
@@ -1121,16 +1199,22 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
-        text = UNFIXED_TEMPLATE.read_text().format(
-            lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=self.opened_prs(parent, launch), onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=self.config.briefs_log, facts=self.drive_facts()
-        )
-        brief, failure = self.attach_brief(lane, text, f"INCIDENT {parent}: unfixed case brief for {lane}: {case}")
+        brief, failure = self.case_brief(lane, parent, launch, case)
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
         self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
         self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
         return True
+
+    def offer_case(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> None:
+        """Past the one-generation cap, put a case lane's new case to the root as a `DECIDE` carrying the launch line that starts its lane from an attached brief."""
+        head = f"DECIDE {key} {parent}: a case lane reports a new case, past the one-generation cap: {case}"
+        brief, failure = self.case_brief(lane, parent, launch, case)
+        if brief is None:
+            self.record(f"escalation:{key}", f"{head} | no launch line: {failure}")
+            return
+        self.record(f"escalation:{key}", f"{head} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`")
 
     def opened_prs(self, lane: str, launch: actions.Action) -> str:
         """The PRs a lane's own cci `opened` records name since its launch, each once, as `#1 owner/repo#2`."""
@@ -1609,7 +1693,8 @@ class Runner:
             self.acknowledge(container, key, sender, acked["verb"], result or (message.get("body") or "").strip(), message["id"])
         elif message["type"] in ("question", "escalation"):
             self.keep(message)
-            self.judge(message, lane)
+            if not self.withdrawn_ask(lane, message):
+                self.judge(message, lane)
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
@@ -1627,6 +1712,17 @@ class Runner:
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
         else:
             return False
+        return True
+
+    def withdrawn_ask(self, lane: str, message: dict) -> bool:
+        """Take a lane's question as moot when the root withdrew its dispatch, or fenced a case lane's dispatch by hand: the lane is marked withdrawn, never offered to be dispatched again, and the root gets one line in place of a `DECIDE`."""
+        by = self.withdrawn_by(lane)
+        if not by and is_case_lane(lane) and (dispatch := self.orca.show(lane)) and dispatch.fenced:
+            by = f"a stop of dispatch {dispatch.id}"
+            self.book.edit(self.lane(lane), lambda incident: incident.facts.update({WITHDRAWN: {"dispatch": dispatch.id, "by": by}}))
+        if not by:
+            return False
+        self.escalate(message["id"], "WITHDRAWN", lane, f"withdrawn by {by}, so it is not dispatched again and its question needs no answer: {message.get('subject', '')}")
         return True
 
     def stamp_status(self, lane: str, message: str, name: str) -> None:
