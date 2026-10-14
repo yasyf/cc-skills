@@ -298,7 +298,12 @@ Do:
      while a rollback is available. A rollback plan with a delete or replace
      stops for the owner.
   1. Start at the named code path now, while evidence is still arriving.
-     Never wait for a diagnosis verdict before starting the fix.
+     Never wait for a diagnosis verdict before starting the fix. Read the
+     reporter's case from telemetry first: the client versions of their team
+     from the metrics, the run, session, or thread record and which component
+     served the failing request, server logs and Sentry by user and team id,
+     and the release timeline. Ask the reporter, through comms, only for what
+     none of these hold.
   2. Read <evidence lane name>'s findings as they arrive by bus or Orca messages.
      Redirect with the evidence, including to a monitor fix for a monitor defect.
      A muted monitor still gets fixed; use the mute window.

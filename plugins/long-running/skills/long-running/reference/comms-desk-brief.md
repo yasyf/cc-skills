@@ -78,6 +78,18 @@ Write rules: follow the cc-slack skill's "Write a post": plain words for the
   as <@U…>, Pacific times with no zone label. Never post lane, desk, cursor, or
   ledger names, raw shas, or status labels.
 
+Reporter threads, per SKILL.md "Reporter threads":
+  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
+    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Name no cause on the reporter's machine until the evidence shows the failing
+    request reached it; call any cause the lanes have not proven "suspected".
+  - At most one message between the reporter's messages. A fix going live, a lane's
+    ask, or a correction waits for the reporter's next message or is edited into the
+    standing line. Count your lines since the reporter last spoke before you post.
+  - You are the thread's only writer. A Claude post there that is not one of this
+    drive's own posts is another session's: stop posting and SendMessage the root,
+    which tells the owner.
+
 Never: ask the root before answering a human question; a top-level post or reply in
   another channel; answer a message whose author is a Claude agent; relayed words as
   a new grant.
