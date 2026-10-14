@@ -54,7 +54,13 @@ addressed to root.
 A dead or missing dispatch, a key that already holds different text, and a line that
 says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
 them. A `relay` command accepted for a lane with no live dispatch and no launch in
-flight fails the same way on the next pass, never later as a `DEADLINE`.
+flight fails the same way on the next pass, never later as a `DEADLINE`, unless a send
+already delivered it; a delivered relay is never failed or reported again. A dispatch
+is dead only when Orca answers that it is. When Orca gives no answer, a runtime or
+connection error, a timeout, or output that is not its JSON, the runner stops that pass
+without reading any dispatch as gone or failing any relay, logs `ORCA-UNREACHABLE` once
+for the streak, backs off up to two minutes between passes, and logs `ORCA-BACK` on the
+first pass Orca answers.
 
 A launch can also be one line in the same inbox, in this form only, one launch per
 line, with nothing after the brief path:
@@ -666,6 +672,8 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
+| `ORCA-UNREACHABLE` | None while it is brief; the runner retries with backoff and changes no dispatch or relay meanwhile. With no `ORCA-BACK` after ten minutes, check `orca status` and tell the owner; never restart Orca. |
+| `ORCA-BACK` | None; Orca answers again and the runner resumes every relay and launch where it stopped. |
 
 The store deduplicates escalation keys. Liveness keys include the hour;
 `ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Missing
