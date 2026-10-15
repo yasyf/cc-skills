@@ -855,6 +855,29 @@ commits the drive to new behaviour goes to the root first.
 channel, when the drive-start grant covered top-level posts only and the thread grant
 sat on an owner board.*
 
+**Status posts mark milestones, never a clock.** The drive posts to its updates
+channel at each milestone: a fix live on a named build, a release passed or failed, a
+pass or migration finished, an incident opened or closed, a decision the owner must
+see. It never posts per event and never on a timer, hourly or at any other cadence.
+Silence between milestones is correct, and a long quiet stretch is reported only when
+the owner asks. A drive that stops posting while milestones pass is a defect, and so is
+one that makes up for it with timed posts. Before each milestone report to the owner,
+the root checks that the channel carries its post.
+
+The exemplar is the drive's kickoff post of 2026-10-12, at
+https://poetic-slack.slack.com/archives/C0C9H4KPS7J/p1791841367899079. It leads with
+the milestone in one bold line, then says in plain words what changes and for whom:
+"We're collapsing them into one shape, so a laptop run looks just like a cloud run and
+a teammate can open either one." It names the next PR, linked, and closes on the
+contract: "Every piece that ships gets its own post here, picture included." Each post
+carries the build or PR with its author, Pacific times, and no lane, desk, or register
+names, and each milestone gets exactly one post.
+
+*Prevents the 2026-10-13 sprint channel's silence from 10:43 AM into the evening, and
+the hourly posts that replaced it. Owner, 2026-10-14: "your original posts were
+perfect the only problem is you stopped doing them, then overcompensated by switching
+to hourly".*
+
 The pack's `root_context` hook blocks the root's Slack reads and never its approved Slack writes.
 
 The pack's `slack_threads` hook appends every thread a drive session posts in to
