@@ -3,36 +3,36 @@
   "schema": 1,
   "name": "codex-ask",
   "kind": "release-binary",
-  "version": {"static": "1.14.16"},
+  "version": {"static": "1.14.17"},
   "platforms": {
     "macos-aarch64": {
-      "size": 5962952,
+      "size": 5963147,
       "hash": "sha256",
-      "digest": "7910f7d1bff4b0b400a164c159b2ed03c12fff7e291085b3ec7b94888ea9123f",
+      "digest": "89a050d24421b31a980b6e3b82c185eb5c7a09f60305aa851455814887059896",
       "format": "tar.gz",
       "path": "codex-ask",
       "providers": [
-        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.16", "name": "codex-ask_1.14.16_darwin_arm64.tar.gz"}
+        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.17", "name": "codex-ask_1.14.17_darwin_arm64.tar.gz"}
       ]
     },
     "macos-x86_64": {
-      "size": 6480316,
+      "size": 6480702,
       "hash": "sha256",
-      "digest": "2da2b3db14d7baf84d7ca020a5c52d6cd4566c0dc8c24305dfc908a7ab84a370",
+      "digest": "7f4b28a01de63e31ba32bc2eb7961c6d7e8b4af81c5ed594752838e15e9c3c4e",
       "format": "tar.gz",
       "path": "codex-ask",
       "providers": [
-        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.16", "name": "codex-ask_1.14.16_darwin_amd64.tar.gz"}
+        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.17", "name": "codex-ask_1.14.17_darwin_amd64.tar.gz"}
       ]
     },
     "linux-x86_64": {
-      "size": 5423029,
+      "size": 5423559,
       "hash": "sha256",
-      "digest": "51f75af7fd8994e694d3191189aba3bd9bf8d7035940a519725aa32b8efae599",
+      "digest": "5c49636dce1e828a91cb9e79b5e4e6c4da386163c516727eddb8df2af43cbac3",
       "format": "tar.gz",
       "path": "codex-ask",
       "providers": [
-        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.16", "name": "codex-ask_1.14.16_linux_amd64.tar.gz"}
+        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.14.17", "name": "codex-ask_1.14.17_linux_amd64.tar.gz"}
       ]
     }
   }
