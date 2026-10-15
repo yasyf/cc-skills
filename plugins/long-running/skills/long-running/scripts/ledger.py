@@ -334,7 +334,10 @@ class Github:
         self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{number}/labels/{name}", "--method", "DELETE"])
 
     def default_branch(self) -> str:
-        return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
+        try:
+            return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
+        except subprocess.CalledProcessError as failure:
+            raise ForgeUnreachable(forge_failure(self.shell, failure)) from failure
 
 
 def origin_repo(shell: Shell, checkout: Path) -> str:
@@ -671,6 +674,26 @@ def quota_resets(shell: Shell) -> str:
         headers = failure.stdout or ""
     reset = RATE_LIMIT_RESET.search(headers)
     return stamp(datetime.fromtimestamp(int(reset[1]), timezone.utc)) if reset else "at an unknown time"
+
+
+def rest_resets(shell: Shell) -> str:
+    try:
+        reset = json.loads(shell.run(["gh", "api", "rate_limit"]))["resources"]["core"]["reset"]
+    except subprocess.CalledProcessError:
+        return "at an unknown time"
+    return stamp(datetime.fromtimestamp(reset, timezone.utc))
+
+
+def forge_failure(shell: Shell, failure: subprocess.CalledProcessError) -> str:
+    call = " ".join(failure.cmd[:3])
+    detail = " ".join((failure.stderr or str(failure)).split())
+    if RATE_LIMITED.search(detail):
+        return f"{call}: REST quota exhausted, resets {rest_resets(shell)}"
+    return f"{call}: {detail}"
+
+
+def is_gh_api(failure: subprocess.CalledProcessError) -> bool:
+    return failure.cmd[:2] == ["gh", "api"]
 
 
 def cache_banner(shell: Shell, rows: dict[str, dict[str, str]], moment: datetime) -> str:
@@ -1553,7 +1576,12 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
     if args.pr:
         if not args.lane and rows[args.pr]["lane"] in gone:
             raise SystemExit(f"#{args.pr}'s lane {rows[args.pr]['lane']} is gone; name a live one with --lane")
-        route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run)
+        try:
+            route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run)
+        except subprocess.CalledProcessError as failure:
+            if not is_gh_api(failure):
+                raise
+            print(f"route #{args.pr}: not routed this pass, {forge_failure(shell, failure)}")
         return 0
     moment = now()
     routed = 0
@@ -1563,11 +1591,16 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
         if dev_red_held(fields, moment):
             print(f"#{pr} {fields['hold_reason']} until {fields['hold_until']}: red on the trunk too, not routed")
             continue
-        lane = sweep_lane(gh, pr, fields, gone, args.train, args.paths, args.fallback)
-        if lane is None:
-            print(f"#{pr} {fields['lane']} is gone and no --fallback covers it; not routed")
-            continue
-        routed += route_one(notes, gh, pr, fields, None, lane, args.dry_run)
+        try:
+            lane = sweep_lane(gh, pr, fields, gone, args.train, args.paths, args.fallback)
+            if lane is None:
+                print(f"#{pr} {fields['lane']} is gone and no --fallback covers it; not routed")
+                continue
+            routed += route_one(notes, gh, pr, fields, None, lane, args.dry_run)
+        except subprocess.CalledProcessError as failure:
+            if not is_gh_api(failure):
+                raise
+            print(f"route #{pr}: not routed this pass, {forge_failure(shell, failure)}")
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
     return 0
 
@@ -2164,7 +2197,10 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
-    cmd_reconcile(args, shell)
+    try:
+        cmd_reconcile(args, shell)
+    except ForgeUnreachable as unreachable:
+        print(f"summary: reconcile skipped this pass, {unreachable}")
     notes = Notes(shell, args.ledger, args.scope)
     stored = notes.stored()
     rows = sharded(notes.view(stored), args.shard)
