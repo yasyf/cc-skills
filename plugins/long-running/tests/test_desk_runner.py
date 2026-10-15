@@ -8,6 +8,8 @@ import itertools
 import json
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -77,6 +79,8 @@ class FakeShell(runner_module.Shell):
         self.statuses = ""
         self.head_statuses: list[dict] = []
         self.status_error = ""
+        self.label_calls: list[tuple[str, str]] = []
+        self.label_error = ""
         self.queue: dict[str, str] = {}
         self.activity: dict[str, str] = {}
         self.bodies: dict[str, str] = {}
@@ -172,6 +176,8 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+        if argv[:2] == ["gh", "api"] and "/issues/" in argv[2]:
+            return self.label(argv[2:], stdin)
         if argv[:2] == ["gh", "api"]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
             if self.status_error:
@@ -204,6 +210,19 @@ class FakeShell(runner_module.Shell):
                 self.post_ids[flags["--id"]] = len(self.posts)
             return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def label(self, argv: list[str], stdin: str | None) -> runner_module.Done:
+        number = argv[0].split("/")[4]
+        if argv[1:] == ["--method", "DELETE"]:
+            assert argv[0] == f"repos/Forge-AI/monorepo/issues/{number}/labels/hold"
+            verb = "remove"
+        else:
+            assert argv == [f"repos/Forge-AI/monorepo/issues/{number}/labels", "--method", "POST", "--input", "-"] and json.loads(stdin) == {"labels": ["hold"]}
+            verb = "add"
+        if self.label_error:
+            return runner_module.Done(1, "", self.label_error)
+        self.label_calls.append((verb, number))
+        return runner_module.Done(0, "[]\n", "")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
         if self.tail_failures:
@@ -1019,10 +1038,6 @@ def grade_gated_heads_ok(shell: FakeShell) -> None:
                 grade(shell, verdict["pr"], f"ok F307 at {verdict['sha'][:7]}")
 
 
-def held_in(call: list[str]) -> list[str]:
-    return [held for flag, held in itertools.pairwise(call) if flag == "--hold"]
-
-
 def stack_rows(**states: str) -> list[dict]:
     return [
         {"pr": "28997", "lane": "artifact-retry", "branch": "a/1", "base": "dev", "head": "aaaa111111", "state": states.get("28997", "open"), "reported_head": "aaaa111111", "landed_sha": "f00d000001"},
@@ -1044,7 +1059,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     assert len(lines) == 1 and "STALE-POLICY L260" in lines[0] and "prefix at a1b2c3d4e5" in lines[0]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29016", "--head", "28997=aaaa111111", "--head", "29016=bbbb222222"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29016"]]
     assert all("--whole" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
     shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
     landing_pass(shell, config)
@@ -1212,9 +1227,10 @@ def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, con
         "#37102 aaaa111111: graphite FAILING_REQUIRED",
         "#37103 bbbb222222: conflicts with origin/dev in go/a.go",
     ]
+    assert shell.label_calls == [("add", "37102"), ("remove", "37102")]
 
 
-def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, config, tmp_path):
+def test_a_held_prefix_is_never_routed_and_its_holds_reach_github_as_the_hold_label(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\nlane:d4 ships whole\n")
     shell.rows = [
@@ -1224,8 +1240,8 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 changes requested by poetic-svc on dddd444444; held")]
     landing_pass(shell, config)
-    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
+    assert stack_enqueue_calls(shell) and all("--hold" not in call for call in stack_enqueue_calls(shell))
+    assert shell.label_calls == [("add", "28349"), ("add", "29020")]
     assert shell.sends() == [] and escalations(shell) == []
 
 
@@ -1241,12 +1257,11 @@ def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.enqueue_out["35413"] = (0, "enqueue #35413\n")
     landing_pass(shell, config)
-    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert calls and all(held_in(call) == ["36525"] for call in calls)
+    assert shell.label_calls == [("add", "36525")]
     assert [call[1] for call in shell.enqueues()] == ["35413"]
 
 
-def test_holds_py_entries_reach_stack_enqueue(shell, config, tmp_path):
+def test_holds_py_entries_label_the_prs_they_hold(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     holds_file = str(tmp_path / "holds.md")
     assert holds.main(["--file", holds_file, "add", "--pr", "29020", "--reason", "owner hold until the parity waves land"]) == 0
@@ -1258,11 +1273,10 @@ def test_holds_py_entries_reach_stack_enqueue(shell, config, tmp_path):
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     landing_pass(shell, config)
-    checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert checks and all(call[call.index("--hold") :] == ["--hold", "28349", "--hold", "29020"] for call in checks)
+    assert shell.label_calls == [("add", "28349"), ("add", "29020")]
 
 
-def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, config, tmp_path):
+def test_an_open_cci_hold_labels_its_pr_until_a_lift_closes_it(shell, config, tmp_path):
     shell.records = [
         {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
         {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
@@ -1277,11 +1291,24 @@ def test_an_open_cci_hold_reaches_stack_enqueue_until_a_lift_closes_it(shell, co
     grade_gated_heads_ok(shell)
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
-    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert shell.enqueues() and all(held_in(call) == ["29020"] for call in calls)
+    assert [call[1:] for call in shell.enqueues()] == [["28349"]]
+    assert shell.label_calls == [("add", "29020")] and shell.sends() == []
+    shell.records[0]["status"] = "closed"
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("remove", "29020")]
 
 
-def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_path):
+def test_a_failed_cci_read_skips_the_label_mirror_for_that_pass(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.tail_failures = 2
+    landing_pass(shell, config)
+    assert shell.label_calls == []
+    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail"]
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")]
+
+
+def test_a_rules_blocked_pr_gets_no_hold_label(shell, config, tmp_path):
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "rules_blocked": True},
         {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "rules_blocked": False},
@@ -1291,8 +1318,8 @@ def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_p
     grade_gated_heads_ok(shell)
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
-    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert shell.enqueues() and all(held_in(call) == ["29020"] for call in calls)
+    assert [call[1:] for call in shell.enqueues()] == [["28349"]]
+    assert shell.label_calls == []
 
 
 def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, config, tmp_path):
@@ -1310,10 +1337,104 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
     landing_pass(shell, config)
-    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
-    assert calls and all(held_in(call) == ["28349"] for call in calls)
+    assert shell.label_calls == [("add", "28349")]
     assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def label_rows(shell: FakeShell) -> None:
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "28350", "lane": "d4", "branch": "d/2", "base": "d/1", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+        {"pr": "28300", "lane": "d4", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"},
+    ]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.gates["28350"] = [gate("#28349 BLOCKED dddd444444 held", "#28350 BLOCKED eeee555555 held")]
+
+
+@pytest.mark.parametrize(
+    ("lines", "labelled"),
+    [
+        ("#29020 owner review\n", ["29020"]),
+        ("lane:d4 ships whole\n", ["28349", "28350"]),
+        ("hold:all every PR waits for owner review\nrelease #28349 owner reviewed\n", ["28350", "29020"]),
+    ],
+)
+def test_each_hold_form_labels_the_open_rows_it_holds_and_never_a_landed_row(shell, config, tmp_path, lines, labelled):
+    (tmp_path / "holds.md").write_text(lines)
+    label_rows(shell)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", pr) for pr in labelled]
+    assert escalations(shell) == []
+
+
+def test_lifting_a_hold_removes_the_runners_label_and_a_new_hold_adds_it_again(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    (tmp_path / "holds.md").write_text("")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("remove", "29020"), ("add", "29020")]
+    labels = {key: action.status for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "label"}
+    assert labels == {"hold:29020:1:add": "completed", "hold:29020:1:lift": "completed", "hold:29020:2:add": "completed"}
+
+
+def test_a_hold_label_a_human_added_is_never_removed(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.rows[0]["labels"] = "merge,hold"
+    landing_pass(shell, config)
+    (tmp_path / "holds.md").write_text("")
+    landing_pass(shell, config)
+    assert shell.label_calls == [] and escalations(shell) == []
+
+
+def test_a_labelled_row_that_lands_keeps_its_label(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    shell.rows[0]["state"] = "landed"
+    (tmp_path / "holds.md").write_text("")
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")]
+
+
+def test_a_refused_label_write_escalates_once_and_is_retried_on_the_next_pass(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.label_error = "gh: API rate limit exceeded (HTTP 403)"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.label_calls == []
+    assert escalations(shell) == [
+        "LABEL-FAILED hold:29020:1:add #29020: GitHub refused to add the `hold` label: gh: API rate limit exceeded (HTTP 403); the runner tries again on the next pass"
+    ]
+    shell.label_error = ""
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")] and len(escalations(shell)) == 1
+
+
+def test_a_label_already_gone_when_its_hold_lifts_counts_as_removed(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    (tmp_path / "holds.md").write_text("")
+    shell.label_error = "gh: Label does not exist (HTTP 404)"
+    landing_pass(shell, config)
+    shell.label_error = ""
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("add", "29020")] and escalations(shell) == []
+
+
+def test_a_restarted_runner_does_not_post_a_label_again(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")]
+    action = incident(tmp_path, "desk-landing").actions["hold:29020:1:add"]
+    assert (action.kind, action.status, action.target) == ("label", "completed", "29020")
 
 
 def fork_rows() -> list[dict]:
@@ -1348,8 +1469,8 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
-    assert all(call[call.index("--hold") :] == ["--hold", "36510"] for call in checks)
-    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--hold", "36510", "--head", "36463=aaaa111111", "--head", "36487=bbbb222222", "--head", "36501=cccc333333"]]
+    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501"]]
+    assert shell.label_calls == [("add", "36510")]
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
@@ -1422,6 +1543,28 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     assert shell.enqueues() == []
 
 
+def test_a_gate_pass_never_runs_more_checks_at_once_than_gate_workers(shell, config, tmp_path):
+    prs = [str(29100 + n) for n in range(runner_module.GATE_WORKERS * 3)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} GREEN cccc333333 graphite READY")] for pr in prs}
+    check, lock, running, peak = shell.stack_enqueue, threading.Lock(), [0], [0]
+
+    def overlapping(argv):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.02)
+        with lock:
+            running[0] -= 1
+        return check(argv)
+
+    shell.stack_enqueue = overlapping
+    landing_pass(shell, config)
+    checked = {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call}
+    assert checked == set(prs)
+    assert peak[0] <= runner_module.GATE_WORKERS
+
+
 def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     (tmp_path / "holds.md").write_text("release #29020 owner reviewed\n")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
@@ -1429,7 +1572,7 @@ def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     landing_pass(shell, config)
-    assert all("--hold" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
+    assert shell.label_calls == []
     assert len(shell.enqueues()) == 1
 
 
@@ -1461,7 +1604,7 @@ def test_each_lane_form_holds_the_open_rows_of_the_lane_it_names(shell, config, 
     grade_gated_heads_ok(shell)
     shell.enqueue_out["36934"] = (0, "enqueue #36934\n")
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36935"] for call in stack_enqueue_calls(shell))
+    assert shell.label_calls == [("add", "36935")]
     assert [call[1] for call in shell.enqueues()] == ["36934"]
     assert shell.sends() == [] and escalations(shell) == []
 
@@ -1472,7 +1615,7 @@ def test_the_two_lane_lines_the_reader_dropped_hold_both_lanes(shell, config, tm
     shell.gates["36934"] = [gate("#36934 BLOCKED dddd444444 held")]
     shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36934", "36935"] for call in stack_enqueue_calls(shell))
+    assert stack_enqueue_calls(shell) and shell.label_calls == [("add", "36934"), ("add", "36935")]
     assert shell.enqueues() == [] and escalations(shell) == []
 
 
@@ -1486,7 +1629,7 @@ def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escala
     shell.enqueue_out["36935"] = (0, "enqueue #36935\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
+    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {} and shell.label_calls == []
     assert escalations(shell) == [
         f"HOLDS-UNREAD holds:{hashlib.sha1(line.encode()).hexdigest()[:8]} landing: the holds-file line `{line}` names lane {PUBLISH_LANE}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
         f" | in {holds_file} hold each PR as `#<pr> <why>`, or delete the line"
@@ -1495,7 +1638,7 @@ def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escala
     holds_file.write_text("#36935 HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'\n")
     shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and all(held_in(call) == ["36935"] for call in stack_enqueue_calls(shell))
+    assert stack_enqueue_calls(shell) and shell.label_calls == [("add", "36935")]
     assert shell.enqueues() == [] and len(escalations(shell)) == 1
 
 
@@ -1505,7 +1648,7 @@ def test_a_lane_line_whose_rows_have_all_landed_holds_nothing_and_stops_nothing(
     shell.rows.append({"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"})
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    assert all("--hold" not in call for call in stack_enqueue_calls(shell))
+    assert shell.label_calls == []
     assert len(shell.enqueues()) == 1 and escalations(shell) == []
 
 
@@ -1586,12 +1729,11 @@ def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_ma
 
 
 def test_a_blank_holds_line_is_no_error(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text("\n#28349 owner review\n   \n\n")
+    (tmp_path / "holds.md").write_text("\n#29020 owner review\n   \n\n")
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and all(held_in(call) == ["28349"] for call in stack_enqueue_calls(shell))
-    assert len(shell.enqueues()) == 1 and escalations(shell) == []
+    assert shell.label_calls == [("add", "29020")] and escalations(shell) == []
 
 
 def lone_green_pr(shell: FakeShell) -> None:
@@ -1608,18 +1750,18 @@ def test_a_head_the_fidelity_lane_graded_ok_is_enqueued(shell, config, tmp_path)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307,F321 at cccc333. The restack onto dev has a range-diff of '='.")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--head", "29020=cccc333333"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
     assert blockers(shell) == [] and escalations(shell) == []
 
 
-def test_the_enqueue_pins_every_pr_of_the_prefix_to_the_head_fidelity_graded(shell, config, tmp_path):
+def test_the_enqueue_names_the_prefix_top_with_no_head_pin_or_hold(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--head", "28997=aaaa111111", "--head", "29016=bbbb222222", "--head", "29020=cccc333333"]]
-    assert all("--head" not in call for call in shell.calls if "--check" in call)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert not [call for call in stack_enqueue_calls(shell) if "--head" in call or "--hold" in call]
 
 
 def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path):

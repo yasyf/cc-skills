@@ -30,9 +30,12 @@ except the PRs named on `release #<n>` lines and the open PRs of lanes named on
 wins. The desk mirrors no hold
 for a `release` line. Deleting the `hold:all` line ends the mode.
 
-Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. The runner
-and the desk build a fresh numeric held file at each enqueue and never enqueue above a
-held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
+Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. A hold is
+GitHub's `hold` label: the runner writes it on every pass from the holds file and
+from every PR an open cci `hold` record names, and a human may add it by hand. The
+required `landing-gates` check fails a labelled PR, so nothing enqueues a held PR or
+a PR above it, and `stack-enqueue` takes no hold flag. The desk never
+enqueues above a held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
 PR, and leaves release to the root. The desk mirrors the holds file's entries with
 `ledger.py hold` and lifts them when the root removes them.
 
@@ -60,8 +63,8 @@ it directly.
 
 The landing runner does the same for fidelity grades. It sets commit status
 `fidelity` on each open PR's head the fidelity lane graded, `success` for
-`fidelity: ok` and `failure` for `fidelity: missing`, and stack-enqueue refuses
-a head whose `fidelity` is not `success`. A head with no grade reads `pending`
+`fidelity: ok` and `failure` for `fidelity: missing`, and the required
+`landing-gates` check holds a head whose `fidelity` is not `success`. A head with no grade reads `pending`
 until the fidelity lane grades it. A `failure` is a red check on the PR by design: it means the head was
 graded missing, not that CI failed, so read the status description, which
 quotes the grade and its cci seq, before routing a red build to the lane.
@@ -210,8 +213,8 @@ Do, in this order, forever:
      `ledger.py held --drive <drive>` prints from open cci holds. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
-     them when the root removes the line. The landing runner re-reads this set
-     at every enqueue; the mirrored ledger can lag the holds file. Rebuild it
+     them when the root removes the line. The landing runner labels this set
+     on every pass; the mirrored ledger can lag the holds file. Rebuild it
      before each step-3 call where the repo has no stack-enqueue.
      Never edit the holds file. Forward a priority desk's lane traffic with
      `cci post --drive <drive> --lane <desk> --kind <kind> --to <priority desk> --text "<traffic>"`
@@ -264,9 +267,8 @@ Do, in this order, forever:
      reviews at once by default; use --parallel <n> to change the cap.
      Hold a PR while its current head's review is pending or records an unwaived
      finding. No review, no base, and errored reviews fail open. Clean and
-     overridden heads pass. The landing runner passes rules-blocked PRs to
-     stack-enqueue --hold, and the head's `rules-review` commit status makes
-     stack-enqueue refuse a pending or failing head on any other call.
+     overridden heads pass. The head's `rules-review` commit status makes
+     stack-enqueue refuse a pending or failing head on every call.
      The green prefix below a blocked PR can still land.
      Send each RULES line to the root at once as RULING NEEDED. The root has the
      lane fix it on a new head or writes an override. Post the RULES line to the
@@ -288,9 +290,9 @@ Do, in this order, forever:
      grades stacks in one sequential call; use it only as this fallback sweep.
      Where stack-enqueue exists, skip this whole step: the runner gates tips and
      enqueues prefixes in parallel, verifies squash landings, and routes blockers
-     and restacks. It uses `stack-enqueue <prefix top> --hold $(cat <held file>)`
-     with numeric PRs, dropping `--hold` when the file is empty. A filename or an
-     empty `--hold` fails argparse with exit 2, which reads as unsettled.
+     and restacks. It runs `stack-enqueue <prefix top>...` with no hold flags:
+     it mirrors the holds file and open cci holds onto GitHub's `hold` label, and
+     the required `landing-gates` check keeps a labelled PR out of the queue.
      A ready stack is enqueued as one batch from any of its PRs; the call lands
      the largest green bottom prefix at once. Never enqueue the first PR alone and
      the rest later, and never through the `merge` label or `gt merge` on one PR

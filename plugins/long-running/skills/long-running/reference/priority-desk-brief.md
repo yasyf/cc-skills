@@ -104,21 +104,22 @@ Do, in this order, every iteration:
      - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
        enqueue under D1; never enqueue above a held PR or any PR of a held lane.
        Lanes report `held` on the tip, name the held PR, and leave release to the root.
+       A hold is GitHub's `hold` label: the landing runner writes it from the root's
+       holds file and from every PR an open cci `hold` record names, and a human may
+       add it by hand. The required `landing-gates` check keeps a labelled PR and the
+       PRs above it out of the queue, so `stack-enqueue` takes no hold flag.
        Before every enqueue, re-read the root's holds file. Each line names one
        held PR as a leading #<n>, or whole lanes as lane:<name>, `<lane> HOLD`, or
-       `HOLD <lane>`, then the reason. Build a fresh
-       digits-only file with `{ grep -o '^#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`.
-       Append every open PR number whose row's lane matches one of those lane entries,
+       `HOLD <lane>`, then the reason. Add the PRs `ledger.py held --drive <drive>`
+       prints and every open PR whose row's lane matches one of those lane entries,
        from `ledger.py show --ledger <id> --json` across the whole ledger, even
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
        the reasons, and expiries under D6; lift holds when the root removes them.
        Where the checkout carries an enqueue script, call it directly: one
-       `stack-enqueue <prefix top> --hold $(cat <held file>)` per prefix in one Bash call,
-       each backgrounded with `&`, then `wait` and collect each output. Drop
-       `--hold` when the numeric file is empty; it takes one or more PR numbers,
-       never a filename. Argparse exit 2 otherwise reads as unsettled. Report
+       `stack-enqueue <prefix top>` per prefix in one Bash call,
+       each backgrounded with `&`, then `wait` and collect each output. Report
        each enqueue with `ledger.py report --drive <drive>`; refresh records it as labelled
-       outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
+       outside the desk. Where the
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
        --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
        are the guard. A `held` refusal is not a red and is not routed; it waits

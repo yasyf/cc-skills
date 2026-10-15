@@ -283,15 +283,13 @@ under D3 in the same turn. The next refresh records that label as
 One desk ran on a 20-minute pacer, put the label on one report at a time, and sent an
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
-**Lanes never enqueue under D1; the desk and its runner enqueue and reconcile every three minutes.** Read the
-root's holds file and rebuild a fresh numeric held file at every enqueue under
-D1/D3, including every PR `ledger.py held --drive <drive>` prints and all open PR rows of held lanes from
-`ledger.py show --ledger <id> --json`. A clean report's largest ready, unheld,
+**Lanes never enqueue under D1; the desk and its runner enqueue and reconcile every three minutes.** A hold
+is GitHub's `hold` label. The runner writes it from the root's holds file and from every PR an open cci `hold`
+record names, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR and the PRs
+above it out of the queue, so `stack-enqueue` takes no hold flag. A clean report's largest ready, unheld,
 unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
-`stack-enqueue <prefix top> --hold $(cat <held file>)` per ready prefix together
+`stack-enqueue <prefix top>` per ready prefix together
 in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
-Drop `--hold` when the numeric file is empty; it requires at least one PR number,
-never a filename. Argparse exit 2 otherwise reads as unsettled.
 
 Report enqueues with `ledger.py report --drive <drive>`; where the repo has no script, use
 `ledger.py label --pr <prefix top> --expect-head <sha> --checkout <path>` with mirrored
@@ -485,8 +483,8 @@ still absent from the trunk.
 the prefix as one entry with one `merge` label on its top. The desk re-reads every PR
 in the prefix and runs every guard before adding the label. A repository that carries
 `.agents/skills/submit-pr/scripts/stack-enqueue` uses
-`stack-enqueue <prefix top> --hold $(cat <held file>)` instead; omit `--hold` when
-the numeric file is empty. Its gate can refuse the prefix too.
+`stack-enqueue <prefix top>` instead, with no hold flag: the `hold` label and the
+required `landing-gates` check keep a held PR out. Its gate can refuse the prefix too.
 
 An open child above it does not block the label when a lane tracks its ledger row
 and its head carries `Graphite / mergeability_check`. Graphite's stack record

@@ -1075,7 +1075,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3; without it, the landing desk runs `ledger.py label`. Both re-read the holds file before every enqueue: `{ grep -o '^#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`, never a cached set. `ledger.py held` prints every PR an open cci `hold` record names, so a lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3 and mirrors the holds file onto GitHub's `hold` label; without it, the landing desk runs `ledger.py label`. A hold is GitHub's `hold` label: the runner writes it from the holds file and from every PR an open cci `hold` record names, which `ledger.py held --drive <drive>` prints, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR out of the queue on every path, and `stack-enqueue` takes no hold flag. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record and the runner removes its label. Without `stack-enqueue`, the desk re-reads the holds file and `ledger.py held` before every `ledger.py label`, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
@@ -1101,7 +1101,7 @@ Where the checkout carries `.agents/skills/submit-pr/scripts/stack-enqueue`,
 `desk-runner.py run --desk landing` runs D3. Each pass runs `ledger.py refresh`
 and `reconcile`, reads rows, groups every tracked open stack tip by the root of
 its stack, and gates each stack in parallel, naming every tip of a fork in one call:
-`stack-enqueue <tip>... --check [--whole] [--hold <n>...]`. The gate selects the largest
+`stack-enqueue <tip>... --check [--whole]`. The gate selects the largest
 ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
 and runs independent enqueues in parallel. It permits another attempt for the
 same heads only when earlier attempts are proven to have enqueued nothing, or
@@ -1124,9 +1124,10 @@ status `fidelity` on each open row's head the fidelity lane graded: `success`
 for `fidelity: ok`, `failure` for `fidelity: missing`, described by the grade's
 first line and its cci seq, once per grade record. A head with no grade reads
 `pending`, "awaiting <fidelity lane>'s grade of this head", until the lane
-grades it. stack-enqueue reads that status and refuses a head whose `fidelity`
-is not `success`, whoever calls it, so the grade binds a hand run and another
-drive's desk as well. A `failure` shows as a red check on the PR; the fidelity
+grades it. The required `landing-gates` check reads that status and holds a head
+whose `fidelity` is not `success`, whoever enqueues it, so the grade binds a hand
+run, `gt merge`, and another drive's desk as well, and a head pushed after its
+grade waits for its own. A `failure` shows as a red check on the PR; the fidelity
 lane grades a head whatever that check reads and never waits on it.
 
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
@@ -1134,11 +1135,21 @@ monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
 it landed as 2b06f105 without its test, because the gate read only
 `stack-enqueue --check` and the holds.*
 
-Every enqueue re-reads the root's holds file, including every open ledger row
-whose lane is named as `lane:<name>`, `<lane> HOLD`, or `HOLD <lane>`. The command is
-`stack-enqueue <prefix top>... --hold $(cat <held file>)`, naming every top of the
-prefix, since `stack-enqueue` refuses a green PR the batch would carry unnamed; omit `--hold` for an empty
-numeric file. A `held` refusal waits for the root and is never routed as a red.
+The holds file stays the root's interface, and the runner mirrors it onto
+GitHub's `hold` label. On every pass that reads the file, each open ledger row
+that a `#<n>` line, a lane line (`lane:<name>`, `<lane> HOLD`, or `HOLD <lane>`),
+or `hold:all` holds, minus the rows a `release` line names, gets the label, and so
+does each open row an open cci `hold` record names. The runner removes a label it
+added once nothing holds the row. A `cci tail` that fails skips the label mirror
+for that pass. The required
+`landing-gates` check fails a PR carrying `hold`, so Graphite never reads it ready
+and `stack-enqueue` leaves it and the PRs above it out as `BLOCKED`. The runner's
+action book records each label it adds or removes: a restart posts none again, a
+`hold` label a human added stays, and a row that lands or closes keeps its label.
+A label write GitHub refuses logs `LABEL-FAILED` to the root once and runs again
+on the next pass. The enqueue command is `stack-enqueue <prefix top>...`, naming
+every top of the prefix, since `stack-enqueue` refuses a green PR the batch would
+carry unnamed. A `held` refusal waits for the root and is never routed as a red.
 The runner verifies an enqueue only when `reconcile` records every prefix row
 as `landed` by squash on the base. The landing desk never enqueues beside it.
 Never hold a ready prefix behind another stack's landing under D19.

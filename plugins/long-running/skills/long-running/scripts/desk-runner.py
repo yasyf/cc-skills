@@ -166,22 +166,28 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval, and never for a PR that is held or stacked above a held PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
-names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
+names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
+the required `landing-gates` check enforces, and removes that label once the record closes. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
 `<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
 parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
 may hold something the runner cannot name. The runner checks the file first thing on each pass, an empty ledger included: on such a pass it
 gates and enqueues nothing, and logs `HOLDS-UNREAD` once per distinct line, quoting it. Each enqueue re-reads the file under the same
-rule just before its call and completes as `blocked` on such a line. A prefix
+rule just before its call and completes as `blocked` on such a line. The holds file stays the root's interface, and the
+runner mirrors it onto GitHub's `hold` label, which the required `landing-gates` check fails on every path into the queue.
+On each pass that reads the file, every open ledger row a PR line, a lane line, `hold:all`, or an open cci `hold` record
+holds gets the label, and a label the runner added comes off once nothing holds the row. A `cci tail` that fails skips
+the label mirror for that pass. The action book records each label the runner adds or removes,
+so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
+A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
-in its prefix is enqueued. The enqueue call pins every PR of the prefix to that graded head with
-`--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. On every pass the runner also mirrors the newest grade
+in its prefix is enqueued. On every pass the runner also mirrors the newest grade
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
-described by the grade's first line and cci seq, once per grade record, so a caller that reads no cci, such as a hand run of
-stack-enqueue, finds the grade on the head. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
+described by the grade's first line and cci seq, once per grade record. The required `landing-gates` check holds any head whose
+`fidelity` status is not `success`, so a head pushed after its grade waits for its own whoever enqueues it. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
 head", until the lane grades it, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
 else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
@@ -266,6 +272,8 @@ FIDELITY_LANE = "fidelity-desk"
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
+HOLD_LABEL = "hold"
+LABEL_GONE = "(HTTP 404)"
 STATUS_TEXT = 140
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
@@ -280,6 +288,7 @@ COMMAND_TIMEOUT_SECONDS = 1800
 TIMED_OUT = 124
 WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
+GATE_WORKERS = 4
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
@@ -2237,8 +2246,9 @@ def enqueued_heads(key: str) -> dict[str, str]:
     return dict(entry.split("@", 1) for entry in key.split("#")[0].removeprefix("enqueue:").split(","))
 
 
-def head_pins(heads: dict[str, str]) -> list[str]:
-    return [arg for pr, sha in heads.items() for arg in ("--head", f"{pr}={sha}")]
+def label_order(action: actions.Action) -> tuple[int, bool]:
+    _, _, cycle, step = action.action_id.split(":")
+    return int(cycle), step == "lift"
 
 
 def numbered(prs: list[str]) -> str:
@@ -2312,7 +2322,7 @@ class Landing:
         return {row["pr"]: row for row in json.loads(done.out)} if done.code == 0 else None
 
     def held(self, rows: dict[str, dict]) -> list[str] | None:
-        """Every PR the holds file, a rules-review block, or an open cci hold keeps out of the queue, from one read of the file; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
+        """Every PR the holds file, a rules-review block, or an open cci hold holds, from one read of the file, so the gate routes no blocker for it or for the PRs stacked above it; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
         entries = holds.read(self.holds)
         if self.holds_unread(entries, rows):
             return None
@@ -2341,9 +2351,9 @@ class Landing:
         policy = self.runner.landing_policy()
         return bool(policy) and json.loads(policy.target)["rule"] == "whole"
 
-    def enqueue_argv(self, tips: list[str], held: list[str], check: bool) -> list[str]:
+    def enqueue_argv(self, tips: list[str], check: bool) -> list[str]:
         whole = ["--whole"] if self.whole() else []
-        return [str(self.checkout / STACK_ENQUEUE), *tips, *(["--check"] if check else []), *whole, *(arg for pr in held for arg in ("--hold", pr))]
+        return [str(self.checkout / STACK_ENQUEUE), *tips, *(["--check"] if check else []), *whole]
 
     def trees(self, rows: dict[str, dict]) -> list[list[str]]:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -2366,8 +2376,8 @@ class Landing:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
-        with ThreadPoolExecutor(max(1, len(trees))) as pool:
-            gated = [pair for pairs in pool.map(lambda tips: self.proven_stacks(tips, held), trees) for pair in pairs]
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+            gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
         for tips, done in gated:
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
             if done.code and not verdicts:
@@ -2380,16 +2390,16 @@ class Landing:
                 if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
                     self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered and (blocker := routed_blocker(match["detail"])):
-                    self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, held)
+                    self.route_blocker(pr, match["sha"], blocker, rows[pr], tips)
 
-    def proven_stacks(self, tips: list[str], held: list[str]) -> list[tuple[list[str], Done]]:
+    def proven_stacks(self, tips: list[str]) -> list[tuple[list[str], Done]]:
         gated = []
         while tips:
             first, *rest = tips
-            alone = self.shell.run(self.enqueue_argv([first], held, check=True))
+            alone = self.shell.run(self.enqueue_argv([first], check=True))
             members = {match["pr"] for match in VERDICT_LINE.finditer(alone.out)}
             shared = [first, *(tip for tip in rest if tip in members)]
-            gated.append((shared, alone if len(shared) == 1 else self.shell.run(self.enqueue_argv(shared, held, check=True))))
+            gated.append((shared, alone if len(shared) == 1 else self.shell.run(self.enqueue_argv(shared, check=True))))
             tips = [tip for tip in rest if tip not in members]
         return gated
 
@@ -2420,7 +2430,7 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so any caller of stack-enqueue reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
             if row.get("state", "open") != "open" or not head:
@@ -2450,6 +2460,33 @@ class Landing:
             else:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
+
+    def mirror_holds(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
+        try:
+            wanted = holds.held(entries, rows) | cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
+        except CciTailFailed as failure:
+            self.runner.tail_failed(failure)
+            return
+        labels: dict[str, list[actions.Action]] = {}
+        for action in self.book.actions(LANDING, kind="label"):
+            labels.setdefault(action.target, []).append(action)
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            latest = max(labels.get(pr, []), key=label_order, default=None)
+            cycle, lifting = label_order(latest) if latest else (0, False)
+            applied = latest is not None and (latest.status == "completed") != lifting
+            if row.get("state", "open") != "open" or (pr in wanted) == applied or (not applied and HOLD_LABEL in row.get("labels", "").split(",")):
+                continue
+            key = latest.action_id if latest and latest.status == "accepted" else f"hold:{pr}:{cycle if applied else cycle + 1}:{'lift' if applied else 'add'}"
+            self.book.accept(LANDING, key, "label", pr, str(self.holds), None)
+            if applied:
+                done = self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{pr}/labels/{HOLD_LABEL}", "--method", "DELETE"])
+            else:
+                done = self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{pr}/labels", "--method", "POST", "--input", "-"], stdin=json.dumps({"labels": [HOLD_LABEL]}))
+            if done.code == 0 or (applied and LABEL_GONE in done.err):
+                self.book.attempt(LANDING, lambda incident, key=key: (incident.start(key, self.runner.now()), incident.complete(key, {"at": self.book.stamp()})))
+            else:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(key, "LABEL-FAILED", f"#{pr}", f"GitHub refused to {'remove' if applied else 'add'} the `{HOLD_LABEL}` label: {last[0]}; the runner tries again on the next pass")
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
@@ -2486,12 +2523,11 @@ class Landing:
         if any(not rows.get(pr, {}).get("ours") for pr in prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
             return
-        held = self.held(rows)
-        if held is None:
+        if self.held(rows) is None:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
             return
         tops = prefix_tops(prefix, rows)
-        fresh = self.shell.run(self.enqueue_argv(tops, held, check=True)).out
+        fresh = self.shell.run(self.enqueue_argv(tops, check=True)).out
         would = WOULD_ENQUEUE.search(fresh)
         current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""
         if current != key.split("#")[0]:
@@ -2501,7 +2537,7 @@ class Landing:
             self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_lane} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
-        done = self.shell.run([*self.enqueue_argv(tops, held, check=False), *head_pins(enqueued_heads(key))])
+        done = self.shell.run(self.enqueue_argv(tops, check=False))
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
@@ -2656,12 +2692,12 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", row.get("lane", ""), text, pr)
 
-    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], held: list[str]) -> None:
+    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str]) -> None:
         """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
         key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
         if self.routed(key, row.get("lane", "")):
             return
-        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tips, held, check=True)).out)}
+        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tips, check=True)).out)}
         current = fresh.get(pr)
         if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
             self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
@@ -2710,7 +2746,8 @@ class Landing:
         rows = self.rows()
         if rows is None:
             return
-        unread = self.holds_unread(holds.read(self.holds), rows)
+        entries = holds.read(self.holds)
+        unread = self.holds_unread(entries, rows)
         if not rows:
             return
         self.reconcile()
@@ -2719,6 +2756,8 @@ class Landing:
         self.verify_restacks(rows)
         self.requeue(rows)
         self.mirror_grades(rows)
+        if not unread:
+            self.mirror_holds(rows, entries)
         if not unread and (held := self.held(rows)) is not None:
             self.gate(rows, held)
             self.enqueue()

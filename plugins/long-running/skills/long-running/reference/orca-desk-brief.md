@@ -566,15 +566,22 @@ launch to repeat. Leave Orca's runtime defaults unchanged.
 Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
 reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
 on the base, and routes restacks. It gates every tracked open stack tip in
-parallel with `stack-enqueue <tip> --check [--whole] [--hold <n>...]`.
+parallel with `stack-enqueue <tip> --check [--whole]`.
 
 Each exact set of prefix heads gets one enqueue action. Only attempts proven to
 have enqueued nothing permit another attempt for those heads. Accepted enqueues
-run in parallel, each with a fresh read of the holds file and held lanes' open
-rows. Held PR numbers follow the tip:
-`stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
-numeric file is empty. `--hold` takes one or more numbers, never a filename;
-argparse's exit 2 otherwise reads as `unsettled`.
+run in parallel as `stack-enqueue <prefix top>...`, each after a fresh read of
+the holds file, and none runs while the file carries a line the runner cannot
+read. The holds file stays the root's interface: each pass that reads it puts
+GitHub's `hold` label on every open row a `#<n>` line, a lane line, or `hold:all`
+holds, minus the rows a `release` line names, and on every open row an open cci
+`hold` record names, and removes a label the runner added once nothing holds the
+row. A `cci tail` that fails skips the label mirror for that pass. The required `landing-gates` check fails a
+labelled PR on every path into the queue. Each label write is an action in the
+landing container under `hold:<pr>:<cycle>:add` or `hold:<pr>:<cycle>:lift`, so
+a restart posts none again and a `hold` label a human added is never removed. A
+row that lands or closes keeps its label, and a write GitHub refuses logs
+`LABEL-FAILED` once and runs again on the next pass.
 
 A prefix is accepted only when every PR in it has a fidelity ok at its current
 head. The runner reads `cci tail --kind=review --lane <fidelity lane> --pr <n>`,
@@ -595,8 +602,8 @@ as `status:<pr>:<head>:<seq>`, so a restart does not post a completed status
 again. A post GitHub took whose completion was never written is sent once more,
 identical. A head with no grade reads `pending` under
 `status:<pr>:<head>:ungraded` until the lane grades it. A `cci tail` that fails skips
-the mirror for that pass and logs `CCI-TAIL-FAILED`. stack-enqueue reads the status on every call and refuses
-a head whose `fidelity` is not `success`, which is how a grade binds a caller
+the mirror for that pass and logs `CCI-TAIL-FAILED`. The required `landing-gates` check reads the status and
+holds a head whose `fidelity` is not `success`, which is how a grade binds a caller
 that reads no cci. The fidelity lane posts no status itself; it keeps naming
 the head in each `review` record, and it grades a head whatever its `fidelity`
 check reads.
