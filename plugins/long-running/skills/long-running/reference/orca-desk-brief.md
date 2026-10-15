@@ -367,12 +367,10 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "incident_mechanism_minutes": 10,
     "incident_pr_minutes": 15,
     "incident_ready_minutes": 20,
-    "status_minutes": 60,
     "enqueue_minutes": 15,
     "release_start_minutes": 10
   },
   "judge_model": "claude-sonnet-5-5",
-  "status": {"channel": "<the drive's updates channel id>"},
   "landing": {
     "repo": "Forge-AI/monorepo",
     "ledger": "<ledger id>",
@@ -650,7 +648,6 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. |
 | `INCIDENT-CLOCK` | Send the line to the owner as a direct message in the turn it arrives, with `cc-slack dm-status`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
-| `STATUS-DUE` | The drive's updates channel has had no status post for `deadlines.status_minutes`. The comms desk posts it under the standing grant; the root answers its fact asks and never asks the owner whether to post. The record goes to `root` and `comms-desk` on topic `status`, once per window. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
