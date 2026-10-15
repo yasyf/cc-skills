@@ -544,8 +544,8 @@ Each missed limit posts one blocker to the root:
 INCIDENT-CLOCK <lane> <mechanism|pr|ready>: <what is missing, the minutes each phase took, and what the runner launched>
 ```
 
-The root sends each `INCIDENT-CLOCK` line to the owner as a direct message with
-`cc-slack dm-status` in the turn it arrives, ahead of any other work in that
+The root sends each `INCIDENT-CLOCK` line to the owner as an `incident` status card
+through `cc-slack dm-status --card` in the turn it arrives, ahead of any other work in that
 turn, and ratifies the fallback the line names. Both lanes keep running, and
 the first PR wins. A fix lane gets one Opus fallback. When the incident executor
 adopted the lane, its 15-minute backup and the clock's `<lane>-opus` each stand
@@ -784,7 +784,14 @@ The root does not compose Slack copy; the Slack lane drafts and posts as the cc-
 bot. A write the owner approved, through an `AskUserQuestion` `Send` preview or an
 explicit instruction in the turn, the root may run itself with the cc-slack tools. The
 permission hook owns that approval check, and no pack hook reroutes an approved root
-write to a lane. `cc-slack dm-status` to the user's own DM stays the root's. The
+write to a lane. `cc-slack dm-status` to the user's own DM stays the root's.
+
+Every update the root sends to that DM is a status card, `slack_dm_status(card)`.
+`drive` is the drive's name and `phase` its current phase. `status` is `incident`
+for an incident, `needs_you` for an owner ask with its choices as `options`, `done`
+for a landing or release, and `progress` otherwise. A tap on a card reaches the root
+as a directive on its next tool call. The root never parks waiting for a tap, and
+an ask the drive blocks on still goes through `AskUserQuestion`. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
