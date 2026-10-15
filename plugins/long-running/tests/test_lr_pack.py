@@ -197,6 +197,20 @@ def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root
     assert compaction_handoff.script("prompt_watch.py").is_file()
 
 
+def test_serve_starts_the_dashboard_after_writing_the_drive_context(monkeypatch, tmp_path):
+    spawned = []
+    monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append(argv))
+    monkeypatch.setattr(hook.reqenv, "env_map", dict)
+    monkeypatch.setattr(hook, "dashboard_bin", lambda: Path("/p/live-dashboard"))
+
+    hook.serve({"drive": "900424b6", "state_dir": str(tmp_path)})
+
+    [(shell, flag, command)] = spawned
+    assert (shell, flag) == ("sh", "-c")
+    assert command.startswith(f"python3 {compaction_handoff.script('drive.py')} context --drive 900424b6 && ")
+    assert command.endswith(f"exec /p/live-dashboard start --dir {tmp_path / 'dashboard'}")
+
+
 def test_inbox_files_include_rotated_archives(tmp_path):
     (tmp_path / "deploy-go.md").write_text("x\n")
     (tmp_path / "deploy-go.md.archive").mkdir()

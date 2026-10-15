@@ -14,7 +14,7 @@ answers labelled ``program:<program>`` plus answers anchored to the repo's curre
 Another drive's answers never enter the corpus. Nothing injects it in bulk.
 The command reads an action from stdin. Its first 2,000 characters become the query
 for ``ccx code search --semantic``. Answers the register already cites are excluded,
-and so is each ``--exclude`` id.
+and so is each ``--exclude`` id. With no answer left, it prints nothing and runs no search.
 Each match is printed as ``- <id7> <title>`` followed by its body quoted with ``  >``.
 The CLI defaults to ``-k 8`` and an 8,000-byte ``--budget``.
 Output stops before an answer would exceed that budget.
@@ -24,7 +24,7 @@ It excludes every answer it already injected into the lane, and makes no model c
 when no candidate remains. Otherwise a small model selects one answer the action
 clearly bears on or would violate, or none. The hook injects only that answer,
 verbatim, once per lane per answer.
-It is advisory, never blocks, and fails open.
+It is advisory, never blocks, and fails open: a match that outlasts 8 seconds injects nothing.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory.
 ``--drive`` resolves the program and state directory from the drive registry for
@@ -131,12 +131,12 @@ def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
 def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     program = program_of(args)
     durable = drive_answers(shell, args.repo, program)
-    answers = {answer["id"][:SHORT]: answer for answer in durable}
     directory = state_dir(args) / "rulings"
     mirror(durable, directory)
     cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
+    answers = {key: answer for answer in durable if (key := answer["id"][:SHORT]) not in cited and key not in args.exclude}
     query = sys.stdin.read()[:QUERY_CHARS]
-    hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers and hit not in cited and hit not in args.exclude]
+    hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers] if answers else []
     sys.stdout.write(within([rendered(answers[hit]) for hit in hits], args.budget))
     return 0
 

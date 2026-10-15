@@ -47,12 +47,12 @@ def dashboard_dir(entry: dict) -> Path:
 def serve(entry: dict) -> None:
     cli, directory = shlex.quote(str(dashboard_bin())), dashboard_dir(entry)
     quoted = shlex.quote(str(directory))
-    script = (
+    command = (
         f"python3 {shlex.quote(str(script("drive.py")))} context --drive {shlex.quote(entry['drive'])}"
         f" && {{ [ -e {shlex.quote(str(directory / 'layout.yaml'))} ] || {cli} init --dir {quoted} --preset drive; }}"
         f" && exec {cli} start --dir {quoted}"
     )
-    subprocess.Popen(["sh", "-c", script], env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen(["sh", "-c", command], env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def watch_prompts(evt: BaseHookEvent, entry: dict) -> None:
