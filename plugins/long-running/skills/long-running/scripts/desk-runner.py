@@ -274,6 +274,8 @@ RELEASE_SINCE = "release-since"
 POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
+COMMAND_TIMEOUT_SECONDS = 1800
+TIMED_OUT = 124
 WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
 ROTATE_EVERY = timedelta(hours=1)
@@ -412,10 +414,20 @@ class OrcaUnreachable(RuntimeError):
 
 
 class Shell:
-    """The single side-effect boundary: every subprocess, the clock, and the load average pass through here."""
+    """The single side-effect boundary: every subprocess, the clock, and the load average pass through here.
+
+    Input reaches a child from a file, never a pipe the runner writes while the child's output
+    fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
+    """
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
-        proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, env={**os.environ, **env} if env else None)
+        with tempfile.TemporaryFile("w+") as feed:
+            feed.write(stdin or "")
+            feed.seek(0)
+            try:
+                proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, env={**os.environ, **env} if env else None, timeout=COMMAND_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], stdin: Path | None = None, err: Path | None = None) -> subprocess.Popen:
