@@ -1122,8 +1122,9 @@ the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
 The runner also mirrors each grade onto GitHub. On every pass it sets commit
 status `fidelity` on each open row's head the fidelity lane graded: `success`
 for `fidelity: ok`, `failure` for `fidelity: missing`, described by the grade's
-first line and its cci seq, once per grade record. A head with no grade gets
-no status. stack-enqueue reads that status and refuses a head whose `fidelity`
+first line and its cci seq, once per grade record. A head with no grade reads
+`pending`, "awaiting <fidelity lane>'s grade of this head", until the lane
+grades it. stack-enqueue reads that status and refuses a head whose `fidelity`
 is not `success`, whoever calls it, so the grade binds a hand run and another
 drive's desk as well. A `failure` shows as a red check on the PR; the fidelity
 lane grades a head whatever that check reads and never waits on it.

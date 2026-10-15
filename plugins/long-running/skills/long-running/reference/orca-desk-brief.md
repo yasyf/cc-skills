@@ -593,7 +593,8 @@ head's `fidelity` commit status: `success` for `fidelity: ok`, `failure` for
 It posts once per grade record and keeps the action in the landing container
 as `status:<pr>:<head>:<seq>`, so a restart does not post a completed status
 again. A post GitHub took whose completion was never written is sent once more,
-identical. A head with no grade gets no status. A `cci tail` that fails skips
+identical. A head with no grade reads `pending` under
+`status:<pr>:<head>:ungraded` until the lane grades it. A `cci tail` that fails skips
 the mirror for that pass and logs `CCI-TAIL-FAILED`. stack-enqueue reads the status on every call and refuses
 a head whose `fidelity` is not `success`, which is how a grade binds a caller
 that reads no cci. The fidelity lane posts no status itself; it keeps naming

@@ -1738,16 +1738,17 @@ def test_the_status_is_on_the_head_before_the_gate_reads_it(shell, config, tmp_p
     assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
 
 
-def test_a_new_head_gets_a_status_only_once_the_fidelity_lane_grades_it(shell, config, tmp_path):
+def test_a_new_head_reads_pending_until_the_fidelity_lane_grades_it(shell, config, tmp_path):
     held_pr(shell, tmp_path)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     held_pr(shell, tmp_path, head="dddd444444")
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")]
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "pending")]
     grade(shell, "29020", "missing F307 at dddd444 (View fix).")
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "failure")]
+    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "pending"), ("dddd444444", "failure")]
 
 
 def test_a_regrade_of_the_same_head_flips_its_status(shell, config, tmp_path):
@@ -1771,7 +1772,7 @@ def test_a_restarted_runner_does_not_post_a_status_again(shell, config, tmp_path
     assert (action.kind, action.status, action.response["state"]) == ("status", "completed", "success")
 
 
-def test_a_head_with_no_grade_gets_no_status(shell, config, tmp_path):
+def test_a_head_with_no_grade_reads_pending_and_a_landed_row_gets_no_status(shell, config, tmp_path):
     held_pr(shell, tmp_path)
     shell.rows.append({"pr": "28300", "lane": "d6", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"})
     grade(shell, "29020", "ok F307 at bbbb222.")
@@ -1779,8 +1780,10 @@ def test_a_head_with_no_grade_gets_no_status(shell, config, tmp_path):
     grade(shell, "28300", "ok F307 at ffff666.")
     grade(shell, "29020", "ok F307 at cccc333.", lane="rules-desk")
     landing_pass(shell, config)
-    assert shell.head_statuses == [] and escalations(shell) == []
-    assert [action for action in incident(tmp_path, "desk-landing").actions.values() if action.kind == "status"] == []
+    landing_pass(shell, config)
+    assert shell.head_statuses == [{"sha": "cccc333333", "state": "pending", "context": "fidelity", "description": "awaiting fidelity-desk's grade of this head"}]
+    assert escalations(shell) == []
+    assert [key for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "status"] == ["status:29020:cccc333333:ungraded"]
 
 
 def test_one_failed_cci_read_skips_the_mirror_for_that_pass_and_the_gate_still_runs(shell, config, tmp_path):

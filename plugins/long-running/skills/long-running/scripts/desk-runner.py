@@ -181,8 +181,8 @@ in its prefix is enqueued. The enqueue call pins every PR of the prefix to that 
 `--head <pr>=<sha>`, so stack-enqueue refuses a head pushed after the grade. On every pass the runner also mirrors the newest grade
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
 described by the grade's first line and cci seq, once per grade record, so a caller that reads no cci, such as a hand run of
-stack-enqueue, finds the grade on the head. A head with no grade gets no status, and a post GitHub refuses logs `STATUS-FAILED`
-once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
+stack-enqueue, finds the grade on the head. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
+head", until the lane grades it, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
 else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
@@ -2420,25 +2420,27 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so any caller of stack-enqueue reads the grade off the head. A head with no grade gets no status. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so any caller of stack-enqueue reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if row.get("state", "open") != "open":
+            if row.get("state", "open") != "open" or not head:
                 continue
             try:
                 grade = self.fidelity(pr, head)
             except CciTailFailed as failure:
                 self.runner.tail_failed(failure)
                 return
-            if not grade:
-                continue
-            key = f"status:{pr}:{head}:{grade['seq']}"
-            action, _ = self.book.accept(LANDING, key, "status", pr, f"cci #{grade['seq']}", None)
+            if grade:
+                key, source, state = f"status:{pr}:{head}:{grade['seq']}", f"cci #{grade['seq']}", "success" if grade["text"].startswith(FIDELITY_OK) else "failure"
+                description = f"cci #{grade['seq']} {grade['text'].splitlines()[0]}"
+            else:
+                key, source, state = f"status:{pr}:{head}:ungraded", "ungraded", "pending"
+                description = f"awaiting {self.fidelity_lane}'s grade of this head"
+            action, _ = self.book.accept(LANDING, key, "status", pr, source, None)
             if action.status != "accepted":
                 continue
-            description = f"cci #{grade['seq']} {grade['text'].splitlines()[0]}"
             payload = {
-                "state": "success" if grade["text"].startswith(FIDELITY_OK) else "failure",
+                "state": state,
                 "context": FIDELITY_STATUS,
                 "description": description if len(description) <= STATUS_TEXT else description[: STATUS_TEXT - 1] + "…",
             }
