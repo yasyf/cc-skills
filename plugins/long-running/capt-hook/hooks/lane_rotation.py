@@ -5,12 +5,13 @@ import re
 import time
 import uuid
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cc_transcript import UserEvent
+from cc_transcript.models import TranscriptEvent
 
 from captain_hook import (
     Allow,
@@ -77,8 +78,18 @@ class Lane:
     told_to_stand_down: bool
 
 
-def task_label(agent: Subagent) -> str | None:
-    prompt = next((event.text for event in agent.events if isinstance(event, UserEvent)), None)
+@dataclass(frozen=True)
+class Candidate:
+    agent: Subagent
+    started: datetime
+    turn: Turn | None
+    events: int
+    told_to_stand_down: bool
+    label: str | None
+
+
+def task_label(events: Sequence[TranscriptEvent]) -> str | None:
+    prompt = next((event.text for event in events if isinstance(event, UserEvent)), None)
     if prompt is None:
         return None
     if message := TEAMMATE_MESSAGE.match(prompt):
@@ -86,9 +97,9 @@ def task_label(agent: Subagent) -> str | None:
     return prompt[:TASK_LABEL_CHARS] + "..." if len(prompt) > TASK_LABEL_CHARS else prompt
 
 
-def task_keys(agent: Subagent) -> Iterator[str | None]:
-    yield agent.meta["description"]
-    yield task_label(agent)
+def task_keys(candidate: Candidate) -> Iterator[str | None]:
+    yield candidate.agent.meta["description"]
+    yield candidate.label
 
 
 def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]]) -> dict[str, str]:
@@ -97,43 +108,52 @@ def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]
     return rosters[team]
 
 
+def newer(agent: Subagent, incumbent: Candidate | None) -> Candidate | None:
+    events = agent.read_events()
+    reqenv.checkpoint()
+    if not (started := session_tree.started(events)) or (incumbent is not None and started <= incumbent.started):
+        return None
+    return Candidate(
+        agent=agent,
+        started=started,
+        turn=turn_of(events, sidechain=True),
+        events=len(events),
+        told_to_stand_down=session_tree.stand_down_delivered(events),
+        label=task_label(events),
+    )
+
+
 def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
     reqenv.checkpoint()
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
     teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
     rosters: dict[str, dict[str, str]] = {}
-    candidates = [
+    agents = [
         agent
         for agent in session_tree.subagents(evt)
         if agent.name and (agent.meta.get("teamName") or agent.agent_id in live_subagents)
     ]
     plausible = {
         agent.name
-        for agent in candidates
+        for agent in agents
         if not (team := agent.meta.get("teamName")) or (teammate_tasks and agent.name in team_roster(evt, team, rosters))
     }
-    newest: dict[str, Subagent] = {}
-    for agent in candidates:
+    newest: dict[str, Candidate] = {}
+    for agent in agents:
         reqenv.checkpoint()
-        if agent.name not in plausible:
-            continue
-        if agent.started and (agent.name not in newest or agent.started > newest[agent.name].started):
-            newest[agent.name] = agent
-    active = []
-    for agent in newest.values():
-        reqenv.checkpoint()
-        active.append((agent, turn_of(agent.events, sidechain=True)))
-    active.sort(key=lambda lane: lane[1].at if lane[1] else lane[0].started, reverse=True)
+        if agent.name in plausible and (candidate := newer(agent, newest.get(agent.name))):
+            newest[agent.name] = candidate
     lanes = []
-    for agent, turn in active:
+    for candidate in sorted(newest.values(), key=lambda lane: lane.turn.at if lane.turn else lane.started, reverse=True):
         reqenv.checkpoint()
+        agent = candidate.agent
         if team := agent.meta.get("teamName"):
             if agent.name not in team_roster(evt, team, rosters):
                 continue
-            if not (label := next((key for key in task_keys(agent) if teammate_tasks[key]), None)):
+            if not (label := next((key for key in task_keys(candidate) if teammate_tasks[key]), None)):
                 continue
             teammate_tasks[label] -= 1
-        if turn:
+        if turn := candidate.turn:
             lanes.append(
                 Lane(
                     name=agent.name,
@@ -141,8 +161,8 @@ def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
                     team=team,
                     turn=turn,
                     line=rotation_line(turn.model, agent.meta.get("model"), evt.cwd),
-                    events=len(agent.events),
-                    told_to_stand_down=session_tree.stand_down_delivered(agent.events),
+                    events=candidate.events,
+                    told_to_stand_down=candidate.told_to_stand_down,
                 )
             )
     return tuple(lanes)
