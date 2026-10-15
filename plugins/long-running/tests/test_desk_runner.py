@@ -1533,6 +1533,30 @@ def test_tips_whose_ledger_bases_share_a_root_share_a_check_only_when_stack_enqu
     assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
+def test_fork_tips_a_joined_check_refuses_without_a_verdict_gate_alone_on_the_same_pass(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    rider = "BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #{}; name it too or pass --partial to leave it out"
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36530 " + rider.format(36487))]
+    shell.gates["36487 36501"] = [(1, "enqueued nothing: #36501 is not in #36487's stack\n", "")]
+    shell.gates["36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36531 " + rider.format(36501))]
+    landing_pass(shell, config)
+    checks = [tuple(itertools.takewhile(str.isdigit, call[1:])) for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks == [("36487",), ("36487", "36501"), ("36501",)]
+    lines = escalations(shell)
+    assert not [line for line in lines if "GATE-FAILED" in line]
+    assert sorted(line.split(" would ride")[0][-6:] for line in lines if "FOREIGN" in line) == ["#36530", "#36531"]
+
+
+def test_a_tip_checked_alone_after_a_refused_join_escalates_when_it_has_no_verdict_either(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY")]
+    shell.gates["36487 36501"] = [(1, "enqueued nothing: #36501 is not in #36487's stack\n", "")]
+    shell.gates["36501"] = [(5, "", "stack-enqueue failed: <urlopen error timed out>\n")]
+    landing_pass(shell, config)
+    lines = [line for line in escalations(shell) if "GATE-FAILED" in line]
+    assert len(lines) == 1 and "#36501" in lines[0] and "#36487" not in lines[0]
+
+
 def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_silently(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
     shell.gates["29020"] = [(2, "", "usage: stack-enqueue PR [PR ...]\nstack-enqueue: error: unrecognized arguments: 28349\n")]
