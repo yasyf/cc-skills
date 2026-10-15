@@ -2807,6 +2807,32 @@ def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, 
     }
 
 
+def test_the_orca_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.stop_marker().write_text(f"{os.getpid()}\n")
+    assert runner_module.run_orca(runner, False) == 0
+    assert (tmp_path / "inbox" / runner_module.HEARTBEAT).is_file()
+    assert not runner.stop_marker().exists()
+
+
+def test_a_stop_marker_naming_another_process_stops_nothing(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.stop_marker().write_text(f"{os.getpid() + 1}\n")
+    assert not runner.stop_requested()
+
+
+def test_handoff_waits_for_the_runner_to_remove_the_stop_marker(shell, config, tmp_path, monkeypatch):
+    orca_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
+    assert cli(shell, config, "handoff") == 0
+    assert not runner.stop_marker().exists()
+
+
+def test_handoff_with_no_heartbeat_has_no_runner_to_stop(shell, config):
+    assert cli(shell, config, "handoff") == 0
+
+
 def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.questions = [

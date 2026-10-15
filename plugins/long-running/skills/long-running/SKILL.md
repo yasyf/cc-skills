@@ -291,8 +291,9 @@ No model desk sits between the root and Orca.
 Start the orca runner before the first worker; set `drive` in its config for cci
 escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`.
 The runner keeps reading that Markdown command inbox. Use `policy` for a landing
-rule and `show` for action state. [The runner brief](reference/orca-desk-brief.md)
-gives the config and cutover.
+rule and `show` for action state. Upgrade a live runner with `handoff`: it returns once
+the old runner has finished its pass and exited, and the new one starts after that.
+[The runner brief](reference/orca-desk-brief.md) gives the config and cutover.
 
 *Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 being sent
 to a superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3

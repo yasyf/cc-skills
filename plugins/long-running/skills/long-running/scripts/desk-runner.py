@@ -291,6 +291,7 @@ UNREAD = "unread"
 UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
+HANDOFF_WAIT = timedelta(minutes=5)
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
 ROUTED_BLOCKER = re.compile(r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|(?:rules-review|fidelity) (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)")
@@ -885,6 +886,35 @@ class Runner:
         staged = drive / f".{HEARTBEAT}"
         staged.write_text(json.dumps(beat) + "\n")
         staged.replace(drive / HEARTBEAT)
+
+    def stop_marker(self) -> Path:
+        return self.config.source.with_name(f"{self.config.source.name}.stop")
+
+    def stop_requested(self) -> bool:
+        marker = self.stop_marker()
+        return marker.is_file() and marker.read_text().strip() == str(os.getpid())
+
+    def handoff(self) -> int:
+        beat = self.config.desk_inbox.parent / HEARTBEAT
+        if not beat.is_file():
+            print("desk-runner handoff: no orca runner has beaten here")
+            return 0
+        pid = json.loads(beat.read_text())["pid"]
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            print(f"desk-runner handoff: runner {pid} is gone; start the next one")
+            return 0
+        marker = self.stop_marker()
+        marker.write_text(f"{pid}\n")
+        deadline = self.now() + HANDOFF_WAIT
+        while marker.exists():
+            if self.now() >= deadline:
+                print(f"desk-runner handoff: runner {pid} wrote no exit mark within {HANDOFF_WAIT}; {marker} stays until it does", file=sys.stderr)
+                return 1
+            self.shell.sleep(WAKE_SECONDS)
+        print(f"desk-runner handoff: runner {pid} exited; start the next one")
+        return 0
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether this process's terminal coordinates the Run, and record the answer, with how it was obtained, in the runner's state."""
@@ -1936,7 +1966,7 @@ class Runner:
         """Wait out the gap between passes, cut short by a desk inbox append or a launch or judge process exiting."""
         inbox, running = self.shell.stat(self.config.desk_inbox), self.running()
         for _ in range(int(seconds / WAKE_SECONDS)):
-            if self.shell.stat(self.config.desk_inbox) != inbox or self.running() < running:
+            if self.shell.stat(self.config.desk_inbox) != inbox or self.running() < running or self.stop_requested():
                 return
             self.shell.sleep(WAKE_SECONDS)
 
@@ -2708,6 +2738,9 @@ def run_orca(runner: Runner, once: bool) -> int:
         if once:
             return 0
         runner.idle(runner.pass_wait())
+        if runner.stop_requested():
+            runner.stop_marker().unlink()
+            return 0
 
 
 def run_landing(runner: Runner, once: bool) -> int:
@@ -2760,8 +2793,9 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--desk", choices=("orca", "landing"), required=True)
     loop.add_argument("--once", action="store_true")
     rebind = verbs.add_parser("rebind")
+    handoff = verbs.add_parser("handoff")
     show = verbs.add_parser("show")
-    for sub in (relay, launch, policy, loop, rebind, show):
+    for sub in (relay, launch, policy, loop, rebind, handoff, show):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -2777,6 +2811,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return 0
     if args.verb == "rebind":
         return runner.rebind()
+    if args.verb == "handoff":
+        return runner.handoff()
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":
