@@ -420,13 +420,14 @@ To upgrade a running orca desk without a signal, run `desk-runner.py handoff --c
 `$CONFIG.stop`, and exits 0; `handoff` returns then, and only then does the new
 runner start, so one process reads the Run at every moment.
 
-The orca desk calls Orca as the terminal it was started from, named by the
-`ORCA_TERMINAL_HANDLE` it inherits, and only the terminal bound to the Run may call
-`worker-start`. It refuses to start, printing the rebind command, unless that
-terminal coordinates the Run. When the binding moves while it runs, it holds every
-launch and writes one `UNBOUND` line. After the root moves to a new terminal, run
-`desk-runner.py rebind --config "$CONFIG"` there, then restart the orca desk from
-that terminal. `show` prints the binding first.
+Only the terminal bound to the Run may call `worker-start`. Every pass the orca desk
+reads the Run's coordinator from Orca and calls Orca, and starts each launcher, as that
+terminal, whatever terminal the desk itself was started from. It refuses to start,
+printing the rebind command, when the Run has no coordinator or Orca finds that terminal
+gone. When the coordinator disappears while it runs, it holds every launch and writes one
+`UNBOUND` line. After the root moves to a new terminal, run
+`desk-runner.py rebind --config "$CONFIG"` there; the running desk follows on its next
+pass and needs no restart. `show` prints the binding first.
 
 ## Actions and acknowledgements
 

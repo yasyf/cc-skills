@@ -98,6 +98,8 @@ class FakeShell(runner_module.Shell):
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
+        self.dead: set[str] = set()
+        self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
         self.posts: list[dict] = []
@@ -161,6 +163,7 @@ class FakeShell(runner_module.Shell):
         self.calls.append(list(argv))
         name = Path(argv[0]).name
         if argv[0] == "orca":
+            self.sender = (env or {}).get("ORCA_TERMINAL_HANDLE") or self.environ.get("ORCA_TERMINAL_HANDLE", "")
             if self.orca_down and argv[2] not in ("run-current", "run-show"):
                 return self.orca_down
             return self.orca(argv[1:-1])
@@ -285,8 +288,10 @@ class FakeShell(runner_module.Shell):
     def orca(self, argv: list[str]) -> runner_module.Done:
         verb = argv[:2]
         if verb == ["orchestration", "run-current"]:
-            assert self.env("ORCA_TERMINAL_HANDLE")
-            return self.ok({"run": self.bound_run() if self.coordinator == self.env("ORCA_TERMINAL_HANDLE") else None})
+            assert self.sender
+            if self.sender in self.dead:
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "terminal_handle_stale", "message": f"{self.sender} is gone"}}), "")
+            return self.ok({"run": self.bound_run() if self.coordinator == self.sender else None})
         if verb == ["orchestration", "run-show"]:
             assert argv[2:] == ["--id", "run_1"]
             return self.ok({"run": self.bound_run()})
@@ -294,7 +299,7 @@ class FakeShell(runner_module.Shell):
             assert argv[2:] == ["--id", "run_1"]
             if self.run_use_error:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": self.run_use_error}), "")
-            self.coordinator = self.env("ORCA_TERMINAL_HANDLE")
+            self.coordinator = self.sender
             self.generation += 1
             return self.ok({"run": self.bound_run()})
         if verb == ["orchestration", "worker-show"]:
@@ -367,7 +372,7 @@ class FakeShell(runner_module.Shell):
 
     def deliver(self, argv: list[str]) -> runner_module.Done:
         assert argv[0] == "run_1"
-        if self.coordinator != self.env("ORCA_TERMINAL_HANDLE"):
+        if self.coordinator != self.sender:
             return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "consumer_fenced", "message": "This coordinator terminal is no longer bound to Run run_1."}}), "")
         if argv[1:2] == ["--ack"]:
             assert argv[2:] == [f"delivery_{self.delivery[0]['id']}", "--peek"]
@@ -2905,34 +2910,62 @@ def accept_launch(shell: FakeShell, config: Path, tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("environ", "why"),
+    ("coordinator", "why"),
     [
-        ({"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}, "terminal term_root coordinates no Run; Orca binds run_1 to term_dead at generation 3"),
-        ({}, "no ORCA_TERMINAL_HANDLE: the runner was not started from an Orca terminal"),
+        ("term_dead", "orca orchestration run-current as coordinator term_dead failed: terminal_handle_stale: term_dead is gone"),
+        ("", "Orca binds run_1 to no terminal"),
     ],
 )
-def test_a_runner_whose_terminal_is_not_the_coordinator_refuses_to_start_and_prints_the_rebind(shell, config, tmp_path, capsys, environ, why):
-    shell.environ = environ
-    shell.coordinator = "term_dead"
+def test_a_run_with_no_live_coordinator_refuses_to_start_and_prints_the_rebind(shell, config, tmp_path, capsys, coordinator, why):
+    shell.coordinator = coordinator
+    shell.dead = {"term_dead"}
     accept_launch(shell, config, tmp_path)
     assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
-    expected = f"desk-runner cannot start workers on run_1: {why}. From the coordinator's Orca terminal run `desk-runner.py rebind --config {config.resolve()}`, and start the runner from that terminal"
+    expected = f"desk-runner cannot start workers on run_1: {why}. From the coordinator's Orca terminal run `desk-runner.py rebind --config {config.resolve()}`; the runner follows the new coordinator on its next pass, so it needs no restart"
     assert capsys.readouterr().err == expected + "\n"
     assert launches(shell) == [] and orca_calls(shell, "inbox") == []
-    assert len(orca_calls(shell, "run-current")) == (1 if environ else 0)
+    assert len(orca_calls(shell, "run-current")) == (1 if coordinator else 0)
     [line] = escalations(shell)
-    assert f"UNBOUND unbound:{environ.get('ORCA_TERMINAL_HANDLE', '')}:term_dead:3 runner: {expected}; the runner refused to start" in line
+    assert f"UNBOUND unbound:{coordinator}:3 runner: {expected}; the runner refused to start" in line
     binding = incident(tmp_path, "desk-runner").facts["binding"]
     assert binding["bound"] is False and binding["why"] == why
     assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
     assert len(escalations(shell)) == 1
 
 
-def test_a_binding_lost_mid_run_holds_launches_and_escalates_once_until_rebind(shell, config, tmp_path):
+def test_a_runner_whose_own_terminal_is_gone_acts_as_the_coordinator_the_run_names(shell, config, tmp_path):
+    shell.environ = {"ORCA_TERMINAL_HANDLE": "term_closed", "ORCA_PANE_KEY": "pane_closed"}
+    shell.dead = {"term_closed"}
+    shell.coordinator = "term_new"
+    shell.generation = 4
+    brief = accept_launch(shell, config, tmp_path)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    env = shell.spawned_env["orca-launch.sh"]
+    assert (env["ORCA_TERMINAL_HANDLE"], env["ORCA_PANE_KEY"]) == ("term_new", "")
+    assert escalations(shell) == []
+    binding = incident(tmp_path, "desk-runner").facts["binding"]
+    assert (binding["terminal"], binding["generation"], binding["bound"]) == ("term_new", 4, True)
+
+
+def test_a_running_runner_follows_the_coordinator_to_a_new_terminal(shell, config, tmp_path):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     assert runner.binding()["bound"]
     brief = accept_launch(shell, config, tmp_path)
-    shell.coordinator = "term_elsewhere"
+    shell.coordinator = "term_new"
+    shell.generation = 4
+    runner.deliver()
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert shell.spawned_env["orca-launch.sh"]["ORCA_TERMINAL_HANDLE"] == "term_new"
+    assert escalations(shell) == []
+
+
+def test_a_coordinator_that_dies_mid_run_holds_launches_and_escalates_once_until_rebind(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert runner.binding()["bound"]
+    brief = accept_launch(shell, config, tmp_path)
+    shell.coordinator = "term_dead"
+    shell.dead = {"term_dead"}
     shell.generation = 4
     for _ in range(3):
         runner.deliver()
@@ -2940,7 +2973,7 @@ def test_a_binding_lost_mid_run_holds_launches_and_escalates_once_until_rebind(s
     assert launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     [line] = escalations(shell)
-    assert "UNBOUND unbound:term_root:term_elsewhere:4 runner: desk-runner cannot start workers on run_1: terminal term_root coordinates no Run" in line
+    assert "UNBOUND unbound:term_dead:4 runner: desk-runner cannot start workers on run_1: orca orchestration run-current as coordinator term_dead failed" in line
     assert line.endswith("; launches wait until it is bound")
     assert cli(shell, config, "rebind") == 0
     runner.deliver()
@@ -2952,7 +2985,7 @@ def test_rebind_moves_the_run_to_this_terminal_and_records_how(shell, config, tm
     assert cli(shell, config, "rebind") == 0
     assert orca_calls(shell, "run-use") == [["orca", "orchestration", "run-use", "--id", "run_1", "--json"]]
     via = "orca orchestration run-use by desk-runner rebind at 11:00, replacing term_dead at generation 3"
-    line = f"binding: terminal term_root pane pane_root coordinates run_1 at generation 4, via {via}; checked 11:00"
+    line = f"binding: terminal term_root coordinates run_1 at generation 4, via {via}; checked 11:00"
     assert capsys.readouterr().out == line + "\n"
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["binding"]["via"] == via
@@ -2968,13 +3001,13 @@ def test_a_refused_rebind_names_orcas_error_and_records_nothing(shell, config, t
     assert "binding" not in incident(tmp_path, "desk-runner").facts
 
 
-def test_a_runner_bound_at_start_records_the_inherited_terminal(shell, config, tmp_path, capsys):
+def test_a_runner_records_the_coordinator_it_read_from_orca(shell, config, tmp_path, capsys):
     orca_pass(shell, config)
     binding = incident(tmp_path, "desk-runner").facts["binding"]
-    assert (binding["terminal"], binding["pane"], binding["coordinator"], binding["generation"], binding["bound"]) == ("term_root", "pane_root", "term_root", 3, True)
-    assert binding["via"] == "ORCA_TERMINAL_HANDLE inherited from the shell that started the runner, already bound at generation 3"
+    assert (binding["terminal"], binding["generation"], binding["bound"]) == ("term_root", 3, True)
+    assert binding["via"] == "coordinator read from Orca at generation 3"
     cli(shell, config, "show")
-    assert capsys.readouterr().out.splitlines()[1].startswith("binding: terminal term_root pane pane_root coordinates run_1 at generation 3")
+    assert capsys.readouterr().out.splitlines()[1].startswith("binding: terminal term_root coordinates run_1 at generation 3")
 
 
 @pytest.mark.parametrize(
@@ -3004,7 +3037,8 @@ def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(sh
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     shell.cpu_load = 40
-    shell.coordinator = "term_elsewhere"
+    shell.coordinator = "term_dead"
+    shell.dead = {"term_dead"}
     for _ in range(8):
         runner.deliver()
         runner.flush()

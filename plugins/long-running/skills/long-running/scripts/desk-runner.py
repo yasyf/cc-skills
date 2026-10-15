@@ -131,13 +131,15 @@ question, one to a lane's own record replies to that lane's open Orca question, 
 reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
 launch.
 Orca lets only the terminal bound to the Run call
-worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
-The runner records that terminal, its pane, the Run's coordinator and generation, and how
-the binding was obtained, at start and before each pass that launches. Started from a
-terminal that is not the Run's coordinator, or from no Orca terminal, it refuses to start
-and prints the rebind command; a binding lost mid-run holds every launch and escalates
-UNBOUND once. `rebind` runs `orca orchestration run-use` from the current terminal and
-records it; `show` prints the binding first. No Mac launch starts while the 1-minute load
+worker-start. Every pass the runner reads the Run's coordinator from Orca and acts as that
+terminal: each orca call and each launcher it starts carries ORCA_TERMINAL_HANDLE set to the
+coordinator and an empty ORCA_PANE_KEY, so a root that rotates to a new terminal needs no
+runner restart. It records the coordinator, the Run's generation, and how the binding was
+obtained, at start and before each pass that launches. When the Run has no coordinator, or
+Orca finds that terminal gone, it refuses to start and prints the rebind command; a binding
+lost mid-run holds every launch and escalates UNBOUND once. `rebind` runs
+`orca orchestration run-use` from the current terminal and records it; `show` prints the
+binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
 each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
 incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
@@ -726,9 +728,10 @@ class Orca:
     def __init__(self, shell: Shell, config: Config):
         self.shell = shell
         self.config = config
+        self.sender: dict[str, str] = {}
 
     def call(self, *argv: str) -> dict:
-        done = self.shell.run(["orca", *argv, "--json"])
+        done = self.shell.run(["orca", *argv, "--json"], env=self.sender or None)
         try:
             return json.loads(done.out)
         except json.JSONDecodeError:
@@ -941,42 +944,52 @@ class Runner:
         return 0
 
     def binding(self, via: str = "") -> dict:
-        """Ask Orca whether this process's terminal coordinates the Run, and record the answer, with how it was obtained, in the runner's state."""
-        terminal = self.shell.env("ORCA_TERMINAL_HANDLE")
+        """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
         prior = self.book.load(RUNNER).facts.get(BINDING) or {}
+        shown, held = self.follow_coordinator()
+        terminal = held.get("coordinator_handle") or ""
         current = self.orca.call("orchestration", "run-current") if terminal else {}
-        held = ((self.orca.call("orchestration", "run-show", "--id", self.config.run).get("result") or {}).get("run")) or {}
         coordinates = ((current.get("result") or {}).get("run") or {}).get("id") or ""
         state = {
             "terminal": terminal,
-            "pane": self.shell.env("ORCA_PANE_KEY"),
             "run": self.config.run,
             "bound": bool(terminal) and coordinates == self.config.run,
-            "coordinator": held.get("coordinator_handle") or "",
             "generation": held.get("consumer_generation"),
             "at": self.book.stamp(),
         }
-        if not terminal:
-            state["why"] = "no ORCA_TERMINAL_HANDLE: the runner was not started from an Orca terminal"
+        if not shown.get("ok"):
+            error = shown.get("error") or {}
+            state["why"] = f"orca orchestration run-show failed: {error.get('code')}: {error.get('message')}"
+        elif not terminal:
+            state["why"] = f"Orca binds {self.config.run} to no terminal"
         elif not current.get("ok"):
             error = current.get("error") or {}
-            state["why"] = f"orca orchestration run-current failed: {error.get('code')}: {error.get('message')}"
+            state["why"] = f"orca orchestration run-current as coordinator {terminal} failed: {error.get('code')}: {error.get('message')}"
         elif not state["bound"]:
-            state["why"] = f"terminal {terminal} coordinates {coordinates or 'no Run'}; Orca binds {self.config.run} to {state['coordinator'] or 'no terminal'} at generation {state['generation']}"
+            state["why"] = f"coordinator {terminal} coordinates {coordinates or 'no Run'}, not {self.config.run}"
         if via:
             state["via"] = via
         elif state["bound"] and prior.get("bound") and (prior.get("terminal"), prior.get("generation")) == (terminal, state["generation"]):
             state["via"] = prior.get("via", "")
         elif state["bound"]:
-            state["via"] = f"ORCA_TERMINAL_HANDLE inherited from the shell that started the runner, already bound at generation {state['generation']}"
+            state["via"] = f"coordinator read from Orca at generation {state['generation']}"
         self.book.edit(RUNNER, lambda incident: incident.facts.update({BINDING: state}))
         return state
+
+    def follow_coordinator(self) -> tuple[dict, dict]:
+        """Orca resolves the sender from the pane key before the handle, so the pane key is cleared for the coordinator's handle to count."""
+        self.orca.sender = {}
+        shown = self.orca.call("orchestration", "run-show", "--id", self.config.run)
+        held = ((shown.get("result") or {}).get("run")) or {}
+        if coordinator := held.get("coordinator_handle"):
+            self.orca.sender = {"ORCA_TERMINAL_HANDLE": coordinator, "ORCA_PANE_KEY": ""}
+        return shown, held
 
     def rebind_command(self) -> str:
         return f"desk-runner.py rebind --config {self.config.source}"
 
     def unbound(self, state: dict) -> str:
-        return f"desk-runner cannot start workers on {self.config.run}: {state['why']}. From the coordinator's Orca terminal run `{self.rebind_command()}`, and start the runner from that terminal"
+        return f"desk-runner cannot start workers on {self.config.run}: {state['why']}. From the coordinator's Orca terminal run `{self.rebind_command()}`; the runner follows the new coordinator on its next pass, so it needs no restart"
 
     def binding_line(self, state: dict | None) -> str:
         if not state:
@@ -984,7 +997,7 @@ class Runner:
         checked = pacific(actions.parse_stamp(state["at"]))
         if not state["bound"]:
             return f"binding: UNBOUND {state['why']}; checked {checked}; fix: `{self.rebind_command()}` from the coordinator's terminal"
-        return f"binding: terminal {state['terminal']} pane {state['pane'] or 'unknown'} coordinates {state['run']} at generation {state['generation']}, via {state['via']}; checked {checked}"
+        return f"binding: terminal {state['terminal']} coordinates {state['run']} at generation {state['generation']}, via {state['via']}; checked {checked}"
 
     def bound_for_launch(self) -> bool:
         """Check the binding once per delivery pass that launches; an unbound runner holds its launches and escalates once per binding state."""
@@ -992,7 +1005,7 @@ class Runner:
             self.pass_binding = self.binding()
             state = self.pass_binding
             if not state["bound"]:
-                self.escalate(f"unbound:{state['terminal']}:{state['coordinator']}:{state['generation']}", "UNBOUND", "runner", f"{self.unbound(state)}; launches wait until it is bound")
+                self.escalate(f"unbound:{state['terminal']}:{state['generation']}", "UNBOUND", "runner", f"{self.unbound(state)}; launches wait until it is bound")
         return self.pass_binding["bound"]
 
     def rebind(self) -> int:
@@ -1624,7 +1637,7 @@ class Runner:
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
         argv = [str(LAUNCHER), lane, spec["model"], spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
+        env = {**self.config.launch_env, **self.orca.sender, "ORCA_LAUNCH_STATE": str(self.config.receipts)}
         if spec.get("fast"):
             env[CLAUDE_ARGS] = " ".join(filter(None, [env.get(CLAUDE_ARGS, self.shell.env(CLAUDE_ARGS)), CLAUDE_FAST_MODE]))
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), env)
@@ -1633,7 +1646,7 @@ class Runner:
         spec = json.loads(action.target)
         sprite = self.config.sprite or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, "WORKER_RUN": self.config.run, "WORKER_REMOTE_ATTACH": str(SPRITE_ATTACH), **sprite.get("env", {})}
+        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, "WORKER_REMOTE_ATTACH": str(SPRITE_ATTACH), **sprite.get("env", {})}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)
@@ -2801,7 +2814,7 @@ def seed_policy(runner: Runner) -> None:
 def run_orca(runner: Runner, once: bool) -> int:
     state = runner.binding()
     if not state["bound"]:
-        runner.escalate(f"unbound:{state['terminal']}:{state['coordinator']}:{state['generation']}", "UNBOUND", "runner", f"{runner.unbound(state)}; the runner refused to start")
+        runner.escalate(f"unbound:{state['terminal']}:{state['generation']}", "UNBOUND", "runner", f"{runner.unbound(state)}; the runner refused to start")
         runner.flush()
         print(runner.unbound(state), file=sys.stderr)
         return 3
@@ -2812,6 +2825,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
             rotated = runner.now()
+        runner.follow_coordinator()
         try:
             if runner.check():
                 runner.reap()
