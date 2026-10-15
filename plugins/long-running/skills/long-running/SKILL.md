@@ -1411,6 +1411,10 @@ passes went live while old daemons and bundles still read the old format, and re
 forks, SoFi mounts, Chime, and a reporter's cloud run all failed with "cannot read"
 errors that each got a forward patch.*
 
+**D22. A PR whose release must avoid a time window is enqueued only when the window allows it, or under a release hold.** Hold it out of the queue until a release lands outside the window. To enqueue earlier, first post `cci post --drive <release owner's drive> --lane <lane> --kind hold --pr <n> --to <release owner> --text "release <component> only after <time>, <reason>"` on the drive `cci who` names. The release owner leaves that PR out of every release until then. A hold in a lane's brief binds no other session's release train, and one on the lane's own drive refuses the enqueue under D1.
+
+*Prevents the 2026-10-15 rsw-go restart. Monorepo #37836, enqueued to release after the 3-11 AM dreaming window, kept its "no rsw-go release after 2:45 AM" hold in its release lane's brief, and the release-v3 session shipped it in release 6869 at 2:55 AM.*
+
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
 the routing, the label history, and the landing. A refresh that cannot reach the forge
