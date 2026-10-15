@@ -1526,9 +1526,15 @@ settled from Orca `request-show`/`--retry-request` or the recipient's mailbox.
 
 With neither proof thirty seconds on, the runner resends it on the same thread
 every thirty seconds until one proof appears, and logs nothing for a delivered
-resend. Ten lost resends log `LOST` with the relay text on the record's path, for
-the root to deliver by hand. Never resend a send that has a receipt, and never
-resend by hand before `LOST`. `show` renders the record.
+resend. A lane status on the Run naming the relay's R-number or cci sequence is
+proof too. Two lost resends log `UNACKED` with the relay text on the record's path.
+The root reads the lane's Run messages, then delivers by hand only if the lane
+never acted. Never resend a send that has a receipt, and never resend by hand
+before `UNACKED`. `show` renders the record.
+
+*Prevents the Oct 14 l32-pass-v2 relays: the lane read each send and answered on
+the Run thread with `done R889`, the runner found no message on the relay's
+thread, and it resent each relay ten times before logging `LOST`.*
 
 **O8. A stale heartbeat never authorizes a relaunch.** Every five minutes the
 runner sweeps receipt dispatches. A non-live active dispatch emits `LIVENESS`;

@@ -250,7 +250,7 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `LOST`, `INCIDENT-CLOCK`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
+`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
 `defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
@@ -454,9 +454,13 @@ automatically.
 With neither proof thirty seconds after a send to the lane's live dispatch, the
 runner sends the relay again on the same thread, under the same key. It repeats
 that once every thirty seconds until Orca holds a receipt or the message shows on
-the thread, and a delivered resend emits nothing. After ten resends all lost the
-same way the runner emits `LOST` once, with the count, and its record's path holds
-the relay text; it sends nothing more. A resend Orca rejects emits `SEND-FAILED`.
+the thread, and a delivered resend emits nothing. A lane that already read its
+mailbox leaves no message there, so a status the lane posts on the Run naming the
+relay's R-number or cci sequence also counts. It acknowledges the relay as `started`
+when its subject starts so and `done` otherwise, settles every send, and ends the
+resends. After two resends all lost the same way the runner emits `UNACKED` once,
+with the count, and its record's path holds the relay text; it sends nothing more.
+A resend Orca rejects emits `SEND-FAILED`.
 
 A relay record or a root reply can be any length. `cci post` keeps only the first
 line of a text over 400 characters in the record, clipped, and writes the whole
@@ -654,7 +658,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
-| `LOST` | Deliver the relay text at the record's path to the lane by hand; the send and ten resends were all lost, and the runner sends nothing more. |
+| `UNACKED` | Read the lane's Run messages first; if it never acted, deliver the relay text at the record's path by hand. The send and two resends lost their response, the lane never named the relay, and the runner sends nothing more. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |

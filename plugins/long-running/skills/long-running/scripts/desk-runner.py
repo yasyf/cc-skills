@@ -21,9 +21,12 @@ A relay is accepted, then started and completed by the lane itself: it replies
 `unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
 With neither thirty seconds on, the runner sends the relay again on the same thread,
 under the same key, and repeats that once every thirty seconds until Orca holds a
-receipt or the message shows on the thread. A delivered resend logs nothing. Ten
-resends all lost the same way log `LOST` once, with the count and the relay text on
-the record's path, and nothing more is sent. A send with a receipt is never resent,
+receipt or the message shows on the thread. A delivered resend logs nothing. A status
+message the lane posts on the Run that names the relay's R-number or cci sequence
+acknowledges it, as `started` when its subject starts so and `done` otherwise, and
+settles every send of it, since a lane that already read its mailbox leaves no
+message there to find. Two resends all lost the same way log `UNACKED` once, with
+the count and the relay text on the record's path, and nothing more is sent. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
@@ -201,7 +204,7 @@ inbox append or an exiting launch or judge, and its sweep shows only dispatches 
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-UNBOUND, UNOWNED, LOST, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -248,7 +251,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "LOST": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -283,7 +286,7 @@ ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
-RESEND_LIMIT = 10
+RESEND_LIMIT = 2
 RESEND = ":resend"
 RETRY = ":retry"
 ORPHANED_JUDGE = timedelta(minutes=5)
@@ -300,6 +303,8 @@ ROUTED_BLOCKER = re.compile(r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|(?:rul
 BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure )")
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
+RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
+RUN_REF = re.compile(r"R\d+|\d+")
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
@@ -1490,7 +1495,7 @@ class Runner:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
 
     def reconcile_sends(self, container: str, lane: str) -> None:
-        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; while both reads succeed and show neither, resend it on the same thread once per `RESEND_AFTER`, and report `RESEND_LIMIT` resends all lost the same way as LOST."""
+        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; while both reads succeed and show neither, resend it on the same thread once per `RESEND_AFTER`, and report `RESEND_LIMIT` resends all lost the same way as UNACKED."""
         cutoff = self.now() - ORPHANED_SEND
         for send in self.book.actions(container, kind="send", status="started"):
             if actions.parse_stamp(send.started_at) < cutoff:
@@ -1520,16 +1525,16 @@ class Runner:
             elif self.now() - actions.parse_stamp(send.started_at) >= RESEND_AFTER:
                 sent_again = len(resends(self.sends(container, action.action_id, current.id)))
                 if sent_again >= RESEND_LIMIT:
-                    self.report_lost(container, lane, action, send, sent_again)
+                    self.report_unacked(container, lane, action, send, sent_again)
                 else:
                     self.resend(container, current, action, send, sent_again + 1)
 
-    def report_lost(self, container: str, lane: str, action: actions.Action, send: actions.Action, sent_again: int) -> None:
-        log = f"escalation:lost:{container}/{send.action_id}"
+    def report_unacked(self, container: str, lane: str, action: actions.Action, send: actions.Action, sent_again: int) -> None:
+        log = f"escalation:unacked:{container}/{send.action_id}"
         if self.book.known(RUNNER, log):
             return
         self.keep({"id": action.action_id, "body": json.loads(action.target)["text"]})
-        self.record(log, f"LOST {action.action_id} {lane}: the send to {send.target} and all {sent_again} resends lost their response; Orca holds no receipt and no message on its thread; nothing more is sent; this record's path holds the relay text for the root to deliver by hand")
+        self.record(log, f"UNACKED {action.action_id} {lane}: the send to {send.target} and {sent_again} resends lost their response, and the lane has not named {action.action_id} on its thread or the Run; Orca holds no receipt and no message on its thread; nothing more is sent; check the lane's Run messages before delivering the relay text at this record's path by hand")
 
     def resend(self, container: str, dispatch: Dispatch, action: actions.Action, send: actions.Action, number: int) -> None:
         send_id = f"{send.action_id.split(RESEND)[0]}{RESEND}{number}"
@@ -1772,12 +1777,37 @@ class Runner:
             self.stamp_status(lane, message["id"], kind.lower())
             if kind != "MECHANISM":
                 self.unfixed(lane, message)
+        elif message["type"] == "status" and (key := self.relay_named(lane, f"{subject}\n{message.get('body') or ''}")):
+            self.keep(message)
+            verb, result = (acked["verb"], acked["rest"].strip()) if acked else ("done", subject)
+            self.acknowledge_on_run(lane_container(lane), key, sender, verb, result or (message.get("body") or "").strip(), message["id"])
         elif message["type"] in ("decision_gate", "handoff"):
             self.keep(message)
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
         else:
             return False
         return True
+
+    def relay_named(self, lane: str, text: str) -> str | None:
+        container = lane_container(lane)
+        if container not in self.book.store.ids():
+            return None
+        named = set(RUN_REF.findall(text))
+        return next(
+            (
+                action.action_id
+                for action in self.book.actions(container)
+                if action.kind in ("relay", "reply") and action.status in ("accepted", "started") and (ref := RELAY_REF.search(action.action_id)) and ref[1] in named
+            ),
+            None,
+        )
+
+    def acknowledge_on_run(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
+        receipt = {"message": message, "at": self.book.stamp(), "acknowledged": True}
+        for send in self.book.actions(container, kind="send"):
+            if send.authority_ref == key and send.status in ("started", "unverifiable"):
+                self.book.attempt(container, lambda incident, settled=send.action_id: incident.complete(settled, receipt))
+        self.acknowledge(container, key, sender, verb, text, message)
 
     def withdrawn_ask(self, lane: str, message: dict) -> bool:
         """Take a lane's question as moot when the root withdrew its dispatch, or fenced a case lane's dispatch by hand: the lane is marked withdrawn, never offered to be dispatched again, and the root gets one line in place of a `DECIDE`."""
