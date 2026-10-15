@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import threading
 import uuid
@@ -22,6 +23,7 @@ from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.transcripts import lift_session
 from captain_hook.util import reqenv
+from captain_hook.util.caching import StampedCache
 from fire import fire
 from hooks import lane_rotation, nudges, session_tree, task_list, turns
 from hooks.compaction_handoff import TURN_WINDOW, CompactionState
@@ -79,6 +81,10 @@ def assistant(at: datetime, tokens: int, *, sidechain: bool, model: str = "claud
     return envelope("assistant", at, sidechain=sidechain) | {"message": message}
 
 
+def retokened(transcript: str, tokens: int, replacement: int) -> str:
+    return transcript.replace(f'"cache_read_input_tokens": {tokens - 2}', f'"cache_read_input_tokens": {replacement - 2}')
+
+
 class Tree:
     def __init__(self, home: Path) -> None:
         self.claude = home / ".claude"
@@ -129,9 +135,11 @@ class Tree:
     def delete_task(self, name: str) -> None:
         (self.tasks / f"{name}.json").unlink()
 
+    def transcript(self, name: str) -> Path:
+        return max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
+
     def grow(self, name: str, tokens: int) -> None:
-        transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
-        with transcript.open("a") as lane:
+        with self.transcript(name).open("a") as lane:
             lane.write(json.dumps(assistant(ROOT_AT, tokens, sidechain=True)) + "\n")
 
     def roster(self, team: str) -> None:
@@ -141,13 +149,11 @@ class Tree:
 
     def read(self, *names: str) -> None:
         for name in names:
-            transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
-            with transcript.open("a") as lane:
+            with self.transcript(name).open("a") as lane:
                 lane.write(json.dumps(user(ROOT_AT, "ROTATE", sidechain=True)) + "\n")
 
     def hear(self, name: str, content: str) -> None:
-        transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
-        with transcript.open("a") as lane:
+        with self.transcript(name).open("a") as lane:
             lane.write(json.dumps(user(ROOT_AT, content, sidechain=True)) + "\n")
         (self.claude / "teams" / TEAM / "inboxes" / f"{name}.json").write_text("[]")
 
@@ -632,6 +638,194 @@ def test_a_scan_lets_go_of_each_transcript_before_reading_the_next(tree: Tree, m
     )
 
 
+def test_a_transcript_unchanged_since_the_last_scan_is_not_parsed_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000), tree.lane("scout", 450_000)])
+
+    before = {lane.name: lane.turn.tokens for lane in lane_rotation.live_lanes(handle.evt())}
+    tree.grow("desk", 460_000)
+    after = {lane.name: lane.turn.tokens for lane in lane_rotation.live_lanes(handle.evt())}
+
+    assert (before, after, sorted(parsed)) == (
+        {"desk": 450_000, "scout": 450_000},
+        {"desk": 460_000, "scout": 450_000},
+        ["desk", "desk", "scout"],
+    )
+
+
+def test_a_transcript_replaced_at_the_same_size_and_mtime_is_read_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    transcript = tree.transcript("desk")
+    before = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+    original = transcript.stat()
+    replacement = transcript.with_name(f"{transcript.name}.tmp")
+    replacement.write_text(retokened(transcript.read_text(), 450_000, 460_000))
+    os.utime(replacement, ns=(original.st_atime_ns, original.st_mtime_ns))
+    replacement.replace(transcript)
+    replaced = transcript.stat()
+    after = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+
+    assert (before, after, parsed, (replaced.st_size, replaced.st_mtime_ns), replaced.st_ino != original.st_ino) == (
+        450_000,
+        460_000,
+        ["desk", "desk"],
+        (original.st_size, original.st_mtime_ns),
+        True,
+    )
+
+
+def test_a_transcript_rewritten_in_place_at_the_same_size_is_read_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    transcript = tree.transcript("desk")
+    before = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+    original = transcript.stat()
+    transcript.write_text(retokened(transcript.read_text(), 450_000, 460_000))
+    os.utime(transcript, ns=(original.st_atime_ns, original.st_mtime_ns + 1_000_000_000))
+    rewritten = transcript.stat()
+    after = lane_rotation.live_lanes(handle.evt())[0].turn.tokens
+
+    assert (before, after, parsed, (rewritten.st_ino, rewritten.st_size)) == (
+        450_000,
+        460_000,
+        ["desk", "desk"],
+        (original.st_ino, original.st_size),
+    )
+
+
+def test_a_transcript_truncated_back_to_an_earlier_version_is_read_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    transcript = tree.transcript("desk")
+    earlier = transcript.read_text()
+    tokens = [lane_rotation.live_lanes(handle.evt())[0].turn.tokens]
+    tree.grow("desk", 460_000)
+    tokens.append(lane_rotation.live_lanes(handle.evt())[0].turn.tokens)
+    grown = transcript.stat()
+    transcript.write_text(earlier)
+    os.utime(transcript, ns=(grown.st_atime_ns, grown.st_mtime_ns))
+    truncated = transcript.stat()
+    tokens.append(lane_rotation.live_lanes(handle.evt())[0].turn.tokens)
+
+    assert (tokens, parsed, (truncated.st_ino, truncated.st_mtime_ns), truncated.st_size < grown.st_size) == (
+        [450_000, 460_000, 450_000],
+        ["desk", "desk", "desk"],
+        (grown.st_ino, grown.st_mtime_ns),
+        True,
+    )
+
+
+def test_an_append_that_lands_after_the_read_is_read_on_the_next_scan(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    reads: list[str] = []
+    parse_transcript = session_tree.parse
+
+    def appended_behind_the_read(path: Path) -> SimpleNamespace:
+        reads.append(path.name)
+        events = Events(parse_transcript(path).events)
+        if len(reads) == 1:
+            tree.grow("desk", 460_000)
+        return SimpleNamespace(events=events)
+
+    monkeypatch.setattr(session_tree, "parse", appended_behind_the_read)
+
+    tokens = [lane_rotation.live_lanes(handle.evt())[0].turn.tokens for _ in range(3)]
+
+    assert (tokens, len(reads)) == ([450_000, 460_000, 460_000], 2)
+
+
+def test_a_deleted_transcript_drops_its_lane_without_a_read(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000), tree.lane("scout", 450_000)])
+    before = sorted(lane.name for lane in lane_rotation.live_lanes(handle.evt()))
+    tree.transcript("desk").unlink()
+    after = [lane.name for lane in lane_rotation.live_lanes(handle.evt())]
+
+    assert (before, after, sorted(parsed)) == (["desk", "scout"], ["scout"], ["desk", "scout"])
+
+
+def test_a_transcript_deleted_after_its_listing_raises_instead_of_serving_its_last_scan(
+    tree: Tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    [lane] = lane_rotation.live_lanes(handle.evt())
+    listed = session_tree.subagents(handle.evt())
+    monkeypatch.setattr(session_tree, "subagents", lambda evt: listed)
+    tree.transcript("desk").unlink()
+
+    with pytest.raises(FileNotFoundError):
+        lane_rotation.live_lanes(handle.evt())
+
+    assert lane.turn.tokens == 450_000
+
+
+def disk_error(bound: reqenv.RequestOverrides) -> None:
+    raise OSError("disk")
+
+
+def caller_gone(bound: reqenv.RequestOverrides) -> None:
+    bound.abandon.set()
+
+
+@pytest.mark.parametrize(
+    ("fail", "raised"),
+    [pytest.param(disk_error, OSError, id="read-error"), pytest.param(caller_gone, reqenv.Abandoned, id="abandoned")],
+)
+def test_a_scan_that_fails_its_read_is_not_kept_and_the_next_scan_reads_again(
+    tree: Tree, monkeypatch: pytest.MonkeyPatch, fail, raised: type[BaseException]
+) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000)])
+    first = request(tree)
+    reads: list[str] = []
+    parse_transcript = session_tree.parse
+
+    def failing_once(path: Path):
+        reads.append(path.name)
+        if len(reads) == 1:
+            fail(first)
+        return parse_transcript(path)
+
+    monkeypatch.setattr(session_tree, "parse", failing_once)
+
+    with reqenv.use_request(first), pytest.raises(raised):
+        lane_rotation.live_lanes(handle.evt())
+    tokens = [lane_rotation.live_lanes(handle.evt())[0].turn.tokens for _ in range(2)]
+
+    assert (tokens, len(reads)) == ([450_000, 450_000], 2)
+
+
+@pytest.mark.parametrize(
+    ("update", "after"),
+    [
+        pytest.param({"model": "sonnet"}, [("desk", 116_900)], id="model-hint"),
+        pytest.param({"description": "renamed lane"}, [], id="description"),
+    ],
+)
+def test_a_reused_scan_is_paired_with_the_lanes_current_metadata(
+    tree: Tree, parsed: list[str], update: dict, after: list[tuple[str, int]]
+) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000, model="claude-sonnet-4-6", hint="sonnet[1m]")])
+    before = [(lane.name, lane.line) for lane in lane_rotation.live_lanes(handle.evt())]
+    meta = tree.transcript("desk").with_suffix(".meta.json")
+    meta.write_text(json.dumps(json.loads(meta.read_text()) | update))
+
+    assert (before, [(lane.name, lane.line) for lane in lane_rotation.live_lanes(handle.evt())], parsed) == (
+        [("desk", 396_900)],
+        after,
+        ["desk"],
+    )
+
+
+def test_the_scan_cache_holds_its_capacity_and_reads_the_oldest_transcript_again() -> None:
+    computed: list[int] = []
+
+    def scan_once(index: int) -> None:
+        lane_rotation.SCANS.get(Path(f"/evicted/agent-{index}.jsonl"), (index,), math.inf, lambda: computed.append(index))
+
+    for index in range(lane_rotation.SCAN_CACHE_SIZE + 1):
+        scan_once(index)
+    scan_once(0)
+    scan_once(lane_rotation.SCAN_CACHE_SIZE)
+
+    assert computed == [*range(lane_rotation.SCAN_CACHE_SIZE + 1), 0]
+
+
 def test_a_start_tie_keeps_the_namesake_listed_first(tree: Tree) -> None:
     task = tree.lane("desk", 450_000)
     subagents = tree.root.with_suffix("") / "subagents"
@@ -698,15 +892,19 @@ def test_concurrent_hooks_of_one_request_scan_once(tree: Tree, monkeypatch: pyte
     handle = stop(tree, [tree.lane("desk", 450_000)])
     entered, release = threading.Event(), threading.Event()
     scans: list[str] = []
-    parse_transcript = session_tree.parse
+    parse_transcript, scan_lanes = session_tree.parse, lane_rotation.scan_lanes
 
     def slow(path: Path):
-        scans.append(path.name)
         entered.set()
         assert release.wait(10)
         return parse_transcript(path)
 
+    def counted(evt: StopEvent) -> tuple[lane_rotation.Lane, ...]:
+        scans.append("scan")
+        return scan_lanes(evt)
+
     monkeypatch.setattr(session_tree, "parse", slow)
+    monkeypatch.setattr(lane_rotation, "scan_lanes", counted)
 
     with reqenv.use_request(request(tree)), ThreadPoolExecutor(max_workers=4) as pool:
         hooks = [pool.submit(copy_context().run, lane_rotation.live_lanes, handle.evt()) for _ in range(4)]
@@ -808,6 +1006,51 @@ def test_an_abandoned_scan_builds_no_lane_once_its_caller_is_gone(tree: Tree, mo
         lane_rotation.live_lanes(handle.evt())
 
     assert lines == []
+
+
+def test_a_hook_abandoned_while_another_hook_fills_the_scan_cache_reads_no_transcript(
+    tree: Tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filling = stop(tree, [tree.lane("desk", 450_000, team=None)]).evt()
+    waiting = stop(tree, [tree.lane("scout", 450_000, team=None)]).evt()
+    filler, waiter = request(tree), request(tree)
+    desk, scout = tree.transcript("desk").name, tree.transcript("scout").name
+    reading, release, arrived = threading.Event(), threading.Event(), threading.Event()
+    reads: list[str] = []
+    parse_transcript = session_tree.parse
+
+    class Arrivals(StampedCache):
+        def get(self, key: Path, *args, **kwargs):
+            if key.name == scout:
+                arrived.set()
+            return super().get(key, *args, **kwargs)
+
+    def held_read(path: Path):
+        reads.append(path.name)
+        if path.name == desk:
+            reading.set()
+            assert release.wait(10)
+        return parse_transcript(path)
+
+    def hook(bound: reqenv.RequestOverrides, evt: StopEvent) -> list[str]:
+        with reqenv.use_request(bound):
+            return [lane.name for lane in lane_rotation.live_lanes(evt)]
+
+    monkeypatch.setattr(lane_rotation, "SCANS", Arrivals(lane_rotation.SCAN_CACHE_SIZE))
+    monkeypatch.setattr(session_tree, "parse", held_read)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        filled = pool.submit(hook, filler, filling)
+        assert reading.wait(10)
+        abandoned = pool.submit(hook, waiter, waiting)
+        assert arrived.wait(10)
+        waiter.abandon.set()
+        release.set()
+        lanes = filled.result(timeout=10)
+        with pytest.raises(reqenv.Abandoned):
+            abandoned.result(timeout=10)
+
+    assert (lanes, reads) == (["desk"], [desk])
 
 
 def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
