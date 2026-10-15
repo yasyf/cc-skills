@@ -8,6 +8,8 @@ import itertools
 import json
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1539,6 +1541,28 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     lines = escalations(shell)
     assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "unrecognized arguments: 28349" in lines[0]
     assert shell.enqueues() == []
+
+
+def test_a_gate_pass_never_runs_more_checks_at_once_than_gate_workers(shell, config, tmp_path):
+    prs = [str(29100 + n) for n in range(runner_module.GATE_WORKERS * 3)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} GREEN cccc333333 graphite READY")] for pr in prs}
+    check, lock, running, peak = shell.stack_enqueue, threading.Lock(), [0], [0]
+
+    def overlapping(argv):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.02)
+        with lock:
+            running[0] -= 1
+        return check(argv)
+
+    shell.stack_enqueue = overlapping
+    landing_pass(shell, config)
+    checked = {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call}
+    assert checked == set(prs)
+    assert peak[0] <= runner_module.GATE_WORKERS
 
 
 def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):

@@ -288,6 +288,7 @@ COMMAND_TIMEOUT_SECONDS = 1800
 TIMED_OUT = 124
 WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
+GATE_WORKERS = 4
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
@@ -2375,7 +2376,7 @@ class Landing:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
-        with ThreadPoolExecutor(max(1, len(trees))) as pool:
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
             gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
         for tips, done in gated:
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
