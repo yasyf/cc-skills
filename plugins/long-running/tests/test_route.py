@@ -304,3 +304,26 @@ def test_a_dev_red_hold_is_not_routed_until_it_expires(capsys, red_routes):
     shell.fields("21052")["hold_until"] = "2020-01-01T00:00:00Z"
     printed = route(shell, capsys)
     assert "to accounts:" in printed
+
+
+RATE_LIMIT = "gh: API rate limit exceeded for user ID 709645. (HTTP 403)"
+
+
+def test_a_rate_limited_forge_read_skips_its_row_and_the_pass_routes_the_rest(capsys, red_routes):
+    shell = FakeShell(rows=[RED, DIRTY], routes=red_routes)
+    shell.fail_gh, shell.fail_gh_error = f"commits/{MOVED_HEAD}/status", RATE_LIMIT
+    printed = route(shell, capsys)
+
+    assert f"route #21052: not routed this pass, gh api repos/Forge-AI/monorepo/commits/{MOVED_HEAD}/status: REST quota exhausted, resets 2026-09-21T14:13:20Z\n" in printed
+    assert "to p2-edge-rows:" in printed
+    assert "routed 1 rows" in printed
+    assert "routed_head" not in shell.fields("21052")
+
+
+def test_a_failed_forge_read_names_its_error_and_never_asks_the_quota(capsys, red_routes):
+    shell = FakeShell(rows=[RED], routes=red_routes)
+    shell.fail_gh = f"commits/{MOVED_HEAD}/check-runs"
+    printed = route(shell, capsys, "--pr", "21052")
+
+    assert printed == f"route #21052: not routed this pass, gh api repos/Forge-AI/monorepo/commits/{MOVED_HEAD}/check-runs: gh: connection refused\n"
+    assert ["gh", "api", "rate_limit"] not in shell.calls

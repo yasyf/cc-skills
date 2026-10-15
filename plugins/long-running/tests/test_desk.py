@@ -956,6 +956,18 @@ def test_summary_under_an_exhausted_quota_renders_from_the_cached_rows(capsys):
     assert "open 2 |" in out
 
 
+def test_summary_under_an_exhausted_rest_quota_skips_the_reconcile_and_still_reports(capsys):
+    shell = rate_limited_shell()
+    shell.fail_gh, shell.fail_gh_error = f"repos/{REPO}", "gh: API rate limit exceeded for user ID 709645. (HTTP 403)"
+
+    assert run(shell, "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO, "--checkout", "/checkout") == 0
+
+    out = capsys.readouterr().out
+    assert f"summary: reconcile skipped this pass, gh api repos/{REPO}: REST quota exhausted, resets 2026-09-21T14:13:20Z\n" in out
+    assert shell.fields("28100").get("state") != "landed"
+    assert any(line.startswith("desk ") for line in out.splitlines())
+
+
 def test_reconcile_under_an_exhausted_quota_with_no_recorded_refresh_says_so(capsys):
     shell = reconcile_shell()
     shell.quota_resets_at = 1790000000
