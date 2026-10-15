@@ -494,6 +494,7 @@ def test_render_brief_fills_every_placeholder():
 
 def test_brief_writes_the_briefs_run_would_launch_and_prints_their_paths(store, clock, capsys):
     incident_id = open_incident(store, clock, kind="alert", adopted={"evidence": "plat-evidence"})
+    capsys.readouterr()
     assert incident.main(["brief", "--incident", incident_id], store, clock) == 0
     paths = [Path(line) for line in capsys.readouterr().out.splitlines()]
     assert paths == [store.root / incident_id / f"incident-{incident_id}-{role}.full.md" for role in ("fix", "evidence")]
