@@ -83,6 +83,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Collection
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -123,6 +124,9 @@ MESSAGE_ANSWERER = "ledger"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 CCN_READ_ATTEMPTS = 4
 CCN_READ_BACKOFF_SECONDS = 0.5
+COMMAND_TIMEOUT_SECONDS = 600
+LOCK_WAIT_SECONDS = 120
+LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
@@ -261,6 +265,8 @@ class Shell:
 
     A `ccn ledger show` exits non-zero while another desk is writing the same ledger, so
     reads retry with a short backoff; writes never do, because a retried write can land twice.
+    Input reaches the child from a file, never a pipe this process writes while the child's
+    output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
     """
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
@@ -273,7 +279,10 @@ class Shell:
 
     @staticmethod
     def once(argv: list[str], stdin: str | None) -> str:
-        return subprocess.run(argv, input=stdin, capture_output=True, text=True, check=True).stdout
+        with tempfile.TemporaryFile("w+") as feed:
+            feed.write(stdin or "")
+            feed.seek(0)
+            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS).stdout
 
 
 class ForgeUnreachable(RuntimeError):
@@ -535,14 +544,28 @@ def parse_iso(value: str) -> datetime:
 
 @contextmanager
 def locked(path: Path):
+    """Hold the ledger lock, naming this process in the lock file; a waiter gives up after LOCK_WAIT_SECONDS and names the holder."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("w")
-    fcntl.flock(handle, fcntl.LOCK_EX)
-    try:
-        yield
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
+    with path.open("a+") as handle:
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    handle.seek(0)
+                    holder = handle.read().strip() or "a process that did not name itself"
+                    raise SystemExit(f"{path} is still held after {LOCK_WAIT_SECONDS}s by {holder}; nothing written, rerun once it finishes")
+                time.sleep(LOCK_POLL_SECONDS)
+        handle.truncate(0)
+        handle.write(f"pid {os.getpid()} since {utc_stamp()}\n")
+        handle.flush()
+        try:
+            yield
+        finally:
+            handle.truncate(0)
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def default_lock(ledger: str) -> Path:
@@ -2487,6 +2510,9 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return args.handler(args, shell)
     except ForgeUnreachable as unreachable:
         print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
+        return 1
+    except subprocess.TimeoutExpired as expired:
+        print(f"{' '.join(expired.cmd)} timed out after {expired.timeout:.0f}s and was killed", file=sys.stderr)
         return 1
 
 
