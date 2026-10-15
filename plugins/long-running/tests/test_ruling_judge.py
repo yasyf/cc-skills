@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,8 @@ class Judged:
         monkeypatch.setattr(judge, "rulings", self.search)
         monkeypatch.setattr(PreToolUseEvent, "llm", lambda evt, prompt, *args, **kwargs: self.model_calls.append(prompt))
 
-    def search(self, cwd: str, *args: str, stdin: str = "") -> str:
+    def search(self, cwd: str, *args: str, stdin: str = "", timeout: int) -> str:
+        assert timeout == judge.MATCH_TIMEOUT_SECONDS
         self.searches.append(args)
         return "" if ("--exclude", "1984bf6") in zip(args, args[1:]) else judge.CANDIDATE
 
@@ -73,4 +75,16 @@ def test_an_injected_ruling_is_excluded_from_the_search_and_skips_the_model(tmp_
 
     assert judge.judge_key_moment(judged.evt) is None
     assert judged.searches == [("match", "--program", "brook", "-k", "5", "--budget", "6000", "--exclude", "1984bf6")]
+    assert judged.model_calls == []
+
+
+def test_a_match_that_times_out_fails_open_without_a_model_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    judged = Judged(tmp_path, monkeypatch, "Agent", {"prompt": "Add a --skip-tenant flag."})
+
+    def slow(cwd: str, *args: str, stdin: str = "", timeout: int) -> str:
+        raise subprocess.TimeoutExpired(["rulings.py", *args], timeout)
+
+    monkeypatch.setattr(judge, "rulings", slow)
+
+    assert judge.judge_key_moment(judged.evt) is None
     assert judged.model_calls == []

@@ -20,10 +20,11 @@ DURABLE = ["answer", "list", "--label", "scope:durable", "--limit", "0"]
 
 
 class FakeShell(ledger.Shell):
-    def __init__(self, hits: list[str], registers: list[dict], branch: str = "yasyf/brook") -> None:
+    def __init__(self, hits: list[str], registers: list[dict], branch: str = "yasyf/brook", program: list[dict] | None = None) -> None:
         self.hits = hits
         self.registers = registers
         self.branch = branch
+        self.program = [FLAGS, TRUTH] if program is None else program
         self.queries: list[tuple[str, str]] = []
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
@@ -39,7 +40,7 @@ class FakeShell(ledger.Shell):
             case ["answer", "list"]:
                 match argv[3:-1]:
                     case [*durable, "--label", "program:brook"] if durable == DURABLE:
-                        return json.dumps([FLAGS, TRUTH])
+                        return json.dumps(self.program)
                     case [*durable, "--branch", "yasyf/brook"] if durable == DURABLE:
                         return json.dumps([TRUTH, SEED])
             case ["doc", "list"]:
@@ -101,6 +102,17 @@ def test_match_stops_at_the_budget(home: Path, monkeypatch: pytest.MonkeyPatch, 
     out = match(FakeShell(["1984bf6", "8075b46"], []), "brief", monkeypatch, capsys, "--budget", "200")
 
     assert out == "- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n"
+
+
+def test_match_with_no_candidate_answers_prints_nothing_and_skips_the_search(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    empty = FakeShell(["1984bf6"], [], branch="HEAD", program=[])
+    covered = FakeShell(["1984bf6"], [{"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z"}])
+
+    assert match(empty, "brief", monkeypatch, capsys) == ""
+    assert match(covered, "brief", monkeypatch, capsys, "--exclude", "1984bf6", "--exclude", "8075b46") == ""
+    assert empty.queries == covered.queries == []
 
 
 def test_a_drive_worker_resolves_its_program_from_the_registry(

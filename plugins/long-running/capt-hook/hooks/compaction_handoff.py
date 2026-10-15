@@ -277,9 +277,9 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     )
 
 
-def rulings(cwd: str, *args: str, stdin: str = "") -> str:
+def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True, cwd=cwd).stdout
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd).stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:

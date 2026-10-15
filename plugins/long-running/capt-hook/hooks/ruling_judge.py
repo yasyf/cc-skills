@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Literal
 
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on, workflow_state
+from captain_hook.util import reqenv
 from pydantic import BaseModel, create_model
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script
@@ -14,6 +16,7 @@ from .register_injection import drive_args
 CANDIDATES = 5
 CANDIDATE_BYTES = 6000
 MOMENT_CHARS = 2000
+MATCH_TIMEOUT_SECONDS = 8
 DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 PR_VERBS = {("vcs", "ship"), ("vcs", "stack"), ("pr", "create")}
@@ -95,9 +98,21 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     kind, text = found
     lane = f"{evt.agent_id or 'main'}:"
     excluded = [arg for key in JudgedAnswers.load(evt).injected if key.startswith(lane) for arg in ("--exclude", key.removeprefix(lane))]
-    candidates = rulings(
-        str(evt.cwd), "match", *which, "-k", str(CANDIDATES), "--budget", str(CANDIDATE_BYTES), *excluded, stdin=text[:MOMENT_CHARS]
-    )
+    try:
+        candidates = rulings(
+            str(evt.cwd),
+            "match",
+            *which,
+            "-k",
+            str(CANDIDATES),
+            "--budget",
+            str(CANDIDATE_BYTES),
+            *excluded,
+            stdin=text[:MOMENT_CHARS],
+            timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if not (ids := BLOCK_ID.findall(candidates)):
         return None
     verdict = evt.llm(PROMPT.format(kind=kind, moment=text[:MOMENT_CHARS], candidates=candidates), verdict_model(ids), size="small")
