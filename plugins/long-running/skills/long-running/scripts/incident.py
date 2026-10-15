@@ -9,6 +9,7 @@
     incident.py grant   --incident ID --name thread|channel|sync|rebuild --ref REF
     incident.py run     --incident ID [--owner NAME] [--interval S] [--once]
     incident.py status  --incident ID [--json]
+    incident.py brief   --incident ID [--role fix|evidence]
 
 STDLIB ONLY. ``open`` records the incident in the :mod:`actions` store; ``run`` owns it.
 Each pass of ``run`` advances every step whose inputs are ready and records each side
@@ -39,6 +40,9 @@ re-kick. A missing grant, a silent comms lane, an overdue action, and a failed c
 the only things that reach the root, each once, as a bus ask and an open decision.
 ``grant`` adds the missing authority and the next pass proceeds.
 
+``brief`` writes the fix and evidence briefs ``run`` would launch, at the same paths, and
+prints them, so the root can launch a lane inline when the desk refuses ``run``.
+
 Every subprocess goes through :class:`Shell`; the adapters it feeds are the seam the replay
 tests replace.
 """
@@ -66,6 +70,7 @@ TEMPLATE = SCRIPTS.parent / "reference" / "active-alert-brief.md"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 INCIDENT = "incident"
 INCIDENT_ROLES = ("fix", "evidence")
+SECTIONS = {"fix": "Fix lane brief", "evidence": "Evidence lane brief", "backup": "Fix lane brief"}
 FORBIDDEN_MODELS = ("fable", "astra", "sol", "codex", "claude-fable-5-1", "gpt-6-astra")
 ROUTES = {"fix": (INCIDENT, "xhigh"), "evidence": (INCIDENT, "xhigh"), "backup": ("opus", "xhigh")}
 FAST_ROLES = ("backup",)
@@ -381,6 +386,40 @@ def lane_name(incident_id: str, role: str) -> str:
     return f"incident-{incident_id}-{role}"
 
 
+def incident_lane(incident: Incident, role: str) -> str:
+    return incident.facts["adopted"].get(role) or lane_name(incident.incident_id, role)
+
+
+def write_brief(incident: Incident, role: str, briefs: Path) -> Path:
+    facts = incident.facts
+    records = facts.get("records") or {}
+    values = {
+        "investigation id": records.get("investigation", "n/a"),
+        "incident log id": records.get("log", "n/a"),
+        "fix lane name": incident_lane(incident, "fix"),
+        "evidence lane name": incident_lane(incident, "evidence"),
+        "comms lane name": facts["comms_lane"],
+        "root agent name": sender(incident.incident_id),
+        "bus id": facts["bus"],
+        "incident topic": topic(incident.incident_id),
+        "incident id": incident.incident_id,
+        "report time": pacific(facts["reported"]),
+        "due time": pacific(parse_stamp(facts["reported"]) + DUE_AFTER),
+        "alert link": facts["alert"],
+        "named code path": facts["code_path"],
+        "runbook": facts.get("runbook") or "n/a",
+        "submit skill": "submit-pr",
+        "break-glass skill": "break-glass",
+        "design rulings": "\n  ".join(facts.get("rulings") or ["none recorded for this subsystem"]),
+        "entry point": facts.get("entry_point") or "none named",
+    }
+    briefs.mkdir(parents=True, exist_ok=True)
+    path = briefs / f"{lane_name(incident.incident_id, role)}.full.md"
+    common = Path(facts["common"]).read_text() + "\n" if facts.get("common") else ""
+    path.write_text(common + render_brief(SECTIONS[role], values))
+    return path
+
+
 def attempts(incident: Incident, base: str) -> list[Action]:
     return [action for key, action in incident.actions.items() if key == base or key.startswith(f"{base}#")]
 
@@ -555,9 +594,9 @@ class Runner:
             self.milestone("mechanism", mechanism)
 
     def lane(self, role: str) -> str:
-        return self.store.load(self.incident_id).facts["adopted"].get(role) or lane_name(self.incident_id, role)
+        return incident_lane(self.store.load(self.incident_id), role)
 
-    def launch(self, role: str, section: str) -> None:
+    def launch(self, role: str) -> None:
         base = f"dispatch:{role}"
         lane = self.lane(role)
         current = latest(self.store.load(self.incident_id), base)
@@ -587,40 +626,15 @@ class Runner:
         incident = self.store.load(self.incident_id)
         model, effort = incident.facts["routes"][role]
         assert_route(role, model)
-        brief = self.write_brief(incident, role, section)
+        brief = self.write_brief(incident, role)
         action_id = next_id(incident, base)
         if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief, fast=role in FAST_ROLES)):
             with self.owned() as incident:
                 incident.verify(action_id, response)
 
-    def write_brief(self, incident: Incident, role: str, section: str) -> Path:
-        facts = incident.facts
-        records = facts.get("records") or {}
-        values = {
-            "investigation id": records.get("investigation", "n/a"),
-            "incident log id": records.get("log", "n/a"),
-            "fix lane name": self.lane("fix"),
-            "evidence lane name": self.lane("evidence"),
-            "comms lane name": facts["comms_lane"],
-            "root agent name": sender(self.incident_id),
-            "bus id": facts["bus"],
-            "incident topic": topic(self.incident_id),
-            "incident id": self.incident_id,
-            "report time": pacific(facts["reported"]),
-            "due time": pacific(parse_stamp(facts["reported"]) + DUE_AFTER),
-            "alert link": facts["alert"],
-            "named code path": facts["code_path"],
-            "runbook": facts.get("runbook") or "n/a",
-            "submit skill": "submit-pr",
-            "break-glass skill": "break-glass",
-            "design rulings": "\n  ".join(facts.get("rulings") or ["none recorded for this subsystem"]),
-            "entry point": facts.get("entry_point") or "none named",
-        }
-        self.briefs.mkdir(parents=True, exist_ok=True)
-        path = self.briefs / f"{lane_name(self.incident_id, role)}.full.md"
-        common = Path(facts["common"]).read_text() + "\n" if facts.get("common") else ""
-        path.write_text(common + render_brief(section, values))
-        if records:
+    def write_brief(self, incident: Incident, role: str) -> Path:
+        path = write_brief(incident, role, self.briefs)
+        if records := incident.facts.get("records"):
             self.keep(f"brief:{path.stem}", lambda: self.world.records.entry(records["log"], f"brief {path.name.removesuffix('.full.md')}", path))
         return path
 
@@ -628,15 +642,15 @@ class Runner:
         incident = self.store.load(self.incident_id)
         if incident.facts.get("repair_pr"):
             return
-        self.launch("fix", "Fix lane brief")
-        self.launch("evidence", "Evidence lane brief")
+        self.launch("fix")
+        self.launch("evidence")
         fix = latest(self.store.load(self.incident_id), "dispatch:fix")
         incident = self.store.load(self.incident_id)
         quiet = not any(incident.facts.get(fact) for fact in ("mechanism", "repair_pr", "not_ours"))
         if fix and fix.status == "verified" and quiet and self.now() - parse_stamp(fix.started_at) >= BACKUP_AFTER:
             if retryable(latest(incident, "dispatch:backup")) and self.world.orca.engaged(f"{self.lane('fix')}{CLOCK_FALLBACK}", self.now()):
                 return
-            self.launch("backup", "Fix lane brief")
+            self.launch("backup")
 
     def design(self) -> None:
         facts = self.store.load(self.incident_id).facts
@@ -1047,6 +1061,13 @@ def cmd_status(args: argparse.Namespace, store: Store, shell: Shell) -> int:
     return 0
 
 
+def cmd_brief(args: argparse.Namespace, store: Store, shell: Shell) -> int:
+    incident = store.load(args.incident)
+    for role in args.role or INCIDENT_ROLES:
+        print(write_brief(incident, role, store.root / args.incident))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="incident.py", description=__doc__.splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1106,6 +1127,11 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--incident", required=True)
     status.add_argument("--json", action="store_true")
     status.set_defaults(handler=cmd_status)
+
+    brief = subparsers.add_parser("brief", help="write the lane briefs run would launch and print their paths")
+    brief.add_argument("--incident", required=True)
+    brief.add_argument("--role", action="append", choices=INCIDENT_ROLES, help="one lane's brief; default both")
+    brief.set_defaults(handler=cmd_brief)
 
     return parser
 

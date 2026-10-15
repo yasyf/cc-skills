@@ -492,6 +492,18 @@ runner not running`, the inline codex fallback stopped for an owner choice inste
 of building, the restarted runner launched the same lane at 4:48, and two lanes ran
 on one incident while the fix lost about 5 minutes.*
 
+The inline launch needs the rendered briefs, and only the executor writes them.
+When the desk refuses `incident.py run`, on load or otherwise, the root runs
+`incident.py brief --incident <id>`. It writes `incident-<id>-fix.full.md` and
+`incident-<id>-evidence.full.md` beside the incident record, the same files `run`
+would launch, and prints their paths; `--role fix` writes one. Each goes to
+`codex-ask --incident -l incident-<id>-<role> <brief>`, so the lane's records and
+reply file carry its name.
+
+*Prevents the Oct 14 plat-sandsql-6644 and aig-below-floor launches: `run` was
+refused on load above 32 cores, `open` had rendered no brief, and both briefs were
+written by hand without the fixed lines.*
+
 Alert intake runs before the root wakes. A monitor transition never launches a
 lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
 <link> :: <what fired>`, which the runner records and launches nothing on. The
