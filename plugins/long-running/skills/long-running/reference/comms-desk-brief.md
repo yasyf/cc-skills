@@ -59,8 +59,13 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`):
      first: `cci post --drive <drive> --lane comms-desk --kind ask --to root --text
      "<draft>"`. Within the same 15 minutes, reply in the thread with what is true
      now and that the rest follows; post the commitment only on the root's answer.
-  5. Post a top-level update when the root or the bus records a landing, a release,
-     or an owner-visible change, one post per event.
+  5. Post one top-level update per milestone the root or the bus records: a fix live
+     on a named build, a release passed or failed, a pass or migration finished, an
+     incident opened or closed, a decision the owner must see. Never post per event
+     or on a clock, and never post to fill a quiet stretch; a milestone left unposted
+     is the defect. Shape each post as SKILL.md "Status posts mark milestones, never
+     a clock" describes: the milestone in one bold line, what changed for whom, the
+     build or PR with its author, and what comes next.
   6. Report each post with `cci post --drive <drive> --lane comms-desk --kind report
      --text "<permalink> <one line>"`, then advance the cursor.
 
@@ -89,3 +94,8 @@ Never: ask the root before answering a human question; a top-level post or reply
 *Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
 channel: the drive-start grant covered top-level posts only, and the thread grant sat
 on an owner board until the owner answered it.*
+
+*Also prevents 2026-10-13 and 2026-10-14: the sprint channel went silent from 10:43 AM
+into the evening, and the drive then switched to hourly posts. Owner: "your original
+posts were perfect the only problem is you stopped doing them, then overcompensated by
+switching to hourly".*
