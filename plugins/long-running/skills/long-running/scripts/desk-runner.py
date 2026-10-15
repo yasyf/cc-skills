@@ -289,6 +289,7 @@ TIMED_OUT = 124
 WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
 GATE_WORKERS = 4
+MIRROR_WRITES = 3
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
@@ -2311,6 +2312,7 @@ class Landing:
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
         self.fidelity_lane = config.get("fidelity_lane", FIDELITY_LANE)
+        self.unlabeled: set[str] = set()
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -2376,6 +2378,8 @@ class Landing:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
+        waiting = under_hold(open_rows, sorted(self.unlabeled))
+        trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
         for tips, done in gated:
@@ -2437,7 +2441,13 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, once per grade record, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A post GitHub refuses stays accepted and runs again on the next pass. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, first posts before retries, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        posted: dict[tuple[str, str], tuple[str, int, str]] = {}
+        for action in self.book.actions(LANDING, kind="status", status="completed"):
+            _, pr, head, grade_ref = action.action_id.split(":", 3)
+            latest = (action.response["at"], int(grade_ref) if grade_ref.isdigit() else -1, action.response["state"])
+            posted[(pr, head)] = max(posted.get((pr, head), latest), latest)
+        due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
             if row.get("state", "open") != "open" or not head:
@@ -2453,9 +2463,12 @@ class Landing:
             else:
                 key, source, state = f"status:{pr}:{head}:ungraded", "ungraded", "pending"
                 description = f"awaiting {self.fidelity_lane}'s grade of this head"
-            action, _ = self.book.accept(LANDING, key, "status", pr, source, None)
-            if action.status != "accepted":
+            known = self.book.known(LANDING, key)
+            if (known and known.status != "accepted") or (pr, head) in posted and posted[(pr, head)][2] == state:
                 continue
+            due.append((known is not None, pr, head, key, source, state, description))
+        for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0])[:MIRROR_WRITES]:
+            self.book.accept(LANDING, key, "status", pr, source, None)
             payload = {
                 "state": state,
                 "context": FIDELITY_STATUS,
@@ -2469,6 +2482,7 @@ class Landing:
                 self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
 
     def mirror_holds(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
+        """Add the `hold` label to every open row a hold names and lift the labels the runner added once nothing holds the row. A pass writes at most `MIRROR_WRITES` labels, first writes before retries; a held row whose label is still unwritten stays in `unlabeled`, and the gate leaves it and every PR stacked above it out of that pass."""
         try:
             wanted = holds.held(entries, rows) | cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         except CciTailFailed as failure:
@@ -2477,13 +2491,18 @@ class Landing:
         labels: dict[str, list[actions.Action]] = {}
         for action in self.book.actions(LANDING, kind="label"):
             labels.setdefault(action.target, []).append(action)
+        due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             latest = max(labels.get(pr, []), key=label_order, default=None)
             cycle, lifting = label_order(latest) if latest else (0, False)
             applied = latest is not None and (latest.status == "completed") != lifting
             if row.get("state", "open") != "open" or (pr in wanted) == applied or (not applied and HOLD_LABEL in row.get("labels", "").split(",")):
                 continue
-            key = latest.action_id if latest and latest.status == "accepted" else f"hold:{pr}:{cycle if applied else cycle + 1}:{'lift' if applied else 'add'}"
+            retrying = latest is not None and latest.status == "accepted"
+            key = latest.action_id if retrying else f"hold:{pr}:{cycle if applied else cycle + 1}:{'lift' if applied else 'add'}"
+            due.append((retrying, pr, key, applied))
+        self.unlabeled = {pr for _, pr, _, applied in due if not applied}
+        for _, pr, key, applied in sorted(due, key=lambda item: item[0])[:MIRROR_WRITES]:
             self.book.accept(LANDING, key, "label", pr, str(self.holds), None)
             if applied:
                 done = self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{pr}/labels/{HOLD_LABEL}", "--method", "DELETE"])
@@ -2491,6 +2510,7 @@ class Landing:
                 done = self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{pr}/labels", "--method", "POST", "--input", "-"], stdin=json.dumps({"labels": [HOLD_LABEL]}))
             if done.code == 0 or (applied and LABEL_GONE in done.err):
                 self.book.attempt(LANDING, lambda incident, key=key: (incident.start(key, self.runner.now()), incident.complete(key, {"at": self.book.stamp()})))
+                self.unlabeled.discard(pr)
             else:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(key, "LABEL-FAILED", f"#{pr}", f"GitHub refused to {'remove' if applied else 'add'} the `{HOLD_LABEL}` label: {last[0]}; the runner tries again on the next pass")
