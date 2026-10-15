@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import uuid
@@ -27,6 +28,7 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.util import reqenv
+from captain_hook.util.caching import StampedCache
 
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
@@ -52,6 +54,8 @@ FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
 NUMBERED = re.compile(r"(.+)-(\d+)")
 HANDOFF = "-handoff"
 LIVE_LANES = "long-running.live-lanes"
+SCAN_CACHE_SIZE = 4096
+SCANS: StampedCache[Path, tuple[int, int, int, int], Scan | None] = StampedCache(SCAN_CACHE_SIZE)
 
 
 @workflow_state("long_running_rotation")
@@ -79,13 +83,18 @@ class Lane:
 
 
 @dataclass(frozen=True)
-class Candidate:
-    agent: Subagent
+class Scan:
     started: datetime
     turn: Turn | None
     events: int
     told_to_stand_down: bool
     label: str | None
+
+
+@dataclass(frozen=True)
+class Candidate:
+    agent: Subagent
+    scan: Scan
 
 
 def task_label(events: Sequence[TranscriptEvent]) -> str | None:
@@ -99,7 +108,7 @@ def task_label(events: Sequence[TranscriptEvent]) -> str | None:
 
 def task_keys(candidate: Candidate) -> Iterator[str | None]:
     yield candidate.agent.meta["description"]
-    yield candidate.label
+    yield candidate.scan.label
 
 
 def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]]) -> dict[str, str]:
@@ -108,19 +117,30 @@ def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]
     return rosters[team]
 
 
-def newer(agent: Subagent, incumbent: Candidate | None) -> Candidate | None:
+def scan(agent: Subagent) -> Scan | None:
     events = agent.read_events()
     reqenv.checkpoint()
-    if not (started := session_tree.started(events)) or (incumbent is not None and started <= incumbent.started):
+    if not (started := session_tree.started(events)):
         return None
-    return Candidate(
-        agent=agent,
+    return Scan(
         started=started,
         turn=turn_of(events, sidechain=True),
         events=len(events),
         told_to_stand_down=session_tree.stand_down_delivered(events),
         label=task_label(events),
     )
+
+
+def scanned(agent: Subagent) -> Scan | None:
+    stat = agent.transcript.stat()
+    identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    return SCANS.get(agent.transcript, identity, math.inf, lambda: scan(agent))
+
+
+def newer(agent: Subagent, incumbent: Candidate | None) -> Candidate | None:
+    if not (found := scanned(agent)) or (incumbent is not None and found.started <= incumbent.scan.started):
+        return None
+    return Candidate(agent, found)
 
 
 def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
@@ -144,7 +164,7 @@ def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
         if agent.name in plausible and (candidate := newer(agent, newest.get(agent.name))):
             newest[agent.name] = candidate
     lanes = []
-    for candidate in sorted(newest.values(), key=lambda lane: lane.turn.at if lane.turn else lane.started, reverse=True):
+    for candidate in sorted(newest.values(), key=lambda lane: lane.scan.turn.at if lane.scan.turn else lane.scan.started, reverse=True):
         reqenv.checkpoint()
         agent = candidate.agent
         if team := agent.meta.get("teamName"):
@@ -153,7 +173,7 @@ def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
             if not (label := next((key for key in task_keys(candidate) if teammate_tasks[key]), None)):
                 continue
             teammate_tasks[label] -= 1
-        if turn := candidate.turn:
+        if turn := candidate.scan.turn:
             lanes.append(
                 Lane(
                     name=agent.name,
@@ -161,8 +181,8 @@ def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
                     team=team,
                     turn=turn,
                     line=rotation_line(turn.model, agent.meta.get("model"), evt.cwd),
-                    events=candidate.events,
-                    told_to_stand_down=candidate.told_to_stand_down,
+                    events=candidate.scan.events,
+                    told_to_stand_down=candidate.scan.told_to_stand_down,
                 )
             )
     return tuple(lanes)

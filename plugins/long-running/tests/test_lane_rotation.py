@@ -632,6 +632,20 @@ def test_a_scan_lets_go_of_each_transcript_before_reading_the_next(tree: Tree, m
     )
 
 
+def test_a_transcript_unchanged_since_the_last_scan_is_not_parsed_again(tree: Tree, parsed: list[str]) -> None:
+    handle = stop(tree, [tree.lane("desk", 450_000), tree.lane("scout", 450_000)])
+
+    before = {lane.name: lane.turn.tokens for lane in lane_rotation.live_lanes(handle.evt())}
+    tree.grow("desk", 460_000)
+    after = {lane.name: lane.turn.tokens for lane in lane_rotation.live_lanes(handle.evt())}
+
+    assert (before, after, sorted(parsed)) == (
+        {"desk": 450_000, "scout": 450_000},
+        {"desk": 460_000, "scout": 450_000},
+        ["desk", "desk", "scout"],
+    )
+
+
 def test_a_start_tie_keeps_the_namesake_listed_first(tree: Tree) -> None:
     task = tree.lane("desk", 450_000)
     subagents = tree.root.with_suffix("") / "subagents"
