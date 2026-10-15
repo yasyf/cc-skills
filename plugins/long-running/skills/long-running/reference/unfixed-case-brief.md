@@ -34,6 +34,10 @@ Do:
   0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
+     Exception, owner answer 2f6cdcf: roll the target back only when a fix forward
+     is not feasible or will take too long, and only when this brief names which of
+     the two and why. A brief that names no such reason is a fix forward; never
+     read a rollback into it.
   1. Reproduce the case above exactly as written: the thread, run, request, or
      monitor query it names, and which component served the failing request: a
      cloud run is served by the cloud, never by their machine. Record it failing

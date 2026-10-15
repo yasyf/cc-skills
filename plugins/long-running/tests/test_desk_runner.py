@@ -4081,6 +4081,7 @@ def test_every_desk_incident_brief_template_carries_the_standing_orders_no_rollb
     assert STANDING_ORDERS.format("{reported}", "{due}") in text
     assert "go build" not in text and "go vet" not in text and "typecheck otherwise" not in text
     assert "  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
+    assert "Exception, owner answer 2f6cdcf: roll the target back only when a fix forward\n     is not feasible or will take too long, and only when this brief names which of\n     the two and why." in text
 
 
 @pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
