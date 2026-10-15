@@ -2367,7 +2367,7 @@ class Landing:
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
         with ThreadPoolExecutor(max(1, len(trees))) as pool:
-            gated = list(zip(trees, pool.map(lambda tips: self.shell.run(self.enqueue_argv(tips, held, check=True)), trees), strict=True))
+            gated = [pair for pairs in pool.map(lambda tips: self.proven_stacks(tips, held), trees) for pair in pairs]
         for tips, done in gated:
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
             if done.code and not verdicts:
@@ -2381,6 +2381,17 @@ class Landing:
                     self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered and (blocker := routed_blocker(match["detail"])):
                     self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, held)
+
+    def proven_stacks(self, tips: list[str], held: list[str]) -> list[tuple[list[str], Done]]:
+        gated = []
+        while tips:
+            first, *rest = tips
+            alone = self.shell.run(self.enqueue_argv([first], held, check=True))
+            members = {match["pr"] for match in VERDICT_LINE.finditer(alone.out)}
+            shared = [first, *(tip for tip in rest if tip in members)]
+            gated.append((shared, alone if len(shared) == 1 else self.shell.run(self.enqueue_argv(shared, held, check=True))))
+            tips = [tip for tip in rest if tip not in members]
+        return gated
 
     def fidelity(self, pr: str, sha: str) -> dict | None:
         drive = self.runner.config.drive
