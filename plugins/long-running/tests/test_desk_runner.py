@@ -64,6 +64,7 @@ class FakeShell(runner_module.Shell):
         self.questions: list[dict] = []
         self.lose_sends = 0
         self.lose_replies = 0
+        self.answered: dict[str, str] = {}
         self.reject_sends = 0
         self.mailbox_down = False
         self.garble_sends = 0
@@ -312,6 +313,11 @@ class FakeShell(runner_module.Shell):
             if self.lose_replies:
                 self.lose_replies -= 1
                 return runner_module.Done(1, "", "socket hang up")
+            question, body = argv[argv.index("--id") + 1], argv[argv.index("--body") + 1]
+            if self.answered.get(question, body) != body:
+                request = f"00000000-0000-0000-0000-{self.sequence:012d}"
+                self.sequence += 1
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "answer_conflict", "message": f"Question {question} already has a different answer.", "data": {"orchestrationRequestId": request}}}), "")
             return self.ok({"message": {"id": self.next_id("msg")}})
         if verb == ["orchestration", "request-show"]:
             return self.ok({"state": self.requests.get(argv[3], "absent")})
@@ -728,6 +734,21 @@ def test_a_resend_orca_rejects_is_never_followed_by_a_third_send(shell, config, 
     assert send_statuses(tmp_path) == ["failed", "failed"]
     [line] = escalations(shell)
     assert line.startswith(f"SEND-FAILED desk-lane-{LANE}/send:R625:ctx_a {LANE}: R625 to ctx_a failed 2 times: ")
+
+
+def test_a_reply_orca_refuses_as_already_answered_fails_and_is_never_resent_as_lost(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.answered["msg_q9"] = "300s\n\n(R600)"
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "30s", "--reply-to", "msg_q9")
+    orca_pass(shell, config)
+    for _ in range(3):
+        later_pass(shell, config)
+    assert len(replies(shell)) == runner_module.SEND_ATTEMPTS
+    assert send_statuses(tmp_path) == ["failed"] * runner_module.SEND_ATTEMPTS
+    assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "request-show"]]
+    [line] = escalations(shell)
+    assert line.startswith(f"SEND-FAILED desk-lane-{LANE}/send:R625:ctx_a {LANE}: R625 to ctx_a failed 3 times: ")
+    assert "answer_conflict" in line
 
 
 def test_a_lost_reply_with_no_receipt_is_resent_past_an_older_answer_on_its_thread(shell, config, tmp_path):
@@ -3158,6 +3179,23 @@ def test_a_root_reply_to_a_lanes_cci_ask_closes_its_open_orca_question(shell, co
     [reply] = replies(shell)
     assert reply[reply.index("--id") + 1] == "msg_q4"
     assert reply[reply.index("--body") + 1].startswith("The root answered on cci #34767 (re #34766), which supersedes this question: Prose ready at /tmp/pr-body.md\n")
+
+
+def test_two_root_replies_to_a_lane_with_one_open_question_answer_it_once_and_relay_the_other(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q4", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    override = cci_record(shell, lane=LANE, kind="ask", to=["root"], text="Override #37923?")
+    image = cci_record(shell, lane=LANE, kind="ask", to=["root"], text="busybox: A or B?")
+    cci_record(shell, kind="answer", to=[LANE], re=override, text="Override recorded")
+    cci_record(shell, kind="answer", to=[LANE], re=image, text="Option A")
+    orca_pass(shell, config)
+    [reply] = replies(shell)
+    assert reply[reply.index("--id") + 1] == "msg_q4"
+    assert reply[reply.index("--body") + 1].startswith("The root answered on cci #34768 (re #34766), which supersedes this question: Override recorded\n")
+    [send] = shell.sends()
+    assert send[send.index("--body") + 1].startswith("The root answered on cci #34769 (re #34767), which supersedes this question: Option A\n")
+    assert escalations(shell) == [f"RELAYED cci#34768 {LANE}: reply to question msg_q4 of dispatch ctx_a", f"RELAYED cci#34769 {LANE}: relay to dispatch ctx_a"]
 
 
 def test_a_root_reply_to_a_lane_with_no_open_question_relays_nothing(shell, config, tmp_path):

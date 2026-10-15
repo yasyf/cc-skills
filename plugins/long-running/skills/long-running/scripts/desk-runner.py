@@ -17,8 +17,8 @@ dispatch can never start or finish an action.
 
 A relay is accepted, then started and completed by the lane itself: it replies
 `started <key>` and `done <key>: <result>` on the action's thread. The send is its own
-`send:` action, delivery evidence only. A send whose response is lost becomes
-`unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
+`send:` action, delivery evidence only. A send whose response is lost, Orca's runtime
+unreachable or its output not JSON, becomes `unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
 With neither thirty seconds on, the runner sends the relay again on the same thread,
 under the same key, and repeats that once every thirty seconds until Orca holds a
 receipt or the message shows on the thread. A delivered resend logs nothing. A status
@@ -26,7 +26,9 @@ message the lane posts on the Run that names the relay's R-number or cci sequenc
 acknowledges it, as `started` when its subject starts so and `done` otherwise, and
 settles every send of it, since a lane that already read its mailbox leaves no
 message there to find. Two resends all lost the same way log `UNACKED` once, with
-the count and the relay text on the record's path, and nothing more is sent. A send with a receipt is never resent,
+the count and the relay text on the record's path, and nothing more is sent. Any other
+Orca error fails the send, though Orca names a request id on every refused mutation,
+so a refusal such as `answer_conflict` is never resent as lost. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
@@ -55,7 +57,7 @@ belong to `prompt_watch.py`, the one reader
 of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
 while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
-per lane, a reply to the lane's latest open question when it has one, logged once as
+per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
@@ -1064,8 +1066,8 @@ class Runner:
                 self.relay_to(at, at, decide["lane"], text, decide["msg"])
             return
         dispatch = self.orca.show(closed["lane"])
-        if dispatch and dispatch.status not in INACTIVE and (question := self.open_question(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
-            self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", question)
+        if dispatch and dispatch.status not in INACTIVE and (questions := self.open_questions(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
+            self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", self.unclaimed(at, closed["lane"], questions))
 
     def whole_text(self, at: str, key: str, about: str, record: dict) -> str:
         """The record's text in full: the file its `refs.path` names when cci clipped the record or kept that file's first line as the record's text, else the record's own text; empty, logging `RELAY-FAILED`, when that file cannot be read here."""
@@ -1111,13 +1113,13 @@ class Runner:
             self.relay_to(at, key, lane, parsed["text"])
 
     def relay_to(self, at: str, key: str, lane: str, text: str, question: str | None = None) -> None:
-        """Accept what `relay` accepts for one lane: a reply to `question`, or to the current dispatch's latest open question when none is named, else a plain relay."""
+        """Accept what `relay` accepts for one lane: a reply to `question`, or to the current dispatch's latest open question no other reply claims when none is named, else a plain relay."""
         log = f"escalation:relay:{at}:{lane}"
         dispatch = self.orca.show(lane)
         if not dispatch or dispatch.status in INACTIVE:
             self.record(log, f"RELAY-FAILED {key} {lane}: no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}")
             return
-        question = self.open_question(dispatch) if question is None else question
+        question = self.unclaimed(key, lane, self.open_questions(dispatch)) if question is None else question
         action, created = self.accept_relay(key, lane, text, question, self.config.start_minutes)
         if not created and json.loads(action.target)["text"] != text:
             self.record(log, f"RELAY-FAILED {key} {lane}: {key} already holds a different relay to {lane} ({action.status})")
@@ -1402,15 +1404,20 @@ class Runner:
             return f"dispatch {dispatch.id} is {dispatch.status}; relay to it instead"
         return ""
 
-    def open_question(self, dispatch: Dispatch) -> str:
-        """The newest question the dispatch asked the Run that no message on the dispatch's terminal answers, or empty."""
+    def open_questions(self, dispatch: Dispatch) -> list[str]:
+        """The questions the dispatch asked the Run that no message on the dispatch's terminal answers, newest first."""
         asked = (self.orca.call("orchestration", "check", "--terminal", f"run:{self.config.run}", "--all", "--types", "question").get("result") or {}).get("messages") or []
         mine = [message for message in asked if message.get("from_handle") in (f"dispatch:{dispatch.id}", dispatch.terminal)]
         if not mine:
-            return ""
+            return []
         received = (self.orca.call("orchestration", "check", "--terminal", dispatch.terminal, "--all").get("result") or {}).get("messages") or []
         answered = {message.get("thread_id") for message in received}
-        return next((message["id"] for message in sorted(mine, key=lambda message: message["created_at"], reverse=True) if message["id"] not in answered), "")
+        return [message["id"] for message in sorted(mine, key=lambda message: message["created_at"], reverse=True) if message["id"] not in answered]
+
+    def unclaimed(self, key: str, lane: str, questions: list[str]) -> str:
+        """The first of `questions` no other unfailed reply to the lane already answers, or empty: Orca refuses a second, different answer to one question."""
+        claimed = {json.loads(reply.target)["reply_to"] for reply in self.book.actions(self.lane(lane), kind="reply") if reply.action_id != key and reply.status != "failed"}
+        return next((question for question in questions if question not in claimed), "")
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False) -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
@@ -1518,8 +1525,8 @@ class Runner:
                 self.book.attempt(container, lambda incident: (incident.start(action.action_id, self.now()), incident.complete(action.action_id, {"message": message, "at": self.book.stamp()})))
             else:
                 self.orca.wake(dispatch.terminal, f"{action.authority_ref}: read Orca message on thread {thread} now")
-        elif (request := request_id(reply)) or reply["error"]["code"] == UNPARSEABLE:
-            self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request}))
+        elif reply["error"]["code"] in UNREACHABLE:
+            self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request_id(reply)}))
         else:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
 
