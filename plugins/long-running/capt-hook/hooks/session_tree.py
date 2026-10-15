@@ -7,7 +7,7 @@ import time
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from functools import cached_property
+from datetime import datetime
 from pathlib import Path
 
 from cc_transcript import UserEvent, parse
@@ -43,13 +43,12 @@ class Subagent:
     def name(self) -> str | None:
         return self.meta.get("name")
 
-    @cached_property
-    def events(self) -> tuple[TranscriptEvent, ...]:
+    def read_events(self) -> Sequence[TranscriptEvent]:
         return parse(self.transcript).events
 
-    @cached_property
-    def started(self):
-        return next((event.meta.timestamp for event in self.events if hasattr(event, "meta")), None)
+
+def started(events: Sequence[TranscriptEvent]) -> datetime | None:
+    return next((event.meta.timestamp for event in events if hasattr(event, "meta")), None)
 
 
 def lane_of(task: Task) -> str | None:

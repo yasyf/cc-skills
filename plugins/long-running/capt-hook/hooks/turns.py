@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -32,10 +32,10 @@ class Turn:
     at: datetime
 
 
-def turn_of(events: Iterable[TranscriptEvent], *, sidechain: bool = False) -> Turn | None:
+def turn_of(events: Sequence[TranscriptEvent], *, sidechain: bool = False) -> Turn | None:
     compacted: Turn | None = None
-    for event in reversed(tuple(events)):
-        match event:
+    for index in reversed(range(len(events))):
+        match event := events[index]:
             case SystemEvent(subtype="compact_boundary") if compacted is None and event.meta.is_sidechain == sidechain:
                 compacted = Turn("", event.detail.post_tokens, event.meta.timestamp)
             case AssistantEvent(usage=usage) if (

@@ -5,14 +5,18 @@ import json
 import os
 import threading
 import uuid
+import weakref
+from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cc_transcript import Session, parse
+from cc_transcript.models import TranscriptEvent
 from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
@@ -27,6 +31,29 @@ TEAM = "session-rot"
 TASK_LIST = "rot-list"
 DESK = "alanding-desk-1a1a1a1a1a1a1a1a"
 GOLDEN = Path(__file__).resolve().parents[1] / "capt-hook" / "hooks" / "tests" / "fixtures" / "rotation" / "golden"
+
+
+class Events(list):
+    pass
+
+
+class Indexed(Sequence):
+    def __init__(self, events: Sequence[TranscriptEvent]) -> None:
+        self.events = events
+        self.read: list[int] = []
+
+    def __len__(self) -> int:
+        return len(self.events)
+
+    def __getitem__(self, index: int) -> TranscriptEvent:
+        self.read.append(index)
+        return self.events[index]
+
+    def __iter__(self) -> Iterator[TranscriptEvent]:
+        raise AssertionError("turn_of walked the transcript from the front")
+
+    def __reversed__(self) -> Iterator[TranscriptEvent]:
+        raise AssertionError("turn_of materialized the transcript to reverse it")
 
 
 def stamp(at: datetime) -> str:
@@ -569,24 +596,55 @@ def test_newer_teammate_without_a_task_still_hides_a_running_subagent_namesake(t
     assert lane_rotation.live_lanes(stop(tree, [reviewer]).evt()) == []
 
 
-def test_prompt_label_is_read_only_once_the_description_has_no_task_left(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prompt_label_claims_a_task_only_once_the_description_has_none_left(tree: Tree, parsed: list[str]) -> None:
     shared = "Lane brief (long-running drive release-v3, root = s"
     tasks = [
         tree.lane("desk-a", 450_000, description=shared, behind=timedelta(minutes=1)),
         tree.lane("desk-b", 450_000, description=shared, prompt="You are lane `desk-b`.", behind=timedelta(minutes=2)),
     ]
-    labelled: list[str] = []
-    task_label = lane_rotation.task_label
-
-    def recording(agent: session_tree.Subagent) -> str | None:
-        labelled.append(agent.name)
-        return task_label(agent)
-
-    monkeypatch.setattr(lane_rotation, "task_label", recording)
 
     lanes = lane_rotation.live_lanes(stop(tree, tasks).evt())
 
-    assert ([lane.name for lane in lanes], labelled) == (["desk-a", "desk-b"], ["desk-b"])
+    assert ([lane.name for lane in lanes], sorted(parsed)) == (["desk-a", "desk-b"], ["desk-a", "desk-b"])
+
+
+def test_a_scan_lets_go_of_each_transcript_before_reading_the_next(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    for hours in (9, 6):
+        tree.lane("desk", 450_000, spawned=ROOT_AT - timedelta(hours=hours))
+    tasks = [tree.lane("desk", 450_000), tree.lane("scout", 450_000)]
+    held: list[weakref.ref[Events]] = []
+    live_at_parse: list[int] = []
+    parse_transcript = session_tree.parse
+
+    def tracked(path: Path) -> SimpleNamespace:
+        live_at_parse.append(sum(ref() is not None for ref in held))
+        held.append(weakref.ref(events := Events(parse_transcript(path).events)))
+        return SimpleNamespace(events=events)
+
+    monkeypatch.setattr(session_tree, "parse", tracked)
+
+    lanes = lane_rotation.live_lanes(stop(tree, tasks).evt())
+
+    assert (sorted(lane.name for lane in lanes), live_at_parse, [ref() for ref in held]) == (
+        ["desk", "scout"],
+        [0, 0, 0, 0],
+        [None] * 4,
+    )
+
+
+def test_a_start_tie_keeps_the_namesake_listed_first(tree: Tree) -> None:
+    task = tree.lane("desk", 450_000)
+    subagents = tree.root.with_suffix("") / "subagents"
+    [listed_first] = subagents.glob("agent-adesk-*.meta.json")
+    (subagents / "agent-adesk-zzzzzzzzzzzzzzzz.meta.json").write_text(listed_first.read_text())
+    write_jsonl(
+        subagents / "agent-adesk-zzzzzzzzzzzzzzzz.jsonl",
+        [user(ROOT_AT - timedelta(hours=3), "go", sidechain=True), assistant(ROOT_AT, 460_000, sidechain=True)],
+    )
+
+    [lane] = lane_rotation.live_lanes(stop(tree, [task]).evt())
+
+    assert lane.turn.tokens == 450_000
 
 
 def test_the_four_stop_callers_of_one_request_share_one_scan(tree: Tree, clock: list[float], parsed: list[str]) -> None:
@@ -726,7 +784,7 @@ def test_an_abandoned_scan_reads_no_turn_once_its_caller_is_gone(tree: Tree, mon
     with reqenv.use_request(bound), pytest.raises(reqenv.Abandoned):
         lane_rotation.live_lanes(handle.evt())
 
-    assert (len(parsed), turns) == (2, [])
+    assert (len(parsed), turns) == (2, ["turn"])
 
 
 def test_an_abandoned_scan_builds_no_lane_once_its_caller_is_gone(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -915,6 +973,15 @@ def test_compact_boundary_after_the_last_turn_reports_post_compact_tokens(tmp_pa
 
     write_jsonl(transcript, [boundary, assistant(ROOT_AT + timedelta(minutes=1), 24_000, sidechain=True)])
     assert turns.turn_of(parse(transcript).events, sidechain=True).tokens == 24_000
+
+
+def test_turn_of_reads_back_only_as_far_as_the_last_turn(tmp_path: Path) -> None:
+    transcript = tmp_path / "lane.jsonl"
+    turns_taken = [assistant(ROOT_AT - timedelta(minutes=minutes), 10_000 * minutes, sidechain=True) for minutes in (3, 2, 1)]
+    write_jsonl(transcript, [user(ROOT_AT - timedelta(hours=1), "go", sidechain=True), *turns_taken, user(ROOT_AT, "tail", sidechain=True)])
+    events = Indexed(parse(transcript).events)
+
+    assert (turns.turn_of(events, sidechain=True).tokens, events.read) == (10_000, [len(events) - 1, len(events) - 2])
 
 
 def test_inbox_append_matches_claude_code_format(tmp_path: Path) -> None:
