@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -112,12 +113,13 @@ func sessionRun(hint string) string {
 }
 
 // resolveLaneName maps -l's [RUN/]LANE to its lane dir under the registry; a
-// bare LANE groups under the calling Claude session's run.
+// bare LANE groups under the calling Claude session's run, or outside a Claude
+// session names its own run.
 func resolveLaneName(name string) string {
 	parts := strings.Split(name, "/")
 	switch len(parts) {
 	case 1:
-		parts = []string{sessionRun("-l LANE needs CLAUDE_CODE_SESSION_ID; pass -l RUN/LANE"), parts[0]}
+		parts = []string{cmp.Or(os.Getenv("CLAUDE_CODE_SESSION_ID"), parts[0]), parts[0]}
 	case 2:
 	default:
 		die("codex-ask: -l takes LANE or RUN/LANE", 2)
@@ -733,8 +735,9 @@ func rejectOutsideScratch(path, flag string) {
 		die(fmt.Sprintf("codex-ask: %s must be outside the repository at %s (lanes are never minted in-repo)", flag, top), 2)
 	}
 	home := os.Getenv("HOME")
-	if home != "" && strings.HasPrefix(path+"/", strings.TrimRight(home, "/")+"/.claude/") {
-		die(fmt.Sprintf("codex-ask: %s must be outside ~/.claude (config dir, not scratch space)", flag), 2)
+	claude := strings.TrimRight(home, "/") + "/.claude/"
+	if home != "" && strings.HasPrefix(path+"/", claude) && !strings.HasPrefix(path+"/", claude+"scratch/") {
+		die(fmt.Sprintf("codex-ask: %s must be outside ~/.claude except ~/.claude/scratch (config dir, not scratch space)", flag), 2)
 	}
 }
 

@@ -612,7 +612,7 @@ func TestNamedLaneMintsUnderRegistry(t *testing.T) {
 
 // TestBareLaneNameGroupsBySession: -l LANE without RUN groups under the calling
 // Claude session's run, so same-session fan-out lanes share a container with
-// zero coordination.
+// zero coordination; outside a session the lane names its own run.
 func TestBareLaneNameGroupsBySession(t *testing.T) {
 	runs := canonicalScope(t)
 	_, stderr, code := askRunSession(t, runs, "sess-1", stubCodexReply, "-l", "review", "ping")
@@ -623,12 +623,32 @@ func TestBareLaneNameGroupsBySession(t *testing.T) {
 		t.Fatal("lane did not land under the session run")
 	}
 
-	_, stderr, code = askRun(t, runs, stubCodexReply, "-l", "review", "ping")
-	if code != 2 {
-		t.Fatalf("bare -l without a session exit %d, want 2\nstderr: %s", code, stderr)
+	_, stderr, code = askRun(t, runs, stubCodexReply, "-l", "plat-sandsql-6644_fix", "ping")
+	if code != 0 {
+		t.Fatalf("bare -l without a session exit %d\nstderr: %s", code, stderr)
 	}
-	if !strings.Contains(stderr, "CLAUDE_CODE_SESSION_ID") {
-		t.Fatalf("missing session hint:\n%s", stderr)
+	if !isFile(filepath.Join(runs, "codex-run.plat-sandsql-6644_fix", "plat-sandsql-6644_fix", "status")) {
+		t.Fatal("sessionless lane did not land under its own run")
+	}
+}
+
+func TestScratchUnderClaudeScratchOnly(t *testing.T) {
+	home := shortHome(t)
+	runs := canonicalScope(t)
+	lane := filepath.Join(home, ".claude", "scratch", "drive", "incident-fix")
+	if _, stderr, code := askRunHome(t, home, runs, "", stubCodexReply, "-s", lane, "ping"); code != 0 {
+		t.Fatalf("-s under ~/.claude/scratch exit %d\nstderr: %s", code, stderr)
+	}
+	if !isFile(filepath.Join(lane, "status")) {
+		t.Fatal("lane under ~/.claude/scratch wrote no status")
+	}
+	config := filepath.Join(home, ".claude", "plugins", "lane")
+	_, stderr, code := askRunHome(t, home, runs, "", stubCodexReply, "-s", config, "ping")
+	if code != 2 || !strings.Contains(stderr, "~/.claude/scratch") {
+		t.Fatalf("-s under ~/.claude config exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	if _, err := os.Stat(config); !os.IsNotExist(err) {
+		t.Fatal("refused -s still minted its dir")
 	}
 }
 

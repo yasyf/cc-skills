@@ -71,7 +71,7 @@ loop:
 		case a == "--lane":
 			// Checked before any scratch dir is created, so a bad lane mints nothing.
 			if !contains(laneNames, nxt) {
-				die("codex-ask: --lane takes one of "+strings.Join(laneNames, ", "), 2)
+				die("codex-ask: --lane takes one of "+strings.Join(laneNames, ", ")+"; name a lane with -l NAME", 2)
 			}
 			lane = nxt
 			i += 2
