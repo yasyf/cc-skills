@@ -451,6 +451,12 @@ executor owns the incident, through the final reply:
 - It records every side effect in the `scripts/actions.py` store before running it,
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
+- It rolls the alerting target back to its previous build first when a release
+  touched that target in the 2 hours before onset, and the forward fix follows once
+  the monitor clears. Any other incident fixes forward. A rollback outside that
+  case is the exception, taken only when a fix forward is not feasible or would take
+  too long, and the fix lane records which and why (owner answer 2f6cdcf). The
+  never-cancel-a-running-apply rule holds throughout.
 
 When the root launches an incident pair itself, the launch is one command:
 
