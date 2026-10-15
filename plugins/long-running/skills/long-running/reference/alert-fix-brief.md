@@ -42,6 +42,10 @@ Do:
   0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
+     Exception, owner answer 2f6cdcf: roll the target back only when a fix forward
+     is not feasible or will take too long, and only when this brief names which of
+     the two and why. A brief that names no such reason is a fix forward; never
+     read a rollback into it.
   1. Start at the code path the alert names while evidence is still arriving.
      Never wait for a diagnosis verdict.
   2. Before you name a mechanism, read the last 24 hours of the
