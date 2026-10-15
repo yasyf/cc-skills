@@ -413,6 +413,11 @@ For the cci cutover, the root adds `drive` to the runner config, confirms
 `orca.desk_inbox`, and restarts both runners. Its records keep arriving over the
 `cci` channel. The root owns that cutover.
 
+To upgrade a running orca desk without a signal, run `desk-runner.py handoff --config
+"$CONFIG"`. The runner finishes its pass, writes its exit mark by removing
+`$CONFIG.stop`, and exits 0; `handoff` returns then, and only then does the new
+runner start, so one process reads the Run at every moment.
+
 The orca desk calls Orca as the terminal it was started from, named by the
 `ORCA_TERMINAL_HANDLE` it inherits, and only the terminal bound to the Run may call
 `worker-start`. It refuses to start, printing the rebind command, unless that
