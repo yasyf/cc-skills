@@ -118,6 +118,7 @@ def team_roster(evt: BaseHookEvent, team: str, rosters: dict[str, dict[str, str]
 
 
 def scan(agent: Subagent) -> Scan | None:
+    reqenv.checkpoint()
     events = agent.read_events()
     reqenv.checkpoint()
     if not (started := session_tree.started(events)):
