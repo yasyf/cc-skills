@@ -166,7 +166,8 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval, and never for a PR that is held or stacked above a held PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
-names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
+names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
+the required `landing-gates` check enforces, and removes that label once the record closes. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
 `<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
 parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
@@ -174,8 +175,9 @@ may hold something the runner cannot name. The runner checks the file first thin
 gates and enqueues nothing, and logs `HOLDS-UNREAD` once per distinct line, quoting it. Each enqueue re-reads the file under the same
 rule just before its call and completes as `blocked` on such a line. The holds file stays the root's interface, and the
 runner mirrors it onto GitHub's `hold` label, which the required `landing-gates` check fails on every path into the queue.
-On each pass that reads the file, every open ledger row a PR line, a lane line, or `hold:all` holds gets the label, and a
-label the runner added comes off once no line holds the row. The action book records each label the runner adds or removes,
+On each pass that reads the file, every open ledger row a PR line, a lane line, `hold:all`, or an open cci `hold` record
+holds gets the label, and a label the runner added comes off once nothing holds the row. A `cci tail` that fails skips
+the label mirror for that pass. The action book records each label the runner adds or removes,
 so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
 A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
@@ -2459,7 +2461,11 @@ class Landing:
                 self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
 
     def mirror_holds(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
-        wanted = holds.held(entries, rows)
+        try:
+            wanted = holds.held(entries, rows) | cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
+        except CciTailFailed as failure:
+            self.runner.tail_failed(failure)
+            return
         labels: dict[str, list[actions.Action]] = {}
         for action in self.book.actions(LANDING, kind="label"):
             labels.setdefault(action.target, []).append(action)

@@ -30,10 +30,11 @@ except the PRs named on `release #<n>` lines and the open PRs of lanes named on
 wins. The desk mirrors no hold
 for a `release` line. Deleting the `hold:all` line ends the mode.
 
-Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. The runner
-mirrors the holds file onto GitHub's `hold` label on every pass, and the required
-`landing-gates` check fails a labelled PR, so nothing enqueues a held PR or a PR
-above it. The desk builds a fresh numeric held file at each enqueue and never
+Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. A hold is
+GitHub's `hold` label: the runner writes it on every pass from the holds file and
+from every PR an open cci `hold` record names, and a human may add it by hand. The
+required `landing-gates` check fails a labelled PR, so nothing enqueues a held PR or
+a PR above it, and `stack-enqueue` takes no hold flag. The desk never
 enqueues above a held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
 PR, and leaves release to the root. The desk mirrors the holds file's entries with
 `ledger.py hold` and lifts them when the root removes them.
@@ -212,8 +213,8 @@ Do, in this order, forever:
      `ledger.py held --drive <drive>` prints from open cci holds. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
-     them when the root removes the line. The landing runner re-reads this set
-     at every enqueue; the mirrored ledger can lag the holds file. Rebuild it
+     them when the root removes the line. The landing runner labels this set
+     on every pass; the mirrored ledger can lag the holds file. Rebuild it
      before each step-3 call where the repo has no stack-enqueue.
      Never edit the holds file. Forward a priority desk's lane traffic with
      `cci post --drive <drive> --lane <desk> --kind <kind> --to <priority desk> --text "<traffic>"`
@@ -290,8 +291,8 @@ Do, in this order, forever:
      Where stack-enqueue exists, skip this whole step: the runner gates tips and
      enqueues prefixes in parallel, verifies squash landings, and routes blockers
      and restacks. It runs `stack-enqueue <prefix top>...` with no hold flags:
-     it mirrors the holds file onto GitHub's `hold` label, and the required
-     `landing-gates` check keeps a labelled PR out of the queue.
+     it mirrors the holds file and open cci holds onto GitHub's `hold` label, and
+     the required `landing-gates` check keeps a labelled PR out of the queue.
      A ready stack is enqueued as one batch from any of its PRs; the call lands
      the largest green bottom prefix at once. Never enqueue the first PR alone and
      the rest later, and never through the `merge` label or `gt merge` on one PR

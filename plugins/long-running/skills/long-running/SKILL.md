@@ -1075,7 +1075,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3 and mirrors the holds file onto GitHub's `hold` label; without it, the landing desk runs `ledger.py label`. Both re-read the holds file before every enqueue: `{ grep -o '^#[0-9]\+' <holds file> | tr -d '#'; ledger.py held --drive <drive>; } > <held file>`, never a cached set. `ledger.py held` prints every PR an open cci `hold` record names, so a lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3 and mirrors the holds file onto GitHub's `hold` label; without it, the landing desk runs `ledger.py label`. A hold is GitHub's `hold` label: the runner writes it from the holds file and from every PR an open cci `hold` record names, which `ledger.py held --drive <drive>` prints, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR out of the queue on every path, and `stack-enqueue` takes no hold flag. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record and the runner removes its label. Without `stack-enqueue`, the desk re-reads the holds file and `ledger.py held` before every `ledger.py label`, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
@@ -1138,8 +1138,10 @@ it landed as 2b06f105 without its test, because the gate read only
 The holds file stays the root's interface, and the runner mirrors it onto
 GitHub's `hold` label. On every pass that reads the file, each open ledger row
 that a `#<n>` line, a lane line (`lane:<name>`, `<lane> HOLD`, or `HOLD <lane>`),
-or `hold:all` holds, minus the rows a `release` line names, gets the label, and
-the runner removes a label it added once no line holds the row. The required
+or `hold:all` holds, minus the rows a `release` line names, gets the label, and so
+does each open row an open cci `hold` record names. The runner removes a label it
+added once nothing holds the row. A `cci tail` that fails skips the label mirror
+for that pass. The required
 `landing-gates` check fails a PR carrying `hold`, so Graphite never reads it ready
 and `stack-enqueue` leaves it and the PRs above it out as `BLOCKED`. The runner's
 action book records each label it adds or removes: a restart posts none again, a

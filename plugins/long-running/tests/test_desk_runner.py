@@ -1274,7 +1274,7 @@ def test_holds_py_entries_label_the_prs_they_hold(shell, config, tmp_path):
     assert shell.label_calls == [("add", "28349"), ("add", "29020")]
 
 
-def test_an_open_cci_hold_labels_nothing(shell, config, tmp_path):
+def test_an_open_cci_hold_labels_its_pr_until_a_lift_closes_it(shell, config, tmp_path):
     shell.records = [
         {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
         {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
@@ -1290,7 +1290,20 @@ def test_an_open_cci_hold_labels_nothing(shell, config, tmp_path):
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["28349"]]
-    assert shell.label_calls == [] and shell.sends() == []
+    assert shell.label_calls == [("add", "29020")] and shell.sends() == []
+    shell.records[0]["status"] = "closed"
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("remove", "29020")]
+
+
+def test_a_failed_cci_read_skips_the_label_mirror_for_that_pass(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.tail_failures = 2
+    landing_pass(shell, config)
+    assert shell.label_calls == []
+    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail"]
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")]
 
 
 def test_a_rules_blocked_pr_gets_no_hold_label(shell, config, tmp_path):
