@@ -1338,6 +1338,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
         "#36510 BLOCKED dddd444444 held",
         "#36520 BLOCKED eeee555555 graphite FAILING_REQUIRED",
     )
+    shell.gates["36487"] = [gate(*verdicts)]
     shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
@@ -1346,7 +1347,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     landing_pass(shell, config)
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
-    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
+    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
     assert all(call[call.index("--hold") :] == ["--hold", "36510"] for call in checks)
     assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--hold", "36510", "--head", "36463=aaaa111111", "--head", "36487=bbbb222222", "--head", "36501=cccc333333"]]
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
@@ -1355,6 +1356,14 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
 
 def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
     shell.rows = fork_rows()[:3]
+    shell.gates["36487"] = [
+        gate(
+            "#36463 GREEN aaaa111111 graphite READY",
+            "#36487 GREEN bbbb222222 graphite READY",
+            "#36501 BLOCKED cccc333333 rides the batch through #36463 but is neither named nor below #36487; name it too or pass --partial to leave it out",
+            "#36530 BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #36487; name it too or pass --partial to leave it out",
+        )
+    ]
     shell.gates["36487 36501"] = [
         gate(
             "#36463 GREEN aaaa111111 graphite READY",
@@ -1378,6 +1387,29 @@ def test_a_whole_policy_gates_each_tip_of_a_fork_alone(shell, config, tmp_path):
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert checks and all(len(list(itertools.takewhile(str.isdigit, call[1:]))) == 1 and "--whole" in call for call in checks)
+
+
+def test_tips_whose_ledger_bases_share_a_root_share_a_check_only_when_stack_enqueue_counts_them_one_stack(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "37145", "lane": "recon", "branch": "recon/compat", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "37153", "lane": "recon", "branch": "recon/size", "base": "recon/compat", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+        {"pr": "37947", "lane": "track1", "branch": "t1/identity", "base": "recon/compat", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "37990", "lane": "track1", "branch": "t1/ltx", "base": "t1/identity", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["37153"] = [gate("#37145 GREEN aaaa111111 graphite READY", "#37153 GREEN bbbb222222 graphite READY", would="#37145 #37153")]
+    shell.gates["37990"] = [
+        gate(
+            "#37947 BLOCKED cccc333333 base graphite-base/37947 while its parent #37145 is still open; restack with ccx vcs stack submit",
+            "#37990 WAITING dddd444444 graphite READY; sits above BLOCKED #37947",
+        )
+    ]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["37153"] = (0, "enqueue #37145 #37153\n")
+    landing_pass(shell, config)
+    checks = [tuple(itertools.takewhile(str.isdigit, call[1:])) for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks and set(checks) == {("37153",), ("37990",)}
+    assert [call[1] for call in shell.enqueues()] == ["37153"]
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
 def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_silently(shell, config, tmp_path):
