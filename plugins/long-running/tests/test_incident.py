@@ -492,6 +492,29 @@ def test_render_brief_fills_every_placeholder():
     assert not incident.PLACEHOLDER.search(text)
 
 
+def test_brief_writes_the_briefs_run_would_launch_and_prints_their_paths(store, clock, capsys):
+    incident_id = open_incident(store, clock, kind="alert", adopted={"evidence": "plat-evidence"})
+    capsys.readouterr()
+    assert incident.main(["brief", "--incident", incident_id], store, clock) == 0
+    paths = [Path(line) for line in capsys.readouterr().out.splitlines()]
+    assert paths == [store.root / incident_id / f"incident-{incident_id}-{role}.full.md" for role in ("fix", "evidence")]
+    fix = paths[0].read_text()
+    assert f"incident-{incident_id}-fix" in fix and "plat-evidence" in fix
+    for fixed in (
+        f"`UNFIXED incident-{incident_id}-fix: <the case, one line>`",
+        f"`UNFIXED incident-{incident_id}-fix: none`",
+        "reporter's own case again on the released build",
+        "Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on",
+        "A tooling failure gets a same-turn tooling lane plus the hand path; it never",
+        "which component\n     served the failing request",
+        "0. NO ROLLBACK; find the mechanism and fix forward",
+    ):
+        assert fixed in fix
+    assert not incident.PLACEHOLDER.search(fix + paths[1].read_text())
+    assert incident.main(["brief", "--incident", incident_id, "--role", "evidence"], store, clock) == 0
+    assert capsys.readouterr().out.splitlines() == [str(paths[1])]
+
+
 class Shell(incident.Shell):
     def __init__(self, outputs: dict[tuple[str, ...], str], codes: dict[tuple[str, ...], int] | None = None):
         self.outputs, self.codes, self.calls = outputs, codes or {}, []
