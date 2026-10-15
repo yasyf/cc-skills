@@ -554,7 +554,11 @@ func askRun(t *testing.T, runs, stub string, args ...string) (string, string, in
 
 func askRunSession(t *testing.T, runs, session, stub string, args ...string) (string, string, int) {
 	t.Helper()
-	home := shortHome(t)
+	return askRunHome(t, shortHome(t), runs, session, stub, args...)
+}
+
+func askRunHome(t *testing.T, home, runs, session, stub string, args ...string) (string, string, int) {
+	t.Helper()
 	stubDir := mustTempDir(t)
 	writeStub(t, stubDir, stub)
 	scope := canonicalScope(t)
@@ -629,9 +633,9 @@ func TestUnknownLaneRefusesBeforeMinting(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("unknown --lane exit %d, want 2\nstderr: %s", code, stderr)
 	}
-	for _, name := range []string{"review", "refute", "security", "diagnose", "implement", "recon"} {
+	for _, name := range []string{"review", "refute", "security", "diagnose", "implement", "recon", "-l NAME"} {
 		if !strings.Contains(stderr, name) {
-			t.Fatalf("stderr does not name lane %q:\n%s", name, stderr)
+			t.Fatalf("stderr does not name %q:\n%s", name, stderr)
 		}
 	}
 	mustBeEmpty(t, runs, "a refused --lane")

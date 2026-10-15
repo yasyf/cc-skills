@@ -134,8 +134,11 @@ once the caller has already unblocked, so it can trail the narration or even a
 2. **Each prompt carries its lane name.** Every wrapper prompt includes a
    literal `-l <run>/<lane>`; codex-ask owns where it lives. Bare `-l <lane>`
    groups under the calling Claude session's run, enough when every lane
-   dispatches from one session. `-s ABS_DIR` survives as the explicit
-   path-form override; either way, never the working copy, checkout, or
+   dispatches from one session; outside a Claude session it names its own
+   run, `<lane>/<lane>`. Any plain name is a lane name, so an incident lane
+   runs as `-l incident-<id>-fix`. `-s ABS_DIR` survives as the explicit
+   path-form override, and may sit under `~/.claude/scratch` but nowhere
+   else in `~/.claude`; either way, never the working copy, checkout, or
    clone under review — codex-ask refuses such in-repo lanes.
 3. **End with a collect stage.** The last deterministic step runs
    `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect <run>` (a cheap run-this-exact-command agent that
@@ -261,6 +264,7 @@ Two flags shape the reply, and they are orthogonal — never auto-coupled.
 `--lane <name>` appends the sharpened contract for one of the six standing
 lanes (`review`, `refute`, `security`, `diagnose`, `implement`, `recon`) on
 top of the § Replies shape every run already carries; it shapes prose.
+`--lane` picks a contract, never a name: `-l` names the lane.
 `--schema <name|file>` resolves a shipped schema by name — `verdict`,
 `findings`, `refutations` — or takes a JSON Schema file, and maps to codex
 `--output-schema`, which constrains the final assistant message itself: the
