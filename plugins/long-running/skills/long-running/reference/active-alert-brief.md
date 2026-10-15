@@ -44,6 +44,11 @@ the support lanes:
 2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
    `long-running:lane` on opus, named `incident-<id>-retro`, using the brief below.
 3. Fence the target from further deploys and applies outside the fix lane.
+   A fence or release freeze covers only the target that is breaking. Never freeze a
+   target because a PR waits on review, a person's or a bot's, and never freeze
+   everyone over a dependency your own change created: a change that must ship with
+   another target waits in its own stack. On Oct 14 a `schema-add` freeze set while
+   a PR waited on review refused every release that pulled `schema-add` in.
 4. Start the comms lane under the contract below. Its first post goes to each
    affected account channel before the mechanism is known. A platform-wide
    incident also gets a `#outage` post. The incident-doc link follows when ready;
