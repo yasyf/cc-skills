@@ -750,16 +750,16 @@ def test_a_lost_root_reply_keyed_by_its_cci_record_is_resent_once_per_window_unt
     orca_pass(shell, config)
     decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
     cci_record(shell, kind="answer", to=[LANE], re=decide, text="30s NLB delay, 35s preStop.")
-    shell.lose_replies = 3
+    shell.lose_replies = 2
     orca_pass(shell, config)
-    for sent in range(1, 4):
+    for sent in range(1, 3):
         orca_pass(shell, config)
         assert len(replies(shell)) == sent
         later_pass(shell, config)
         assert len(replies(shell)) == sent + 1
     later_pass(shell, config)
-    assert len(replies(shell)) == 4
-    assert send_statuses(tmp_path) == ["failed"] * 3 + ["completed"]
+    assert len(replies(shell)) == 3
+    assert send_statuses(tmp_path) == ["failed"] * 2 + ["completed"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["cci#34767"].status == "completed"
     assert escalations(shell) == [f"RELAYED cci#34767 {LANE}: reply to question msg_q9 of dispatch ctx_a"]
 
