@@ -1927,6 +1927,62 @@ def test_a_regrade_of_the_same_head_flips_its_status(shell, config, tmp_path):
     assert fidelity_statuses(shell) == [("cccc333333", "failure"), ("cccc333333", "success")]
 
 
+def five_held_rows(shell: FakeShell, tmp_path: Path) -> list[str]:
+    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\n")
+    prs = [str(29100 + n) for n in range(5)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd held")] for pr in prs}
+    return prs
+
+
+def test_a_pass_writes_at_most_mirror_writes_statuses_and_labels_and_the_next_pass_writes_the_rest(shell, config, tmp_path):
+    prs = five_held_rows(shell, tmp_path)
+    landing_pass(shell, config)
+    assert len(shell.head_statuses) == runner_module.MIRROR_WRITES and len(shell.label_calls) == runner_module.MIRROR_WRITES
+    landing_pass(shell, config)
+    assert sorted(status["sha"] for status in shell.head_statuses) == [f"{pr}abcd" for pr in prs]
+    assert shell.label_calls == [("add", pr) for pr in prs]
+
+
+def test_a_held_pr_whose_label_waits_for_a_later_pass_is_not_gated_until_it_is_written(shell, config, tmp_path):
+    prs = five_held_rows(shell, tmp_path)
+    landing_pass(shell, config)
+    checked = {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call}
+    assert checked == set(prs[: runner_module.MIRROR_WRITES])
+
+
+def test_labels_github_keeps_refusing_never_starve_the_rows_after_them(shell, config, tmp_path):
+    prs = five_held_rows(shell, tmp_path)
+    label = shell.label
+
+    def refusing(argv, stdin):
+        if argv[0].split("/")[4] in prs[:3]:
+            return runner_module.Done(1, "", "gh: Validation Failed (HTTP 422)")
+        return label(argv, stdin)
+
+    shell.label = refusing
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", prs[3]), ("add", prs[4])]
+
+
+def test_a_head_graded_ok_then_missing_then_ok_within_one_second_ends_on_success(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    for text in ("ok F307 at cccc333.", "missing F307 at cccc333 (View fix).", "ok F307 at cccc333 after the fix."):
+        grade(shell, "29020", text)
+        landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("cccc333333", "failure"), ("cccc333333", "success")]
+
+
+def test_a_new_grade_with_the_state_the_head_already_carries_posts_nothing(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    grade(shell, "29020", "ok F307 F446 at cccc333, re-posted in fidelity-desk-5's name.")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")]
+
+
 def test_a_restarted_runner_does_not_post_a_status_again(shell, config, tmp_path):
     held_pr(shell, tmp_path)
     seq = grade(shell, "29020", "ok F307 at cccc333.")
