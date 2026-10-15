@@ -2396,12 +2396,19 @@ class Landing:
         gated = []
         while tips:
             first, *rest = tips
-            alone = self.shell.run(self.enqueue_argv([first], check=True))
+            alone = self.checked([first])
             members = {match["pr"] for match in VERDICT_LINE.finditer(alone.out)}
             shared = [first, *(tip for tip in rest if tip in members)]
-            gated.append((shared, alone if len(shared) == 1 else self.shell.run(self.enqueue_argv(shared, check=True))))
+            joined = alone if len(shared) == 1 else self.checked(shared)
+            if joined.code and not VERDICT_LINE.search(joined.out):
+                gated += [([first], alone), *(([tip], self.checked([tip])) for tip in shared[1:])]
+            else:
+                gated.append((shared, joined))
             tips = [tip for tip in rest if tip not in members]
         return gated
+
+    def checked(self, tips: list[str]) -> Done:
+        return self.shell.run(self.enqueue_argv(tips, check=True))
 
     def fidelity(self, pr: str, sha: str) -> dict | None:
         drive = self.runner.config.drive
