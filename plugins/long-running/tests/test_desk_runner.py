@@ -78,6 +78,8 @@ class FakeShell(runner_module.Shell):
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
         self.head_statuses: list[dict] = []
+        self.combined_statuses: dict[str, list[dict]] = {}
+        self.status_read_error = ""
         self.status_error = ""
         self.label_calls: list[tuple[str, str]] = []
         self.label_error = ""
@@ -181,6 +183,11 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
         if argv[:2] == ["gh", "api"] and "/issues/" in argv[2]:
             return self.label(argv[2:], stdin)
+        if argv[:2] == ["gh", "api"] and len(argv) == 3:
+            assert argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status")
+            if self.status_read_error:
+                return runner_module.Done(1, "", self.status_read_error)
+            return runner_module.Done(0, json.dumps({"statuses": self.combined_statuses.get(argv[2].split("/")[-2], [])}), "")
         if argv[:2] == ["gh", "api"]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
             if self.status_error:
@@ -1835,7 +1842,7 @@ def test_an_ok_at_an_older_head_only_is_blocked(shell, config, tmp_path):
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
-    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; no review from fidelity-desk starting `fidelity: ok` names this head"
+    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; no review from fidelity-desk starting `fidelity: ok` names this head, and its `fidelity` status is not success"
 
 
 def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, config, tmp_path):
@@ -1873,6 +1880,78 @@ def test_the_fidelity_lane_is_the_one_runner_json_names(shell, config, tmp_path)
     grade(shell, "29020", "ok F307 at cccc333.", lane="parity-desk")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
+
+
+def test_every_lane_a_fidelity_list_names_can_grade_a_head(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
+    config.write_text(json.dumps(raw))
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+    grade(shell, "28997", "ok F307 at aaaa111.")
+    grade(shell, "29016", "ok F307 at bbbb222.", lane="fidelity-desk-7")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"].endswith(",fidelity-desk,fidelity-desk-7")
+    assert "no review from fidelity-desk or fidelity-desk-7" in blocker["text"]
+    grade(shell, "29020", "ok F307 at cccc333.", lane="fidelity-desk-7")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
+def test_the_newest_grade_across_a_fidelity_list_decides_the_head(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    seq = grade(shell, "29020", "missing F335 at cccc333.", lane="fidelity-desk-7")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing F335 at cccc333."
+
+
+def test_a_success_fidelity_status_on_an_ungraded_head_is_a_grade(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "failure"}, {"context": "fidelity", "state": "success"}]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert blockers(shell) == [] and shell.head_statuses == []
+
+
+@pytest.mark.parametrize("statuses", [[], [{"context": "fidelity", "state": "pending"}], [{"context": "fidelity", "state": "failure"}], [{"context": "ci", "state": "success"}]])
+def test_a_fidelity_status_not_reading_success_is_no_grade(shell, config, tmp_path, statuses):
+    lone_green_pr(shell)
+    shell.combined_statuses["cccc333333"] = statuses
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(blockers(shell)) == 1
+
+
+def test_a_cci_grade_outranks_a_stale_success_status(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "success"}]
+    grade(shell, "29020", "missing F335 at cccc333.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(blockers(shell)) == 1
+
+
+def test_the_mirror_does_not_overwrite_a_success_status_with_pending(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "success"}]
+    landing_pass(shell, config)
+    assert shell.head_statuses == []
+
+
+def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.status_read_error = "gh: API rate limit exceeded (HTTP 403)"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["STATUS-READ-FAILED"]
 
 
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):

@@ -1169,7 +1169,10 @@ A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
 lane, and nothing in its prefix is enqueued. The check runs again just before
 the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
-`fidelity-desk`; a drive with no fidelity lane enqueues nothing through the runner.
+`fidelity-desk`, or a list of lane names when grading is sharded: a grade from any
+listed lane counts and the newest decides. A head no listed lane has graded also
+passes when its `fidelity` commit status reads `success`. A drive with no fidelity
+lane enqueues nothing through the runner.
 
 The runner also mirrors each grade onto GitHub. On every pass it sets commit
 status `fidelity` on each open row's head the fidelity lane graded: `success`
