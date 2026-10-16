@@ -98,10 +98,11 @@ executor adopted gets none from the clock while that executor's own Opus backup 
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
 settles, and `show` prints each clocked lane's minutes and milestones.
-When an incident fix lane's `worker_done` message, or its `ready:` or `fix-live:` Run
-status, carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
+Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
+`fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
-the lane's name without its trailing `-opus` and `-case<n>` parts. The brief is the
+the lane's name without its trailing `-opus` and `-case<n>` parts and `<n>` is the lowest
+no lane container holds. A `worker_done` launches nothing. The brief is the
 unfixed-case brief filled with the case verbatim, the reporting lane, the path of that
 lane's brief, and the PRs its cci `opened` records name, attached to the briefs log as
 `<first>-case<n>.full.md`. The runner logs
@@ -109,12 +110,19 @@ lane's brief, and the PRs its cci `opened` records name, attached to the briefs 
 for the root to ratify. Only a line that names the reporting lane counts, and
 `UNFIXED <lane>: none` launches nothing. A case launches once across a lane and its `-opus`
 fallback, however often and by whichever of them it is reported, and a case whose launch is
-refused launches on the next report that names it. Case lanes are one generation: a new
-case a case lane reports launches nothing and logs a `DECIDE` that carries the ready
-`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, from a brief
-already attached. A case already known, such as a case lane's own, launches nothing, and a
-new case from a lane the root withdrew logs
-`UNFIXED <lane> <time>: <case> | no case lane launched: …` and launches nothing. A case
+refused launches on the next report that names it. An incident launches at most
+`incident.case_lanes` case lanes (default 2). Every other new case of a report goes to the
+root in one `DECIDE` that carries, per case, the ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line from a brief
+already attached: each case past that cap, each new case a case lane reports, since case
+lanes are one generation, and each case of a report whose text, or whose lane's newest
+`mechanism` record or status, says `UNKNOWN`. An incident ends at a `not-ours` or
+`stand-down` record its fix lane or `-opus` fallback posts, at a root `stand-down` addressed
+to either or to the case lane, and, for a report, at a `stopped` its lane posted before it.
+A report after the end, or from a lane the root withdrew, logs
+`UNFIXED <lane> <time>: <cases> | no case lane launched: …` and launches nothing, and a
+case launch still pending at the end fails and logs `WITHDRAWN`. A case already known,
+such as a case lane's own, launches nothing. A case
 lane is an incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
 desk inbox line, starting at the drive's newest record, except a record `cci import` took
@@ -236,7 +244,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -341,6 +349,8 @@ ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
+UNFIXED_KEY = "unfixed:"
+UNKNOWN_CAUSE = re.compile(r"\bUNKNOWN\b")
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 NAMES_NOTHING = "none"
@@ -351,6 +361,9 @@ MILESTONE_STATUSES = "milestone-statuses"
 MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
 CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
+STAND_DOWN = "stand-down"
+INCIDENT_ENDS = ("not-ours", STAND_DOWN)
+STOPPED = "stopped"
 TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
 TEXT_MARK_KINDS = ("report", "incident")
 FIX_ALIAS = "-fix"
@@ -613,6 +626,7 @@ class Config:
     incident_mechanism_minutes: int
     incident_pr_minutes: int
     incident_ready_minutes: int
+    case_lanes: int
     judge_model: str
     landing: dict | None
     alert_facts: Path | None
@@ -645,6 +659,7 @@ class Config:
             incident_mechanism_minutes=deadlines.get("incident_mechanism_minutes", 10),
             incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
+            case_lanes=raw.get("incident", {}).get("case_lanes", 2),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
@@ -1280,7 +1295,7 @@ class Runner:
         return (brief, "") if brief else (None, "the attached brief has no path")
 
     def unfixed(self, lane: str, message: dict) -> None:
-        """Launch an incident lane for each case an incident fix lane's message reports as `UNFIXED <lane>: <case>`, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Case lanes are one generation: a new case from a case lane goes to the root as a `DECIDE` carrying its launch line, and a case from a lane the root withdrew launches nothing and goes to the root as one line."""
+        """Launch an incident lane for each case an incident fix lane's `ready:` or `fix-live:` report names as `UNFIXED <lane>: <case>`, up to `incident.case_lanes` per incident, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Every other new case goes to the root as one `DECIDE` carrying a launch line per case: each past the cap, each from a case lane, since case lanes are one generation, and each from a lane whose report or newest mechanism says its cause is UNKNOWN. A report from a lane the root withdrew, or after its incident ended, launches nothing and goes to the root as one line."""
         cases = unfixed_cases(message.get("body") or "", lane)
         if not cases or lane_container(lane) not in self.book.store.ids():
             return
@@ -1289,20 +1304,70 @@ class Runner:
             return
         first = first_lane(lane)
         container = self.lane(first)
-        by = self.withdrawn_by(lane)
-        offered = 0
-        for index, (known, case) in enumerate(cases.items(), 1):
-            taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
-            key = f"unfixed:{message['id']}:{index}"
-            if known in taken:
+        taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
+        fresh = [(index, known, case) for index, (known, case) in enumerate(cases.items(), 1) if known not in taken]
+        if not fresh:
+            return
+        key = f"{UNFIXED_KEY}{message['id']}"
+        unlaunched = f"UNFIXED {lane} {pacific(self.now())}: {'; '.join(case for _, _, case in fresh)} | no case lane launched"
+        if by := self.withdrawn_by(lane):
+            self.record(f"escalation:{key}", f"{unlaunched}: the root withdrew {lane} ({by})")
+            return
+        try:
+            ended = self.incident_end(first, lane, actions.parse_stamp(message["created_at"]))
+            unknown = "" if ended else self.unknown_cause(lane, launch, message)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            ended, unknown = "", "cci could not be read to tell whether the incident is open and its cause known"
+        if ended:
+            self.record(f"escalation:{key}", f"{unlaunched}: the incident ended with {ended}")
+        elif is_case_lane(lane):
+            self.offer_cases(key, first, lane, launch, [case for _, _, case in fresh], "a case lane reports new cases, past the one-generation cap")
+        elif unknown:
+            self.offer_cases(key, first, lane, launch, [case for _, _, case in fresh], f"{unknown}, so no case lane launches until the root ratifies it")
+        else:
+            room = max(self.config.case_lanes - len(taken), 0)
+            for index, known, case in fresh[:room]:
+                if self.case_lane(next(self.case_names(first)), lane, launch, case, f"{key}:{index}"):
+                    taken = [*taken, known]
+                    self.book.edit(container, lambda incident, taken=taken: incident.facts.update({UNFIXED_CASES: taken}))
+            if fresh[room:]:
+                self.offer_cases(key, first, lane, launch, [case for _, _, case in fresh[room:]], f"past the cap of {self.config.case_lanes} case lanes per incident")
+
+    def case_names(self, first: str) -> Iterator[str]:
+        """`<first>-case<n>` for each n no lane container holds yet, in order."""
+        held = set(self.book.store.ids())
+        return (name for n in itertools.count(1) if lane_container(name := f"{first}{CASE}{n}") not in held)
+
+    def incident_end(self, first: str, lane: str, reported: datetime | None = None) -> str:
+        """The record that ended the incident `first` leads, as `#<seq> <KIND> <lane>`: a `not-ours` or `stand-down` its fix lane or Opus fallback posted, the root's `stand-down` to either of them or to `lane`, or a `stopped` that `lane` posted before `reported`; empty while the incident is open."""
+        owners = {*lane_aliases(first), *lane_aliases(f"{first}{CLOCK_FALLBACK}")}
+        own = set(lane_aliases(lane))
+        launch = fix_launch(self.book.load(lane_container(first)))
+        since = actions.parse_stamp(launch.verification_receipt["at"]) if launch else datetime.min.replace(tzinfo=timezone.utc)
+        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(owners | own | {ROOT}) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*INCIDENT_ENDS, STOPPED)))
+        for record in posted:
+            at = actions.parse_stamp(record["at"])
+            if record["drive"] != self.config.drive or at < since:
                 continue
-            if by:
-                self.record(f"escalation:{key}", f"UNFIXED {lane} {pacific(self.now())}: {case} | no case lane launched: the root withdrew {lane} ({by})")
-            elif is_case_lane(lane):
-                offered += 1
-                self.offer_case(f"{first}{CASE}{len(taken) + offered}", lane, launch, case, key)
-            elif self.case_lane(f"{first}{CASE}{len(taken) + 1}", lane, launch, case, key):
-                self.book.edit(container, lambda incident, taken=[*taken, known]: incident.facts.update({UNFIXED_CASES: taken}))
+            if (
+                (record["lane"] in owners and record["kind"] in INCIDENT_ENDS)
+                or (record["lane"] == ROOT and record["kind"] == STAND_DOWN and (owners | own) & set(record.get("to") or []))
+                or (record["lane"] in own and record["kind"] == STOPPED and reported is not None and at < reported)
+            ):
+                return f"#{record['seq']} {record['kind'].upper()} {record['lane']}"
+        return ""
+
+    def unknown_cause(self, lane: str, launch: actions.Action, message: dict) -> str:
+        """Which of the lane's records says its cause is UNKNOWN: the report itself, or its newest mechanism record or status since its launch; empty when none does."""
+        if UNKNOWN_CAUSE.search(f"{message.get('subject') or ''}\n{message.get('body') or ''}"):
+            return f"its report {message['id']} says the cause is UNKNOWN"
+        launched = actions.parse_stamp(launch.verification_receipt["at"])
+        marks = [(record["at"], f"#{record['seq']}", record["text"]) for record in self.lane_records(lane, "mechanism", *TEXT_MARK_KINDS) if clock_mark(record) == "mechanism"]
+        statuses = self.book.load(lane_container(lane)).facts.get(MILESTONE_STATUSES) or {}
+        marks += [(status["at"], f"its status {msg}", path.read_text()) for msg, status in statuses.items() if status["name"] == "mechanism" and (path := self.message_file(msg)).is_file()]
+        newest = max((mark for mark in marks if actions.parse_stamp(mark[0]) >= launched), key=lambda mark: actions.parse_stamp(mark[0]), default=None)
+        return f"its mechanism {newest[1]} says the cause is UNKNOWN" if newest and UNKNOWN_CAUSE.search(newest[2]) else ""
 
     def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
         """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
@@ -1330,14 +1395,17 @@ class Runner:
         self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
         return True
 
-    def offer_case(self, lane: str, parent: str, launch: actions.Action, case: str, key: str) -> None:
-        """Past the one-generation cap, put a case lane's new case to the root as a `DECIDE` carrying the launch line that starts its lane from an attached brief."""
-        head = f"DECIDE {key} {parent}: a case lane reports a new case, past the one-generation cap: {case}"
-        brief, failure = self.case_brief(lane, parent, launch, case)
-        if brief is None:
-            self.record(f"escalation:{key}", f"{head} | no launch line: {failure}")
+    def offer_cases(self, key: str, first: str, parent: str, launch: actions.Action, cases: list[str], reason: str) -> None:
+        """Put cases to the root as one `DECIDE` that carries, for each, the launch line that starts its lane from an attached brief."""
+        if self.book.known(RUNNER, f"escalation:{key}"):
             return
-        self.record(f"escalation:{key}", f"{head} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`")
+        names = self.case_names(first)
+        offers = []
+        for case in cases:
+            lane = next(names)
+            brief, failure = self.case_brief(lane, parent, launch, case)
+            offers.append(f"{case} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`" if brief else f"{case} | no launch line: {failure}")
+        self.record(f"escalation:{key}", f"DECIDE {key} {parent}: {reason}: {'; '.join(offers)}")
 
     def opened_prs(self, lane: str, launch: actions.Action) -> str:
         """The PRs a lane's own cci `opened` records name since its launch, each once, as `#1 owner/repo#2`."""
@@ -1491,11 +1559,25 @@ class Runner:
             pending = self.book.actions(container, status="accepted")
             relays = [action for action in pending if action.kind in ("relay", "reply")]
             for action in pending:
-                if action.kind == "launch":
+                if action.kind == "launch" and not self.holds_case_launch(container, lane, action):
                     self.launch(container, lane, action)
             if relays:
                 self.deliver_relays(container, lane, relays)
             self.reconcile_sends(container, lane)
+
+    def holds_case_launch(self, container: str, lane: str, action: actions.Action) -> bool:
+        """Fail a pending case lane launch once its incident has ended, and say whether the launch must wait: failed, or left for the next pass when cci cannot be read."""
+        if not action.action_id.startswith(UNFIXED_KEY):
+            return False
+        try:
+            ended = self.incident_end(first_lane(lane), lane)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
+        if ended:
+            self.book.edit(container, lambda incident: incident.fail(action.action_id, f"the incident ended with {ended}"))
+            self.record(f"escalation:{container}/{action.action_id}:ended", f"WITHDRAWN {action.action_id} {lane}: the incident ended with {ended}; nothing was launched")
+        return bool(ended)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
         """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each relay no send delivered as RELAY-FAILED now."""
@@ -1844,7 +1926,6 @@ class Runner:
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
-            self.unfixed(lane, message)
         elif message["type"] == "status" and subject.lower().startswith(MILESTONE_SUBJECTS):
             kind = subject.split(":", 1)[0].upper()
             self.keep(message)

@@ -4316,7 +4316,7 @@ def incident_lines(shell: FakeShell, lane: str = LANE) -> list[str]:
     return [line for line in escalations(shell) if line.startswith(f"INCIDENT {lane} ")]
 
 
-@pytest.mark.parametrize("kind", ["ready", "fix-live", "worker_done"])
+@pytest.mark.parametrize("kind", ["ready", "fix-live"])
 def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in_the_same_pass(shell, config, tmp_path, kind):
     brief = clocked_lane(shell, config, tmp_path)
     shell.sleep(60)
@@ -4344,7 +4344,7 @@ def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in
 def test_an_unfixed_none_line_launches_nothing(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     unfixed_report(shell, LANE, "ready", "none")
-    unfixed_report(shell, LANE, "worker_done", "None.")
+    unfixed_report(shell, LANE, "fix-live", "None.")
     orca_pass(shell, config)
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
 
@@ -4358,7 +4358,7 @@ def test_a_case_reported_again_launches_nothing_new(shell, config, tmp_path):
     unfixed_report(shell, LANE, "ready", CASES[0], id=message["id"])
     orca_pass(shell, config)
     shell.dispatches["ctx_case1"]["status"] = "completed"
-    unfixed_report(shell, LANE, "worker_done", *CASES)
+    unfixed_report(shell, LANE, "fix-live", *CASES)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
     assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == list(CASES)
@@ -4369,8 +4369,8 @@ def test_a_case_reported_again_launches_nothing_new(shell, config, tmp_path):
 def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothing(shell, config, tmp_path, model, header):
     clocked_lane(shell, config, tmp_path, model=model, header=header)
     shell.launch("by-hand", "ctx_by-hand")
-    unfixed_report(shell, LANE, "worker_done", *CASES)
-    unfixed_report(shell, "by-hand", "worker_done", *CASES)
+    unfixed_report(shell, LANE, "ready", *CASES)
+    unfixed_report(shell, "by-hand", "ready", *CASES)
     orca_pass(shell, config)
     assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
 
@@ -4382,13 +4382,13 @@ def test_a_case_lanes_new_case_reaches_the_root_with_its_launch_line_and_its_own
     case = f"{LANE}-case1"
     shell.launch(case, f"ctx_{case}")
     orca_pass(shell, config)
-    message = unfixed_report(shell, case, "worker_done", *CASES)
+    message = unfixed_report(shell, case, "ready", *CASES)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, case]
     brief = shell.attachments[f"{LANE}-case2.full.md"]
     line = f"orca-desk: launch {LANE}-case2 NOW incident xhigh brief={brief}"
     assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
-        f"DECIDE unfixed:{message['id']}:2 {case}: a case lane reports a new case, past the one-generation cap: {CASES[1]} | to launch its lane, post `{line}`"
+        f"DECIDE unfixed:{message['id']} {case}: a case lane reports new cases, past the one-generation cap: {CASES[1]} | to launch its lane, post `{line}`"
     ]
     assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in brief.read_text()
     desk_inbox(tmp_path, f"R40 {line}")
@@ -4422,7 +4422,7 @@ def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_
     two_case_lanes(shell, config, tmp_path)
     desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}")
     orca_pass(shell, config)
-    unfixed_report(shell, LANE, "worker_done", "SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane")
+    unfixed_report(shell, LANE, "ready", "SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane")
     offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": f"term_ctx_{LANE}"})
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
@@ -4439,7 +4439,7 @@ def test_a_case_lane_the_root_stopped_by_hand_is_withdrawn_and_never_offered_aga
     shell.dispatches["ctx_case1"] |= {"status": "failed", "fenced": True}
     offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": "term_ctx_case1"})
     orca_pass(shell, config)
-    unfixed_report(shell, f"{LANE}-case1", "worker_done", "a third case", from_handle="term_ctx_case1")
+    unfixed_report(shell, f"{LANE}-case1", "ready", "a third case", from_handle="term_ctx_case1")
     orca_pass(shell, config)
     assert not [call for call in shell.calls if call[0] == "claude"] and not [line for line in escalations(shell) if line.startswith("DECIDE ")]
     assert f"WITHDRAWN {offer['id']} {LANE}-case1: withdrawn by a stop of dispatch ctx_case1, so it is not dispatched again and its question needs no answer: {offer['subject']}" in escalations(shell)
@@ -4483,10 +4483,85 @@ def test_a_case_lane_whose_brief_fails_to_attach_is_named_and_launches_on_the_ne
     assert len(launches(shell)) == 1 and "unfixed-cases" not in incident(tmp_path, f"desk-lane-{LANE}").facts
     assert incident_lines(shell) == [f"INCIDENT {LANE} 11:00: its fix does not cover: {CASES[0]} | case lane {LANE}-case1 not launched: the brief did not attach: error: cc-notes: ref lock held"]
     shell.attach_error = ""
-    unfixed_report(shell, LANE, "worker_done", CASES[0])
+    unfixed_report(shell, LANE, "fix-live", CASES[0])
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1"]
     assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == [CASES[0]]
+
+
+def test_a_worker_done_that_lists_unfixed_cases_launches_no_case_lane(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    unfixed_report(shell, LANE, "worker_done", *CASES)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+    assert not [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))]
+
+
+@pytest.mark.parametrize(
+    ("lane", "kind", "to"),
+    [(LANE, "not-ours", []), (LANE, "stand-down", []), (f"{LANE}-opus", "not-ours", []), ("root", "stand-down", [LANE]), (LANE, "stopped", [])],
+)
+def test_a_report_after_its_incident_ended_launches_no_case_lane_and_tells_the_root_once(shell, config, tmp_path, lane, kind, to):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(60)
+    seq = cci_record(shell, lane=lane, kind=kind, text=f"{kind.upper()} {LANE}", to=to, at=actions.stamp(shell.clock))
+    shell.sleep(60)
+    unfixed_report(shell, LANE, "ready", *CASES)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+    assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
+        f"UNFIXED {LANE} 11:02: {CASES[0]}; {CASES[1]} | no case lane launched: the incident ended with #{seq} {kind.upper()} {lane}"
+    ]
+
+
+def test_a_stopped_posted_after_the_report_leaves_its_case_lanes_launching(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    unfixed_report(shell, LANE, "ready", *CASES)
+    shell.sleep(60)
+    lane_record(shell, LANE, "stopped")
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
+
+
+def test_a_case_launch_still_pending_when_the_root_stands_the_incident_down_never_starts(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    message = unfixed_report(shell, LANE, "ready", CASES[0])
+    runner.check()
+    assert incident(tmp_path, f"desk-lane-{LANE}-case1").actions[f"unfixed:{message['id']}:1"].status == "accepted"
+    seq = cci_record(shell, lane="root", kind="stand-down", text=f"stand-down {LANE}-case1", to=[f"{LANE}-case1"], at=actions.stamp(shell.clock))
+    runner.deliver()
+    runner.flush()
+    assert len(launches(shell)) == 1
+    assert incident(tmp_path, f"desk-lane-{LANE}-case1").actions[f"unfixed:{message['id']}:1"].status == "failed"
+    assert [line for line in escalations(shell) if line.startswith("WITHDRAWN ")] == [
+        f"WITHDRAWN unfixed:{message['id']}:1 {LANE}-case1: the incident ended with #{seq} STAND-DOWN root; nothing was launched"
+    ]
+
+
+def test_an_incident_launches_two_case_lanes_and_puts_the_rest_to_the_root_in_one_decide(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    cases = [f"RayID a4b65fb{n} POST /api/dd/metrics" for n in range(5)]
+    message = unfixed_report(shell, LANE, "ready", *cases)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == cases[:2]
+    offers = [f"{case} | to launch its lane, post `orca-desk: launch {LANE}-case{n} NOW incident xhigh brief={shell.attachments[f'{LANE}-case{n}.full.md']}`" for n, case in zip((3, 4, 5), cases[2:], strict=True)]
+    assert [line for line in escalations(shell) if line.startswith("DECIDE ")] == [f"DECIDE unfixed:{message['id']} {LANE}: past the cap of 2 case lanes per incident: {'; '.join(offers)}"]
+
+
+@pytest.mark.parametrize("where", ["report", "mechanism"])
+def test_a_lane_that_says_its_cause_is_unknown_launches_no_case_lane_without_the_root(shell, config, tmp_path, where):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(60)
+    if where == "mechanism":
+        lane_record(shell, LANE, "mechanism", f"MECHANISM {LANE}: UNKNOWN transport cause; ten 305 s 524s")
+    message = unfixed_report(shell, LANE, "ready", CASES[0], *(["RayID a4b65fe5 GET /api/desktop-releases; original 524 transport cause UNKNOWN"] if where == "report" else []))
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and incident_lines(shell) == []
+    source = f"its report {message['id']}" if where == "report" else f"its mechanism #{shell.records[-1]['seq']}"
+    [line] = [line for line in escalations(shell) if line.startswith("DECIDE ")]
+    assert line.startswith(f"DECIDE unfixed:{message['id']} {LANE}: {source} says the cause is UNKNOWN, so no case lane launches until the root ratifies it: {CASES[0]} | to launch its lane, post `orca-desk: launch {LANE}-case1 NOW incident xhigh brief=")
 
 
 def test_a_ready_status_from_the_run_escalates_and_stops_the_clock(shell, config, tmp_path):

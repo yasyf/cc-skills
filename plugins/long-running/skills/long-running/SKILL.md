@@ -579,21 +579,28 @@ fail before the fix, pass on the build that carries the fix, and pass again on t
 released build before `fix-live`. A fix proven only on a synthetic or neighbouring
 case is not ready, and the root never tells a reporter "fixed" on one.
 
-The lane closes its ready report and its `worker_done` with one
+The lane closes its `ready:` and `fix-live:` statuses with one
 `UNFIXED <lane>: <case>` line per known case the fix does not cover, or
-`UNFIXED <lane>: none`. For each case the runner launches `<first>-case<n>` on
-incident xhigh in the same pass, where `<first>` is the first fix lane of the
-incident, on a brief filled from `reference/unfixed-case-brief.md`. It logs the
-launch as `INCIDENT <lane> …: its fix does not cover: <case> | case lane
-<first>-case<n> launching …`. A case launches once, whether the fix lane or its
-`-opus` fallback reports it. Case lanes are one generation. A new case from a case
-lane launches nothing; it reaches the root as a `DECIDE` that carries the ready
-`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line, so the
-root starts the lane by posting it. A case lane echoing its own case launches
-nothing. A new case from a lane the root withdrew reaches the root as
-`UNFIXED <lane> …: <case> | no case lane launched: …` and launches nothing. The root
-ratifies the case lane and keeps the reporter told that the case is still open. It
-never parks a named case for later while the break is live.
+`UNFIXED <lane>: none`. Only those partial-fix reports launch case lanes; a
+`worker_done`, `NOT-OURS`, or `STOPPED` launches none. For each case the runner
+launches `<first>-case<n>` on incident xhigh in the same pass, where `<first>` is the
+first fix lane of the incident, on a brief filled from
+`reference/unfixed-case-brief.md`. It logs the launch as `INCIDENT <lane> …: its fix
+does not cover: <case> | case lane <first>-case<n> launching …`. A case launches once,
+whether the fix lane or its `-opus` fallback reports it.
+
+An incident launches at most `incident.case_lanes` case lanes, two by default. The
+rest of a report's new cases reach the root as one `DECIDE` that carries a ready
+`orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>` line per case, so
+the root starts a lane by posting its line. The same `DECIDE` carries a case lane's
+new cases, since case lanes are one generation, and every case of a report whose
+lane's report or newest mechanism says `UNKNOWN`. A case lane echoing its own case
+launches nothing. A `not-ours` or `stand-down` from the fix lane or its fallback, or
+the root's `stand-down` to either, ends the incident. A later report launches nothing
+and reaches the root as `UNFIXED <lane> …: <cases> | no case lane launched: …`, and a
+case launch not yet started fails. A report from a lane the root withdrew does the
+same. The root ratifies the case lane and keeps the reporter told that the case is
+still open. It never parks a named case for later while the break is live.
 
 *Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
 neighbouring case while the reporter's own thread still failed, and two edge cases
@@ -604,6 +611,10 @@ refused the root's withdrawals of five case lanes, which carried no `R<n>`. The
 withdrawn case5 then echoed its own `UNFIXED` line, and the runner launched case6
 from it. A new case still reaches the root with its launch line ready, so the cap
 drops none (fidelity F340).*
+
+*The per-incident cap, the end, and the `UNKNOWN` gate come from 3:43 AM Oct 16. A
+fix lane posted `NOT-OURS` after the root's stand-down, and its `worker_done` listed
+ten original 524s as `UNFIXED`; the runner launched ten case lanes from it.*
 
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
