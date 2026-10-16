@@ -6,8 +6,8 @@
 Reads the first markdown table under a ``Step`` header in the cc-notes doc ``--doc``,
 the owner table the root keeps current. ``--repo`` is the checkout both ``ccn`` and
 ``ccx`` run in. Only PRs are written ``#N`` in that table; each is read in
-one ``ccx vcs pr status --json`` call. A row whose PRs have all landed reads ``landed``
-unless the doc already says ``live`` or ``done``, and every other row with PRs gets
+one ``ccx vcs pr status --json`` call. A ``live`` or ``done`` row keeps its state, a
+row whose PRs have all landed reads ``landed``, and every other row with PRs gets
 its PR verdicts counted after its state. With ``--retro-log``, the newest entry of
 that cc-notes log tagged ``[step <n>]`` is appended to step ``<n>``'s last column,
 where ``<n>`` is the Step cell's text before its first dot. The table is written
@@ -75,10 +75,10 @@ def latest_retro(entries: list[dict]) -> dict[str, tuple[str, str]]:
 
 
 def refreshed_state(state: str, verdicts: list[str]) -> str:
-    if not verdicts:
+    if not verdicts or state.lower() in SETTLED:
         return state
     counts = Counter(verdict.split(":")[0] for verdict in verdicts)
-    if counts["landed"] == len(verdicts) and state.lower() not in SETTLED:
+    if counts["landed"] == len(verdicts):
         return "landed"
     return f"{state}, PRs: " + ", ".join(f"{count} {verdict}" for verdict, count in sorted(counts.items()))
 
