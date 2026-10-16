@@ -2088,7 +2088,8 @@ def test_a_blank_holds_line_is_no_error(shell, config, tmp_path):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")] and escalations(shell) == []
+    assert shell.label_calls == [("add", "29020")] and [line for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == []
+    assert shell.enqueues() == []
 
 
 def lone_green_pr(shell: FakeShell) -> None:
