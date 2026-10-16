@@ -632,7 +632,12 @@ names the head it graded in every record, as in `fidelity: ok F307 at 9c0b891`.
 Without an ok the runner enqueues nothing from the prefix and posts one cci
 `blocker` per head and grade to the PR's lane and the fidelity lane. It checks
 again just before the enqueue call and completes the action as `blocked` when
-the ok is gone. `landing.fidelity_lane` names the lane, default `fidelity-desk`.
+the ok is gone. `landing.fidelity_lane` names the lane, default `fidelity-desk`. It
+also takes a list of lane names, `"fidelity_lane": ["fidelity-desk-6", "fidelity-desk-7"]`,
+for a drive that shards grading: a grade from any listed lane counts, the newest
+across them decides, and a blocker goes to the PR's lane and every listed lane. A
+head no listed lane has graded also passes when its `fidelity` commit status reads
+`success`, and the mirror then leaves that status alone.
 
 Each pass also mirrors the newest grade of every open row's head into that
 head's `fidelity` commit status: `success` for `fidelity: ok`, `failure` for

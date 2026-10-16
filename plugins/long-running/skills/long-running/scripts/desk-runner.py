@@ -194,8 +194,9 @@ the label mirror for that pass. The action book records each label the runner ad
 so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
 A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
-the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
-`fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`.
+a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, default `fidelity-desk`) about that PR whose text starts
+`fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`; a head no fidelity lane has graded
+also passes when its `fidelity` commit status reads `success`, and the status mirror leaves such a head's status alone.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. On every pass the runner also mirrors the newest grade
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
@@ -2422,7 +2423,9 @@ class Landing:
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
-        self.fidelity_lane = config.get("fidelity_lane", FIDELITY_LANE)
+        configured = config.get("fidelity_lane", FIDELITY_LANE)
+        self.fidelity_lanes = [configured] if isinstance(configured, str) else list(configured)
+        self.fidelity_names = " or ".join(self.fidelity_lanes)
         self.unlabeled: set[str] = set()
         self.book.ensure(LANDING, LANDING)
 
@@ -2527,28 +2530,42 @@ class Landing:
 
     def fidelity(self, pr: str, sha: str) -> dict | None:
         drive = self.runner.config.drive
-        reviews = cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", self.fidelity_lane, "--pr", pr)
+        reviews = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane, "--pr", pr)]
         grades = [
             record
             for record in reviews
-            if (record["kind"], record["lane"], record["drive"]) == ("review", self.fidelity_lane, drive)
+            if record["kind"] == "review"
+            and record["drive"] == drive
+            and record["lane"] in self.fidelity_lanes
             and record["text"].startswith(FIDELITY_GRADES)
             and sha
             and any(sha.startswith(named) or named.startswith(sha) for named in SHORT_SHA.findall(record["text"]))
         ]
         return max(grades, key=lambda record: record["seq"], default=None)
 
+    def status_success(self, pr: str, sha: str) -> bool:
+        done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
+        if done.code != 0:
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            self.runner.escalate(f"status-read:{pr}:{sha}", "STATUS-READ-FAILED", f"#{pr}", f"GitHub refused the combined status of {sha}: {last[0]}; the runner reads it again on the next pass")
+            return False
+        return any(status["context"] == FIDELITY_STATUS and status["state"] == "success" for status in json.loads(done.out)["statuses"])
+
     def ungraded(self, heads: dict[str, str]) -> dict[str, dict | None]:
         grades = {pr: self.fidelity(pr, sha) for pr, sha in heads.items()}
-        return {pr: grade for pr, grade in grades.items() if not (grade and grade["text"].startswith(FIDELITY_OK))}
+        return {
+            pr: grade
+            for pr, grade in grades.items()
+            if not (grade and grade["text"].startswith(FIDELITY_OK)) and not (grade is None and self.status_success(pr, heads[pr]))
+        }
 
     def refuse_ungraded(self, heads: dict[str, str], ungraded: dict[str, dict | None], rows: dict[str, dict]) -> None:
         for pr, grade in ungraded.items():
             key = f"fidelity:{pr}:{heads[pr]}:{grade['seq'] if grade else 'ungraded'}"
             if self.book.known(LANDING, key):
                 continue
-            why = f"{self.fidelity_lane} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_lane} starting `{FIDELITY_OK}` names this head"
-            to = ",".join(filter(None, [rows[pr].get("lane"), self.fidelity_lane]))
+            why = f"{grade['lane']} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head, and its `{FIDELITY_STATUS}` status is not success"
+            to = ",".join(filter(None, [rows[pr].get("lane"), *self.fidelity_lanes]))
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
@@ -2573,9 +2590,11 @@ class Landing:
                 description = f"cci #{grade['seq']} {grade['text'].splitlines()[0]}"
             else:
                 key, source, state = f"status:{pr}:{head}:ungraded", "ungraded", "pending"
-                description = f"awaiting {self.fidelity_lane}'s grade of this head"
+                description = f"awaiting {self.fidelity_names}'s grade of this head"
             known = self.book.known(LANDING, key)
             if (known and known.status != "accepted") or (pr, head) in posted and posted[(pr, head)][2] == state:
+                continue
+            if not grade and self.status_success(pr, head):
                 continue
             due.append((known is not None, pr, head, key, source, state, description))
         for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0])[:MIRROR_WRITES]:
@@ -2673,7 +2692,7 @@ class Landing:
             return
         if ungraded := self.ungraded(enqueued_heads(key)):
             self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_lane} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_names} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
         done = self.shell.run(self.enqueue_argv(tops, check=False))
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
