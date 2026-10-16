@@ -73,8 +73,8 @@ def test_an_incident_pair_posts_addressed_launch_lines_under_the_next_keys_and_p
     posts = [call for call in drive.calls if call[1] == "post"]
     assert [flag(call, "--to") for call in posts] == ["orca-desk", "orca-desk"]
     lines = [flag(call, "--text") for call in posts]
-    assert lines[0].startswith("R2026 (") and lines[0].endswith(f") orca-desk: launch inc-app-origin-fix NOW incident xhigh brief={fix}")
-    assert lines[1].startswith("R2027 (") and lines[1].endswith(f") orca-desk: launch inc-app-origin-evidence NOW incident xhigh brief={evidence}")
+    assert lines[0].startswith("R2026 (") and lines[0].endswith(f") orca-desk: launch inc-app-origin-fix NOW incident xhigh role=fix brief={fix}")
+    assert lines[1].startswith("R2027 (") and lines[1].endswith(f") orca-desk: launch inc-app-origin-evidence NOW incident xhigh role=evidence brief={evidence}")
     out = capsys.readouterr().out.splitlines()
     assert "inc-app-origin-fix R2026 LAUNCHED R2026 inc-app-origin-fix: dispatch ctx_fix terminal term_fix" in out
     assert "inc-app-origin-evidence R2027 LAUNCHED R2027 inc-app-origin-evidence: dispatch ctx_ev terminal term_ev" in out

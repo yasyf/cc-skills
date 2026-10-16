@@ -66,12 +66,13 @@ A launch can also be one line in the same inbox, in this form only, one launch p
 line, with nothing after the brief path:
 
 ```text
-R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>
+R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>
 ```
 
 The runner does what `launch --key R<n>` does with the same model, effort, and
 brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
-waiting out the hold. An incident
+waiting out the hold, and `role=<role>` is `--role`, the launch's role for the incident
+clock. An incident
 fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW incident xhigh brief=<path>`;
 only `incident` runs on the fast tier, and plain `sol` is the standard tier. A line without `R<n>` takes the key
 `inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
@@ -83,7 +84,7 @@ that is not a file. A line that says `orca-desk: launch` outside the form logs
 
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
 `desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
-root: each takes the next `R<n>` past the root's newest `orca-desk:` record, posts
+root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>` past the root's newest `orca-desk:` record, posts
 with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
@@ -142,8 +143,10 @@ A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
 
 Every incident fix lane the runner launched is on a clock from its verified launch.
 A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
-line says `role=incident` or names an `incident=`. A brief that names another role,
-such as `role=evidence`, is never clocked, and neither is `incident=none`. On each
+line says `role=incident` or names an `incident=`. A launch whose line or brief names
+another role, such as `role=evidence`, is never clocked, and neither is `incident=none`.
+`desk-launch.py incident` launches `<name>-evidence` with `role=evidence`, so an
+evidence lane gets no mechanism, PR, or ready threshold and no Opus fallback. On each
 pass the runner reads the lane's own cci records, posted as `<name>` or `<name>-fix`,
 and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
 

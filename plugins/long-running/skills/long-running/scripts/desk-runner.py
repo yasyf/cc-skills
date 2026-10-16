@@ -60,8 +60,8 @@ of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-D
 while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
-`RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
-line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
+`RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
+line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
 launch logs `LAUNCHED` with its dispatch and terminal. The runner reads each lane's
 dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-launch/<run>`,
@@ -73,7 +73,8 @@ before the `::` naming the first report's Pacific time, which the alerts desk wr
 launches `<slug>-fix` on the incident alias from the alert-fix brief.
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
-an `incident=`, unless that brief names a role other than `fix` or `incident`. Each pass
+an `incident=`, unless the launch's own role or that brief names a role other than `fix` or
+`incident`; `desk-launch.py incident` launches its evidence lane with `role=evidence`. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
 `not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `MECHANISM`
 or `READY`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses. A lane's records
@@ -323,7 +324,7 @@ ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
-LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
+LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
 INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
@@ -332,7 +333,7 @@ WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>"
 INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(?P<text>\S.*)$", re.DOTALL)
 LANE_LIST = re.compile(r", (?:and )?| and ")
-LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
+LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+)(?: role=(?P<role>[\w-]+))? brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (?P<what>\S.*)$")
 INCIDENT_BAR = timedelta(minutes=20)
@@ -479,9 +480,9 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
-def incident_fix(model: str, brief: Path) -> bool:
-    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a brief naming no role but fix or incident."""
-    roles = set(ROLE.findall(brief.read_text())) if brief.is_file() else set()
+def incident_fix(model: str, brief: Path, role: str) -> bool:
+    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident."""
+    roles = (set(ROLE.findall(brief.read_text())) if brief.is_file() else set()) | ({role} if role else set())
     return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
 
 
@@ -491,7 +492,7 @@ def fix_launch(incident: actions.Incident) -> actions.Action | None:
     if not launch:
         return None
     spec = json.loads(launch.target)
-    return launch if incident_fix(spec["model"], Path(spec["brief"])) else None
+    return launch if incident_fix(spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
 
 
 def first_lane(lane: str) -> str:
@@ -1163,7 +1164,7 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
-        self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
+        self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
         spec = WITHDRAW_SPEC.match(rest)
@@ -1445,9 +1446,9 @@ class Runner:
         claimed = {json.loads(reply.target)["reply_to"] for reply in self.book.actions(self.lane(lane), kind="reply") if reply.action_id != key and reply.status != "failed"}
         return next((question for question in questions if question not in claimed), "")
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False) -> tuple[actions.Action, bool]:
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "") -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast})
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast, "role": role})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -2911,6 +2912,7 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("--effort", required=True, choices=EFFORTS)
     launch.add_argument("--brief", required=True, type=Path)
     launch.add_argument("--owner-directed", action="store_true")
+    launch.add_argument("--role", default="")
     policy = verbs.add_parser("policy")
     policy.add_argument("--key", required=True)
     policy.add_argument("--landing", choices=LANDING_POLICIES, required=True)
@@ -2944,7 +2946,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":
-        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()), args.owner_directed)
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()), args.owner_directed, role=args.role)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
     posted = runner.flush()
