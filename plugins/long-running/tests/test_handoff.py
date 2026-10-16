@@ -6,9 +6,11 @@ from pathlib import Path
 
 import handoff
 import ledger
+import plans
 import progress
 import pytest
 import standing
+from ccn_plans import PLAN_ID, CcnPlans, plan, task
 
 REPO = "/repo"
 LEDGER = "1a2b3c4d" * 5
@@ -88,6 +90,7 @@ class FakeCcn(ledger.Shell):
         self.history: dict[str, list[dict]] = {}
         self.registers: list[str] = []
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
+        self.notes = CcnPlans([])
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
@@ -115,6 +118,8 @@ class FakeCcn(ledger.Shell):
         labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
         if verb == ["answer", "list"]:
             return json.dumps([a for a in self.answers if all(label in a["tags"] for label in labels)])
+        if verb[0] in ("task", "plan"):
+            return self.notes(*argv[3:])
         if verb == ["doc", "list"]:
             return json.dumps(
                 [
@@ -664,3 +669,14 @@ def test_a_narrative_the_root_edits_into_the_generated_doc_is_fresh_once_and_sta
     assert narrative == f"\n_From doc {doc[:7]}, carried forward._\n\n{edited_narrative}\n"
     assert narrative.count(dump.strip("\n")) == 1 and "\n## 10:00 PM dump 1" in narrative
     assert "## Folded narrative" not in narrative
+
+
+def test_open_tasks_end_with_the_drive_plans_done_and_open_steps(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    plans.SHOWN.clear()
+    shell = shell_with()
+    shell.notes = CcnPlans([task("a", "Ship the reader", plan=PLAN_ID, labels=("step:1",), status="done"), task("b", "Drop the column", plan=PLAN_ID, labels=("step:2",))], [plan()])
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    tasks = body.split("## Open tasks\n")[1].split("\n\n")[0].splitlines()
+    assert tasks == ["- none in progress", "- 1 pending in `TaskList`", "- Plan `fc8714e` Migration: 1 of 2 tasks done, 0 blocked; steps open: 2 0/1"]

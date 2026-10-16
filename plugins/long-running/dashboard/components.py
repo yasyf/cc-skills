@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import sys
 import threading
 from datetime import timedelta
 from pathlib import Path
 
-from livedash import Col, Context, Entry, Feed, Kv, Table, component, view
+from livedash import Col, Context, Entry, Feed, Kv, Progress, Stage, Table, component, view
 from livedash.components import boards, bus, cci, tasks
 from livedash.components import ledger as ledgers
 from livedash.components.release import overview, platy
@@ -16,6 +18,10 @@ from livedash.components.release import overview, platy
 from . import inboxlines
 
 DRIVES = Path("long-running") / "drives"
+PLANS_SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "plans.py"
+STATE_WORDS = {"done": "done", "in_progress": "in progress", "blocked": "blocked", "open": "open"}
+STATE_TONES = {"done": "ok", "in_progress": "warn", "blocked": "bad", "open": None}
+STATE_BADGES = {"done": "ok", "in_progress": "info", "blocked": "bad", "open": "muted"}
 ACTIONS_FILE = "owner-actions.json"
 OWNER_ACTIONS = {"question": "Question", "complete": "Mark complete", "reply": "Reply"}
 CCI_TEXT = 400
@@ -34,6 +40,17 @@ VERB_TONE = {"LANDED": "ok", "RELEASED": "ok", "FIX-LIVE": "ok", "HOLD": "warn",
 INBOXES: dict[str, inboxlines.Inbox] = {}
 COMPACTIONS: dict[str, tuple[int, list[dict]]] = {}
 ACTING = threading.Lock()
+
+
+def load_plans():
+    spec = importlib.util.spec_from_file_location("lr_plans", PLANS_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+PLANS = load_plans()
 
 
 def inbox(ctx: Context, state_dir: Path) -> list[dict]:
@@ -234,3 +251,27 @@ def drive(ctx: Context, *, checkout: str, sessions: list[str], state_dir: Path, 
             "started": ctx.facts.get("started_at"),
         }
     )
+
+
+@component("plan-progress", "Plan progress", question="What is done and what is left in the drive's plans?", reads=["ccn task list", "ccn task show", "ccn plan list", "ccn plan show"], every="1m", timeout="90s")
+def plan_progress(ctx: Context, *, program: str | None = None, plans: list[str] = []) -> Progress:
+    """The drive's cc-notes tasks rolled up per plan step: every task labelled `program:<program>` or hanging off a plan
+    labelled so or named in `plans`, under the plan's `### <n>. <title>` step its `step:<n>` label names. Each step shows
+    done, in-progress, blocked and open counts; each task its status, assignee, age and what it waits on."""
+    progress = PLANS.read(ctx.ccn, program, plans)
+    stages, rows = [], []
+    for plan, step in progress.steps():
+        stage = f"{plan.id[:7]}:{step.number}" if plan else step.number
+        counts = step.counts()
+        stages.append(Stage(stage, step.title, **counts, group=f"{plan.title} ({plan.id[:7]})" if plan else "Outside any plan", link=f"/ccn/{plan.id}" if plan else None))
+        for task in step.tasks:
+            rows.append({"key": task.id, "cite": f"ccn:{task.id[:8]}", "stage": stage, "title": task.title, "title_url": f"/ccn/{task.id}", "status": STATE_WORDS[task.state], "status_tone": STATE_BADGES[task.state], "owner": task.owner, "since": task.since, "waiting": task.waiting, "tone": STATE_TONES[task.state]})
+    notes = []
+    if progress.cancelled:
+        notes.append(f"{progress.cancelled} cancelled not counted.")
+    if progress.idle:
+        notes.append("No tasks registered under " + ", ".join(f"{plan['title']} ({plan['id'][:7]})" for plan in progress.idle) + ".")
+    if not stages:
+        notes.append(f"No cc-notes task carries program:{program} or hangs off a registered plan.")
+    cols = [Col("title", "Task", "link"), Col("status", "Status", "badge"), Col("owner", "Owner"), Col("since", "Age", "age"), Col("waiting", "Waiting on", phone=False)]
+    return Progress(stages, cols, rows, note=" ".join(notes) or None)

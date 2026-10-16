@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from livedash import Cell, Col, Dist, Graph, Heat, Heatmap, Line, Matrix, Node, Span, Table, Tile, Timeline, Track, payloads, registry, secrets
+from livedash import Cell, Col, Dist, Graph, Heat, Heatmap, Line, Matrix, Node, Progress, Span, Stage, Table, Tile, Timeline, Track, payloads, registry, secrets
 from livedash.server import PAGE
 
 
@@ -99,3 +99,27 @@ def test_a_timeline_and_a_heatmap_read_as_markdown():
 def test_unique_leaves_lists_of_plain_values_alone():
     heatmap = Heatmap(["infra"], ["plat"], [[Heat("ok")]]).json()
     assert payloads.unique([{"id": "grid", "pinned": False, "payload": heatmap}])[0]["payload"] == heatmap
+
+
+def test_progress_sums_its_stages_and_reads_as_markdown_per_stage():
+    progress = Progress(
+        [Stage("p:1", "1. Readers", done=2, blocked=1, group="Plan"), Stage("p:2", "2. Delete", in_progress=1, open=3, group="Plan")],
+        [Col("title", "Task"), Col("status", "Status", "badge"), Col("waiting", "Waiting on")],
+        [{"key": "a", "cite": "ccn:a", "stage": "p:1", "title": "Drop the column", "status": "blocked", "waiting": "blocked by Backfill (b2)"}, {"key": "b", "stage": "p:2", "title": "Backfill", "status": "in progress"}],
+    )
+    shown = progress.json()
+    assert shown["total"] == {"done": 2, "in_progress": 1, "blocked": 1, "open": 3}
+    assert [stage["key"] for stage in shown["stages"]] == ["p:1", "p:2"]
+    assert payloads.markdown("progress", shown) == (
+        "- Total: 2 done, 1 in progress, 1 blocked, 3 open\n"
+        "- Plan\n"
+        "  - 1. Readers: 2 done, 0 in progress, 1 blocked, 0 open\n"
+        "    - Drop the column · blocked · blocked by Backfill (b2) [ccn:a]\n"
+        "  - 2. Delete: 0 done, 1 in progress, 0 blocked, 3 open\n"
+        "    - Backfill · in progress"
+    )
+
+
+def test_progress_refuses_a_row_outside_its_stages():
+    with pytest.raises(payloads.PayloadError, match="names stage 'p:9'"):
+        Progress([Stage("p:1", "1. Readers")], [Col("title")], [{"key": "a", "stage": "p:9"}])

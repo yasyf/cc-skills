@@ -12,6 +12,7 @@ TONES = ("ok", "warn", "bad", "muted")
 COL_KINDS = ("text", "num", "age", "due", "link", "badge", "delta", "bar")
 LINE_STYLES = ("line", "area", "bar")
 GATE_STATUSES = ("open", "pass", "fail", "blocked", "waived", "not-created", "not-run")
+STAGE_COUNTS = ("done", "in_progress", "blocked", "open")
 MAX_BYTES = 256 * 1024
 SCHEMAS = Path(__file__).resolve().parents[2] / "reference" / "components"
 ROW_LISTS = ("rows", "entries")
@@ -427,6 +428,62 @@ class Heatmap:
 
 
 @dataclass(frozen=True)
+class Stage:
+    """One step of a plan: how many of its items are done, in progress, blocked and open; `group` heads a run of stages."""
+
+    id: str
+    title: str
+    done: int = 0
+    in_progress: int = 0
+    blocked: int = 0
+    open: int = 0
+    group: str | None = None
+    link: str | None = None
+
+    def counts(self) -> dict[str, int]:
+        return {name: getattr(self, name) for name in STAGE_COUNTS}
+
+
+@dataclass(frozen=True)
+class Progress:
+    """Plan stages, each a bar over its done, in-progress, blocked and open counts with the rows whose `stage` names it
+    under `cols`; the page draws the summed total above them."""
+
+    stages: list[Stage]
+    cols: list[Col]
+    rows: list[dict]
+    note: str | None = None
+
+    kind = "progress"
+
+    def __post_init__(self) -> None:
+        known = {stage.id for stage in self.stages}
+        for row in self.rows:
+            tone_of(row.get("tone"))
+            if row.get("stage") not in known:
+                raise PayloadError(f"row {row.get('key')} names stage {row.get('stage')!r}; use one of the stage ids")
+
+    def total(self) -> dict[str, int]:
+        return {name: sum(stage.counts()[name] for stage in self.stages) for name in STAGE_COUNTS}
+
+    def json(self) -> dict:
+        stages = [dropped(asdict(stage)) | stage.counts() | {"key": stage.id} for stage in self.stages]
+        return dropped({"kind": self.kind, "note": self.note}) | {"total": self.total(), "stages": stages, "cols": [asdict(col) for col in self.cols], "rows": self.rows}
+
+    @classmethod
+    def example(cls) -> Progress:
+        return cls(
+            stages=[Stage("p:1", "1. Readers first", done=1, in_progress=1, group="Migration plan"), Stage("p:2", "2. Delete the old store", blocked=1, group="Migration plan")],
+            cols=[Col("title", "Task"), Col("status", "Status", "badge"), Col("owner", "Owner"), Col("since", "Age", "age"), Col("waiting", "Waiting on")],
+            rows=[
+                {"key": "a1", "cite": "ccn:a1", "stage": "p:1", "title": "Ship the reader", "status": "done", "since": "2026-10-06T09:00:00Z", "tone": "ok"},
+                {"key": "b2", "cite": "ccn:b2", "stage": "p:1", "title": "Backfill rows", "status": "in progress", "owner": "backfill lane", "since": "2026-10-06T10:00:00Z", "waiting": "every row copied", "tone": "warn"},
+                {"key": "c3", "cite": "ccn:c3", "stage": "p:2", "title": "Drop the column", "status": "blocked", "since": "2026-10-06T11:00:00Z", "waiting": "blocked by Backfill rows (b2)", "tone": "bad"},
+            ],
+        )
+
+
+@dataclass(frozen=True)
 class Kv:
     pairs: dict[str, str | int | float | None]
 
@@ -512,6 +569,24 @@ def markdown(kind: str, payload: dict) -> str:
     return "\n\n".join(part for part in (body(kind, payload), f"_{note}_" if note else "") if part)
 
 
+def counted(counts: dict) -> str:
+    return ", ".join(f"{counts[name]} {name.replace('_', ' ')}" for name in STAGE_COUNTS)
+
+
+def progress_lines(payload: dict) -> list[str]:
+    lines, group = [f"- Total: {counted(payload['total'])}"], None
+    for stage in payload["stages"]:
+        if stage.get("group") and stage["group"] != group:
+            group = stage["group"]
+            lines.append(f"- {group}")
+        indent = "  " if stage.get("group") else ""
+        lines.append(f"{indent}- {stage['title']}: {counted(stage)}")
+        for row in (row for row in payload["rows"] if row["stage"] == stage["id"]):
+            cells = " · ".join(cell_text(row[col["key"]]) for col in payload["cols"] if row.get(col["key"]) not in (None, ""))
+            lines.append(f"{indent}  - {cells}" + (f" [{row['cite']}]" if row.get("cite") else ""))
+    return lines
+
+
 def body(kind: str, payload: dict) -> str:
     if kind == "table":
         cols = payload["cols"] + ([{"key": "cite", "label": "Cite"}] if any(row.get("cite") for row in payload["rows"]) else [])
@@ -542,6 +617,8 @@ def body(kind: str, payload: dict) -> str:
         return "\n".join(f"- {entry['at']} {entry['actor']}: {entry['text']}" + (f" ({entry['latency_ms'] / 1000:.1f}s)" if entry.get("latency_ms") is not None else "") + (f" [{entry['cite']}]" if entry.get("cite") else "") for entry in payload["entries"])
     if kind == "kv":
         return "\n".join(f"- {label}: {value}" for label, value in payload["pairs"])
+    if kind == "progress":
+        return "\n".join(progress_lines(payload))
     if kind == "timeline":
         return "\n".join(f"- {track['label']}: " + ", ".join(f"{span['label']} {span['start']}–{span.get('end') or 'now'}" for span in track["spans"]) + (f" ({track['note']})" if track.get("note") else "") for track in payload["tracks"])
     if kind == "heatmap":

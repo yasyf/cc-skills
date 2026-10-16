@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ccn_plans import PLAN_ID, PROGRAM, CcnPlans, plan, task
 from hooks import dashboard as hook
 from hooks import compaction_handoff
 from livedash import registry
@@ -278,7 +279,7 @@ def test_a_question_or_reply_needs_a_note(tmp_path):
 
 
 def test_the_lr_pack_registers_under_its_prefix():
-    assert {"lr.needs-owner", "lr.inbox-feed", "lr.compactions", "lr.watches", "lr.drive"} <= set(registry.REGISTRY)
+    assert {"lr.needs-owner", "lr.inbox-feed", "lr.compactions", "lr.watches", "lr.drive", "lr.plan-progress"} <= set(registry.REGISTRY)
     assert sorted(registry.REGISTRY["lr.needs-owner"].actions) == ["complete", "question", "reply"]
 
 
@@ -296,3 +297,36 @@ class Bus(Context):
 def test_owner_asks_are_only_those_addressed_to_the_owner_and_still_unanswered(tmp_path):
     rows = pack.owner_asks(Bus(tmp_path, {"id": "d", "cci_drive": "release-v3"}, MODIFIED, 30.0), "2026-10-06T00:00:00Z")
     assert [(row["cite"], row["kind"], row["state"]) for row in rows] == [("cci:51", "ask", "sweep")]
+
+
+class Notes(Context):
+    def ccn(self, *args):
+        return self.facts["notes"](*args)
+
+
+def test_plan_progress_draws_one_stage_per_plan_step_with_its_tasks(tmp_path):
+    pack.PLANS.SHOWN.clear()
+    notes = CcnPlans(
+        [
+            task("a", "Ship the reader", plan=PLAN_ID, labels=("step:1",), status="done", closed_at="2026-10-02T00:00:00Z"),
+            task("b", "Drop the column", plan=PLAN_ID, labels=("step:2",), blocked_by=["c" * 40], assignee="Yasyf <y@x>"),
+            task("c", "Backfill rows", status="in_progress"),
+            task("d", "Dropped", status="cancelled"),
+        ],
+        [plan()],
+    )
+
+    shown = pack.plan_progress(Notes(tmp_path, {"id": "d", "notes": notes}, MODIFIED, 30.0), program=PROGRAM).json()
+
+    assert shown["total"] == {"done": 1, "in_progress": 1, "blocked": 1, "open": 0}
+    assert [(stage["id"], stage["title"], stage.get("group")) for stage in shown["stages"]] == [
+        ("fc8714e:1", "1. Readers first", "Migration (fc8714e)"),
+        ("fc8714e:2", "2. Delete the old store", "Migration (fc8714e)"),
+        ("unassigned", "Unassigned", "Outside any plan"),
+    ]
+    assert [(row["stage"], row["title"], row["status"], row.get("owner"), row.get("waiting")) for row in shown["rows"]] == [
+        ("fc8714e:1", "Ship the reader", "done", None, None),
+        ("fc8714e:2", "Drop the column", "blocked", "Yasyf", f"blocked by Backfill rows ({'c' * 7})"),
+        ("unassigned", "Backfill rows", "in progress", None, None),
+    ]
+    assert shown["note"] == "1 cancelled not counted."

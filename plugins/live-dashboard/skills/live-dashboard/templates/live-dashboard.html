@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/live-dashboard.html + 5 partials sha256:36c176941af3 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/live-dashboard.html + 5 partials sha256:3d7a3a26662c — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -173,7 +173,18 @@ a > .heat:hover { outline:2px solid var(--fg); outline-offset:-2px; }
 .chip.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 .fold-top { display:flex; align-items:center; gap:var(--s3); }
 .tone-bar { display:flex; gap:2px; height:6px; border-radius:3px; overflow:hidden; margin:var(--s2) 0; }
-.tone-bar i[data-tone=ok] { background:var(--ok); } .tone-bar i[data-tone=warn] { background:var(--warn); } .tone-bar i[data-tone=bad] { background:var(--bad); } .tone-bar i[data-tone=muted] { background:var(--idle); }
+.tone-bar i[data-tone=ok] { background:var(--ok); } .tone-bar i[data-tone=warn] { background:var(--warn); } .tone-bar i[data-tone=bad] { background:var(--bad); } .tone-bar i[data-tone=muted] { background:var(--idle); } .tone-bar i[data-tone=info] { background:var(--info); }
+.progress-total { display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s2); }
+.progress-total .tone-bar { flex:1; height:10px; }
+.stage-bar { margin:0; background:var(--idle-soft); }
+.stage-group { margin-top:var(--s3); padding-bottom:4px; font-weight:620; color:var(--muted); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.6px; }
+.stage { border-top:1px solid var(--line); }
+.stage-head { display:grid; grid-template-columns:minmax(0,1fr) minmax(80px,160px) 88px; gap:var(--s3); align-items:center; width:100%; padding:8px 0; background:none; border:0; color:var(--fg); font:inherit; font-size:var(--t-sm); text-align:left; cursor:pointer; }
+.stage-head span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stage-head span:first-child::before { content:"▸ "; color:var(--muted); }
+.stage.open .stage-head span:first-child::before { content:"▾ "; }
+.stage-counts { color:var(--muted); font-size:var(--t-xs); white-space:nowrap; text-align:right; }
+.stage-body { padding:0 0 var(--s2) 14px; }
 .fold-note { margin:0; font-size:var(--t-xs); color:var(--muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .card.unfolded { grid-column:1 / -1; }
 .fold-count { font-size:var(--t-xl); font-weight:650; }
@@ -1158,14 +1169,31 @@ function renderFeed(card,p){
  const entries=p.entries.filter(e=>matches(rowText(e)));
  return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(entries.length?`<ul class="feed">${entries.map(e=>`<li class="entry ${rowClass(card,e)}"${e.tone?` data-tone="${esc(e.tone)}"`:""}><span class="when" title="${esc(pt(e.at))}">${esc(e.at?ago(e.at):"")}${e.latency_ms!=null?`<br>${pill("+"+seconds(e.latency_ms),"info")}`:""}</span><span class="text"><span class="who">${esc(e.actor)}</span>${linkify(e.text)} ${e.link?ext(e.link,"↗"):""}</span></li>`).join("")}</ul>`:(p.note?"":`<p class="empty">No entries yet</p>`));
 }
+const STAGE_PARTS=[["done","ok","done"],["in_progress","info","in progress"],["blocked","bad","blocked"],["open","muted","open"]];
+const stageSum=c=>STAGE_PARTS.reduce((n,[k])=>n+(c[k]||0),0);
+const stageWords=c=>STAGE_PARTS.filter(([k])=>c[k]).map(([k,,word])=>`${c[k]} ${word}`).join(" · ")||"no tasks";
+const stageBar=c=>`<div class="tone-bar stage-bar" data-tip="${esc(stageWords(c))}">${STAGE_PARTS.filter(([k])=>c[k]).map(([k,tone])=>`<i data-tone="${tone}" style="flex:${c[k]}"></i>`).join("")}</div>`;
+const progressHead=p=>`<div class="progress-total"><span class="fold-count">${p.total.done}/${stageSum(p.total)}</span>${stageBar(p.total)}<span class="stage-counts">${esc(stageWords(p.total))}</span></div>`;
+function renderProgress(card,p){
+ let group=null,out=progressHead(p)+(p.note?`<p class="note">${linkify(p.note)}</p>`:"");
+ p.stages.forEach(stage=>{
+  const rows=p.rows.filter(row=>row.stage===stage.id),hits=rows.filter(row=>matches(rowText(row)));
+  if(state.query&&!hits.length&&!matches(stage.title))return;
+  if(stage.group&&stage.group!==group){group=stage.group;out+=`<div class="stage-group">${stage.link?ext(stage.link,esc(group)):esc(group)}</div>`}
+  const open=state.openRows.has(`${card.id}:stage:${stage.id}`)||(!!state.query&&hits.length>0),n=stageSum(stage);
+  out+=`<div class="stage${open?" open":""}"><button type="button" class="stage-head" data-stage="${esc(stage.id)}" aria-expanded="${open}"><span title="${esc(stage.title)}">${esc(stage.title)}</span>${stageBar(stage)}<span class="stage-counts">${n?`${stage.done}/${n} done`:"no tasks"}</span></button>${open?`<div class="stage-body">${renderTable(card,{cols:p.cols,rows})}</div>`:""}</div>`;
+ });
+ return out;
+}
 function renderKv(card,p){return `<dl class="kv">${p.pairs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${linkify(v??"")}</dd>`).join("")}</dl>`}
 function renderSvg(card,p){const wrap=el("div","svgwrap"),svg=safeSvg(p.svg);if(svg)wrap.append(svg);else wrap.textContent="The SVG did not parse.";return wrap}
-const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg,timeline:renderTimeline,heatmap:renderHeatmap};
+const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg,timeline:renderTimeline,heatmap:renderHeatmap,progress:renderProgress};
 const CADENCE_SECONDS={"15s":15,"30s":30,"1m":60,"2m":120,"5m":300,"15m":900};
 const staleSince=card=>new Date(new Date(card.as_of).getTime()+2000*(CADENCE_SECONDS[card.every]||0)).toISOString();
 const STATUS_TONE={ok:"ok",pending:"muted",stale:"warn",error:"bad",hung:"bad"};
 const ITEM_LISTS=["rows","entries","items","tracks","tiles"];
 function foldSummary(card){
+ if(card.kind==="progress")return progressHead(card.payload)+`<div class="fold-top"><span class="fold-pills">${esc(`${card.payload.stages.length} steps`)}</span><button type="button" class="fold-toggle" data-fold="${esc(card.id)}">Show steps</button></div>`+(card.payload.note?`<p class="fold-note">${linkify(card.payload.note)}</p>`:"");
  const p=card.payload,items=ITEM_LISTS.map(k=>p[k]).find(Array.isArray)||[];
  const tones={};items.forEach(i=>{if(i.tone)tones[i.tone]=(tones[i.tone]||0)+1});
  const words={bad:"need action",warn:"waiting",ok:"fine",muted:"quiet"};
@@ -1268,6 +1296,8 @@ document.addEventListener("click",async e=>{
  if(chip){state.chips[chip.dataset.card]=chip.dataset.chip||undefined;render();return}
  const goto=t.closest("[data-jump-card]");
  if(goto){e.preventDefault();const id=goto.dataset.jumpCard;state.openCards.add(id);render();const n=document.getElementById("card-"+id);if(n){n.closest("details")?.setAttribute("open","");n.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"})}return}
+ const stage=t.closest("[data-stage]");
+ if(stage&&node){const k=`${node.dataset.card}:stage:${stage.dataset.stage}`;state.openRows.has(k)?state.openRows.delete(k):state.openRows.add(k);render();return}
  const fold=t.closest("[data-more-toggle]");
  if(fold&&node){const k=`${node.dataset.card}:${fold.closest("tr").dataset.row}`;state.openRows.has(k)?state.openRows.delete(k):state.openRows.add(k);render();return}
  const act=t.closest("[data-act]");
