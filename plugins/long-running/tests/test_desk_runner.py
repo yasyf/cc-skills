@@ -2051,6 +2051,21 @@ def test_the_mirror_does_not_overwrite_a_success_status_with_pending(shell, conf
     assert shell.head_statuses == []
 
 
+@pytest.mark.parametrize("state", ["success", "failure"])
+def test_a_fidelity_status_the_lane_sets_during_a_pass_is_never_overwritten_with_pending(shell, config, tmp_path, state):
+    prs = five_held_rows(shell, tmp_path)
+    run = shell.run
+
+    def lane_grades_the_second_head_mid_pass(argv, stdin=None, env=None):
+        if argv[:3] == ["gh", "api", f"repos/Forge-AI/monorepo/statuses/{prs[0]}abcd"]:
+            shell.combined_statuses[f"{prs[1]}abcd"] = [{"context": "fidelity", "state": state}]
+        return run(argv, stdin, env)
+
+    shell.run = lane_grades_the_second_head_mid_pass
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [(f"{pr}abcd", "pending") for pr in (prs[0], prs[2], prs[3])]
+
+
 def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shell, config, tmp_path):
     lone_green_pr(shell)
     shell.status_read_error = "gh: API rate limit exceeded (HTTP 403)"

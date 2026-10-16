@@ -1186,11 +1186,14 @@ status `fidelity` on each open row's head the fidelity lane graded: `success`
 for `fidelity: ok`, `failure` for `fidelity: missing`, described by the grade's
 first line and its cci seq, once per grade record. A head with no grade reads
 `pending`, "awaiting <fidelity lane>'s grade of this head", until the lane
-grades it. The required `landing-gates` check reads that status and holds a head
-whose `fidelity` is not `success`, whoever enqueues it, so the grade binds a hand
-run, `gt merge`, and another drive's desk as well, and a head pushed after its
-grade waits for its own. A `failure` shows as a red check on the PR; the fidelity
-lane grades a head whatever that check reads and never waits on it.
+grades it. The runner reads the head's statuses just before posting `pending`
+and posts nothing when a `fidelity` status is already there, so a grade the lane
+set on the head directly is never overwritten. The required `landing-gates`
+check reads that status and holds a head whose `fidelity` is not `success`,
+whoever enqueues it, so the grade binds a hand run, `gt merge`, and another
+drive's desk as well, and a head pushed after its grade waits for its own. A
+`failure` shows as a red check on the PR; the fidelity lane grades a head
+whatever that check reads and never waits on it.
 
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
 monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
