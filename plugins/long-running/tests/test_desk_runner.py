@@ -4796,7 +4796,7 @@ def test_an_incident_another_owner_holds_launches_no_lane_and_posts_one_state_li
     [
         {"kind": "done", "text": "Handed off", "resolves": 1},
         {"kind": "stopped", "text": "STAND DOWN other-fix", "to": ["other-fix"]},
-        {"kind": "stopped", "lane": "dd-7-fix", "text": "stopped", "to": ["root"]},
+        {"kind": "stopped", "lane": "dd-7-fix", "text": "stopped", "to": ["root"], "at": "2026-01-01T00:00:00Z"},
         {"kind": "answer", "drive": "release-v3", "text": "release-v3 owns incident dd-8", "to": ["root@d1"]},
         {"kind": "answer", "drive": "release-v3", "text": "release-v3 owns incident dd-7", "to": ["root@other"]},
         {"kind": "answer", "text": "d1 owns incident dd-7", "to": ["root@d1"]},
