@@ -1207,8 +1207,10 @@ ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
 and runs independent enqueues in parallel. It permits another attempt for the
 same heads only when earlier attempts are proven to have enqueued nothing, or
 when `ccx vcs pr status` reads a believed-queued PR `not queued` or `evicted` at
-the head it admitted. A drop whose Merge activity comment names a conflict or a
-red check goes to the lane as a blocker instead; any other drop is gated again.
+the head it admitted. A drop whose Merge activity comment names a merge
+conflict goes to the lane as a blocker instead; any other drop is gated again.
+`stack-enqueue` then re-enqueues a head a batch-mate's red check or downstack
+failure ejected, and blocks a head its own red check ejected until a new head.
 A PR's lane, for every blocker and restack the runner routes, is the poster
 of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, else
 the lane that registered its ledger row; a cci blocker also goes to the root

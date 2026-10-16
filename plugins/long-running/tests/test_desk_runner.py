@@ -2690,7 +2690,15 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"]
 
 
-def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(shell, config, tmp_path):
+OWN_RED = (
+    "#29016 BLOCKED bbbb222222 ejected from the merge queue Oct 13, 1:06 AM UTC because Failed CI (test-unit), and no head was pushed since; "
+    "test-unit reads failure on this head, so the red check is its own; "
+    "read the failure on draft #39356 and push the fix as a new head before enqueueing again"
+)
+
+
+def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tmp_path):
+    shell.launch("artifact-retry", "ctx_a")
     shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
     shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
     grade_gated_heads_ok(shell)
@@ -2698,11 +2706,12 @@ def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(s
     landing_pass(shell, config)
     shell.queue["29016"] = "not queued"
     shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to Failed CI (test-unit).\n"
-    shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", "#29016 GREEN bbbb222222 graphite READY", would="#29016")]
+    shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", OWN_RED)]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
-    assert len([post for post in shell.posts if post["kind"] == "blocker"]) == 1
+    assert len(shell.enqueues()) == 1 and blockers(shell) == []
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["dropped"]
+    assert relayed(shell) == [f"#29016 bbbb222222: {OWN_RED.removeprefix('#29016 BLOCKED bbbb222222 ')}"]
     shell.rows[1] |= {"head": "bbbb333333", "reported_head": "bbbb333333"}
     shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", "#29016 GREEN bbbb333333 graphite READY", would="#29016")]
     grade_gated_heads_ok(shell)
@@ -2761,18 +2770,36 @@ def test_a_gate_ejection_blaming_a_pr_outside_the_stack_is_never_routed(shell, c
     assert shell.sends() == [] and shell.posts == []
 
 
-def test_a_drop_blaming_a_pr_inside_the_stack_goes_to_the_lane_as_a_blocker(shell, config, tmp_path):
+def test_a_drop_blaming_a_pr_inside_the_stack_is_gated_again_and_re_enqueues_the_same_heads(shell, config, tmp_path):
     shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
     shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
-    shell.queue["29016"] = "not queued"
+    shell.queue["28997"] = shell.queue["29016"] = "not queued"
+    shell.activity["28997"] = QUEUE_ADDED
     shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to **downstack failures on PR #[28997](https://app.graphite.com/github/pr/Forge-AI/monorepo/28997)**.\n"
     landing_pass(shell, config)
-    [blocker] = blockers(shell)
-    assert blocker["topic"] == "29016" and "downstack failures on PR #[28997]" in blocker["text"]
-    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"] and escalations(shell) == []
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
+    assert sorted(action.response["outcome"] for action in enqueues_of(tmp_path).values()) == ["dropped", "enqueued"]
+
+
+def test_a_red_check_drop_its_gate_reads_as_a_batch_mates_failure_re_enqueues_the_same_head(shell, config, tmp_path):
+    shell.rows = [ONE_ROW]
+    retry = (
+        "#29020 GREEN cccc333333 graphite READY; retries the same head after its ejection Oct 16, 9:47 PM UTC because it was not satisfying all "
+        "requirements (Failed CI (buildkite/test)), with queue draft #39356: draft #39356 also held #39302 outside this stack and "
+        "buildkite/test reads success on this head"
+    )
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    shell.queue["29020"] = "not queued"
+    shell.activity["29020"] = QUEUE_ADDED + "* **Oct 16, 9:47 PM UTC**: The Graphite merge queue couldn't merge this PR because **it was not satisfying all requirements** (Failed CI (buildkite/test)).\n"
+    shell.gates["29020"] = [gate(retry, would="#29020")]
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
 
 
 def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config, tmp_path):
