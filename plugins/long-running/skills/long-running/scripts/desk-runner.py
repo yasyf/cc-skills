@@ -179,7 +179,9 @@ launch's receipts are copied beside the local ones. `run --desk landing` gates a
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
 admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
-which goes to the lane as a blocker. A gate's `BLOCKED` verdict goes to the lane once per head and blocker only for red CI,
+which goes to the lane as a blocker. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
+or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
+when `cci who` lists no live session for that lane. A gate's `BLOCKED` verdict goes to the lane once per head and blocker only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval, and never for a PR that is held or stacked above a held PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
@@ -294,6 +296,7 @@ BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 FIDELITY_LANE = "fidelity-desk"
+OWNER_KINDS = ("head", "opened", "ready", "claim")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
@@ -2674,7 +2677,8 @@ class Landing:
             if self.book.known(LANDING, key):
                 continue
             why = f"{grade['lane']} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head, and its `{FIDELITY_STATUS}` status is not success"
-            to = ",".join(filter(None, [rows[pr].get("lane"), *self.fidelity_lanes]))
+            owner = self.owner(pr, rows[pr])
+            to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
@@ -2939,7 +2943,7 @@ class Landing:
             blockers = {pr: reason for pr, reason in dropped.items() if DROP_BLOCKER.search(reason)}
             for pr, reason in blockers.items():
                 sha = enqueued_heads(key)[pr]
-                self.route(f"dropped:{pr}:{sha}:{hashlib.sha1(reason.encode()).hexdigest()[:8]}", rows[pr].get("lane", ""), f"#{pr} {sha}: the merge queue dropped it: {reason}. Fix and push; the desk enqueues the new head.", pr)
+                self.route(f"dropped:{pr}:{sha}:{hashlib.sha1(reason.encode()).hexdigest()[:8]}", self.owner(pr, rows[pr]), f"#{pr} {sha}: the merge queue dropped it: {reason}. Fix and push; the desk enqueues the new head.", pr)
             drop = {"outcome": "ejected" if blockers else "dropped", "drop": dropped, "ejected": {pr: enqueued_heads(key)[pr] for pr in blockers}, "dropped_at": self.book.stamp()}
             self.book.attempt(LANDING, lambda incident, key=key, drop=drop: setattr(incident.action(key), "response", {**incident.action(key).response, **drop}))
 
@@ -2956,17 +2960,32 @@ class Landing:
             if row.get("state", "open") != "open" or row.get("base") != landed.get("branch"):
                 continue
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
-            self.route(f"restack:{pr}:{landed_pr}", row.get("lane", ""), text, pr)
+            self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
     def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str]) -> None:
         """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
         key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
-        if self.routed(key, row.get("lane", "")) or self.has_landed(pr):
+        owner = self.owner(pr, row)
+        if self.routed(key, owner) or self.has_landed(pr):
             return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
         if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
-            self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
+            self.route(key, owner, f"#{pr} {sha}: {blocker}", pr)
+
+    def owner(self, pr: str, row: dict) -> str:
+        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, else the lane that registered its ledger row."""
+        drive = self.runner.config.drive
+        posted = cci.records(self.runner.cci_tail, drive, "--pr", pr, *(f"--kind={kind}" for kind in OWNER_KINDS))
+        claims = [record for record in posted if record["drive"] == drive and record["kind"] in OWNER_KINDS and int(pr) in record["refs"].get("prs", [])]
+        return claims[-1]["lane"] if claims else row.get("lane", "")
+
+    def reach(self, lane: str) -> list[str]:
+        """Who a blocker for `lane` goes to: the lane, and the root too when `cci who` lists no live session for it."""
+        done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
+        if done.code != 0:
+            raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+        return [lane] if done.out.strip() else [lane, ROOT]
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
@@ -2990,7 +3009,7 @@ class Landing:
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
                 self.runner.send(lane_container(lane), dispatch, relay)
         else:
-            self.post_blocker(key, lane, text, pr)
+            self.post_blocker(key, ",".join(self.reach(lane)), text, pr)
 
     def post_blocker(self, key: str, to: str, text: str, pr: str) -> None:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text}), key, None)
