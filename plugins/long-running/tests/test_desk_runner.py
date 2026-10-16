@@ -1260,7 +1260,7 @@ def test_a_pending_check_or_a_missing_approval_is_never_routed(shell, config, tm
     assert shell.sends() == [] and shell.posts == [] and escalations(shell) == []
 
 
-def test_a_conflict_beside_a_running_check_routes_once_without_the_check(shell, config, tmp_path):
+def test_a_conflict_beside_a_running_check_routes_once_per_head_without_the_check(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.rows = [ONE_ROW]
     running = gate("#29020 BLOCKED cccc333333 CI running (graphite RUNNING); conflicts with origin/dev in go/a.go")
@@ -1271,7 +1271,11 @@ def test_a_conflict_beside_a_running_check_routes_once_without_the_check(shell, 
     assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go"]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go", "#29020 cccc333333: graphite FAILING_REQUIRED; conflicts with origin/dev in go/a.go"]
+    assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go"]
+    shell.rows = [ONE_ROW | {"head": "dddd444444", "reported_head": "dddd444444"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED dddd444444 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    assert relayed(shell) == ["#29020 cccc333333: conflicts with origin/dev in go/a.go", "#29020 dddd444444: graphite FAILING_REQUIRED"]
 
 
 def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, config, tmp_path):
@@ -1301,11 +1305,30 @@ def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, con
         )
     ]
     landing_pass(shell, config)
-    assert sorted(relayed(shell)) == [
-        "#37102 aaaa111111: graphite FAILING_REQUIRED",
-        "#37103 bbbb222222: conflicts with origin/dev in go/a.go",
-    ]
+    assert relayed(shell) == ["#37102 aaaa111111: graphite FAILING_REQUIRED"]
     assert shell.label_calls == [("add", "37102"), ("remove", "37102")]
+
+
+def test_a_pr_carrying_the_hold_label_and_the_stack_above_it_get_no_blocker(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "labels": "hold"},
+        {"pr": "39050", "lane": LANE, "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+    ]
+    shell.gates["39050"] = [gate("#39007 BLOCKED aaaa111111 graphite FAILING_REQUIRED", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and escalations(shell) == [] and shell.label_calls == []
+
+
+def test_a_pr_based_on_another_open_prs_branch_gets_no_blocker(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "labels": "merge"},
+    ]
+    shell.gates["39050"] = [gate("#39007 BLOCKED aaaa111111 graphite FAILING_REQUIRED", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [(post["topic"], post["text"]) for post in blockers(shell)] == [("39007", "#39007 aaaa111111: graphite FAILING_REQUIRED")]
 
 
 def test_a_held_prefix_is_never_routed_and_its_holds_reach_github_as_the_hold_label(shell, config, tmp_path):
@@ -2357,6 +2380,71 @@ def test_an_ejected_pr_is_never_enqueued_again_at_its_head_in_a_smaller_prefix(s
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
+
+
+FOREIGN_DROP = (
+    QUEUE_ADDED
+    + "* **Oct 16, 8:04 PM UTC**: The [Graphite merge queue](https://app.graphite.com/merges?org=Forge-AI&repo=monorepo) removed this pull request"
+    + " due to **downstack failures on PR #[39016](https://app.graphite.com/github/pr/Forge-AI/monorepo/39016)**.\n"
+)
+
+
+def root_go(shell: FakeShell, text: str, at: datetime) -> None:
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": text, "at": actions.stamp(at)})
+
+
+def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_next_root_go(shell, config, tmp_path):
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    root_go(shell, "GO #29020 at cccc3333 standard", shell.now() - timedelta(minutes=5))
+    landing_pass(shell, config)
+    shell.queue["29020"] = "not queued"
+    shell.activity["29020"] = FOREIGN_DROP
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and blockers(shell) == []
+    [line] = escalations(shell)
+    assert line.startswith("AWAITS-GO awaits-go:29020:cccc333333 #29020: cccc333333: the merge queue dropped it for downstack failures on #39016, outside its stack")
+    [dropped] = enqueues_of(tmp_path).values()
+    assert (dropped.response["outcome"], dropped.response["ejected"], dropped.response["awaiting_go"]) == ("dropped", {}, {"29020": "cccc333333"})
+    shell.sleep(60)
+    root_go(shell, "GO #29021 at eeee5555 standard", shell.now())
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    root_go(shell, "GO #29020 at cccc3333 standard; a head change is not required", shell.now())
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and len(escalations(shell)) == 1
+
+
+def test_a_gate_ejection_blaming_a_pr_outside_the_stack_is_never_routed(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [
+        gate(
+            "#29020 BLOCKED cccc333333 ejected from the merge queue Oct 16, 8:04 PM UTC because downstack failures on PR "
+            "#[39016](https://app.graphite.com/github/pr/Forge-AI/monorepo/39016), and no head was pushed since; "
+            "run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
+        )
+    ]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.sends() == [] and shell.posts == []
+
+
+def test_a_drop_blaming_a_pr_inside_the_stack_goes_to_the_lane_as_a_blocker(shell, config, tmp_path):
+    shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
+    shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
+    landing_pass(shell, config)
+    shell.queue["29016"] = "not queued"
+    shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to **downstack failures on PR #[28997](https://app.graphite.com/github/pr/Forge-AI/monorepo/28997)**.\n"
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert blocker["topic"] == "29016" and "downstack failures on PR #[28997]" in blocker["text"]
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"] and escalations(shell) == []
 
 
 def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config, tmp_path):

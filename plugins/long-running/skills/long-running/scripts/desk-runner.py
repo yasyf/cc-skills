@@ -179,11 +179,14 @@ launch's receipts are copied beside the local ones. `run --desk landing` gates a
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
 admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
-which goes to the lane as a blocker. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
+which goes to the lane as a blocker. A drop for downstack failures on a PR outside the PR's own stack is the
+batch's failure: it routes no blocker, logs one `AWAITS-GO` line to root, and the same head re-enqueues once a root
+`go` record naming the PR is posted after the drop, with no new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane. A gate's `BLOCKED` verdict goes to the lane once per head and blocker only for red CI,
+when `cci who` lists no live session for that lane. A gate's `BLOCKED` verdict goes to the lane at most once per head, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
-missing approval, and never for a PR that is held or stacked above a held PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
+missing approval or an ejection blaming a PR outside its stack, never for a PR whose base is another open row's branch, and never for a
+PR that is held, carries GitHub's `hold` label, or is stacked above such a PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
@@ -306,6 +309,7 @@ STATUS_TEXT = 140
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
 DROP_BLOCKER = re.compile(r"merge conflicts?|Failed CI \(|downstack failures on PR #")
+DOWNSTACK_FAILURE = re.compile(r"downstack failures on PR #\[?(\d+)")
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_SINCE = "release-since"
@@ -2427,11 +2431,35 @@ def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
 
-def routed_blocker(detail: str) -> str:
-    segments = detail.split("; ")
+def routed_blocker(detail: str, stack: set[str]) -> str:
+    """The segments of a gate's `BLOCKED` detail a lane must act on, with their hints; an ejection blaming a PR outside `stack` is the batch's failure, not this PR's, and is left out."""
+    segments = [segment for segment in detail.split("; ") if not foreign_failure(segment, stack)]
     if not any(ROUTED_BLOCKER.match(segment) for segment in segments):
         return ""
     return "; ".join(segment for segment in segments if ROUTED_BLOCKER.match(segment) or BLOCKER_HINT.match(segment))
+
+
+def downstack(open_rows: dict[str, dict], pr: str) -> set[str]:
+    """`pr` and every open row below it, walking each base to the open row whose branch it is."""
+    by_branch = {row["branch"]: number for number, row in open_rows.items() if row.get("branch")}
+    chain: set[str] = set()
+    below: str | None = pr
+    while below is not None and below not in chain and below in open_rows:
+        chain.add(below)
+        below = by_branch.get(open_rows[below].get("base"))
+    return chain
+
+
+def foreign_failure(reason: str, stack: set[str]) -> str | None:
+    """The PR a `downstack failures on PR #<n>` reason blames when `n` is outside `stack`: the queue batched the two, and its failure is not this PR's."""
+    named = DOWNSTACK_FAILURE.search(reason)
+    return named[1] if named and named[1] not in stack else None
+
+
+def stacked(open_rows: dict[str, dict]) -> set[str]:
+    """Every open row whose base is another open row's branch, so it cannot land before that parent does."""
+    branches = {row["branch"] for row in open_rows.values() if row.get("branch")}
+    return {pr for pr, row in open_rows.items() if row.get("base") in branches}
 
 
 def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
@@ -2444,6 +2472,10 @@ def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
         if below is not None:
             covered.add(pr)
     return covered
+
+
+def names_pr(record: dict, pr: str) -> bool:
+    return int(pr) in record.get("refs", {}).get("prs", []) or re.search(rf"#{pr}\b", record["text"]) is not None
 
 
 def pr_name(pr: int | str) -> str:
@@ -2499,11 +2531,11 @@ class Landing:
         return {row["pr"]: row for row in json.loads(done.out)} if done.code == 0 else None
 
     def held(self, rows: dict[str, dict]) -> list[str] | None:
-        """Every PR the holds file, a rules-review block, or an open cci hold holds, from one read of the file, so the gate routes no blocker for it or for the PRs stacked above it; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
+        """Every PR the holds file, a rules-review block, an open cci hold, or GitHub's `hold` label holds, from one read of the file, so the gate routes no blocker for it or for the PRs stacked above it; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
         entries = holds.read(self.holds)
         if self.holds_unread(entries, rows):
             return None
-        numbers = holds.held(entries, rows) | {pr for pr, row in rows.items() if row.get("rules_blocked")}
+        numbers = holds.held(entries, rows) | {pr for pr, row in rows.items() if row.get("rules_blocked") or HOLD_LABEL in row.get("labels", "").split(",")}
         numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
@@ -2552,7 +2584,7 @@ class Landing:
             if not row.get("ours") and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
-        covered = under_hold(open_rows, held)
+        covered = under_hold(open_rows, held) | stacked(open_rows)
         waiting = under_hold(open_rows, sorted(self.unlabeled))
         trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
@@ -2568,8 +2600,10 @@ class Landing:
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
                     self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
-                elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered and (blocker := routed_blocker(match["detail"])):
-                    self.route_blocker(pr, match["sha"], blocker, rows[pr], tips)
+                elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
+                    stack = set(verdicts) | downstack(open_rows, pr)
+                    if blocker := routed_blocker(match["detail"], stack):
+                        self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack)
 
     def proven_stacks(self, tips: list[str]) -> list[tuple[list[str], Done]]:
         gated = []
@@ -2778,6 +2812,8 @@ class Landing:
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
         if any(sha and ejected.get(pr) == sha for pr, sha in enqueued_heads(base).items()):
             return
+        if self.awaiting_go(enqueues, enqueued_heads(base)):
+            return
         attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
             return
@@ -2788,6 +2824,20 @@ class Landing:
         policy = self.runner.landing_policy()
         authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), authority, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+
+    def awaiting_go(self, enqueues: list[actions.Action], heads: dict[str, str]) -> bool:
+        """Whether a head in `heads` the queue dropped for a failure outside its stack still waits for a root `go` record naming its PR, posted after the newest such drop."""
+        dropped: dict[str, datetime] = {}
+        for action in enqueues:
+            for pr, sha in (action.response or {}).get("awaiting_go", {}).items():
+                if sha and heads.get(pr) == sha:
+                    at = actions.parse_stamp(action.response["dropped_at"])
+                    dropped[pr] = max(dropped.get(pr, at), at)
+        if not dropped:
+            return False
+        drive = self.runner.config.drive
+        gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+        return any(not any(actions.parse_stamp(record["at"]) > at and names_pr(record, pr) for record in gos) for pr, at in dropped.items())
 
     def enqueue(self) -> None:
         accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
@@ -2933,7 +2983,7 @@ class Landing:
         return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get("re"), record.get("resolves")}), None)
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a conflict or a red check goes to the lane as a blocker instead."""
+        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a conflict or a red check goes to the lane as a blocker instead. A drop blaming a downstack failure on a PR outside the PR's own stack is the batch's failure: it posts no blocker, tells the root once, and the same head re-enqueues after the root's next `go` record naming the PR."""
         believed = {
             action.action_id: [pr for pr, sha in enqueued_heads(action.action_id).items() if sha and pr in rows and rows[pr].get("state", "open") == "open" and rows[pr].get("head", "").startswith(sha)]
             for action in self.book.actions(LANDING, kind="enqueue", status="completed")
@@ -2946,15 +2996,19 @@ class Landing:
         if done.code != 0:
             return
         queue = {str(entry["number"]): entry["queue"] for entry in json.loads(done.out)}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         for key, prs in believed.items():
             dropped = {pr: self.drop_reason(pr) for pr in prs if queue[pr] in OUT_OF_QUEUE}
             if not dropped or None in dropped.values():
                 continue
-            blockers = {pr: reason for pr, reason in dropped.items() if DROP_BLOCKER.search(reason)}
+            heads = enqueued_heads(key)
+            blamed = {pr: named for pr, reason in dropped.items() if (named := foreign_failure(reason, set(heads) | downstack(open_rows, pr)))}
+            blockers = {pr: reason for pr, reason in dropped.items() if pr not in blamed and DROP_BLOCKER.search(reason)}
             for pr, reason in blockers.items():
-                sha = enqueued_heads(key)[pr]
-                self.route(f"dropped:{pr}:{sha}:{hashlib.sha1(reason.encode()).hexdigest()[:8]}", self.owner(pr, rows[pr]), f"#{pr} {sha}: the merge queue dropped it: {reason}. Fix and push; the desk enqueues the new head.", pr)
-            drop = {"outcome": "ejected" if blockers else "dropped", "drop": dropped, "ejected": {pr: enqueued_heads(key)[pr] for pr in blockers}, "dropped_at": self.book.stamp()}
+                self.route(f"dropped:{pr}:{heads[pr]}:{hashlib.sha1(reason.encode()).hexdigest()[:8]}", self.owner(pr, rows[pr]), f"#{pr} {heads[pr]}: the merge queue dropped it: {reason}. Fix and push; the desk enqueues the new head.", pr)
+            for pr, named in blamed.items():
+                self.runner.escalate(f"awaits-go:{pr}:{heads[pr]}", "AWAITS-GO", f"#{pr}", f"{heads[pr]}: the merge queue dropped it for downstack failures on #{named}, outside its stack; no new head is needed, and a root `go` record naming #{pr} re-enqueues this head")
+            drop = {"outcome": "ejected" if blockers else "dropped", "drop": dropped, "ejected": {pr: heads[pr] for pr in blockers}, "awaiting_go": {pr: heads[pr] for pr in blamed}, "dropped_at": self.book.stamp()}
             self.book.attempt(LANDING, lambda incident, key=key, drop=drop: setattr(incident.action(key), "response", {**incident.action(key).response, **drop}))
 
     def drop_reason(self, pr: str) -> str | None:
@@ -2972,15 +3026,15 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
-    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str]) -> None:
-        """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
-        key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
+    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], stack: set[str]) -> None:
+        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
+        key = f"blocker:{pr}:{sha}"
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr):
             return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
-        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
+        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"], stack) == blocker:
             self.route(key, owner, f"#{pr} {sha}: {blocker}", pr)
 
     def owner(self, pr: str, row: dict) -> str:

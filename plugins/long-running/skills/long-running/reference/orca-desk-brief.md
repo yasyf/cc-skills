@@ -691,10 +691,12 @@ A landing older than the landing runner's first pass sends nothing, and neither 
 a landed row with no `landed_at`. A `merge-fast` landing whose body has no
 `Release-With:` line is read once and sends nothing.
 
-A `BLOCKED` head routes once per head and blocker only for red CI, a merge
-conflict, a changes-requested review or fidelity grade, or a queue ejection; a
-pending check, a missing approval, and a PR held or stacked above a held PR never
-route. The runner
+A `BLOCKED` head routes at most once per head, and only for red CI, a merge
+conflict, a changes-requested review or fidelity grade, or a queue ejection. A
+pending check, a missing approval, an ejection blaming a PR outside the stack, a
+PR based on another open PR's branch, and a PR held, labelled `hold`, or stacked
+above such a PR never route. A queue drop that blames a PR outside the stack
+re-enqueues the same head after the root's next `go` record naming the PR. The runner
 re-runs the gate immediately before creating the route, suppressing a blocker
 that has already cleared. Orca delivery can occur later; the gate is not re-read
 at that later send. The landing desk retains `ledger.py route` for red CI and
