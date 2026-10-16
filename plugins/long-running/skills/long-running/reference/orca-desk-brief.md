@@ -607,6 +607,9 @@ Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
 reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
 on the base, and routes restacks. It gates every tracked open stack tip in
 parallel with `stack-enqueue <tip> --check [--whole]`.
+A check or enqueue that exits 5 with no verdict and a transient network error (TLS handshake
+timeout, connection reset, DNS failure, HTTP 5xx) runs again, three attempts 20 seconds apart,
+and only the third failure posts its one `GATE-FAILED` or `ENQUEUE-FAILED`.
 
 Each exact set of prefix heads gets one enqueue action. Only attempts proven to
 have enqueued nothing permit another attempt for those heads. Accepted enqueues

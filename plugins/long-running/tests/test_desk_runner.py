@@ -1600,6 +1600,67 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     assert shell.enqueues() == []
 
 
+HANDSHAKE = "stack-enqueue failed: _ssl.c:1064: The handshake operation timed out\n"
+
+
+def single_row() -> list[dict]:
+    return [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
+
+
+def checks(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+
+
+def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_verdict(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [(5, HANDSHAKE, ""), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    started = shell.clock
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    assert len(checks(shell)) >= 2 and len(shell.enqueues()) == 1
+    assert shell.clock - started >= timedelta(seconds=runner_module.TRANSIENT_PAUSE_SECONDS)
+
+
+def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [(5, HANDSHAKE, "")]
+    landing_pass(shell, config)
+    assert len(checks(shell)) == runner_module.TRANSIENT_ATTEMPTS
+    landing_pass(shell, config)
+    lines = escalations(shell)
+    assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "handshake operation timed out" in lines[0]
+
+
+@pytest.mark.parametrize("failure", [(2, "", "usage: stack-enqueue PR [PR ...]\n"), (5, "stack-enqueue failed: Graphite pull-request-info failed: status error, message nope\n", "")])
+def test_a_check_failing_for_any_other_reason_is_never_retried(shell, config, tmp_path, failure):
+    shell.rows = single_row()
+    shell.gates["29020"] = [failure]
+    landing_pass(shell, config)
+    assert len(checks(shell)) == 1
+    assert len(escalations(shell)) == 1
+
+
+def test_an_enqueue_that_hits_a_transient_network_failure_is_retried(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    real, attempts = shell.stack_enqueue, []
+
+    def flaky(argv):
+        if "--check" in argv or "--status" in argv:
+            return real(argv)
+        attempts.append(argv)
+        return runner_module.Done(5, "stack-enqueue failed: HTTP Error 502: Bad Gateway\n", "") if len(attempts) == 1 else real(argv)
+
+    shell.stack_enqueue = flaky
+    landing_pass(shell, config)
+    assert len(attempts) == 2
+    assert escalations(shell) == []
+
+
 def test_a_gate_pass_never_runs_more_checks_at_once_than_gate_workers(shell, config, tmp_path):
     prs = [str(29100 + n) for n in range(runner_module.GATE_WORKERS * 3)]
     shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]

@@ -272,6 +272,12 @@ UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
+ENQUEUE_FAILED = 5
+TRANSIENT_FAILURE = re.compile(
+    r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d"
+)
+TRANSIENT_ATTEMPTS = 3
+TRANSIENT_PAUSE_SECONDS = 20
 INACTIVE = frozenset({"completed", "failed"})
 RECLAIM_NAMED = 10
 MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
@@ -2526,7 +2532,18 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> Done:
-        return self.shell.run(self.enqueue_argv(tips, check=True))
+        return self.enqueue_run(tips, check=True)
+
+    def enqueue_run(self, tips: list[str], check: bool) -> Done:
+        """Run stack-enqueue, repeating it after a pause while it exits with a transient network failure and no verdict; a verdict or any other failure returns at once."""
+        argv = self.enqueue_argv(tips, check)
+        for attempt in range(TRANSIENT_ATTEMPTS):
+            if attempt:
+                self.shell.sleep(TRANSIENT_PAUSE_SECONDS)
+            done = self.shell.run(argv)
+            if done.code != ENQUEUE_FAILED or VERDICT_LINE.search(done.out) or not TRANSIENT_FAILURE.search(done.err + done.out):
+                break
+        return done
 
     def fidelity(self, pr: str, sha: str) -> dict | None:
         drive = self.runner.config.drive
@@ -2684,7 +2701,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
             return
         tops = prefix_tops(prefix, rows)
-        fresh = self.shell.run(self.enqueue_argv(tops, check=True)).out
+        fresh = self.enqueue_run(tops, check=True).out
         would = WOULD_ENQUEUE.search(fresh)
         current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""
         if current != key.split("#")[0]:
@@ -2694,7 +2711,7 @@ class Landing:
             self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_names} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return
-        done = self.shell.run(self.enqueue_argv(tops, check=False))
+        done = self.enqueue_run(tops, check=False)
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
@@ -2854,7 +2871,7 @@ class Landing:
         key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
         if self.routed(key, row.get("lane", "")):
             return
-        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tips, check=True)).out)}
+        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
         if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
             self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
