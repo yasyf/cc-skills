@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -47,10 +48,39 @@ def test_a_lane_appending_through_a_shell_variable_reads_the_live_runners_heartb
     assert append(drive, tmp_path / "lane") == []
 
 
-def test_a_stale_heartbeat_names_its_last_pass_and_the_restart_it_recorded(drive, tmp_path):
-    beat(drive, datetime(2026, 10, 10, 20, 59, tzinfo=timezone.utc), os.getpid())
+def dead_pid() -> int:
+    child = subprocess.Popen(["true"])
+    child.wait()
+    return child.pid
+
+
+def test_a_dead_runner_names_its_last_pass_and_the_restart_it_recorded(drive, tmp_path):
+    beat(drive, datetime(2026, 10, 10, 20, 59, tzinfo=timezone.utc), dead_pid())
 
     [result] = append(drive, tmp_path / "lane")
 
     assert result.message.startswith("LAUNCH-FAILED: orca desk runner not running (last pass 1:59 PM)")
     assert f"\n{RESTART}\n" in result.message
+
+
+def test_a_dead_runner_with_a_fresh_heartbeat_still_reports_not_running(drive, tmp_path):
+    beat(drive, datetime.now(timezone.utc), dead_pid())
+
+    [result] = append(drive, tmp_path / "lane")
+
+    assert result.message.startswith("LAUNCH-FAILED: orca desk runner not running (last pass ")
+
+
+def test_a_live_runner_mid_pass_past_its_last_beat_is_running(drive, tmp_path):
+    beat(drive, datetime.now(timezone.utc) - timedelta(minutes=3), os.getpid())
+
+    assert append(drive, tmp_path / "lane") == []
+
+
+def test_a_live_runner_with_no_pass_past_the_command_timeout_is_wedged(drive, tmp_path):
+    beat(drive, datetime.now(timezone.utc) - timedelta(minutes=40), os.getpid())
+
+    [result] = append(drive, tmp_path / "lane")
+
+    assert result.message.startswith(f"LAUNCH-FAILED: orca desk runner pid {os.getpid()} is alive but has finished no pass in over 32 minutes")
+    assert RESTART not in result.message
