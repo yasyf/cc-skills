@@ -98,6 +98,8 @@ Import every payload from `livedash`. Tones are `ok`, `warn`, `bad`, and `muted`
 | `Span` | `label`, `start`, `end`, `tone` | No `end` means still running |
 | `Heatmap` | `rows: list[str]`, `cols: list[str]`, `cells: list[list[Heat \| None]]`, `groups`, `legend: dict[tone, label]`, `note` | Dense grid of toned squares; `None` leaves a gap |
 | `Heat` | `tone`, `title`, `link`, `text` | `title` is the hover detail, `text` a short count drawn inside |
+| `Progress` | `stages: list[Stage]`, `cols: list[Col]`, `rows: list[dict]`, `note` | A total bar, then one bar per stage that opens onto its rows; every row names its stage in `stage` |
+| `Stage` | `id`, `title`, `done`, `in_progress`, `blocked`, `open`, `group`, `link` | A run of stages sharing `group` sits under one heading, linked to the first stage's `link` |
 | `Kv` | `pairs: dict` | Definition list |
 | `Markdown` | `text` | Rendered markdown |
 | `Svg` | `svg` | A sanitized inline drawing |

@@ -1964,6 +1964,10 @@ Escalate early, do not improvise: scope surprise, an assumption the code refutes
 AskUserQuestion is unavailable; on a decision, take the brief's default, log it with
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
+Plan task: register your unit at spawn so the dashboard's Plan progress card counts it:
+  `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
+  then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
+  ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
 Worktree: <absolute path, exclusive to this lane>.
 Team mailbox: <absolute path: `<team dir>/inboxes/<lane>.json`, the team dir being the one
   `inboxes.py mailbox <any live teammate>` prints; never built from the drive id>.
@@ -2393,7 +2397,8 @@ them. The `drive` preset already lays the page out that way:
 - `lr.needs-owner` is pinned in the first section. It shows owner tasks, cci asks and
   decides addressed `--to owner`, and boards that are still asking.
 - Broken shows `release.incidents` and `open-records`.
-- In flight shows `cci-lanes`, `orca`, `tasks`, and `asks` for the owner's own asks.
+- In flight opens with `lr.plan-progress`, then `cci-lanes`, `orca`, `tasks`, and `asks`
+  for the owner's own asks.
 - Plumbing is collapsed.
 
 Before the first milestone report, the root adds the drive's own sources, such as the
@@ -2409,11 +2414,42 @@ for a cc-skills lane, never a hand edit to `layout.yaml`. Three things stay off 
 - a manual card where a source exists;
 - internal ids where a name exists.
 
-The drive's pack adds `lr.needs-owner`, `lr.inbox-feed`, `lr.drive`, `lr.compactions`,
-and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at
+The drive's pack adds `lr.needs-owner`, `lr.plan-progress`, `lr.inbox-feed`, `lr.drive`,
+`lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at
 main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
 PR's ledger row. The `dashboard-curator` desk closes only what settles in words, briefed
 from `/live-dashboard` `reference/keeping-live.md`.
+
+#### Plan progress
+
+`lr.plan-progress` shows what is done and what is left, read from cc-notes alone. A plan
+counts when it carries `program:<slug>`; a task counts when it carries that label or hangs
+off such a plan. The card draws each plan's `### <n>. <title>` headings as steps.
+
+- A task joins step `<n>` through a `step:<n>` label. Without one it joins its plan's
+  "No step label" row, and with no plan it lands under "Outside any plan".
+- Each step shows a bar of done, in progress, blocked, and open tasks. It opens onto its
+  tasks with status, assignee, age, and what each waits on.
+- A task is blocked while a `ccn task dep` blocker is unfinished or a criterion has
+  failed. Otherwise, it waits on its first unmet criterion.
+- The progress record's `## Open tasks` ends with the same counts, one line per plan.
+
+Register a unit when the lane starts:
+
+```
+ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> \
+  --criterion "<observable done-when>"
+```
+
+Then keep its state current:
+
+- `ccn task start <id>` when work begins.
+- `ccn task dep <id> <blocker>` when it waits on another task.
+- `ccn task criterion met|failed <id> <criterion>` as each check settles.
+- `ccn task done <id>` when the PR lands, or `ccn task cancel <id>` when it is dropped.
+
+The plan's step numbers are the ones its `### <n>.` headings carry. A plan with no task
+registered appears in the card's note, never as an empty plan.
 
 ### Prompt watch
 

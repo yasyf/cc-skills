@@ -15,8 +15,10 @@ where the source is ``ccn <answer id>`` or ``cci #<seq>``. Retired rules follow.
 With no register doc, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
-drive registry. Generation writes a progress doc under ``progress:<program>`` and the
-same markdown at ``<plan-stem>-progress/<UTC>-generated.md``.
+drive registry. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
+and blocked counts over the drive's cc-notes tasks and each step still open. Generation
+writes a progress doc under ``progress:<program>`` and the same markdown at
+``<plan-stem>-progress/<UTC>-generated.md``.
 
 The root's hand-written records are every ``progress:<program>`` doc the hook did not
 write, found from the active docs back along their supersede edges up to the last
@@ -71,6 +73,7 @@ from pathlib import Path
 import drive
 import inboxes
 import ledger
+import plans
 import progress
 import rulings
 import standing
@@ -127,6 +130,7 @@ class Handoff:
     retired: list[str] = field(default_factory=list)
     asks: list[str] = field(default_factory=list)
     tasks: list[dict] = field(default_factory=list)
+    plan_progress: list[str] = field(default_factory=list)
     lanes: list[dict] = field(default_factory=list)
     monitors: list[dict] = field(default_factory=list)
     inboxes: list[Inbox] = field(default_factory=list)
@@ -336,6 +340,7 @@ def render(handoff: Handoff) -> str:
     out += [f"- #{task['id']} {clip(task['subject'], TASK_CHARS)}" for task in active] or ["- none in progress"]
     if pending := len(handoff.tasks) - len(active):
         out.append(f"- {pending} pending in `TaskList`")
+    out += handoff.plan_progress
     out += ["", "## Lanes and monitors"]
     running = [task for task in handoff.monitors + handoff.lanes[::-1] if task["status"] == "running"]
     out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)}" for task in running], "running lanes")
@@ -455,6 +460,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
+    handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
     docs = active_progress(shell, args.repo, args.program)
     shown = lineage(shell, args.repo, args.program, docs)
     records = sorted((doc for doc in shown if not generated(doc["body"])), key=lambda doc: doc["created_at"])

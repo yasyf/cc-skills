@@ -7,6 +7,7 @@ sections:
       - {use: open-records, id: hygiene, title: 'Blockers, defects and holds', width: 1, fold: true}
   - title: In flight
     components:
+      - {use: lr.plan-progress, id: plan-progress, title: Plan progress, width: 3}
       - {use: cci-lanes, id: lanes, title: Lanes working now, width: 1, fold: true}
       - {use: orca, id: orca, width: 1, fold: true}
       - {use: tasks, title: Root tasks in progress, width: 1, fold: true}
