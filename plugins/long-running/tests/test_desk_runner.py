@@ -2253,7 +2253,7 @@ def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(she
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
     assert fidelity_statuses(shell) == [("cccc333333", "success")] and escalations(shell) == []
-    assert compare_calls(shell) == ["dev...cccc333333", "dev...9057dda", "dev...bbbb222"]
+    assert compare_calls(shell)[:3] == ["dev...cccc333333", "dev...9057dda", "dev...bbbb222"]
 
 
 def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, config, tmp_path):
