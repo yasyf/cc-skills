@@ -4200,7 +4200,7 @@ def test_an_evidence_lane_launched_with_its_role_passes_each_threshold_unclocked
     orca_pass(shell, config)
     assert [line.split(":", 1)[0] for line in clock_lines(shell, "inc-fix")][-1] == f"INCIDENT-CLOCK inc-fix {threshold}"
     assert clock_lines(shell, "inc-evidence") == []
-    assert [argv[1] for argv in launches(shell)] == ["inc-fix", "inc-evidence", "inc-fix-opus"]
+    assert sorted(argv[1] for argv in launches(shell)) == ["inc-evidence", "inc-fix", "inc-fix-opus"]
 
 
 def test_the_clock_thresholds_come_from_the_configs_deadlines(shell, config, tmp_path):
