@@ -213,7 +213,7 @@ class Watch:
     def __init__(self, shell: Shell, ident: str):
         self.shell = shell
         self.ident = ident
-        self.receipts: dict[tuple[Path, int, int, int, int], dict[str, str]] = {}
+        self.receipts: dict[tuple[Path, int, int, int, int, int], dict[str, str]] = {}
 
     def orca(self, *argv: str, environment: str = "", env: dict[str, str] | None = None) -> dict:
         done = self.shell.run(["orca", *argv, *(["--environment", environment] if environment else []), "--json"], env)
@@ -226,7 +226,7 @@ class Watch:
         found = {}
         for receipt in sorted((Path.home() / RECEIPTS / run).glob("*.json")):
             info = receipt.stat()
-            key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+            key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
             if named := self.receipts.get(key) or receipt_lane(receipt):
                 found[key] = named
         self.receipts = found

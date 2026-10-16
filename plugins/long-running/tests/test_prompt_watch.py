@@ -647,6 +647,14 @@ def swapped(path: Path, text: str) -> None:
     assert ((replaced.st_size, replaced.st_mtime_ns), replaced.st_ino != original.st_ino) == ((original.st_size, original.st_mtime_ns), True)
 
 
+def overwritten(path: Path, text: str) -> None:
+    original = path.stat()
+    while (rewritten := path.stat()).st_ctime_ns == original.st_ctime_ns:
+        path.write_text(text)
+        os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+    assert (rewritten.st_dev, rewritten.st_ino, rewritten.st_size, rewritten.st_mtime_ns) == (original.st_dev, original.st_ino, original.st_size, original.st_mtime_ns)
+
+
 @pytest.fixture
 def opened(monkeypatch) -> list[str]:
     names: list[str] = []
@@ -723,6 +731,17 @@ def test_a_symlinked_receipt_is_read_again_when_its_target_is_replaced(home, she
 
     first, second = watch.lanes(RUN), watch.lanes(RUN)
     swapped(target, worker_start(REMOTE))
+    third = watch.lanes(RUN)
+
+    assert (first, second, third, opened) == ({LOCAL: "bake"}, {LOCAL: "bake"}, {REMOTE: "bake"}, ["bake.json", "bake.json"])
+
+
+def test_a_receipt_rewritten_in_place_at_the_same_size_with_its_mtime_restored_is_read_again(home, shell, opened):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    bake = launched("bake", LOCAL)
+
+    first, second = watch.lanes(RUN), watch.lanes(RUN)
+    overwritten(bake, worker_start(REMOTE))
     third = watch.lanes(RUN)
 
     assert (first, second, third, opened) == ({LOCAL: "bake"}, {LOCAL: "bake"}, {REMOTE: "bake"}, ["bake.json", "bake.json"])
