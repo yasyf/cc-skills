@@ -21,22 +21,23 @@ Surface: <channel | thread | DM> — the owner's word, literal: channel = top-le
   post, thread = thread reply.
   React on the message that asks, not the thread root unless the root is the ask.
 Doing lane: <doing lane name>; result: <named disk file or bus entry>.
-CLI: run thread, react, unreact, reply, send, and whoami by path:
+Tools: the cc-slack MCP tools on your allowlist come first: slack_thread, slack_react,
+  slack_unreact, slack_reply, and slack_send, each taking the permalink as `url`.
+  Only when a tool call errors, run the same verb through the CLI by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
-  Every cc-slack command below uses that path. Lanes carry no mcp__* tools and
-  no ToolSearch.
+  Lanes carry no other mcp__* tools and no ToolSearch.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
      "React before you reply".
   2. If this brief carries <grant id> for a thread reply, run both step 6 checks on
      its text, then post it before reacting or reading:
-     `cc-slack reply --url <permalink> --text <text>`.
+     `slack_reply` with `url` <permalink> and `text` <text>.
      For a channel surface, SendMessage <root agent name> the exact draft to post.
      Report the reply's ts; then continue with the react.
   3. Add eyes within one minute on the message that asks:
-     `cc-slack react --url <permalink> --name eyes`.
-  4. Read `cc-slack thread --url <permalink>` and SendMessage <root agent name>
+     `slack_react` with `url` <permalink> and `name` eyes.
+  4. Read `slack_thread` with `url` <permalink> and SendMessage <root agent name>
      ≤5 lines: who asks, what they ask, what fixes it, and links in the thread.
      An owner link always asks the root to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
@@ -59,11 +60,11 @@ Do:
      from the owner's own words and hands back the id, or posts the approved
      AskUserQuestion Send preview itself.
   8. Post the thread reply as the cc-slack bot:
-     `cc-slack reply --url <permalink> --text <copy>`.
+     `slack_reply` with `url` <permalink> and `text` <copy>.
      Leave top-level channel posts to <root agent name>.
      Once the ask is done, swap eyes for white_check_mark:
-     `cc-slack unreact --url <permalink> --name eyes`, then
-     `cc-slack react --url <permalink> --name white_check_mark`.
+     `slack_unreact` with `url` <permalink> and `name` eyes, then
+     `slack_react` with `url` <permalink> and `name` white_check_mark.
      SendMessage <root agent name> the post's permalink and whether it commits to
      a standing behavior ("from now on", "we will", "we now", or "going forward").
 
@@ -117,7 +118,9 @@ After resolution, the retro lane completes Remediation and the owner's picks,
   supplies the URL from the skill's final RENDERED: line. The incident's step 4
   report and the retro-link reply use that URL, never a PR URL.
 Executor: incident-<incident id>. Bus: cci drive <drive>; topic incident:<incident id>.
-CLI: ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack, by path.
+Tools: the cc-slack MCP tools first (slack_thread, slack_reply, slack_send, slack_react,
+  slack_unreact); the CLI by path, ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack,
+  only when a tool call errors.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "React before you reply" and
@@ -140,7 +143,7 @@ Do:
      `incident.py open --bus <cci drive>`.
      Loop in foreground units of at most 60 seconds:
      `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`, then
-     `cc-slack thread --url <permalink>` against the ts values already seen.
+     `slack_thread` with `url` <permalink> against the ts values already seen.
   5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
      facts to report, with times already in Pacific. Spawn an Opus writer
      (`Agent`, `model: opus`) per post to draft it per "Write a post" in full: plain words for the thread's reader, with every build, PR,
@@ -152,8 +155,8 @@ Do:
      `retro.py comms-check <tmpfile> --url <rendered-url>` before posting.
      Use the URL from the skill's RENDERED: output; fix any PR link or missing
      rendered URL and rerun the check. Post the checked text verbatim. For `thread`, use
-     `cc-slack reply --url <thread> --text <copy>`. For `channel`,
-     use `cc-slack send --channel <channel id> --text <copy>`. Add eyes
+     `slack_reply` with `url` <thread> and `text` <copy>. For `channel`,
+     use `slack_send` with `channel_id` <channel id> and `text` <copy>. Add eyes
      for `ack`, and swap eyes for white_check_mark after `recovered`.
   6. Answer every entry once it posts:
      `cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"`.

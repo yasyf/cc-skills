@@ -47,6 +47,21 @@ PLAN = (
 )
 SETTLED_ASK = {"questions": [{"question": "Does every side-feature carry over to the Go release, or are some dropped?"}]}
 OPEN_ASK = {"questions": [{"question": "Which GitHub App gets read-only Checks and Commit statuses for the quota fix?"}]}
+SLACK_ASK = {
+    "questions": [
+        {
+            "question": 'Post this in C08ABCDEF12, thread 1760000000.000100? "Every side-feature carries over to the Go release with the same hard-fought UX; nothing is dropped."',
+            "header": "Post",
+        }
+    ]
+}
+SLACK_MENTION_ASK = {
+    "questions": [{"question": "Does every side-feature carry over to the Go release, or are some dropped from the Slack post?", "header": "Scope"}]
+}
+SLACK_WRITE = re.compile(r"^\s*(?:Post this|Edit the bot's message to this|Set the channel topic to this)\b")
+SLACK_HEADERS = frozenset({"slack", "slack grant"})
+SLACK_CHANNEL = re.compile(r"\bC[A-Z0-9]{8,}\b")
+SLACK_VERB = re.compile(r"\b(?:post|reply|send)", re.IGNORECASE)
 
 
 @workflow_state("long_running_settled_questions")
@@ -80,9 +95,18 @@ def board_questions(args: list[str], cwd: str) -> list[str]:
     return found
 
 
+def slack_write_approval(question: dict[str, str]) -> bool:
+    text = question["question"]
+    return bool(
+        SLACK_WRITE.match(text)
+        or question.get("header", "").strip().lower() in SLACK_HEADERS
+        or (SLACK_CHANNEL.search(text) and SLACK_VERB.search(text))
+    )
+
+
 def asked(evt: BaseHookEvent) -> list[str]:
     if evt.tool_name == "AskUserQuestion":
-        return [question["question"] for question in evt._tool_input["questions"]]
+        return [question["question"] for question in evt._tool_input["questions"] if not slack_write_approval(question)]
     found = []
     for call in evt.command.calls():
         if Path(call.name).name != "cc-present" or not call.args or "--dry-run" in call.args:
@@ -199,6 +223,18 @@ GATE_MESSAGE = (
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md"), SettledState(blocked_at=time.time())],
         ): Allow(),
+        Input(
+            tool="AskUserQuestion",
+            tool_input=SLACK_ASK,
+            file=FileFixture(home=True, name="brook.md", content=PLAN),
+            state=[CompactionState(active=True, plan_path="~/brook.md")],
+        ): Allow(),
+        Input(
+            tool="AskUserQuestion",
+            tool_input=SLACK_MENTION_ASK,
+            file=FileFixture(home=True, name="brook.md", content=PLAN),
+            state=[CompactionState(active=True, plan_path="~/brook.md")],
+        ): Block(pattern=r"settled plan decision"),
         Input(tool="AskUserQuestion", tool_input=SETTLED_ASK): Allow(),
         Input(
             tool="Bash",
