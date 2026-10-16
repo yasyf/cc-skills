@@ -737,6 +737,18 @@ the root never records one by hand.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
+**R19a. A gate that wants an owner-recorded answer for a settled decision is satisfied the same turn.**
+Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling`
+taking a cc-notes id from an `AskUserQuestion`. When the plan or a board pick already carries the
+decision, the root asks it in one `AskUserQuestion` that turn while the owner is present. Otherwise
+it records the plan's decision as the ruling and accepts on the owner's behalf, citing the plan line
+or board pick id in the accept reason. The root never ends a turn waiting for the owner to say "ask",
+and never leaves the PRs behind the gate parked.
+
+*Prevents the 2026-10-16 hold: #38419 and #38427 sat about two hours for a confirmation plan fc8714e and
+board pick 7174aab had already made. The owner said "accept the rulings on my behalf, we already said
+that's what we want."*
+
 **R20. A Slack link from the owner is an assignment, and Slack drafting is a lane.**
 A Slack permalink the owner pastes, bare or with words, is the root's to own, whoever
 wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
@@ -2789,6 +2801,20 @@ lanes, monitors, inbox heads and cursors, and lint findings. The root writes onl
 those sources lack. The slug comes from `progress:<slug>` in the plan's existing
 progress pointer line, or from the plan's file stem if that line has no slug. The nudge is not repeated,
 and the nudge never holds the turn.
+
+**Order.** When the nudge fires or context passes about 90%, the root writes the progress doc
+before answering any further record. The doc names the last cci seq the root consumed, because the
+root cursor goes stale across a compaction, so the successor resumes with `cci tail --since <seq>`.
+After an unplanned compaction the successor's first act is:
+
+```sh
+cci tail --since <seq> --reader root --kind decide,ask,blocker,hold,incident --json
+```
+
+It answers every record from that output that no later record resolves at once, before any other work.
+
+*Prevents the 2026-10-16 1:50 AM compaction, which lost about three hours of inbound records with no
+doc written and about twenty lanes waiting on the root.*
 
 **Root narrative.** At the nudge, create a new cc-notes progress doc with only the
 narrative:
