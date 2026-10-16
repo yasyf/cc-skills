@@ -209,7 +209,7 @@ in its prefix is enqueued. On every pass the runner also mirrors the newest grad
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
 described by the grade's first line and cci seq, once per grade record. The required `landing-gates` check holds any head whose
 `fidelity` status is not `success`, so a head pushed after its grade waits for its own whoever enqueues it. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
-head", until the lane grades it, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
+head", until the lane grades it; the runner reads the head's statuses just before that post and skips it when any `fidelity` status is already there or the read fails, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
 else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
@@ -2623,8 +2623,12 @@ class Landing:
             return None
         return json.loads(done.out)["statuses"]
 
+    def fidelity_statuses(self, pr: str, sha: str) -> list[dict] | None:
+        statuses = self.head_statuses(pr, sha)
+        return None if statuses is None else [status for status in statuses if status["context"] == FIDELITY_STATUS]
+
     def status_success(self, pr: str, sha: str) -> bool:
-        return any(status["context"] == FIDELITY_STATUS and status["state"] == "success" for status in self.head_statuses(pr, sha) or [])
+        return any(status["state"] == "success" for status in self.fidelity_statuses(pr, sha) or [])
 
     def regrade_gates(self) -> None:
         """Re-dispatch the Landing Gates grade of an open Graphite queue draft whose head still carries no `landing-gates` status `GATES_GRACE` after the draft opened, once per head, and post one `GATES-REDISPATCH` state line. A head still without the status `GATES_GRACE` after that dispatch posts one `LANDING-GATES-FAILED` defect. The `pull_request_target` run reads success when it only dispatches the grade, so a grade that died on a GitHub fault leaves the draft blocked with every run green."""
@@ -2682,7 +2686,7 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, first posts before retries, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, first posts before retries, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         posted: dict[tuple[str, str], tuple[str, int, str]] = {}
         for action in self.book.actions(LANDING, kind="status", status="completed"):
             _, pr, head, grade_ref = action.action_id.split(":", 3)
@@ -2707,10 +2711,16 @@ class Landing:
             known = self.book.known(LANDING, key)
             if (known and known.status != "accepted") or (pr, head) in posted and posted[(pr, head)][2] == state:
                 continue
-            if not grade and self.status_success(pr, head):
-                continue
             due.append((known is not None, pr, head, key, source, state, description))
-        for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0])[:MIRROR_WRITES]:
+        writes = 0
+        for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0]):
+            if writes == MIRROR_WRITES:
+                return
+            if state == "pending":
+                present = self.fidelity_statuses(pr, head)
+                if present is None or present:
+                    continue
+            writes += 1
             self.book.accept(LANDING, key, "status", pr, source, None)
             payload = {
                 "state": state,
