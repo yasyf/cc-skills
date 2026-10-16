@@ -613,7 +613,10 @@ the root starts a lane by posting its line. The same `DECIDE` carries a case lan
 new cases, since case lanes are one generation, and every case of a report whose
 lane's report or newest mechanism says `UNKNOWN`. A case lane echoing its own case
 launches nothing. A `not-ours` or `stand-down` from the fix lane or its fallback, or
-the root's `stand-down` to either, ends the incident. A later report launches nothing
+the root's `stand-down` or `stopped` to either, ends the incident. A report that opens
+with `NOT-OURS`, `stood down`, or `Stopped` launches no case lane. The runner launches
+no fix lane for an incident the root resolved with a `done`, stopped by name, or another
+drive's root answered for, and posts `INCIDENT-OWNED` as a `state` record instead. A later report launches nothing
 and reaches the root as `UNFIXED <lane> …: <cases> | no case lane launched: …`, and a
 case launch not yet started fails. A report from a lane the root withdrew does the
 same. The root ratifies the case lane and keeps the reporter told that the case is
