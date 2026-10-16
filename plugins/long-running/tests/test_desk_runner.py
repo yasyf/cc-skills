@@ -1572,8 +1572,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
     assert [call[1:] for call in shell.enqueues()] == [["36487", "36501"]]
     assert shell.label_calls == [("add", "36510")]
-    blockers = [call[call.index("--body") + 1] for call in shell.sends()]
-    assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
+    assert shell.sends() == []
 
 
 def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
