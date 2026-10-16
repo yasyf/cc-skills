@@ -79,17 +79,18 @@ Do:
      `READY` line. A fix proven only on a synthetic or neighbouring case is not
      ready. After the release, run the same case on the released build and quote
      that result in `FIX-LIVE`.
-  5. With READY, and again in `worker_done`, list every known case the fix does
+  5. With READY, and again with FIX-LIVE, list every known case the fix does
      not cover, one line each, exactly `UNFIXED {lane}: <the case, one line>`, or
-     `UNFIXED {lane}: none`. Send the lines to the Run as the body of a status
-     message whose subject is `ready: <the READY line>`, and put them in the
-     `worker_done` body. The desk launches an incident lane for each case at once,
-     so no case waits as backlog.
+     `UNFIXED {lane}: none`. Send the lines to the Run as the body of the status
+     messages whose subjects are `ready: <the READY line>` and
+     `fix-live: <the FIX-LIVE line>`. The desk launches an incident lane for each
+     case at once, so no case waits as backlog. Only those two statuses launch one:
+     a lane that has no fix posts `NOT-OURS` or `STOPPED`, and its cases launch
+     nothing.
 
 Log: every apply, release, or other state-changing production command you run
   gets one line on that log in the same turn:
   `ccn -R {repo} log append "$(ccn -R {repo} log list --label prod-ops | cut -f1)" --entry "who | when, UTC and Pacific | cluster, team | exact command | authority | effect"`
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
-Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done` with the
-`UNFIXED` lines.
+Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.

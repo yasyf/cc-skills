@@ -190,16 +190,18 @@ the Opus fallback was started by hand an hour late.*
 
 A case a fix does not cover is an incident lane, never backlog. The alert fix brief
 and the executor's fix brief make every incident fix lane reproduce the reporter's
-own case before it reports ready. The lane closes its ready report and its
-`worker_done` with one `UNFIXED <lane>: <case>` line per known case the fix does not
-cover, or `UNFIXED <lane>: none`. When an incident fix lane's `worker_done` message, or its
-`ready:` or `fix-live:` Run status, carries such lines in its body, the runner
-launches `<first>-case<n>` on incident xhigh for each case in the same pass, with no
-root turn. `<first>` is the lane's name without its trailing `-opus` and `-case<n>`
-parts, so every case lane of one incident sits beside the first fix lane. The runner
-fills `reference/unfixed-case-brief.md` with the case verbatim, the reporting lane,
-the path of that lane's brief, and the PRs its cci `opened` records name. It attaches
-that brief to the briefs log as `<first>-case<n>.full.md` and logs:
+own case before it reports ready. The lane closes its `ready:` and `fix-live:` Run
+statuses with one `UNFIXED <lane>: <case>` line per known case the fix does not cover,
+or `UNFIXED <lane>: none`. Only those two partial-fix reports launch case lanes; a
+`worker_done`, a `NOT-OURS`, or a `STOPPED` launches nothing, whatever its body says.
+
+For each case the runner launches `<first>-case<n>` on incident xhigh in the same pass,
+with no root turn. `<first>` is the lane's name without its trailing `-opus` and
+`-case<n>` parts, so every case lane of one incident sits beside the first fix lane,
+and `<n>` is the lowest no lane container holds. The runner fills
+`reference/unfixed-case-brief.md` with the case verbatim, the reporting lane, the path
+of that lane's brief, and the PRs its cci `opened` records name. It attaches that brief
+to the briefs log as `<first>-case<n>.full.md` and logs:
 
 ```text
 INCIDENT <lane> <time>: its fix does not cover: <case> | case lane <first>-case<n> launching on incident xhigh, brief <path>; root: ratify, and keep the reporter told that this case is still open
@@ -209,14 +211,44 @@ Only a line that names the reporting lane counts, and `UNFIXED <lane>: none`
 launches nothing. A case launches once across a lane, its `-opus` fallback, and its
 case lanes, however often and by whichever of them it is reported. A case whose
 launch is refused, or whose brief does not attach, logs `not launched` with the
-reason and launches on the next report that names it. The case brief carries the
-same reproduce step and `UNFIXED` field, so a case lane's own uncovered cases launch
-further case lanes, and the clock above covers each one. A lane that is not an
-incident fix lane launches nothing this way.
+reason and launches on the next report that names it. The clock above covers each
+case lane.
+
+An incident launches at most `incident.case_lanes` case lanes, two by default. The
+runner launches nothing for a report's remaining new cases and puts them to the root
+in one line, with a brief attached and a launch line ready for each:
+
+```text
+DECIDE unfixed:<msg> <lane>: <reason>: <case> | to launch its lane, post `orca-desk: launch <first>-case<n> NOW incident xhigh brief=<path>`; <case> | …
+```
+
+The reason is one of three. The case is past the cap. A case lane reported it, and
+case lanes are one generation. Or the report's own text, or the lane's newest
+`mechanism` record or status, says `UNKNOWN`. A lane without a named cause offers a
+case lane nothing to extend, so each case waits for the root to post its line.
+
+An incident ends at a `not-ours` or `stand-down` record its fix lane or `-opus`
+fallback posts, or at a root `stand-down` addressed to either or to the case lane. A
+`stopped` the reporting lane posted before its report ends it for that report. A
+report after the end, or from a lane the root withdrew, launches nothing and logs one
+line:
+
+```text
+UNFIXED <lane> <time>: <case>; <case> | no case lane launched: the incident ended with #<seq> <KIND> <lane>
+```
+
+A case launch the runner accepted and has not started fails once its incident ends,
+and logs `WITHDRAWN unfixed:<msg>:<n> <first>-case<n>: the incident ended with …`.
 
 *Prevents the resume fix of 2026-10-13. It was reported fixed after a test on a
 neighbouring case while the reporter's own thread still failed, and two edge cases
 the fix lane had named sat as backlog for two hours until a customer hit them.*
+
+*The cap, the end, and the `UNKNOWN` gate come from 3:43 AM Oct 16. Lane
+`alerts-api-0335-fix` posted `NOT-OURS` (cci #81930) and `STOPPED` (#81931) after the
+root's stand-down (#81925), and its `worker_done` listed the ten original 524s as
+`UNFIXED`. The runner launched a case lane for each Cloudflare `RayID` on incident xhigh (#81941 to
+#81950), and five started after the root stood them down (#81955).*
 
 An urgent release hold is one line in the same inbox. The holding lane names
 itself or a dedicated decision-owner lane and states both the release and its
@@ -342,6 +374,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
   "drive": "<cci drive>",
   "view": "/absolute/drive/inbox/runner-state.md",
   "alert": {"facts": "/absolute/drive/alert-facts.md"},
+  "incident": {"case_lanes": 2},
   "orca": {
     "run": "<run id>",
     "desk_inbox": "/absolute/drive/inbox/orca-desk.md",
@@ -668,7 +701,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | Kind | Root action |
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
-| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. |
+| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |

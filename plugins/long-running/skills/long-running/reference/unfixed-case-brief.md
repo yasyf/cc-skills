@@ -67,12 +67,11 @@ Do:
      failing result from step 1 and the passing one in the `READY` line. After the
      release, run the case on the released build and quote that result in
      `FIX-LIVE`.
-  5. With READY, and again in `worker_done`, list every known case your fix does
+  5. With READY, and again with FIX-LIVE, list every known case your fix does
      not cover, one line each, exactly `UNFIXED {lane}: <the case, one line>`, or
-     `UNFIXED {lane}: none`. Send the lines to the Run as the body of a status
-     message whose subject is `ready: <the READY line>`, and put them in the
-     `worker_done` body. The desk launches an incident lane for each case at once.
+     `UNFIXED {lane}: none`. Send the lines to the Run as the body of the status
+     messages whose subjects are `ready: <the READY line>` and
+     `fix-live: <the FIX-LIVE line>`. The desk puts each new case to the root.
 
 Worktree: your own. Times Pacific. No Slack posts.
-Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done` with the
-`UNFIXED` lines.
+Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
