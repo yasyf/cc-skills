@@ -272,7 +272,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "GATES-REDISPATCH": "state"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -315,6 +315,10 @@ WAKE_SECONDS = 0.25
 SHOW_WORKERS = 8
 GATE_WORKERS = 4
 MIRROR_WRITES = 3
+GATES_STATUS = "landing-gates"
+GATES_WORKFLOW = "landing-gates.yaml"
+GATES_GRACE = timedelta(minutes=5)
+QUEUE_DRAFT_TITLE = "[Graphite MQ] Draft PR"
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
@@ -2479,6 +2483,7 @@ class Landing:
         self.fidelity_lanes = [configured] if isinstance(configured, str) else list(configured)
         self.fidelity_names = " or ".join(self.fidelity_lanes)
         self.unlabeled: set[str] = set()
+        self.gated: set[tuple[str, str]] = set()
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -2606,13 +2611,53 @@ class Landing:
         ]
         return max(grades, key=lambda record: record["seq"], default=None)
 
-    def status_success(self, pr: str, sha: str) -> bool:
+    def head_statuses(self, pr: str, sha: str) -> list[dict] | None:
         done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
         if done.code != 0:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
             self.runner.escalate(f"status-read:{pr}:{sha}", "STATUS-READ-FAILED", f"#{pr}", f"GitHub refused the combined status of {sha}: {last[0]}; the runner reads it again on the next pass")
-            return False
-        return any(status["context"] == FIDELITY_STATUS and status["state"] == "success" for status in json.loads(done.out)["statuses"])
+            return None
+        return json.loads(done.out)["statuses"]
+
+    def status_success(self, pr: str, sha: str) -> bool:
+        return any(status["context"] == FIDELITY_STATUS and status["state"] == "success" for status in self.head_statuses(pr, sha) or [])
+
+    def regrade_gates(self) -> None:
+        """Re-dispatch the Landing Gates grade of an open Graphite queue draft whose head still carries no `landing-gates` status `GATES_GRACE` after the draft opened, once per head, and post one `GATES-REDISPATCH` state line. A head still without the status `GATES_GRACE` after that dispatch posts one `LANDING-GATES-FAILED` defect. The `pull_request_target` run reads success when it only dispatches the grade, so a grade that died on a GitHub fault leaves the draft blocked with every run green."""
+        listed = self.shell.run(["gh", "pr", "list", "--repo", self.repo, "--state", "open", "--search", f'"{QUEUE_DRAFT_TITLE}" in:title', "--json", "number,title,headRefOid,createdAt", "--limit", "100"])
+        now = self.runner.now()
+        if listed.code != 0:
+            last = (listed.err or listed.out).strip().splitlines()[-1:] or [f"exit {listed.code}"]
+            self.runner.escalate(f"gates-list:{now:%Y%m%d%H}", "GATES-LIST-FAILED", "landing", f"GitHub refused the queue draft listing: {last[0]}; the runner reads it again on the next pass")
+            return
+        for draft in json.loads(listed.out):
+            pr, sha = str(draft["number"]), draft["headRefOid"]
+            opened = datetime.fromisoformat(draft["createdAt"].replace("Z", "+00:00"))
+            if not draft["title"].startswith(QUEUE_DRAFT_TITLE) or (pr, sha) in self.gated or now - opened < GATES_GRACE:
+                continue
+            statuses = self.head_statuses(pr, sha)
+            if statuses is None:
+                continue
+            if any(status["context"] == GATES_STATUS for status in statuses):
+                self.gated.add((pr, sha))
+            else:
+                self.redispatch_gates(pr, sha, now)
+
+    def redispatch_gates(self, pr: str, sha: str, now: datetime) -> None:
+        key = f"gates:{pr}:{sha}"
+        action = self.book.known(LANDING, key) or self.book.accept(LANDING, key, "dispatch", pr, "runner", None)[0]
+        if action.status == "completed":
+            dispatched = actions.parse_stamp(action.response["at"])
+            if now - dispatched >= GATES_GRACE:
+                self.runner.escalate(f"gates-missing:{pr}:{sha}", "LANDING-GATES-FAILED", f"#{pr}", f"queue draft head {sha} still has no `{GATES_STATUS}` status {whole_minutes(dispatched, now)} min after the runner re-dispatched its grade; read the log of the {GATES_WORKFLOW} dispatch run for pr={pr} head={sha}")
+            return
+        done = self.shell.run(["gh", "workflow", "run", GATES_WORKFLOW, "--repo", self.repo, "-f", f"pr={pr}", "-f", f"head={sha}"])
+        if done.code != 0:
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            self.runner.escalate(key, "GATES-DISPATCH-FAILED", f"#{pr}", f"GitHub refused the {GATES_WORKFLOW} dispatch for {sha}: {last[0]}; the runner dispatches it again on the next pass")
+            return
+        self.book.attempt(LANDING, lambda incident: (incident.start(key, now), incident.complete(key, {"at": self.book.stamp()})))
+        self.runner.escalate(f"gates-redispatch:{pr}:{sha}", "GATES-REDISPATCH", f"#{pr}", f"queue draft head {sha} had no `{GATES_STATUS}` status {int(GATES_GRACE.total_seconds() // 60)} min after the draft opened; re-dispatched {GATES_WORKFLOW} for it once")
 
     def ungraded(self, heads: dict[str, str]) -> dict[str, dict | None]:
         grades = {pr: self.fidelity(pr, sha) for pr, sha in heads.items()}
@@ -2963,6 +3008,7 @@ class Landing:
     def run(self) -> None:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
+        self.regrade_gates()
         rows = self.rows()
         if rows is None:
             return

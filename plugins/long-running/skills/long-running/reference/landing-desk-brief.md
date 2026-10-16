@@ -69,6 +69,15 @@ until the fidelity lane grades it. A `failure` is a red check on the PR by desig
 graded missing, not that CI failed, so read the status description, which
 quotes the grade and its cci seq, before routing a red build to the lane.
 
+The runner also watches the open Graphite queue drafts. A draft whose head has no
+`landing-gates` status five minutes after it opened gets its grade dispatched
+again once (`gh workflow run landing-gates.yaml -f pr=<draft> -f head=<sha>`),
+with one `state` line to the root. The Landing Gates run that fires on the draft
+reads success when it only dispatches, so a grade that died on a GitHub fault
+leaves every run green and the draft blocked. A head still without the status
+five minutes after that dispatch posts one `defect`; read the dispatched run's
+log, and never post the status by hand.
+
 Only the root writes override lines in the root inbox, relaying the owner or
 deciding itself:
 `R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.
