@@ -636,6 +636,37 @@ drops none (fidelity F340).*
 fix lane posted `NOT-OURS` after the root's stand-down, and its `worker_done` listed
 ten original 524s as `UNFIXED`; the runner launched ten case lanes from it.*
 
+**Another drive's stalled incident fix is taken at once.** When another drive owns an
+incident's fix, through the runner's `INCIDENT-OWNED` or a fix PR another drive's lane
+opened, the root spawns `incident-<slug>-watch` as `long-running:lane` on sonnet,
+effort low, in that turn. It runs one foreground watch on the owning drive:
+
+```sh
+cci watch --drive <owning drive> --lane <its fix lane> --lane desk-runner --kind stopped --kind blocker --kind decide
+```
+
+The fix lane's `stopped` or `blocker` is the trigger at once. A `decide` from that
+drive's runner naming the fix lane is the trigger once five minutes pass with no `answer`
+from that drive's root replying to it. On the trigger the watch lane posts
+`cci post --drive <drive> --lane incident-<slug>-watch --kind blocker --to root --pr <n> --text "TAKEOVER #<n>: <owning drive> <kind> #<seq> <first line>"`
+and finishes.
+
+The turn the `TAKEOVER` arrives, the root spawns `incident-<slug>-ship` as
+`long-running:lane-ship` on opus in fast mode. It checks out the PR's branch with
+`ccx vcs worktree add <branch>` and replays it onto current dev with
+`ccx vcs stack submit --restack`. It posts `opened --pr <n>` on this drive so the
+landing runner owns the PR, and enqueues it `--fast` once green, as D1's priority-PR
+path allows. On landing it posts the `release` record D20 needs for the cut. The root posts one
+`decision` addressed to the owning drive's root and fix lane, naming the takeover and
+its trigger. It never sets the owning drive a deadline, never asks whether it is
+mid-push, and never waits for its root to rule. A head the owning drive pushes later
+is the PR's newest head; the ship lane continues from it and never force-pushes over it.
+
+*Prevents 14 minutes of Oct 16. The owning drive's fix lane for #39264 posted
+`stopped` at 2:02 PM and its runner's `DECIDE` sat unruled until 2:22. release-v3
+asked that drive to push at 2:07 and set it a 2:20 deadline, and restacked the PR
+itself only at 2:21, while kate and erik reported Iris disconnects.*
+
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
 and at least every 10 minutes. The shell PR merges first; the page at
@@ -787,7 +818,7 @@ handed it to the drive, never "the owner has it". It is never informational.
 
 That turn, before anything except R16's `incident.py open` and `run`:
 
-- (a) Spawn `long-running:lane-ship` on opus from `reference/slack-lane-brief.md`.
+- (a) Spawn `general-purpose` on opus from `reference/slack-lane-brief.md`.
   It adds `eyes` within one minute on the message that asks, through the cc-slack CLI,
   reads the thread, and returns the ask in ≤5 lines.
 - (b) Spawn the doing lane (fix, investigation, or answer) from the link itself,
@@ -840,17 +871,32 @@ an ask the drive blocks on still goes through `AskUserQuestion`. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
-Both lane agent types carry the cc-slack MCP tools by name (`slack_thread`, `slack_history`,
-`slack_react`, `slack_unreact`, `slack_reply`, `slack_send`, `slack_edit`, `slack_watch`,
-`slack_unwatch`, `slack_dm_status`, and `await`), and the Slack lane uses them first.
-It runs the CLI by path only when a tool call errors:
-`~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`.
-Lanes carry no other `mcp__*` tools and no `ToolSearch`.
+Every lane that posts to Slack, the R20 Slack lane, the incident comms lane, and
+`comms-desk`, spawns as `general-purpose` on opus, never as `long-running:lane` or
+`lane-ship`. A plugin agent type's tool list is read once, when the root's session
+starts, so a root that started on an older plugin spawns lanes without the tools
+added since. `general-purpose` carries every MCP tool the session has, plus
+`ToolSearch` to load them. The lane uses the cc-slack tools first (`slack_thread`,
+`slack_history`, `slack_react`, `slack_unreact`, `slack_reply`, `slack_send`), and the
+CLI by path when a tool call errors:
+`~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`. Both can
+refuse: a Slack hook that crashes on import, no Slack identity on the machine, or a
+conversation the bot cannot join. Then the lane posts the same checked text through
+the user-level Slack MCP, `mcp__slack__slack_send_message` and
+`mcp__slack__slack_add_reaction`, led by "_(<owner name>'s Claude)_" and under the same
+grant. It reports the refusal verbatim to the root. A comms lane never leaves a
+reporter unanswered because one Slack surface refused.
 
 - In sessions started before cc-slack was installed, `mcp__plugin_cc-slack_*` tools
   and the Slack tools of `cc-slack:slack-waiter` and `cc-slack:slack-triage` are absent.
-  The root's `ToolSearch` finding no cc-slack tool never licenses the user-level MCP;
-  the Slack lane's CLI works in every session.
+  The root writes no Slack even when its `ToolSearch` finds no cc-slack tool; the
+  Slack lane reaches Slack through the CLI or the user-level MCP.
+
+*Prevents the Oct 16 silence from 2:18 to 2:30 PM. kate and erik reported Iris
+disconnects, and the two comms lanes posted nothing: the root checkout's stale Slack
+hook crashed on import, then cc-slack had no Slack identity on the machine, and the
+lanes, `long-running` types from a root that started on plugin 0.7.121, carried no
+other Slack tool. The replies went out at 2:30 through the user-level MCP.*
 - Urgency never licenses the root to write Slack. When a Slack lane stalls, the root
   spawns a fresh sender lane whose brief carries the grant and the exact approved or
   dictated text; it posts first, then watches. The root tells the owner "posting via
@@ -1180,6 +1226,19 @@ the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
 listed lane counts and the newest decides. A head no listed lane has graded also
 passes when its `fidelity` commit status reads `success`. A drive with no fidelity
 lane enqueues nothing through the runner.
+
+A restack carries its grade. When no grade names the current head, the runner
+takes each head an older `fidelity: ok` names whose own newest grade is ok, and
+compares `git patch-id --stable` of both heads' diffs against the PR's base, read
+from GitHub's compare. Equal patch ids carry the ok to the new head in that pass,
+cited as `fidelity: ok at <new head>, patch-identical to <graded head>` with the
+graded record's cci seq. A grade naming the new head always wins, and a changed
+patch waits for its own grade. A fidelity lane asked to grade such a head answers
+the minute it is asked with the same line, without a re-read.
+
+*Prevents the Oct 16 restack of monorepo #39264 to e41b99cc needing a fresh fidelity
+grade for a diff already graded ok at c9fce65; landing-gates held the incident fix
+for that grade at 2:31 PM.*
 
 The runner also mirrors each grade onto GitHub. On every pass it sets commit
 status `fidelity` on each open row's head the fidelity lane graded: `success`
@@ -2167,7 +2226,9 @@ The standing subagents, the desk's shards, sequencers, and pollers are
 codex is `long-running:lane-ship`. Both leave out `ToolSearch`, every `mcp__*` tool but
 cc-slack's, and the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
 `lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
-lighter than `general-purpose`; `lane-ship` starts 5k lighter.
+lighter than `general-purpose`; `lane-ship` starts 5k lighter. A lane that posts to
+Slack is `general-purpose` instead, so it carries every Slack surface the session has
+(R20).
 
 If a `lane` needs a skill, give that operation to a separately named `lane-ship`
 with a scoped brief.
