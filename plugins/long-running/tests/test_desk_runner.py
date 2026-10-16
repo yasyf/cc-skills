@@ -87,6 +87,9 @@ class FakeShell(runner_module.Shell):
         self.status_error = ""
         self.label_calls: list[tuple[str, str]] = []
         self.label_error = ""
+        self.pr_labels: dict[str, list[str]] = {}
+        self.pr_label_error = ""
+        self.dequeue_code = 0
         self.queue: dict[str, str] = {}
         self.activity: dict[str, str] = {}
         self.bodies: dict[str, str] = {}
@@ -209,6 +212,11 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.workflow_error)
             self.workflow_runs.append(argv[3:])
             return runner_module.Done(0, "", "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "labels":
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "labels"]
+            if self.pr_label_error:
+                return runner_module.Done(1, "", self.pr_label_error)
+            return runner_module.Done(0, json.dumps({"labels": [{"name": name} for name in self.pr_labels.get(argv[3], [])]}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
@@ -433,6 +441,8 @@ class FakeShell(runner_module.Shell):
     def stack_enqueue(self, argv: list[str]) -> runner_module.Done:
         if "--status" in argv:
             return runner_module.Done(0, self.statuses, "")
+        if "--dequeue" in argv:
+            return runner_module.Done(self.dequeue_code, "", "queue still holds the PR" if self.dequeue_code else "")
         tip = " ".join(itertools.takewhile(str.isdigit, argv))
         if "--check" in argv:
             outs = self.gates[tip]
@@ -444,7 +454,7 @@ class FakeShell(runner_module.Shell):
         return [call for call in self.calls if call[:3] == ["orca", "orchestration", "send"]]
 
     def enqueues(self) -> list[list[str]]:
-        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and "--check" not in call and "--status" not in call]
+        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and not {"--check", "--status", "--dequeue"} & set(call)]
 
     def launch(self, lane: str, dispatch: str, status: str = "dispatched") -> None:
         self.receipts.mkdir(parents=True, exist_ok=True)
@@ -1404,7 +1414,7 @@ def test_holds_py_entries_label_the_prs_they_hold(shell, config, tmp_path):
 def test_an_open_cci_hold_labels_its_pr_until_a_lift_closes_it(shell, config, tmp_path):
     shell.records = [
         {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
-        {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349"},
+        {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349", "at": "2026-10-01T09:00:00Z"},
         {"seq": 9, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
     ]
     shell.rows = [
@@ -1905,6 +1915,140 @@ def test_a_bad_holds_line_added_after_the_gate_stops_the_enqueue_it_was_about_to
     holds_file.write_text("")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+
+
+def hold_record(shell: FakeShell, seq: int, pr: int, status: str, at: str) -> None:
+    if not any(record["seq"] == seq for record in shell.records):
+        shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "hold", "status": status, "to": ["root"], "refs": {"prs": [pr]}, "text": f"HOLD #{pr}", "at": at})
+
+
+def ready_record(shell: FakeShell, seq: int, pr: int, at: str) -> None:
+    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "ready", "status": "open", "to": ["root"], "refs": {"prs": [pr]}, "text": f"READY #{pr}", "at": at})
+
+
+def after_call(shell: FakeShell, when, change) -> None:
+    inner = shell.stack_enqueue
+
+    def call(argv: list[str]) -> runner_module.Done:
+        done = inner(argv)
+        if when(argv):
+            change()
+        return done
+
+    shell.stack_enqueue = call
+
+
+def is_check(argv: list[str]) -> bool:
+    return "--check" in argv
+
+
+def is_enqueue(argv: list[str]) -> bool:
+    return not {"--check", "--status", "--dequeue"} & set(argv)
+
+
+@pytest.mark.parametrize(
+    ("source", "named"),
+    [("file", "the holds-file line `#29020 owner hold`"), ("label", "the `hold` label on GitHub"), ("record", "open cci hold #41")],
+)
+def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_naming_it(shell, config, tmp_path, source, named):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    appears = {
+        "file": lambda: (tmp_path / "holds.md").write_text("#29020 owner hold\n"),
+        "label": lambda: shell.pr_labels.update({"29020": ["merge", "hold"]}),
+        "record": lambda: hold_record(shell, 41, 29020, "open", "2026-10-01T17:59:00Z"),
+    }[source]
+    after_call(shell, is_check, appears)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("REFUSED refused:") and f"#29020 is held by {named}" in line
+    [action] = enqueues_of(tmp_path).values()
+    assert (action.status, action.response["outcome"]) == ("completed", "refused")
+    assert shell.enqueues() == []
+
+
+def test_a_label_read_github_refuses_holds_the_enqueue(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.pr_label_error = "HTTP 502"
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert "#29020 is held by GitHub refused the label read: HTTP 502" in line and shell.enqueues() == []
+    shell.pr_label_error = ""
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_ready_record_older_than_a_later_hold_never_enqueues_until_a_newer_ready(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    ready_record(shell, 10, 29020, "2026-10-01T16:00:00Z")
+    hold_record(shell, 11, 29020, "closed", "2026-10-01T17:00:00Z")
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert "cci ready #10 is older than cci hold #11" in line and shell.enqueues() == []
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+    ready_record(shell, 12, 29020, "2026-10-01T17:30:00Z")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+
+
+def test_a_lifted_hold_posted_after_the_enqueue_was_accepted_still_refuses_it(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    after_call(shell, is_check, lambda: hold_record(shell, 20, 29020, "closed", "2026-10-01T18:00:05Z"))
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert "cci hold #20 was posted after this enqueue was accepted" in line and shell.enqueues() == []
+
+
+def test_a_lifted_hold_older_than_the_enqueue_and_any_ready_lets_it_through(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    hold_record(shell, 20, 29020, "closed", "2026-10-01T17:00:00Z")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
+
+
+def stack_of_three(shell: FakeShell) -> None:
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+
+
+def dequeues(shell: FakeShell) -> list[list[str]]:
+    return [call[1:] for call in stack_enqueue_calls(shell) if "--dequeue" in call]
+
+
+def test_a_hold_that_appears_while_stack_enqueue_runs_takes_the_held_pr_and_those_above_it_back_out_top_first(shell, config, tmp_path):
+    stack_of_three(shell)
+    after_call(shell, is_enqueue, lambda: hold_record(shell, 41, 29016, "open", "2026-10-01T17:59:59Z"))
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and dequeues(shell) == [["29020", "--dequeue"], ["29016", "--dequeue"]]
+    [action] = enqueues_of(tmp_path).values()
+    assert (action.status, action.response["outcome"]) == ("completed", "dequeued")
+    [line] = escalations(shell)
+    assert line.startswith("DEQUEUED ") and "#29016 is held by open cci hold #41" in line
+    shell.records[-1]["status"] = "closed"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2 and len(dequeues(shell)) == 2
+    assert sorted(action.response["outcome"] for action in enqueues_of(tmp_path).values()) == ["dequeued", "enqueued"]
+
+
+def test_a_dequeue_the_queue_refuses_is_a_defect_and_the_prefix_is_not_enqueued_again(shell, config, tmp_path):
+    stack_of_three(shell)
+    shell.dequeue_code = 4
+    after_call(shell, is_enqueue, lambda: hold_record(shell, 41, 29020, "open", "2026-10-01T17:59:59Z"))
+    landing_pass(shell, config)
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "held-queued"
+    [line] = escalations(shell)
+    assert line.startswith("DEQUEUE-FAILED ") and "#29020: queue still holds the PR" in line
+    shell.records[-1]["status"] = "closed"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
 
 
 def test_a_lane_line_on_an_empty_ledger_posts_its_blocker_and_an_unlistable_ledger_posts_none(shell, config, tmp_path):

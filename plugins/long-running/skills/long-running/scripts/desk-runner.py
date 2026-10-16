@@ -197,7 +197,13 @@ the holds file holds every open row except those a `release #<n>` or `release la
 parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
 may hold something the runner cannot name. The runner checks the file first thing on each pass, an empty ledger included: on such a pass it
 gates and enqueues nothing, and logs `HOLDS-UNREAD` once per distinct line, quoting it. Each enqueue re-reads the file under the same
-rule just before its call and completes as `blocked` on such a line. The holds file stays the root's interface, and the
+rule just before its call and completes as `blocked` on such a line. The same moment it reads every hold fresh, whatever the
+pass read earlier: the holds file, the `hold` label GitHub serves for each PR, and the PR's cci `hold` records. An enqueue completes as
+`refused`, with one `REFUSED` line naming each hold, when a line, label, or open record holds a PR in its prefix, when a `hold` record of any status was
+posted after the enqueue was accepted, or when the PR's newest `hold` record is newer than its newest `ready` record, so a stale
+`ready` never enqueues a PR after a hold. The same read repeats once `stack-enqueue` returns success: a hold that appeared during the
+call completes the enqueue as `dequeued`, after `stack-enqueue --dequeue` takes each held PR and each PR above one back out of the queue
+top first, with a `DEQUEUED` line; a dequeue that fails logs `DEQUEUE-FAILED`. Both outcomes enqueue again once nothing holds the prefix. The holds file stays the root's interface, and the
 runner mirrors it onto GitHub's `hold` label, which the required `landing-gates` check fails on every path into the queue.
 On each pass that reads the file, every open ledger row a PR line, a lane line, `hold:all`, or an open cci `hold` record
 holds gets the label, and a label the runner added comes off once nothing holds the row. A `cci tail` that fails skips
@@ -284,6 +290,7 @@ BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 ENQUEUE_FAILED = 5
+DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
     r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d"
 )
@@ -295,7 +302,7 @@ MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
-RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped"})
+RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
@@ -2867,6 +2874,10 @@ class Landing:
         if self.held(rows) is None:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
             return
+        accepted_at = actions.parse_stamp(action.accepted_at)
+        if standing := self.holding(prefix, rows, accepted_at):
+            self.refuse(key, prefix, standing)
+            return
         tops = prefix_tops(prefix, rows)
         fresh = self.enqueue_run(tops, check=True).out
         would = WOULD_ENQUEUE.search(fresh)
@@ -2882,10 +2893,73 @@ class Landing:
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": done.out[-1500:], "at": self.book.stamp()}))
+        out = done.out[-1500:]
+        if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
+            outcome, out = self.dequeue(key, prefix, rows, late)
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "at": self.book.stamp()}))
         if outcome in ("stranded", "failed", "unsettled"):
             last = (done.out or done.err).strip().splitlines()
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last[-1] if last else f"exit {done.code}")
+
+    def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
+        """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
+        entries = holds.read(self.holds)
+        held = holds.held(entries, rows)
+        why = {}
+        for pr in prefix:
+            if pr in held:
+                line = next(entry.line for entry in entries if pr in holds.held([entry], rows))
+                why[pr] = f"the holds-file line `{line}`"
+            elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
+                why[pr] = reason
+        return why
+
+    def label_hold(self, pr: str) -> str:
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "labels"])
+        if done.code != 0:
+            return f"GitHub refused the label read: {(done.err or done.out).strip()[:120]}"
+        return f"the `{HOLD_LABEL}` label on GitHub" if any(label["name"] == HOLD_LABEL for label in json.loads(done.out)["labels"]) else ""
+
+    def record_hold(self, pr: str, accepted_at: datetime) -> str:
+        drive = self.runner.config.drive
+
+        def about_pr(kind: str) -> list[dict]:
+            found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", pr)
+            return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in map(str, record["refs"].get("prs", []))]
+
+        if not (posted := about_pr("hold")):
+            return ""
+        newest = posted[-1]
+        if opened := [record for record in posted if record["status"] == "open"]:
+            return f"open cci hold #{opened[-1]['seq']}"
+        if actions.parse_stamp(newest["at"]) > accepted_at:
+            return f"cci hold #{newest['seq']} was posted after this enqueue was accepted"
+        if (readied := about_pr("ready")) and readied[-1]["seq"] < newest["seq"]:
+            return f"cci ready #{readied[-1]['seq']} is older than cci hold #{newest['seq']}; a ready record after the hold lets it through"
+        return ""
+
+    def refuse(self, key: str, prefix: list[str], standing: dict[str, str]) -> None:
+        """Complete an enqueue as `refused` and log one `REFUSED` line naming each hold, once per set of heads and holds."""
+        why = "; ".join(f"#{pr} is held by {reason}" for pr, reason in standing.items())
+        text = f"enqueue of {numbered(prefix)} refused: {why}; it goes through once nothing holds them and no hold is newer than their ready record"
+        self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text)
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "refused", "out": text, "at": self.book.stamp()}))
+
+    def dequeue(self, key: str, prefix: list[str], rows: dict[str, dict], late: dict[str, str]) -> tuple[str, str]:
+        """Take a just-enqueued prefix back out of the queue after a hold appeared during the call: every held PR and every PR stacked above one, top first, through `stack-enqueue --dequeue`. Returns the outcome, `dequeued` once the queue let go of all of them and `held-queued` otherwise, and its text."""
+        covered = under_hold({pr: rows[pr] for pr in prefix}, list(late))
+        why = "; ".join(f"#{pr} is held by {reason}" for pr, reason in late.items())
+        failed = []
+        for pr in reversed(prefix):
+            if pr in covered and (done := self.shell.run([str(self.checkout / STACK_ENQUEUE), pr, "--dequeue"])).code not in DEQUEUE_RELEASED:
+                failed.append(f"#{pr}: {((done.err or done.out).strip().splitlines() or [f'exit {done.code}'])[-1]}")
+        if failed:
+            text = f"a hold appeared while {numbered(prefix)} was being enqueued ({why}); the dequeue failed for {'; '.join(failed)}"
+            self.runner.escalate(f"dequeue-failed:{key}", "DEQUEUE-FAILED", numbered(prefix), text)
+            return "held-queued", text
+        text = f"a hold appeared while {numbered(prefix)} was being enqueued ({why}); {numbered([pr for pr in prefix if pr in covered])} taken back out of the queue"
+        self.runner.escalate(f"dequeued:{key}", "DEQUEUED", numbered(prefix), text)
+        return "dequeued", text
 
     def reconcile(self) -> None:
         """An enqueue whose response was lost: Graphite's own status decides; a partial queue is unverifiable and nothing is re-enqueued."""
