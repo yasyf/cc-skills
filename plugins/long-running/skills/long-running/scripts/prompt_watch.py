@@ -39,7 +39,9 @@ card shows, when no supervisor is registered, when the supervisor is itself at a
 unknown, or unreachable, and when the prompt is still open five minutes after the supervisor
 was told. A supervisor that holds a foreground wait is never idle, so it keeps
 `cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
-as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`.
+as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`,
+and three polls in a row that read it again are one `READABLE` report. A shorter read posts nothing, so a terminal
+or `worker-list` that flaps under load raises no second record for the same unread state.
 When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
 each record it raised. While `worker-list` fails, no worker is closed: each keeps its open prompt
 and reads unknown or unreachable until the list answers again.
@@ -194,6 +196,10 @@ def read_command(subject: Subject) -> str:
 def unseen(error: dict) -> tuple[str, str]:
     state = UNREACHABLE if error["code"] in UNREACHABLE_CODES else UNKNOWN
     return state, f"{error['code']}: {' '.join(error.get('message', '').split())}"[:200]
+
+
+def where(row: dict) -> str:
+    return f"terminal={row['terminal'] or 'unresolved'}" + (f" environment={row['environment']}" if row["environment"] else "")
 
 
 def supervisor_note(row: dict) -> str:
@@ -418,6 +424,7 @@ class Watch:
         row |= {"role": subject.role, "name": subject.name, "terminal": subject.terminal, "environment": subject.environment, "state": seen.state, "detail": seen.detail, "since": seen.since}
         row.setdefault("alerts", {})
         if seen.state in UNSEEN:
+            row.pop("readable", None)
             row["unseen"] = row.get("unseen", 0) + 1 if row.get("unseen_state") == seen.state else 1
             row["unseen_state"] = seen.state
             if seen.screen is not None:
@@ -425,13 +432,20 @@ class Watch:
                     row["unread_capture"] = self.capture(entry, f"unknown-{hashlib.sha1(subject.key.encode()).hexdigest()[:12]}", seen)
                 row["detail"] = f"{seen.detail}; screen saved at {row['unread_capture']}"
             if row["unseen"] >= UNSEEN_POLLS and row.get("reported") != seen.state:
-                text = f"{seen.state.upper()} {subject.name} ({subject.role}) terminal={subject.terminal or 'unresolved'}{f' environment={subject.environment}' if subject.environment else ''}: {row['detail']}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
+                text = f"{seen.state.upper()} {subject.name} ({subject.role}) {where(row)}: {row['detail']}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
                 if self.post(entry, "report", ROOT, subject.name, text):
                     row["reported"] = seen.state
             return
         row["unseen"] = 0
-        for key in ("unseen_state", "reported", "unread_capture"):
+        for key in ("unseen_state", "unread_capture"):
             row.pop(key, None)
+        if "reported" in row:
+            row["readable"] = row.get("readable", 0) + 1
+            if row["readable"] >= UNSEEN_POLLS:
+                text = f"READABLE {subject.name} ({subject.role}) {where(row)}: read for {row['readable']} polls in a row since the watch reported it {row['reported']}"
+                if self.post(entry, "report", ROOT, subject.name, text):
+                    for key in ("reported", "readable"):
+                        row.pop(key)
         if seen.state not in PROMPTS:
             self.close(entry, row)
             return
@@ -470,6 +484,11 @@ class Watch:
             if unlisted and row["role"] == WORKER:
                 fresh[key] = self.unverified(row, unlisted)
                 continue
+            if row["role"] == WORKERS and "reported" in row:
+                self.settle(entry, row, Seen(Subject(key, WORKERS, row["name"]), CLEAR), supervisor)
+                if "reported" in row:
+                    fresh[key] = row
+                continue
             self.close(entry, row, "the terminal left the watch")
             if row["alerts"]:
                 fresh[key] = row
@@ -496,9 +515,8 @@ def view(entry: dict, moment: datetime) -> dict:
         if row["state"] == CLEAR:
             continue
         minutes = int((moment - parse_stamp(row["state_at"])).total_seconds() // 60)
-        where = f"terminal={row['terminal'] or 'unresolved'}" + (f" environment={row['environment']}" if row["environment"] else "")
         label = f"WAITING-ON-PROMPT {row['name']} {row['role']} {row['state']}" if row["state"] in PROMPTS else f"PROMPT-{row['state'].upper()} {row['name']} {row['role']}"
-        rows.append({"name": row["name"], "role": row["role"], "state": row["state"], "detail": row["detail"], "line": f"{label} {minutes}m {where}: {row['detail']}"})
+        rows.append({"name": row["name"], "role": row["role"], "state": row["state"], "detail": row["detail"], "line": f"{label} {minutes}m {where(row)}: {row['detail']}"})
     return {"drive": entry["drive"], "header": f"prompt-watch {entry['drive']} polled {int(age.total_seconds())}s ago: {counts}", "rows": rows}
 
 

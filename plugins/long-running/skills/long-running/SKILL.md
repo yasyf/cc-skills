@@ -2584,6 +2584,11 @@ screen with `orca terminal read --screen` and puts each terminal in exactly one 
 | `unreachable` | nothing, because the remote host does not answer | one `report` to `root` after three polls |
 | `clear` | a working or idle agent with `agentWait` unset | none |
 
+After an `unknown` or `unreachable` report, the watch posts one `READABLE` report to
+`root` once three polls in a row read the terminal again. A shorter read posts nothing,
+so a terminal or `worker-list` that flaps under load raises no second record for the
+same unread state.
+
 `unknown` and `unreachable` mean the prompt state is not known. Never read either as
 working, and never as stuck. A host running Orca's managed server installs no agent
 hook, so `agentWait` stays unset there. The watch therefore reads every remote
