@@ -108,10 +108,12 @@ is a reply, never a directive, so it logs no `DIRECTIVE-FAILED`.
 Each root cci record carrying `--re` is read as a reply. One to the runner's
 `DECIDE` on a worker question is relayed as the reply to that question. One to a
 lane's own record, such as its cci ask, is relayed as the reply to that lane's open
-Orca question, which the cci answer superseded. When another reply already claims
-every open question, it goes to the lane as a plain relay, since Orca refuses a second
-answer to one question. A lane with no open question gets nothing, since it reads the
-answer on cci.
+Orca question, which the cci answer superseded. When another reply, an inbox relay
+line included, already claims that question, or every open question, it goes to the
+lane as a plain relay, since Orca refuses a second answer to one question. A reply
+Orca still refuses with `answer_conflict`, answered outside the runner, goes once to
+the dispatch as a message on the relay's thread. A lane with no open question gets
+nothing, since it reads the answer on cci.
 
 A monitor transition and an incident launch are each one line in the same inbox:
 
