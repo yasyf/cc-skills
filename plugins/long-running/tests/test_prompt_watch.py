@@ -501,6 +501,31 @@ def test_a_screen_orca_cannot_render_is_unknown_whatever_its_text_holds(home, sh
     }
 
 
+def test_an_unread_terminal_reports_once_and_reads_again_only_after_three_polls_read_it(home, shell):
+    register(home)
+    unbound(shell)
+    coordinator(shell, "waiting", "unavailable")
+    poll(shell, 3)
+    coordinator(shell, "clear", "coordinator.answered")
+    poll(shell)
+    coordinator(shell, "waiting", "unavailable")
+    poll(shell, 3)
+    coordinator(shell, "clear", "coordinator.answered")
+    poll(shell, 2)
+    assert [post["--text"].split()[0] for post in shell.posts] == ["UNKNOWN"]
+
+    rows = poll(shell)
+
+    [_, readable] = shell.posts
+    assert readable["--to"] == "root" and readable["--kind"] == "report" and readable["--topic"] == "prompt:coordinator"
+    assert whole(readable) == f"READABLE coordinator (coordinator) terminal={ROOT}: read for 3 polls in a row since the watch reported it unknown"
+    assert rows[ROOT]["state"] == "clear" and "reported" not in rows[ROOT] and "readable" not in rows[ROOT]
+    poll(shell, 2)
+    coordinator(shell, "waiting", "unavailable")
+    poll(shell, 3)
+    assert [post["--text"].split()[0] for post in shell.posts] == ["UNKNOWN", "READABLE", "UNKNOWN"]
+
+
 def workers(home: Path, shell: FakeShell, local: str = "clear") -> None:
     register(home, orca_run=RUN)
     coordinator(shell, "clear", "coordinator.answered")
@@ -884,6 +909,25 @@ def test_a_worker_list_that_fails_closes_no_prompt_and_the_same_prompt_is_not_ra
 
     assert rows[f"dispatch:{LOCAL}"]["state"] == "approval" and "workers" not in rows
     assert shell.kinds("bake") == ["blocker"]
+
+
+def test_a_worker_list_that_flaps_reports_once_and_reads_again_after_three_answered_polls(home, shell):
+    workers(home, shell)
+    listing = ("orchestration", "worker-list", "--run", RUN, "--include-remote")
+    for page in ("error.timeout", "worker-list", "error.timeout"):
+        shell.orca[listing] = fixture(page)
+        poll(shell, 1 if page == "worker-list" else 3)
+    shell.orca[listing] = fixture("worker-list")
+    rows = poll(shell, 2)
+    assert rows["workers"]["state"] == "clear" and rows["workers"]["reported"] == "unknown"
+
+    rows = poll(shell)
+
+    assert "workers" not in rows
+    assert [whole(post) for post in shell.posts if post["--topic"] == "prompt:worker-list"] == [
+        "UNKNOWN worker-list (workers) terminal=unresolved: timeout: timeout; unread for 3 polls, so whether it waits on a prompt is not known",
+        "READABLE worker-list (workers) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown",
+    ]
 
 
 def test_a_record_cci_refuses_is_posted_on_the_next_poll(home, shell):
