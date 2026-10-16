@@ -207,7 +207,10 @@ A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pas
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, default `fidelity-desk`) about that PR whose text starts
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`; a head no fidelity lane has graded
-also passes when its `fidelity` commit status reads `success`, and the status mirror leaves such a head's status alone.
+also passes when its `fidelity` commit status reads `success`, and the status mirror leaves such a head's status alone. A head no
+grade names carries the ok of an older head an ok names, whose own newest grade is ok, when `git patch-id --stable` of both heads'
+diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
+a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. On every pass the runner also mirrors the newest grade
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
@@ -304,6 +307,7 @@ OWNER_KINDS = ("head", "opened", "ready", "claim")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
+DIFF_MEDIA = "Accept: application/vnd.github.diff"
 HOLD_LABEL = "hold"
 LABEL_GONE = "(HTTP 404)"
 STATUS_TEXT = 140
@@ -2478,6 +2482,14 @@ def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
     return covered
 
 
+def names_head(named: str, sha: str) -> bool:
+    return bool(sha) and (sha.startswith(named) or named.startswith(sha))
+
+
+def newest_naming(grades: list[dict], sha: str) -> dict | None:
+    return max((record for record in grades if any(names_head(named, sha) for named in SHORT_SHA.findall(record["text"]))), key=lambda record: record["seq"], default=None)
+
+
 def names_pr(record: dict, pr: str) -> bool:
     return int(pr) in record.get("refs", {}).get("prs", []) or re.search(rf"#{pr}\b", record["text"]) is not None
 
@@ -2524,6 +2536,7 @@ class Landing:
         self.unlabeled: set[str] = set()
         self.landed: set[str] = set()
         self.gated: set[tuple[str, str]] = set()
+        self.patch_ids: dict[tuple[str, str], str] = {}
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -2645,20 +2658,42 @@ class Landing:
                 break
         return done
 
-    def fidelity(self, pr: str, sha: str) -> dict | None:
+    def fidelity(self, pr: str, sha: str, base: str) -> dict | None:
+        """The newest grade naming `sha`; with none, an ok carried from an older head whose own newest grade is ok and whose patch against `base` is identical to this head's."""
         drive = self.runner.config.drive
         reviews = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane, "--pr", pr)]
-        grades = [
-            record
-            for record in reviews
-            if record["kind"] == "review"
-            and record["drive"] == drive
-            and record["lane"] in self.fidelity_lanes
-            and record["text"].startswith(FIDELITY_GRADES)
-            and sha
-            and any(sha.startswith(named) or named.startswith(sha) for named in SHORT_SHA.findall(record["text"]))
-        ]
-        return max(grades, key=lambda record: record["seq"], default=None)
+        grades = [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in self.fidelity_lanes and record["text"].startswith(FIDELITY_GRADES)]
+        return newest_naming(grades, sha) or (self.carried(pr, sha, base, grades) if sha and base else None)
+
+    def carried(self, pr: str, sha: str, base: str, grades: list[dict]) -> dict | None:
+        graded = dict.fromkeys(
+            named
+            for record in sorted(grades, key=lambda record: record["seq"], reverse=True)
+            if record["text"].startswith(FIDELITY_OK)
+            for named in SHORT_SHA.findall(record["text"])
+            if not names_head(named, sha)
+        )
+        oks = {named: grade for named in graded if (grade := newest_naming(grades, named))["text"].startswith(FIDELITY_OK)}
+        if not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
+            return None
+        for named, grade in oks.items():
+            if self.patch_id(pr, named, base, escalate=False) == ours:
+                return {**grade, "text": f"{FIDELITY_OK} at {sha}, patch-identical to {named}"}
+        return None
+
+    def patch_id(self, pr: str, sha: str, base: str, escalate: bool) -> str:
+        """`git patch-id --stable` of `sha`'s diff against its merge base with `base`, read from GitHub's compare; empty when GitHub refuses the read, which escalates once for the PR's own head and is silent for a short sha a grade names that is no commit."""
+        if (base, sha) in self.patch_ids:
+            return self.patch_ids[(base, sha)]
+        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{base}...{sha}", "-H", DIFF_MEDIA])
+        if diff.code != 0:
+            if escalate:
+                last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
+                self.runner.escalate(f"patch:{pr}:{sha}", "PATCH-READ-FAILED", f"#{pr}", f"GitHub refused the diff of {base}...{sha}: {last[0]}; no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass")
+            return ""
+        done = self.shell.run(["git", "patch-id", "--stable"], stdin=diff.out)
+        self.patch_ids[(base, sha)] = done.out.split()[0] if done.code == 0 and done.out.strip() else ""
+        return self.patch_ids[(base, sha)]
 
     def head_statuses(self, pr: str, sha: str) -> list[dict] | None:
         done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
@@ -2712,8 +2747,8 @@ class Landing:
         self.book.attempt(LANDING, lambda incident: (incident.start(key, now), incident.complete(key, {"at": self.book.stamp()})))
         self.runner.escalate(f"gates-redispatch:{pr}:{sha}", "GATES-REDISPATCH", f"#{pr}", f"queue draft head {sha} had no `{GATES_STATUS}` status {int(GATES_GRACE.total_seconds() // 60)} min after the draft opened; re-dispatched {GATES_WORKFLOW} for it once")
 
-    def ungraded(self, heads: dict[str, str]) -> dict[str, dict | None]:
-        grades = {pr: self.fidelity(pr, sha) for pr, sha in heads.items()}
+    def ungraded(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, dict | None]:
+        grades = {pr: self.fidelity(pr, sha, rows[pr].get("base") or "") for pr, sha in heads.items()}
         return {
             pr: grade
             for pr, grade in grades.items()
@@ -2743,7 +2778,7 @@ class Landing:
             if row.get("state", "open") != "open" or not head:
                 continue
             try:
-                grade = self.fidelity(pr, head)
+                grade = self.fidelity(pr, head, row.get("base") or "")
             except CciTailFailed as failure:
                 self.runner.tail_failed(failure)
                 return
@@ -2829,7 +2864,7 @@ class Landing:
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
             return
         heads = enqueued_heads(base)
-        if ungraded := self.ungraded(heads):
+        if ungraded := self.ungraded(heads, rows):
             self.refuse_ungraded(heads, ungraded, rows)
             return
         policy = self.runner.landing_policy()
@@ -2874,7 +2909,7 @@ class Landing:
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh[-800:], "at": self.book.stamp()}))
             return
-        if ungraded := self.ungraded(enqueued_heads(key)):
+        if ungraded := self.ungraded(enqueued_heads(key), rows):
             self.refuse_ungraded(enqueued_heads(key), ungraded, rows)
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"no {FIDELITY_OK} from {self.fidelity_names} at the head of {numbered(list(ungraded))}", "at": self.book.stamp()}))
             return

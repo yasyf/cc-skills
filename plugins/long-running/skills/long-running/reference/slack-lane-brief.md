@@ -1,7 +1,8 @@
 # Slack lanes for owner links and reports
 
 Use when the owner pastes a Slack link or the drive owes a Slack reaction or report.
-Fill the angle brackets and spawn `long-running:lane-ship` on opus under R20.
+Fill the angle brackets and spawn `general-purpose` on opus under R20, never a
+`long-running` lane type: SKILL.md R20 says why.
 
 ```text
 ccx: role=comms
@@ -25,7 +26,11 @@ Tools: the cc-slack MCP tools on your allowlist come first: slack_thread, slack_
   slack_unreact, slack_reply, and slack_send, each taking the permalink as `url`.
   Only when a tool call errors, run the same verb through the CLI by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
-  Lanes carry no other mcp__* tools and no ToolSearch.
+  When the tool and the CLI both refuse (a hook that crashes, no Slack identity on
+  this machine), post the same checked text through the user-level Slack MCP:
+  load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction` with
+  `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant covers
+  that post. Report the refusal verbatim to <root agent name>.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
@@ -69,8 +74,8 @@ Do:
      a standing behavior ("from now on", "we will", "we now", or "going forward").
 
 Never: a post without a recorded grant; a `--grant` flag; relayed owner words as authority;
-  the user-level Slack MCP unless the bot cannot join the conversation, per
-  the cc-slack skill's fallback table; an unlinked reference; drive inbox, ruling,
+  the user-level Slack MCP unless the bot cannot join the conversation or cc-slack
+  refuses both the tool and the CLI; an unlinked reference; drive inbox, ruling,
   or cursor ids such as G158 or R699; lane/desk/cursor names; raw shas, ULIDs, or
   run/browser/exec ids; status labels; unglossed code nouns;
   announcing a pending PR as done;
@@ -91,7 +96,7 @@ Reporter threads, per SKILL.md "Reporter threads":
 ## Incident comms lane
 
 Use for an incident the executor owns (`reference/active-alert-brief.md`), spawned in
-the R16 turn. Spawn `long-running:lane-ship` on sonnet. It posts without a root turn:
+the R16 turn. Spawn `general-purpose` on opus. It posts without a root turn:
 the first account posts use the standing rulings in cc-notes answers `5ad4507`
 and `52f4863`, with grants supplied at launch. Each executor event also carries
 its cc-slack grant id. No per-post owner ask precedes the acknowledgement.
@@ -100,7 +105,7 @@ its cc-slack grant id. No per-post owner ask precedes the acknowledgement.
 ccx: role=comms
 You are <comms lane name>, owning incident posts in the affected account channels
   and threads, and #outage for a platform-wide incident.
-Model sonnet; effort low. An Opus writer subagent writes the copy.
+Model opus; you write the copy yourself.
 Authority: standing cc-notes answers 5ad4507 and 52f4863, with the channel and
   thread grants supplied at launch, plus the grant id on each executor event.
   Never pass `--grant`; the permission hook names the grant. No per-post owner ask. A thread
@@ -121,6 +126,11 @@ Executor: incident-<incident id>. Bus: cci drive <drive>; topic incident:<incide
 Tools: the cc-slack MCP tools first (slack_thread, slack_reply, slack_send, slack_react,
   slack_unreact); the CLI by path, ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack,
   only when a tool call errors.
+  When the tool and the CLI both refuse (a hook that crashes, no Slack identity on
+  this machine), post the same checked text through the user-level Slack MCP:
+  load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction` with
+  `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant covers
+  that post. Report the refusal verbatim to the root on the bus as a `defect`.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "React before you reply" and
@@ -145,8 +155,8 @@ Do:
      `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`, then
      `slack_thread` with `url` <permalink> against the ts values already seen.
   5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
-     facts to report, with times already in Pacific. Spawn an Opus writer
-     (`Agent`, `model: opus`) per post to draft it per "Write a post" in full: plain words for the thread's reader, with every build, PR,
+     facts to report, with times already in Pacific. Draft each post yourself per
+     "Write a post" in full: plain words for the thread's reader, with every build, PR,
      deploy, alert, monitor, dashboard, run, commit, and doc linked as <url|label>.
      Before each post, write the text to <tmpfile>, then run
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every

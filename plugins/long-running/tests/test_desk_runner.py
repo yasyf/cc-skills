@@ -80,6 +80,8 @@ class FakeShell(runner_module.Shell):
         self.head_statuses: list[dict] = []
         self.combined_statuses: dict[str, list[dict]] = {}
         self.status_read_error = ""
+        self.diffs: dict[str, str] = {}
+        self.compare_errors: dict[str, str] = {}
         self.drafts: list[dict] = []
         self.draft_list_error = ""
         self.workflow_runs: list[list[str]] = []
@@ -188,6 +190,14 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
         if argv[:2] == ["gh", "api"] and "/issues/" in argv[2]:
             return self.label(argv[2:], stdin)
+        if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
+            assert argv[2].startswith("repos/Forge-AI/monorepo/compare/") and argv[3:] == ["-H", "Accept: application/vnd.github.diff"]
+            head = argv[2].rsplit("...", 1)[1]
+            if head in self.compare_errors:
+                return runner_module.Done(1, "", self.compare_errors[head])
+            return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+        if argv == ["git", "patch-id", "--stable"]:
+            return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
         if argv[:2] == ["gh", "api"] and len(argv) == 3:
             assert argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status")
             if self.status_read_error:
@@ -2189,6 +2199,73 @@ def test_a_new_head_reads_pending_until_the_fidelity_lane_grades_it(shell, confi
     grade(shell, "29020", "missing F307 at dddd444 (View fix).")
     landing_pass(shell, config)
     assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "pending"), ("dddd444444", "failure")]
+
+
+def compare_calls(shell: FakeShell) -> list[str]:
+    return [call[2].rsplit("/", 1)[1] for call in shell.calls if call[:2] == ["gh", "api"] and "/compare/" in call[2]]
+
+
+def test_a_restack_with_the_graded_heads_patch_carries_its_ok_and_cites_that_head(shell, config, tmp_path):
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    landing_pass(shell, config)
+    assert shell.head_statuses == [{"sha": "cccc333333", "state": "success", "context": "fidelity", "description": f"cci #{seq} fidelity: ok at cccc333333, patch-identical to bbbb222"}]
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
+    assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
+
+
+def test_a_restack_whose_patch_differs_waits_for_its_own_grade(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.diffs["bbbb222"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+Connection::open_with_flags\n"
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "pending")] and shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert "no review from fidelity-desk starting `fidelity: ok` names this head" in blocker["text"]
+
+
+def test_a_grade_naming_the_new_head_beats_a_carried_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    seq = grade(shell, "29020", "missing F335 at cccc333: the restack dropped the fixture.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "failure")] and shell.enqueues() == [] and compare_calls(shell) == []
+    [blocker] = blockers(shell)
+    assert f"cci #{seq}: fidelity: missing F335" in blocker["text"]
+
+
+def test_no_ok_carries_from_a_head_whose_newest_grade_is_missing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    grade(shell, "29020", "missing F335 at bbbb222.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "pending")] and shell.enqueues() == [] and compare_calls(shell) == []
+
+
+def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307: the restack onto dev 9057dda of bbbb222 has a range-diff of '='.")
+    shell.compare_errors["9057dda"] = "gh: Not Found (HTTP 404)"
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [("cccc333333", "success")] and escalations(shell) == []
+    assert compare_calls(shell) == ["dev...cccc333333", "dev...9057dda", "dev...bbbb222"]
+
+
+def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.compare_errors["cccc333333"] = "gh: API rate limit exceeded (HTTP 403)"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and fidelity_statuses(shell) == [("cccc333333", "pending")]
+    assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [
+        "PATCH-READ-FAILED patch:29020:cccc333333 #29020: GitHub refused the diff of dev...cccc333333: gh: API rate limit exceeded (HTTP 403); no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass"
+    ]
 
 
 def test_a_regrade_of_the_same_head_flips_its_status(shell, config, tmp_path):

@@ -646,7 +646,12 @@ also takes a list of lane names, `"fidelity_lane": ["fidelity-desk-6", "fidelity
 for a drive that shards grading: a grade from any listed lane counts, the newest
 across them decides, and a blocker goes to the PR's lane and every listed lane. A
 head no listed lane has graded also passes when its `fidelity` commit status reads
-`success`, and the mirror then leaves that status alone.
+`success`, and the mirror then leaves that status alone. A head no grade names takes
+an ok carried from an older head an ok names, whose own newest grade is ok, when
+`git patch-id --stable` of both heads' diffs against the PR's base, read from
+GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
+patch-identical to <graded head>` under the graded record's seq. A compare GitHub
+refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 
 Each pass also mirrors the newest grade of every open row's head into that
 head's `fidelity` commit status: `success` for `fidelity: ok`, `failure` for

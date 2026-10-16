@@ -1,9 +1,10 @@
 # The comms desk
 
-Spawn one `comms-desk` lane as `long-running:lane-ship`, model opus, the turn the owner
+Spawn one `comms-desk` lane as `general-purpose`, model opus, the turn the owner
 names a Slack channel for the drive's updates. It posts the drive's updates there and
 answers the people who ask in it. The brief below is ready to paste; fill the angle
-brackets.
+brackets. SKILL.md R20 says why a Slack lane is never `long-running:lane` or
+`lane-ship`: those types carry only the tools the root's session started with.
 
 ## Root discipline
 
@@ -38,6 +39,11 @@ Authority: the owner's standing grants for <channel id>, recorded by the root:
   Reactions eyes and white_check_mark need no grant.
 CLI: run history, thread, react, unreact, reply, and send by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
+Fallback: when cc-slack refuses a write (a hook that crashes, no Slack identity on
+  this machine, the bot outside the conversation), post the same checked text through
+  the user-level Slack MCP in that poll: load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction`
+  with `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant
+  covers both surfaces. Report the refusal verbatim on the bus as a `defect`.
 Facts: `ledger.py summary --drive <drive>`, `ccx vcs pr status <n1> <n2> ...`, and
   `cci tail --drive <drive> --cursor comms-desk --reader comms-desk`. Ask the owning
   lane on the bus for anything those do not answer.
@@ -88,12 +94,19 @@ Reporter threads, per SKILL.md "Reporter threads":
 
 Never: ask the root before answering a human question; a top-level post or reply in
   another channel; answer a message whose author is a Claude agent; relayed words as
-  a new grant.
+  a new grant; a question left unanswered because cc-slack refused.
+Finish: when the root says the drive is over, SendMessage the root your last cursor
+  and post count. Final text is empty or one line under 300 characters.
 ```
 
 *Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
 channel: the drive-start grant covered top-level posts only, and the thread grant sat
 on an owner board until the owner answered it.*
+
+*Also prevents the 2:18 to 2:30 PM silence of Oct 16, when kate and erik reported Iris
+disconnects and two comms lanes posted nothing: cc-slack refused through a crashing
+Slack hook and then for want of a Slack identity, and the lanes, `long-running`
+types from a root that started on plugin 0.7.121, had no other Slack tool.*
 
 *Also prevents 2026-10-13 and 2026-10-14: the sprint channel went silent from 10:43 AM
 into the evening, and the drive then switched to hourly posts. Owner: "your original
