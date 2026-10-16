@@ -105,6 +105,7 @@ class FakeShell(runner_module.Shell):
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
         self.dead: set[str] = set()
+        self.gone: set[str] = set()
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
@@ -222,6 +223,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(self.ledger_code, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]), "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
+        if argv[:2] == ["cci", "who"]:
+            assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
+            return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True}) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -1207,6 +1211,23 @@ def test_red_ci_a_conflict_a_review_ask_or_an_ejection_goes_to_the_lane(shell, c
     shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {detail}")]
     landing_pass(shell, config)
     assert relayed(shell) == [f"#29020 cccc333333: {detail}"]
+
+
+@pytest.mark.parametrize(
+    ("posted", "gone", "to"),
+    [
+        ([], set(), "chat-move-r4"),
+        ([("chat-move-r4", "opened"), ("chat-move-land-2", "head"), ("one-session-open-restack", "ready")], set(), "one-session-open-restack"),
+        ([("chat-move-r4", "opened"), ("chat-move-land-2", "claim")], {"chat-move-land-2"}, "chat-move-land-2,root"),
+    ],
+)
+def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_root_when_that_lane_is_gone(shell, config, posted, gone, to):
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766 + index, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [29020]}, "text": f"#29020 {kind}", "source": "post"} for index, (lane, kind) in enumerate(posted)]
+    shell.gone = gone
+    landing_pass(shell, config)
+    assert [post["to"] for post in shell.posts if post["kind"] == "blocker"] == [to]
 
 
 def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_path):
