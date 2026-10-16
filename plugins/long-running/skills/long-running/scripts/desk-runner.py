@@ -222,7 +222,13 @@ in its prefix is enqueued. On every pass the runner also mirrors the newest grad
 of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
 described by the grade's first line and cci seq, once per grade record. The required `landing-gates` check holds any head whose
 `fidelity` status is not `success`, so a head pushed after its grade waits for its own whoever enqueues it. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
-head", until the lane grades it; the runner reads the head's statuses just before that post and skips it when any `fidelity` status is already there or the read fails, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
+head", until the lane grades it; the runner reads the head's statuses afresh just before that post and skips it when any `fidelity` status is already there or the read fails, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass.
+Each pass reads the commit statuses of every open row's head and every Graphite queue draft's head in one GraphQL query, and reuses a
+head's statuses for 60 s unless the runner itself posts to that head or re-dispatches its grade; a head read that fails logs
+`STATUS-READ-FAILED` once and counts as unread for that pass. Each pass starts with one free `rate_limit` read of the GitHub App
+installation's quotas through `ccx vcs gh`. With the REST or GraphQL quota under 5% of its limit, the pass reads nothing from GitHub and
+logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; accepted enqueues stay accepted and root `go` records
+stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
 else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
@@ -264,6 +270,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -340,6 +347,10 @@ RED_STATES = frozenset({"failure", "error"})
 FAILING_REQUIRED = re.compile(r"^graphite FAILING\w*$")
 GATES_WORKFLOW = "landing-gates.yaml"
 GATES_GRACE = timedelta(minutes=5)
+HEAD_FLOOR = timedelta(seconds=60)
+HEADS_PER_QUERY = 100
+QUOTA_FLOOR = 0.05
+QUOTA_RESOURCES = ("core", "graphql")
 QUEUE_DRAFT_TITLE = "[Graphite MQ] Draft PR"
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEAT = "orca-runner.heartbeat.json"
@@ -2511,6 +2522,16 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
 
 
+def heads_query(repo: str, shas: list[str]) -> str:
+    owner, name = repo.split("/")
+    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state }} }} }} }}' for index, sha in enumerate(shas))
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+
+
+def same_head(one: str, other: str) -> bool:
+    return one.startswith(other) or other.startswith(one)
+
+
 def judge_verdict(done: Done) -> dict:
     if done.code != 0:
         return {"verdict": "escalate", "text": f"the judge failed: {(done.err or done.out).strip()[-200:]}"}
@@ -2544,6 +2565,8 @@ class Landing:
         self.landed: set[str] = set()
         self.gated: set[tuple[str, str]] = set()
         self.patch_ids: dict[tuple[str, str], str] = {}
+        self.read: dict[str, tuple[datetime, list[dict]]] = {}
+        self.reading = threading.Lock()
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -2703,12 +2726,57 @@ class Landing:
         return self.patch_ids[(base, sha)]
 
     def head_statuses(self, pr: str, sha: str) -> list[dict] | None:
-        done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
+        return self.read_heads({sha: pr}).get(sha)
+
+    def cached(self, sha: str) -> list[dict] | None:
+        now = self.runner.now()
+        with self.reading:
+            return next((statuses for head, (at, statuses) in self.read.items() if same_head(head, sha) and now - at < HEAD_FLOOR), None)
+
+    def forget(self, sha: str) -> None:
+        with self.reading:
+            for head in [head for head in self.read if same_head(head, sha)]:
+                del self.read[head]
+
+    def read_heads(self, heads: dict[str, str]) -> dict[str, list[dict] | None]:
+        """The commit statuses of each head in `heads`, a sha to the PR it heads: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and logs one `STATUS-READ-FAILED` per PR and head."""
+        found = {sha: statuses for sha in heads if (statuses := self.cached(sha)) is not None}
+        due = sorted(set(heads) - set(found))
+        for start in range(0, len(due), HEADS_PER_QUERY):
+            batch = due[start : start + HEADS_PER_QUERY]
+            done = self.shell.run(["gh", "api", "graphql", "-f", f"query={heads_query(self.repo, batch)}"])
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            commits = json.loads(done.out)["data"]["repository"] if done.code == 0 else {}
+            now = self.runner.now()
+            for index, sha in enumerate(batch):
+                if (commit := commits.get(f"h{index}")) is None:
+                    why = f"GitHub refused the statuses of {sha}: {last[0]}" if done.code else f"GitHub knows no commit {sha} in {self.repo}"
+                    self.runner.escalate(f"status-read:{heads[sha]}:{sha}", "STATUS-READ-FAILED", f"#{heads[sha]}", f"{why}; the runner reads it again on the next pass")
+                    continue
+                statuses = [{"context": context["context"], "state": context["state"].lower()} for context in (commit["status"] or {"contexts": []})["contexts"]]
+                with self.reading:
+                    self.read[sha] = (now, statuses)
+                found[sha] = statuses
+        return found
+
+    def quota_low(self) -> bool:
+        """Whether the REST or GraphQL quota of the installation this desk reads GitHub through is under `QUOTA_FLOOR` of its limit, from one `rate_limit` read GitHub does not count. Each quota under the floor logs one `GITHUB-BACKOFF` per reset; a read that fails logs one `QUOTA-READ-FAILED` per hour and reads as not low."""
+        done = self.shell.run(["ccx", "vcs", "gh", "--", "api", "rate_limit"], env={"GH_REPO": self.repo})
         if done.code != 0:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-            self.runner.escalate(f"status-read:{pr}:{sha}", "STATUS-READ-FAILED", f"#{pr}", f"GitHub refused the combined status of {sha}: {last[0]}; the runner reads it again on the next pass")
-            return None
-        return json.loads(done.out)["statuses"]
+            self.runner.escalate(f"quota-read:{self.runner.now():%Y%m%d%H}", "QUOTA-READ-FAILED", "landing", f"the GitHub quota read failed: {last[0]}; the pass runs without it")
+            return False
+        resources = json.loads(done.out)["resources"]
+        low = {name: resources[name] for name in QUOTA_RESOURCES if resources[name]["remaining"] < resources[name]["limit"] * QUOTA_FLOOR}
+        for name, quota in low.items():
+            reset = pacific(datetime.fromtimestamp(quota["reset"], timezone.utc))
+            self.runner.escalate(
+                f"github-backoff:{name}:{quota['reset']}",
+                "GITHUB-BACKOFF",
+                "landing",
+                f"GitHub's {name} quota has {quota['remaining']} of {quota['limit']} calls left, under the {QUOTA_FLOOR:.0%} floor; the desk reads nothing from GitHub until it resets at {reset}, and accepted enqueues and root go records run after the reset",
+            )
+        return bool(low)
 
     def fidelity_statuses(self, pr: str, sha: str) -> list[dict] | None:
         statuses = self.head_statuses(pr, sha)
@@ -2717,15 +2785,19 @@ class Landing:
     def status_success(self, pr: str, sha: str) -> bool:
         return any(status["state"] == "success" for status in self.fidelity_statuses(pr, sha) or [])
 
-    def regrade_gates(self) -> None:
-        """Re-dispatch the Landing Gates grade of an open Graphite queue draft whose head still carries no `landing-gates` status `GATES_GRACE` after the draft opened, once per head, and post one `GATES-REDISPATCH` state line. A head still without the status `GATES_GRACE` after that dispatch posts one `LANDING-GATES-FAILED` defect. The `pull_request_target` run reads success when it only dispatches the grade, so a grade that died on a GitHub fault leaves the draft blocked with every run green."""
+    def queue_drafts(self) -> list[dict] | None:
+        """The open Graphite queue drafts, or None when GitHub refuses the listing, logged as one `GATES-LIST-FAILED` per hour."""
         listed = self.shell.run(["gh", "pr", "list", "--repo", self.repo, "--state", "open", "--search", f'"{QUEUE_DRAFT_TITLE}" in:title', "--json", "number,title,headRefOid,createdAt", "--limit", "100"])
-        now = self.runner.now()
         if listed.code != 0:
             last = (listed.err or listed.out).strip().splitlines()[-1:] or [f"exit {listed.code}"]
-            self.runner.escalate(f"gates-list:{now:%Y%m%d%H}", "GATES-LIST-FAILED", "landing", f"GitHub refused the queue draft listing: {last[0]}; the runner reads it again on the next pass")
-            return
-        for draft in json.loads(listed.out):
+            self.runner.escalate(f"gates-list:{self.runner.now():%Y%m%d%H}", "GATES-LIST-FAILED", "landing", f"GitHub refused the queue draft listing: {last[0]}; the runner reads it again on the next pass")
+            return None
+        return json.loads(listed.out)
+
+    def regrade_gates(self, drafts: list[dict]) -> None:
+        """Re-dispatch the Landing Gates grade of an open Graphite queue draft whose head still carries no `landing-gates` status `GATES_GRACE` after the draft opened, once per head, and post one `GATES-REDISPATCH` state line. A head still without the status `GATES_GRACE` after that dispatch posts one `LANDING-GATES-FAILED` defect. The `pull_request_target` run reads success when it only dispatches the grade, so a grade that died on a GitHub fault leaves the draft blocked with every run green."""
+        now = self.runner.now()
+        for draft in drafts:
             pr, sha = str(draft["number"]), draft["headRefOid"]
             opened = datetime.fromisoformat(draft["createdAt"].replace("Z", "+00:00"))
             if not draft["title"].startswith(QUEUE_DRAFT_TITLE) or (pr, sha) in self.gated or now - opened < GATES_GRACE:
@@ -2747,6 +2819,7 @@ class Landing:
                 self.runner.escalate(f"gates-missing:{pr}:{sha}", "LANDING-GATES-FAILED", f"#{pr}", f"queue draft head {sha} still has no `{GATES_STATUS}` status {whole_minutes(dispatched, now)} min after the runner re-dispatched its grade; read the log of the {GATES_WORKFLOW} dispatch run for pr={pr} head={sha}")
             return
         done = self.shell.run(["gh", "workflow", "run", GATES_WORKFLOW, "--repo", self.repo, "-f", f"pr={pr}", "-f", f"head={sha}"])
+        self.forget(sha)
         if done.code != 0:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
             self.runner.escalate(key, "GATES-DISPATCH-FAILED", f"#{pr}", f"GitHub refused the {GATES_WORKFLOW} dispatch for {sha}: {last[0]}; the runner dispatches it again on the next pass")
@@ -2804,6 +2877,7 @@ class Landing:
             if writes == MIRROR_WRITES:
                 return
             if state == "pending":
+                self.forget(head)
                 present = self.fidelity_statuses(pr, head)
                 if present is None or present:
                     continue
@@ -2815,6 +2889,7 @@ class Landing:
                 "description": description if len(description) <= STATUS_TEXT else description[: STATUS_TEXT - 1] + "…",
             }
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
+            self.forget(head)
             if done.code == 0:
                 self.book.attempt(LANDING, lambda incident, key=key, payload=payload: (incident.start(key, self.runner.now()), incident.complete(key, {**payload, "at": self.book.stamp()})))
             else:
@@ -3218,10 +3293,17 @@ class Landing:
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
 
     def run(self) -> None:
+        if self.quota_low():
+            return
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
-        self.regrade_gates()
+        drafts = self.queue_drafts()
         rows = self.rows()
+        heads = {draft["headRefOid"]: str(draft["number"]) for draft in drafts or []}
+        heads |= {row["head"]: pr for pr, row in (rows or {}).items() if row.get("state", "open") == "open" and row.get("head")}
+        self.read_heads(heads)
+        if drafts is not None:
+            self.regrade_gates(drafts)
         if rows is None:
             return
         entries = holds.read(self.holds)
