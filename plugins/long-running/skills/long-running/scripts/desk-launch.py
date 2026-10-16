@@ -6,7 +6,8 @@
     desk-launch.py refused <lane> (--drive D | --session ID)
 
 STDLIB ONLY. `incident` launches `<name>-fix`, and `<name>-evidence` when an evidence brief is
-given, each `NOW incident xhigh`, the Incident Turn's route. `lane` launches one lane on any
+given, each `NOW incident xhigh` under its role, `role=fix` or `role=evidence`, the Incident
+Turn's route; the runner's incident clock holds only the fix lane. `lane` launches one lane on any
 model `orca-launch.sh` starts; `--now` skips the runner's load hold. The next key is one past
 the highest `R<n>` that opens a root `orca-desk:` record on the drive. Each launch is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
@@ -65,11 +66,11 @@ def next_key(drive: str) -> int:
     return 1 + max((int(match[1]) for record in posted if (match := KEY.match(record["text"]))), default=0)
 
 
-def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, Path]]:
+def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, Path]]:
     if args.verb == "incident":
         briefs = [("fix", args.fix_brief), *([("evidence", args.evidence_brief)] if args.evidence_brief else [])]
-        return [(f"{args.name}-{role}", "incident", "xhigh", True, brief) for role, brief in briefs]
-    return [(args.target, args.model, args.effort, args.now, args.brief)]
+        return [(f"{args.name}-{role}", "incident", "xhigh", True, role, brief) for role, brief in briefs]
+    return [(args.target, args.model, args.effort, args.now, "", args.brief)]
 
 
 def refusal(drive: str, lane: str) -> str:
@@ -94,9 +95,9 @@ def refused(args: argparse.Namespace) -> int:
     return 1
 
 
-def post(drive: str, author: str, topic: str, key: int, lane: str, model: str, effort: str, now: bool, brief: Path) -> int:
+def post(drive: str, author: str, topic: str, key: int, lane: str, model: str, effort: str, now: bool, role: str, brief: Path) -> int:
     clock = datetime.now(PACIFIC).strftime("%-I:%M %p")
-    line = f"R{key} ({clock}) {DESK}: launch {lane}{' NOW' if now else ''} {model} {effort} brief={brief}"
+    line = f"R{key} ({clock}) {DESK}: launch {lane}{' NOW' if now else ''} {model} {effort}{f' role={role}' if role else ''} brief={brief}"
     stored = json.loads(cci(drive, "post", "--lane", author, "--kind", "go", "--to", DESK, "--topic", topic, "--text", line, "--json"))
     print(f"posted R{key} {lane} as cci #{stored['seq']}", flush=True)
     return stored["seq"]
@@ -143,13 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "refused":
         return refused(args)
     planned = launches(args)
-    for _, _, _, _, brief in planned:
+    for *_, brief in planned:
         if not brief.is_file():
             parser.error(f"brief {brief} is not a file")
     topic = args.name if args.verb == "incident" else args.target
     first = next_key(args.drive)
     keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
-    since = min(post(args.drive, args.lane, topic, first + offset, lane, model, effort, now, brief.resolve()) for offset, (lane, model, effort, now, brief) in enumerate(planned)) - 1
+    since = min(post(args.drive, args.lane, topic, first + offset, lane, model, effort, now, role, brief.resolve()) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
     settled = wait(args.drive, since, keys, args.timeout_seconds)
     for key, lane in keys.items():
         if key not in settled:

@@ -463,7 +463,8 @@ desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
 ```
 
 It takes the next `R<n>`, posts `<name>-fix` and `<name>-evidence` to `orca-desk`
-on cci as `NOW incident xhigh` launch lines, waits for the runner's `LAUNCHED` or
+on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
+the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or
 `LAUNCH-FAILED`, and prints each lane's dispatch and terminal. It exits 0 only when
 both launched. `incident.py open ... --adopt fix=<name>-fix --adopt
 evidence=<name>-evidence` hands both lanes to the executor. A codex lane writes its

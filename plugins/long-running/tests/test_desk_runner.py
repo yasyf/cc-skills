@@ -3265,16 +3265,17 @@ def launch_brief(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("line", "key", "lane", "now", "model", "effort", "brief"),
+    ("line", "key", "lane", "now", "model", "effort", "role", "brief"),
     [
-        ("R1907 (7:0x PM PT) orca-desk: launch alerts-api-1n91-fix NOW incident xhigh brief=/d/fix-brief.md", "R1907", "alerts-api-1n91-fix", " NOW", "incident", "xhigh", "/d/fix-brief.md"),
-        ("- orca-desk: launch docs-lane astra high brief=/d/b.md", None, "docs-lane", None, "astra", "high", "/d/b.md"),
+        ("R1907 (7:0x PM PT) orca-desk: launch alerts-api-1n91-fix NOW incident xhigh brief=/d/fix-brief.md", "R1907", "alerts-api-1n91-fix", " NOW", "incident", "xhigh", None, "/d/fix-brief.md"),
+        ("- orca-desk: launch docs-lane astra high brief=/d/b.md", None, "docs-lane", None, "astra", "high", None, "/d/b.md"),
+        ("R2 orca-desk: launch inc-evidence NOW incident xhigh role=evidence brief=/d/ev.md", "R2", "inc-evidence", " NOW", "incident", "xhigh", "evidence", "/d/ev.md"),
     ],
 )
-def test_the_launch_grammar_names_the_key_lane_route_and_brief(line, key, lane, now, model, effort, brief):
+def test_the_launch_grammar_names_the_key_lane_route_role_and_brief(line, key, lane, now, model, effort, role, brief):
     directive = runner_module.INBOX_DIRECTIVE.match(line)
     spec = runner_module.LAUNCH_SPEC.match(directive["rest"])
-    assert (directive["verb"], directive["key"], spec["lane"], spec["now"], spec["model"], spec["effort"], spec["brief"]) == ("launch", key, lane, now, model, effort, brief)
+    assert (directive["verb"], directive["key"], spec["lane"], spec["now"], spec["model"], spec["effort"], spec["role"], spec["brief"]) == ("launch", key, lane, now, model, effort, role, brief)
 
 
 DIRECTIVE_SPECS = {
@@ -4180,6 +4181,26 @@ def test_only_an_incident_fix_lane_is_clocked(shell, config, tmp_path, capsys, m
     capsys.readouterr()
     cli(shell, config, "show")
     assert ("- incident clock [" in capsys.readouterr().out) is clocked
+
+
+@pytest.mark.parametrize(("minutes", "threshold"), [(10, "mechanism"), (15, "pr"), (20, "ready")])
+def test_an_evidence_lane_launched_with_its_role_passes_each_threshold_unclocked(shell, config, tmp_path, minutes, threshold):
+    lanes = {"inc-fix": "fix", "inc-evidence": "evidence"}
+    orca_pass(shell, config)
+    for n, (lane, role) in enumerate(lanes.items(), 1):
+        brief = tmp_path / f"{lane}.brief.md"
+        brief.write_text("Work the alert on api.\n")
+        cci_go(shell, f"R{n} orca-desk: launch {lane} NOW incident xhigh role={role} brief={brief}")
+    orca_pass(shell, config)
+    for lane in lanes:
+        shell.launch(lane, f"ctx_{lane}")
+    orca_pass(shell, config)
+    shell.sleep(minutes * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(":", 1)[0] for line in clock_lines(shell, "inc-fix")][-1] == f"INCIDENT-CLOCK inc-fix {threshold}"
+    assert clock_lines(shell, "inc-evidence") == []
+    assert [argv[1] for argv in launches(shell)] == ["inc-fix", "inc-evidence", "inc-fix-opus"]
 
 
 def test_the_clock_thresholds_come_from_the_configs_deadlines(shell, config, tmp_path):
