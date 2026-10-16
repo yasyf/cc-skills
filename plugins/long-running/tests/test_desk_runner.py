@@ -1209,6 +1209,16 @@ def test_red_ci_a_conflict_a_review_ask_or_an_ejection_goes_to_the_lane(shell, c
     assert relayed(shell) == [f"#29020 cccc333333: {detail}"]
 
 
+def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [ONE_ROW]
+    shell.queue["29020"] = "landed"
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 carries #29016 already squashed on dev, so the queue ejects it for conflicts; run ccx vcs stack submit")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.sends() == [] and shell.posts == [] and escalations(shell) == []
+
+
 @pytest.mark.parametrize(
     "detail",
     [

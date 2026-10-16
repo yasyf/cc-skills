@@ -2483,6 +2483,7 @@ class Landing:
         self.fidelity_lanes = [configured] if isinstance(configured, str) else list(configured)
         self.fidelity_names = " or ".join(self.fidelity_lanes)
         self.unlabeled: set[str] = set()
+        self.landed: set[str] = set()
         self.gated: set[tuple[str, str]] = set()
         self.book.ensure(LANDING, LANDING)
 
@@ -2960,12 +2961,20 @@ class Landing:
     def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str]) -> None:
         """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
         key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
-        if self.routed(key, row.get("lane", "")):
+        if self.routed(key, row.get("lane", "")) or self.has_landed(pr):
             return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
         if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"]) == blocker:
             self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
+
+    def has_landed(self, pr: str) -> bool:
+        """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
+        if pr not in self.landed:
+            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", pr])
+            if done.code == 0 and any(str(entry["number"]) == pr and entry["queue"] == "landed" for entry in json.loads(done.out)):
+                self.landed.add(pr)
+        return pr in self.landed
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)
