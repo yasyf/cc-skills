@@ -23,8 +23,8 @@ Surface: <channel | thread | DM> — the owner's word, literal: channel = top-le
 Doing lane: <doing lane name>; result: <named disk file or bus entry>.
 CLI: run thread, react, unreact, reply, send, and whoami by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
-  Every cc-slack command below uses that path. Lanes carry no mcp__* tools and
-  no ToolSearch.
+  Every cc-slack command below uses that path. Lanes carry no Slack mcp__*
+  tools and no ToolSearch.
 
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,

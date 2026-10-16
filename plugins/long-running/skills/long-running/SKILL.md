@@ -123,7 +123,7 @@ it keeps working and resumes from its ledger and cursor after its own compaction
 and the reply tax on notifications that carry no news.*
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
-them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so they
+them, never into the orchestrator's window. Lanes carry no cc-notes `mcp__*` tools, so they
 write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`,
 `ccn doc add`, and `ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
 
@@ -797,7 +797,7 @@ cannot join.
 
 The Slack lane runs the CLI by path for `thread`, `react`, `unreact`, `reply`, and `whoami`:
 `~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`.
-Lanes carry no `mcp__*` tools and no `ToolSearch`.
+Lanes carry no Slack `mcp__*` tools and no `ToolSearch`.
 
 - In sessions started before cc-slack was installed, `mcp__plugin_cc-slack_*` tools
   and the Slack tools of `cc-slack:slack-waiter` and `cc-slack:slack-triage` are absent.
@@ -2075,10 +2075,10 @@ workers and subdesks never run Fable.
 
 The standing subagents, the desk's shards, sequencers, and pollers are
 `long-running:lane`. An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
-codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the `mcp__*` tools, and
-the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
-`lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
-lighter than `general-purpose`; `lane-ship` starts 5k lighter.
+codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the deferred-tool list, and
+every `mcp__*` tool except `mcp__sentry__*` and the Datadog read tools, so an incident lane
+reads Sentry and Datadog itself. Both carry the 1h prompt cache a nine-minute poll needs.
+`lane` also leaves out the Skill tool and the skill listing.
 
 If a `lane` needs a skill, give that operation to a separately named `lane-ship`
 with a scoped brief.
