@@ -23,8 +23,9 @@ A single-lane investigation is not this. One question goes to one subagent in di
 
 The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefed
 from `/live-dashboard` `reference/keeping-live.md`; `alerts-desk` when the drive touches
-production; and one priority desk per owner-named #1-priority outcome while that
-outcome is open. Once the drive has posted to Slack, or the owner has linked a Slack
+production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
+once the drive has a plan; and one priority desk per owner-named #1-priority outcome
+while that outcome is open. Once the drive has posted to Slack, or the owner has linked a Slack
 channel or thread, the Slack watch lane is standing too, briefed from
 `reference/slack-watch-brief.md`. When the owner names a Slack
 channel for the drive's updates, `comms-desk` is standing, briefed from
@@ -180,7 +181,23 @@ The owner's switch is `CLAUDE_CODE_TODO_REMINDER_MODE=off` in the `env` block of
 `~/.claude/settings.json`; it disables that reminder for the whole Claude Code process.
 
 Report to the user on milestones or when they must act, never per event. Each
-milestone report opens with the drive dashboard link (see Drive dashboard). Once
+milestone report opens with the drive dashboard link (see Drive dashboard).
+
+Every milestone report and every status answer is the owner report table,
+`reference/owner-report-table.md`: one row for each plan step, named as the work in
+plain words, with the columns Step, What it delivers, State, What blocks it, What we
+are doing to unblock it, and What went wrong or slowed it so far. The last column is
+a mini retro on every row of every update, fed by the drive-watchdog's retro log, and
+is never blank. Every READY-HELD row names its gate and why that order, readers
+first or a data gate, in one sentence. Ids follow the plain words, at most one per
+cell. The plan carries the format and one filled example; the live rows sit in one
+cc-notes doc labelled `owner-table`, which the root edits at each update. *Prevents
+status answers that list PR numbers and record ids the owner cannot map to the plan,
+and holds nobody can justify. The owner ruled on 2026-10-16: "make it in terms of
+the original plan and actual work to be done not just a bunch of random
+references".*
+
+Once
 `long-running` is invoked, the compaction hook nudges the root to write a new progress
 doc, then handles superseding, the plan pointer, and `/compact`, as Compaction handoff
 describes. The plan stays the drive's mandate and decisions. *Prevents the forced
@@ -1776,6 +1793,28 @@ root each item as landed, queued, PR + blocker, or no PR + the lane launched for
 Include `cursor R<n>`. When every item is landed or proven, report once and keep the
 session open and idle.
 
+## The drive watchdog
+
+`reference/drive-watchdog-brief.md` is the brief, ready to paste.
+
+**W1. One lane watches the whole drive against the plan.** `drive-watchdog`, model
+opus, reads every lane's cci records and judges each for off-plan work, distractions,
+excuses or deferrals, parked lanes, and root drift. It posts each finding as a
+`decide` to the lane and the root with the correction and the rule it cites, and
+posts again to the root when the lane has not corrected within 15 minutes. It writes
+no code and never stops a lane; the root acts on its second post that turn.
+
+**W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log,
+tagged `[step <n>]` with the plan step it slowed. That log is the source of the owner
+table's last column. Every 30 minutes the watchdog regenerates the dashboard's Plan
+table with `scripts/plan-table.py` and posts the root the top three things slowing
+the critical path.
+
+*Prevents drift found only when the owner asked. The owner ruled on 2026-10-16:
+"its job is to monitor all other progress via cci and figure out what is going off
+track from the original plan, what distractions are happening, what excuses are
+being made, and to rectify/course correct those things in real time."*
+
 ## Desk inboxes
 
 These I-rules apply to the landing desk, priority desks, and shards. The owner ruled:
@@ -2428,8 +2467,8 @@ them. The `drive` preset already lays the page out that way:
 - `lr.needs-owner` is pinned in the first section. It shows owner tasks, cci asks and
   decides addressed `--to owner`, and boards that are still asking.
 - Broken shows `release.incidents` and `open-records`.
-- In flight opens with `lr.plan-progress`, then `cci-lanes`, `orca`, `tasks`, and `asks`
-  for the owner's own asks.
+- In flight opens with `lr.plan-progress` and the Plan table, then `cci-lanes`,
+  `orca`, `tasks`, and `asks` for the owner's own asks.
 - Plumbing is collapsed.
 
 Before the first milestone report, the root adds the drive's own sources, such as the
@@ -2481,6 +2520,20 @@ Then keep its state current:
 
 The plan's step numbers are the ones its `### <n>.` headings carry. A plan with no task
 registered appears in the card's note, never as an empty plan.
+
+#### Plan table
+
+The Plan table panel is a `view` card over `plan-table.md` in the dashboard dir. It
+shows the owner report table with each row's PR states refreshed and the watchdog's
+newest retro line appended. `scripts/plan-table.py` regenerates the file from the
+`owner-table` doc, as `reference/owner-report-table.md` describes, and the
+drive-watchdog runs it every 30 minutes. Until the first run the panel says nothing
+matches yet. A drive seeded before the preset carried the panel adds this card to
+its In flight section:
+
+```
+- {use: view, id: plan-table, title: Plan table, width: 3, with: {file: plan-table.md, table: Plan table, columns: [step, what_it_delivers, state, what_blocks_it, what_we_are_doing_to_unblock_it, what_went_wrong_or_slowed_it_so_far]}}
+```
 
 ### Prompt watch
 
@@ -3375,7 +3428,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 4. Am I about to wait? → fold the wait into the lane that acts.
 5. Am I about to restate status? → send nothing.
 6. On each new owner ask, record it with `ledger.py ask` and dispatch its lane this turn; never queue it behind a busy lane.
-7. Am I about to report a milestone? → first dispatch every owner ask still unstarted.
+7. Am I about to report a milestone or answer a status question? → first dispatch every owner ask still unstarted, then report as the owner table with its retro column and a gate on every READY-HELD row.
 8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched trunk; never report it from the plan file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
 10. Before saying something is assigned, read the summary's `LOST` lines first. Never call an ask done before `LIVE`.

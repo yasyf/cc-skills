@@ -8,6 +8,7 @@ sections:
   - title: In flight
     components:
       - {use: lr.plan-progress, id: plan-progress, title: Plan progress, width: 3}
+      - {use: view, id: plan-table, title: Plan table, width: 3, with: {file: plan-table.md, table: Plan table, columns: [step, what_it_delivers, state, what_blocks_it, what_we_are_doing_to_unblock_it, what_went_wrong_or_slowed_it_so_far]}}
       - {use: cci-lanes, id: lanes, title: Lanes working now, width: 1, fold: true}
       - {use: orca, id: orca, width: 1, fold: true}
       - {use: tasks, title: Root tasks in progress, width: 1, fold: true}
