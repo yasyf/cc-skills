@@ -32,9 +32,9 @@ over any standing leave-uncommitted default. A brief whose ccx: header line
 says role=desk or role=watch is a standing desk, and its pointer adds the desk
 contract: loop until rotation, and send worker_done only at rotation, naming the
 handoff doc, since Orca's preamble otherwise reads setup or one quiet cycle as
-the finished task. The pointer must stay within 500
-characters, so a brief path that pushes it over is replaced by a symlink
-~/.claude/<8 hex of the path's sha> to the brief. Before
+the finished task. A brief path that pushes the pointer over 500 characters is
+replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief; the
+lane and worktree path go in as they are, since Orca truncates only near 3 KB. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca sees the
 agent's own UI (an agent title or ready prompt), the script blocks on orca terminal
 wait --for tui-idle, the readiness worker-start itself waits for next, up to
@@ -287,7 +287,6 @@ spec() {
   mkdir -p "$HOME/.claude"
   ln -sfn "$LANE_BRIEF" "$LINK"
   SPEC=$(pointer "$LINK")
-  [ "${#SPEC}" -le 500 ] || fail "spec pointer is ${#SPEC} characters, over 500; shorten the worktree path"
 }
 spec
 
