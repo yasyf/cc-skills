@@ -78,6 +78,7 @@ class FakeShell(runner_module.Shell):
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
         self.head_statuses: list[dict] = []
+        self.gate_statuses: list[dict] = []
         self.status_error = ""
         self.label_calls: list[tuple[str, str]] = []
         self.label_error = ""
@@ -183,9 +184,10 @@ class FakeShell(runner_module.Shell):
             return self.label(argv[2:], stdin)
         if argv[:2] == ["gh", "api"]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
-            if self.status_error:
+            status = {"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)}
+            if self.status_error and status["context"] == "fidelity":
                 return runner_module.Done(1, "", self.status_error)
-            self.head_statuses.append({"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)})
+            (self.gate_statuses if status["context"] == "landing-gates" else self.head_statuses).append(status)
             return runner_module.Done(0, "{}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
@@ -1906,6 +1908,25 @@ def test_a_fidelity_grade_sets_the_fidelity_commit_status_on_the_graded_head(she
     landing_pass(shell, config)
     assert shell.head_statuses == [{"sha": "cccc333333", "state": state, "context": "fidelity", "description": f"cci #{seq} fidelity: {text}"}]
     assert escalations(shell) == []
+
+
+def test_a_hold_label_the_runner_adds_fails_landing_gates_on_the_held_head_once(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.gate_statuses == [{"sha": "cccc333333", "state": "failure", "context": "landing-gates", "description": "#29020 carries the hold label"}]
+    (tmp_path / "holds.md").write_text("")
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("remove", "29020")] and len(shell.gate_statuses) == 1
+
+
+@pytest.mark.parametrize(("text", "gated"), [("ok F307 at cccc333.", []), ("missing F307 at cccc333 (View fix).", ["failure"])])
+def test_a_grade_other_than_ok_sets_landing_gates_at_its_state(shell, config, tmp_path, text, gated):
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", text)
+    landing_pass(shell, config)
+    assert [status["state"] for status in shell.gate_statuses] == gated
+    assert all(status["description"] == f"#29020 fidelity failure: cci #{seq} fidelity: {text}" for status in shell.gate_statuses)
 
 
 def test_the_status_describes_the_grade_by_its_first_line_clipped_to_the_github_limit(shell, config, tmp_path):

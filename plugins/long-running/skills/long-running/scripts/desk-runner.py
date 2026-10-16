@@ -181,6 +181,9 @@ On each pass that reads the file, every open ledger row a PR line, a lane line, 
 holds gets the label, and a label the runner added comes off once nothing holds the row. A `cci tail` that fails skips
 the label mirror for that pass. The action book records each label the runner adds or removes,
 so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
+Each label the runner adds also posts `landing-gates=failure` on the row's head, and each `fidelity` it posts other than
+`success` posts `landing-gates` at the same state, so a gate run GitHub rate-limits never leaves that head green; only
+the gate's own run posts `landing-gates=success`.
 A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 the fidelity lane (`landing.fidelity_lane`, default `fidelity-desk`) about that PR whose text starts
@@ -274,6 +277,7 @@ FIDELITY_LANE = "fidelity-desk"
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
+LANDING_GATES_STATUS = "landing-gates"
 HOLD_LABEL = "hold"
 LABEL_GONE = "(HTTP 404)"
 STATUS_TEXT = 140
@@ -2490,9 +2494,23 @@ class Landing:
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
             if done.code == 0:
                 self.book.attempt(LANDING, lambda incident, key=key, payload=payload: (incident.start(key, self.runner.now()), incident.complete(key, {**payload, "at": self.book.stamp()})))
+                if state != "success":
+                    self.invalidate(pr, head, state, f"#{pr} {FIDELITY_STATUS} {state}: {description}")
             else:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
+
+    def invalidate(self, pr: str, head: str, state: str, description: str) -> None:
+        """Post `landing-gates` at `state` on a head whose hold or grade this pass just made stricter, so a gate run GitHub rate-limits never leaves that head green. Only the gate posts `success`; a refused post logs `GATE-INVALIDATE-FAILED` once and the gate's own run still grades the head."""
+        payload = {
+            "state": state,
+            "context": LANDING_GATES_STATUS,
+            "description": description if len(description) <= STATUS_TEXT else description[: STATUS_TEXT - 1] + "…",
+        }
+        done = self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
+        if done.code != 0:
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            self.runner.escalate(f"invalidate:{pr}:{head}:{state}", "GATE-INVALIDATE-FAILED", f"#{pr}", f"GitHub refused the `{LANDING_GATES_STATUS}` {state} on {head}: {last[0]}; the gate's own run still grades the head")
 
     def mirror_holds(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
         """Add the `hold` label to every open row a hold names and lift the labels the runner added once nothing holds the row. A pass writes at most `MIRROR_WRITES` labels, first writes before retries; a held row whose label is still unwritten stays in `unlabeled`, and the gate leaves it and every PR stacked above it out of that pass."""
@@ -2524,6 +2542,8 @@ class Landing:
             if done.code == 0 or (applied and LABEL_GONE in done.err):
                 self.book.attempt(LANDING, lambda incident, key=key: (incident.start(key, self.runner.now()), incident.complete(key, {"at": self.book.stamp()})))
                 self.unlabeled.discard(pr)
+                if not applied and (head := rows[pr].get("head", "")):
+                    self.invalidate(pr, head, "failure", f"#{pr} carries the {HOLD_LABEL} label")
             else:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(key, "LABEL-FAILED", f"#{pr}", f"GitHub refused to {'remove' if applied else 'add'} the `{HOLD_LABEL}` label: {last[0]}; the runner tries again on the next pass")
