@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
@@ -18,7 +19,6 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
-INTERPRETERS = frozenset({"python", "python3", "uv", "bash", "sh", "zsh"})
 GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
@@ -33,6 +33,60 @@ REFUSAL = (
     "Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the root's holds."
 )
+
+
+@dataclass(frozen=True)
+class Launcher:
+    value_letters: str = ""
+    stop_letters: str = ""
+    value_options: frozenset[str] = frozenset()
+
+    def operand(self, args: tuple[str, ...]) -> tuple[str, ...]:
+        index = 0
+        while index < len(args):
+            arg = args[index]
+            if arg == "--":
+                return args[index + 1 :]
+            if arg in self.value_options:
+                index += 2
+                continue
+            if arg.startswith("--"):
+                index += 1
+                continue
+            if not arg.startswith(("-", "+")) or arg in {"-", "+"}:
+                return args[index:]
+            for position, letter in enumerate(arg[1:], start=2):
+                if letter in self.stop_letters:
+                    return ()
+                if letter in self.value_letters:
+                    index += position == len(arg)
+                    break
+            index += 1
+        return ()
+
+
+PYTHON = Launcher(value_letters="WX", stop_letters="mc", value_options=frozenset({"--check-hash-based-pycs"}))
+SHELL = Launcher(value_letters="oO", stop_letters="cn", value_options=frozenset({"--rcfile", "--init-file"}))
+UV_RUN = Launcher(
+    value_letters="wp",
+    value_options=frozenset({"--with", "--with-editable", "--with-requirements", "--python", "--project", "--directory", "--env-file", "--extra", "--group", "--package", "--index"}),
+)
+LAUNCHERS = {
+    ("python",): PYTHON,
+    ("python3",): PYTHON,
+    ("bash",): SHELL,
+    ("sh",): SHELL,
+    ("zsh",): SHELL,
+    ("uv", "run"): UV_RUN,
+    ("cc-sudo", "run"): Launcher(),
+}
+
+
+def program(argv: tuple[str, ...]) -> tuple[str, ...]:
+    for prefix, launcher in LAUNCHERS.items():
+        if argv and (Path(argv[0]).name, *argv[1 : len(prefix)]) == prefix:
+            return program(launcher.operand(argv[len(prefix) :]))
+    return argv
 
 
 def lane_name(evt: BaseHookEvent) -> str | None:
@@ -104,9 +158,9 @@ def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
 
 def landing_verb(call: Call) -> str | None:
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else call.verb_argv
-    script = next((Path(arg).name for arg in call.args[:3] if Path(arg).name == "stack-enqueue"), None) if call.name in INTERPRETERS else None
-    if call.name == "stack-enqueue" or script:
-        return None if READ_ONLY_ENQUEUE & set(call.args) else "stack-enqueue"
+    run = program((call.name, *call.args))
+    if run and Path(run[0]).name == "stack-enqueue":
+        return None if READ_ONLY_ENQUEUE & set(run[1:]) else "stack-enqueue"
     if argv[:2] == ("gt", "merge"):
         return "gt merge"
     if argv[:3] == ("gh", "pr", "merge"):
@@ -130,6 +184,26 @@ def landing_verb(call: Call) -> str | None:
         Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
         Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
         Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="python3 -W ignore .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="uv run --with requests .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command=".agents/skills/submit-pr/scripts/stack-enqueue --fast 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="git fetch -q && stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="bash -c 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="python3 -m py_compile .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="bash -n .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="python3 -c 'print(\"stack-enqueue 36023\")'", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="cci post --drive release-v3 --lane x --kind report --to root 'stack-enqueue --fast 36023 now costs one query'", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="git diff -- .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="cat .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="echo ok # stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="cc-sudo run -- stack-enqueue --check 36023", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh api labels`"),
         Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Block(),
         Input(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr edit --add-label`"),
