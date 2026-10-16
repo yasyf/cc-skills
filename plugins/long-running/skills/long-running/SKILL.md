@@ -1357,10 +1357,16 @@ Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefi
 
 **D14. Grade a moved or unreported head like any other.** Every tracked current
 head takes D3's gates without a report. Where `stack-enqueue` exists, the landing
-runner routes a `BLOCKED` head once per head and blocker only for red CI, a
+runner routes a `BLOCKED` head at most once per head, and only for red CI, a
 merge conflict, a changes-requested review or fidelity grade, or a queue
-ejection. A pending or running check or a missing approval is never routed, and
-a PR that is held or stacked above a held PR gets no route until the hold lifts.
+ejection. A pending or running check, a missing approval, or an ejection that
+blames a PR outside the PR's own stack is never routed. A PR that is held,
+carries the `hold` label, or is stacked above such a PR gets no route until the
+hold lifts. A PR based on another open PR's branch gets no failing-required
+route unless a status other than a gate's, such as `buildkite/test`, is red on
+its own head. A queue drop
+that blames a PR outside the stack re-enqueues the same head after the root's
+next `go` record naming the PR.
 It re-runs the gate immediately before creating the route and suppresses a
 blocker that already cleared.
 
