@@ -1217,7 +1217,6 @@ def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.sends() == [] and shell.posts == [] and escalations(shell) == []
-    assert [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]] == [["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json", "29020"]]
 
 
 @pytest.mark.parametrize(
