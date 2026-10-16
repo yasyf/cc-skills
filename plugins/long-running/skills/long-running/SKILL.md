@@ -479,9 +479,10 @@ withdrawal the runner rejected, a codex lane that asked the root for PR prose, a
 a stale Orca question answered by hand.*
 
 Before that launch, the root reads `orca-runner.heartbeat.json` beside
-`orca.desk_inbox`. A pass under 30 seconds old from a live pid means the runner
-takes the line. A missing, stale, or dead heartbeat, which the `desk_liveness` hook
-reports as `LAUNCH-FAILED`, means the root launches the fix lane inline in the same
+`orca.desk_inbox`. A live pid whose last pass is under 32 minutes old means the
+runner takes the line, however long its current pass runs. A missing heartbeat, a dead
+pid, or a pass older than that, which the `desk_liveness` hook reports as
+`LAUNCH-FAILED`, means the root launches the fix lane inline in the same
 turn instead of waiting for the runner: a background `codex:codex-wrapper` running
 `codex-ask --incident` on the fix brief. Every incident fix brief says build, ship
 via submit-pr, enqueue `--fast`, and the inline lane carries that authority. Codex
@@ -1460,9 +1461,12 @@ checkout carries `stack-enqueue`.
 Each orca pass writes `orca-runner.heartbeat.json` beside `orca.desk_inbox` with its
 pid, pass time, and restart command. A `cci post` that fails stays queued for the next
 pass instead of stopping the runner. When a Bash append to `orca-desk.md` finds that
-heartbeat missing, more than 30 seconds old, or its process gone, the `desk_liveness`
-hook answers `LAUNCH-FAILED` with the restart command, and the restarted runner reads
-the appended line from its saved cursor. The hook reads the heartbeat in the
+heartbeat missing or its process gone, the `desk_liveness` hook answers
+`LAUNCH-FAILED` with the restart command, and the restarted runner reads the appended
+line from its saved cursor. The heartbeat is written only when a pass ends, so a live
+pid whose last pass is under 32 minutes old, the runner's 30-minute command timeout
+plus its 2-minute longest idle, is running; past that the hook reports the live runner
+as finishing no pass. The hook reads the heartbeat in the
 `inbox/` directory under the `state_dir` that the drive registry records for the
 session, so the check holds however the command spells the inbox path, such as
 `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.

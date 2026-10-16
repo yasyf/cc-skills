@@ -12,7 +12,7 @@ from .dashboard import DRIVE_ENV, FIXTURES, entry_of
 
 DESK_INBOX = "orca-desk.md"
 HEARTBEAT = "orca-runner.heartbeat.json"
-STALE = timedelta(seconds=30)
+WEDGED = timedelta(minutes=32)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 FENCE = "~" * 12
 START = "nohup desk-runner.py run --config <drive>/runner.json --desk orca > <drive>/orca-runner.log 2>&1 < /dev/null &"
@@ -46,8 +46,8 @@ def last_pass(path: Path) -> dict | None:
     return json.loads(path.read_text()) if path.is_file() else None
 
 
-def running(beat: dict | None) -> bool:
-    return beat is not None and datetime.now(timezone.utc) - datetime.fromisoformat(beat["at"]) <= STALE and alive(beat["pid"])
+def wedged(beat: dict) -> bool:
+    return datetime.now(timezone.utc) - datetime.fromisoformat(beat["at"]) > WEDGED
 
 
 def pacific(at: str) -> str:
@@ -69,8 +69,13 @@ def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:
     if not appends_to_desk(evt) or (entry := entry_of(evt)) is None:
         return None
     beat = last_pass(heartbeat(entry))
-    if running(beat):
-        return None
+    if beat is not None and alive(beat["pid"]):
+        if not wedged(beat):
+            return None
+        return evt.context(
+            f"LAUNCH-FAILED: orca desk runner pid {beat['pid']} is alive but has finished no pass in over 32 minutes, so nothing reads `{DESK_INBOX}` until it does. "
+            "Read its log for the command it is blocked on."
+        )
     when = pacific(beat["at"]) if beat else "never"
     restart = beat["restart"] if beat else START
     return evt.context(
