@@ -178,8 +178,9 @@ names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
-admitted is gated again, unless the PR's Merge activity comment names a conflict or a red check,
-which goes to the lane as a blocker. A drop for downstack failures on a PR outside the PR's own stack is the
+admitted is gated again, unless the PR's Merge activity comment names a merge conflict,
+which goes to the lane as a blocker. A red check or a downstack failure is gated again, and `stack-enqueue`
+decides whether the PR's own head failed or a batch-mate did. A drop for downstack failures on a PR outside the PR's own stack is the
 batch's failure: it routes no blocker, logs one `AWAITS-GO` line to root, and the same head re-enqueues once a root
 `go` record naming the PR is posted after the drop, with no new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
@@ -320,7 +321,7 @@ LABEL_GONE = "(HTTP 404)"
 STATUS_TEXT = 140
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
-DROP_BLOCKER = re.compile(r"merge conflicts?|Failed CI \(|downstack failures on PR #")
+DROP_BLOCKER = re.compile(r"merge conflicts?")
 DOWNSTACK_FAILURE = re.compile(r"downstack failures on PR #\[?(\d+)")
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
@@ -361,7 +362,7 @@ HANDOFF_WAIT = timedelta(minutes=5)
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 UNNAMED_RIDER = "rides the batch through"
 ROUTED_BLOCKER = re.compile(r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|(?:rules-review|fidelity) (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)")
-BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure )")
+BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure |.+, so the red check is its own$)")
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -3103,7 +3104,7 @@ class Landing:
         return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get("re"), record.get("resolves")}), None)
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a conflict or a red check goes to the lane as a blocker instead. A drop blaming a downstack failure on a PR outside the PR's own stack is the batch's failure: it posts no blocker, tells the root once, and the same head re-enqueues after the root's next `go` record naming the PR."""
+        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a merge conflict goes to the lane as a blocker instead, and a red check or a downstack failure is left to the gate's `stack-enqueue`, which re-enqueues a head a batch-mate's failure ejected and blocks one its own red check did. A drop blaming a downstack failure on a PR outside the PR's own stack is the batch's failure: it posts no blocker, tells the root once, and the same head re-enqueues after the root's next `go` record naming the PR."""
         believed = {
             action.action_id: [pr for pr, sha in enqueued_heads(action.action_id).items() if sha and pr in rows and rows[pr].get("state", "open") == "open" and rows[pr].get("head", "").startswith(sha)]
             for action in self.book.actions(LANDING, kind="enqueue", status="completed")
