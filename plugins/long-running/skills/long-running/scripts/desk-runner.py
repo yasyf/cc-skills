@@ -28,7 +28,9 @@ settles every send of it, since a lane that already read its mailbox leaves no
 message there to find. Two resends all lost the same way log `UNACKED` once, with
 the count and the relay text on the record's path, and nothing more is sent. Any other
 Orca error fails the send, though Orca names a request id on every refused mutation,
-so a refusal such as `answer_conflict` is never resent as lost. A send with a receipt is never resent,
+so a refusal is never resent as lost. A reply Orca refuses with `answer_conflict`, its question
+already holding another answer, goes at once to the dispatch as a message on the relay's thread
+instead. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
@@ -305,6 +307,7 @@ INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
 UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
+ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 HANDOFF_WAIT = timedelta(minutes=5)
@@ -823,7 +826,7 @@ def thread_of(container: str, key: str) -> str:
 
 def delivers(message: dict, container: str, action: actions.Action) -> bool:
     if action.kind == "reply":
-        return message.get("thread_id") == json.loads(action.target)["reply_to"] and (message.get("body") or "").rstrip().endswith(f"({action.authority_ref})")
+        return message.get("thread_id") in (json.loads(action.target)["reply_to"], thread_of(container, action.action_id)) and (message.get("body") or "").rstrip().endswith(f"({action.authority_ref})")
     return message.get("thread_id") == thread_of(container, action.action_id)
 
 
@@ -1086,7 +1089,7 @@ class Runner:
             return
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
             if text := self.whole_text(at, at, decide["lane"], record):
-                self.relay_to(at, at, decide["lane"], text, decide["msg"])
+                self.relay_to(at, at, decide["lane"], text, self.unclaimed(at, decide["lane"], [decide["msg"]]))
             return
         dispatch = self.orca.show(closed["lane"])
         if dispatch and dispatch.status not in INACTIVE and (questions := self.open_questions(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
@@ -1532,8 +1535,14 @@ class Runner:
     def post(self, container: str, dispatch: Dispatch, action: actions.Action, send_id: str, retry: str) -> None:
         spec = json.loads(action.target)
         thread = thread_of(container, action.action_id)
-        if action.kind == "reply":
+        answers = action.kind == "reply" and not self.answered_elsewhere(container, action, dispatch)
+        if answers:
             argv = ["orchestration", "reply", "--id", spec["reply_to"], "--body", f"{spec['text']}\n\n({action.authority_ref})"]
+        elif action.kind == "reply":
+            argv = [
+                "orchestration", "send", "--to", f"dispatch:{dispatch.id}", "--type", "dispatch", "--subject", f"{action.authority_ref}: on answered question {spec['reply_to']}",
+                "--body", f"{spec['text']}\n\n({action.authority_ref})", "--thread-id", thread, "--payload", json.dumps({"action": thread}),
+            ]
         else:
             body = f"{spec['text']}\n\nReply on thread {thread}: subject `started {action.action_id}` before acting, then `done {action.action_id}: <result>`."
             argv = [
@@ -1546,12 +1555,19 @@ class Runner:
             self.book.attempt(container, lambda incident: incident.complete(send_id, {"message": message, "at": self.book.stamp()}))
             if action.kind == "reply":
                 self.book.attempt(container, lambda incident: (incident.start(action.action_id, self.now()), incident.complete(action.action_id, {"message": message, "at": self.book.stamp()})))
-            else:
+            if not answers:
                 self.orca.wake(dispatch.terminal, f"{action.authority_ref}: read Orca message on thread {thread} now")
+        elif answers and reply["error"]["code"] == ANSWER_CONFLICT:
+            self.book.attempt(container, lambda incident: incident.fail(send_id, f"{ANSWER_CONFLICT}: {reply['error'].get('message', '')}"[:300]))
+            self.send(container, dispatch, action)
         elif reply["error"]["code"] in UNREACHABLE:
             self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request_id(reply)}))
         else:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
+
+    def answered_elsewhere(self, container: str, action: actions.Action, dispatch: Dispatch) -> bool:
+        """Whether Orca refused a reply of `action` because its question already holds another answer, so the text goes to the dispatch as a message instead."""
+        return any(send.status == "failed" and (send.reason or "").startswith(ANSWER_CONFLICT) for send in self.sends(container, action.action_id, dispatch.id))
 
     def reconcile_sends(self, container: str, lane: str) -> None:
         """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; while both reads succeed and show neither, resend it on the same thread once per `RESEND_AFTER`, and report `RESEND_LIMIT` resends all lost the same way as UNACKED."""
