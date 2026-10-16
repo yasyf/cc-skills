@@ -1,7 +1,8 @@
 ---
 name: lane
-description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop
+description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except Sentry and the Datadog read tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
+tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__sentry__*, mcp__plugin_datadog_mcp__*
+disallowedTools: mcp__plugin_datadog_mcp__create_datadog_notebook, mcp__plugin_datadog_mcp__edit_datadog_notebook, mcp__plugin_datadog_mcp__delete_datadog_notebook, mcp__plugin_datadog_mcp__recover_datadog_notebook, mcp__plugin_datadog_mcp__upsert_datadog_dashboard
 model: opus
 experimental:
   cacheTtl: 1h
@@ -18,6 +19,9 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   `desk-wait.sh <seconds> <mailbox>=<cursor> -- <command>`, so a `MAILBOX` line ends
   the call. Claude Code delivers teammate mail only after your turn ends, so act on
   the sender, time, and full text desk-wait prints after `MAILBOX`.
+- You carry the Sentry tools and the Datadog read tools, loaded at start with no
+  ToolSearch. Read the alert, issue, logs, traces, spans, and metrics yourself
+  instead of asking the root to fetch them.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Your last action is one `SendMessage` to the name your brief gives, then no text
   or one line under 300 characters (outcome + pointer), never the report again.
