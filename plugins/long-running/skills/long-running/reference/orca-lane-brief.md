@@ -45,8 +45,8 @@ orca-launch.sh <lane> <model> <effort> \
   "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
 ```
 
-The launcher generates this pointer spec, at most
-500 characters including the lane, brief path, and worktree path:
+The launcher generates this pointer spec from the lane, brief path, and worktree
+path:
 
 ```text
 Lane <lane>: read <brief> in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree <wt>, bypass-permissions mode; its Escalate rules hold.
@@ -72,8 +72,8 @@ switch; the launch line carries none.
 sending `worker_done` after setup or one quiet cycle (release-v3, 2026-10-08).*
 
 When the pointer would pass 500 characters, the script links the brief at
-`~/.claude/<8 hex>` and points there instead; only a worktree path long enough to
-overflow on its own fails the launch.
+`~/.claude/<8 hex>` and points there instead. A long lane or worktree path never
+fails the launch, since Orca truncates a pasted spec only near 3 KB.
 
 The Orca preamble above the task carries the worker's handle, dispatch capability,
 and exact `send`, `ask`, and `check` commands. The brief tells the worker to copy these
@@ -288,4 +288,5 @@ Rotate: write the handoff doc, then send worker_done naming its id.
 - Every command in `common.md` runs as written from a lane's worktree.
 - The `<lane>.full.md` attachment contains the shared contract followed by the lane
   section. Resolve its path with `ccn attachment path` before launch.
-- The generated pointer spec is at most 500 characters.
+- The generated pointer spec names a brief path of at most 8 hex characters under
+  `~/.claude` whenever the full brief path would push it past 500 characters.

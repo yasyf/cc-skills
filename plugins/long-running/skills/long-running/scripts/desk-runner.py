@@ -68,8 +68,8 @@ dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
 runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
-`orca-desk: incident` line in the same form, with `reported=<HH:MM>` before the `::` naming
-the first report's Pacific time, which the alerts desk writes when it judges a lane necessary,
+`orca-desk: incident` line in the same form, with `reported=<HH:MM>` or `reported=<H:MM AM|PM>`
+before the `::` naming the first report's Pacific time, which the alerts desk writes when it judges a lane necessary,
 launches `<slug>-fix` on the incident alias from the alert-fix brief.
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
@@ -325,7 +325,7 @@ LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
-INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM Pacific> :: <what fired>"
+INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
 WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>"
@@ -334,7 +334,7 @@ RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*)
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
-INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d) :: (?P<what>\S.*)$")
+INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (?P<what>\S.*)$")
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
@@ -1254,7 +1254,7 @@ class Runner:
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
         incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
-        reported = datetime.strptime(spec["reported"], "%H:%M")
+        reported = datetime.strptime(spec["reported"], "%I:%M %p" if spec["reported"].endswith("M") else "%H:%M")
         brief, failure = self.attach_brief(
             lane,
             lambda briefs: ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),

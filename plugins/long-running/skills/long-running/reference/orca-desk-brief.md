@@ -122,7 +122,8 @@ orca-desk: alert <slug> <link> :: <what fired>
 orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 ```
 
-`monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
+`reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
+carry a Slack channel name's underscores. `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
 transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
 The alerts desk writes an `incident` line only when it judges a lane necessary,
 and the Slack watch lane writes one for each incident report. For an `incident`

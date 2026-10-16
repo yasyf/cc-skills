@@ -3277,6 +3277,46 @@ def test_the_launch_grammar_names_the_key_lane_route_and_brief(line, key, lane, 
     assert (directive["verb"], directive["key"], spec["lane"], spec["now"], spec["model"], spec["effort"], spec["brief"]) == ("launch", key, lane, now, model, effort, brief)
 
 
+DIRECTIVE_SPECS = {
+    "relay": runner_module.RELAY_TO,
+    "launch": runner_module.LAUNCH_SPEC,
+    "alert": runner_module.ALERT_SPEC,
+    "incident": runner_module.INCIDENT_SPEC,
+    "hold": runner_module.HOLD_SPEC,
+    "unhold": runner_module.UNHOLD_SPEC,
+    "withdraw": runner_module.WITHDRAW_SPEC,
+}
+
+
+@pytest.mark.parametrize(
+    ("line", "verb"),
+    [
+        ("R12 (9:46 PM) orca-desk: relay to lane-a: rebase onto dev", "relay"),
+        ("R12 orca-desk: relay to lane-a, lane-b and lane-c: G331 resumes the chain", "relay"),
+        ("R13 (9:46 PM) orca-desk: launch lane-a NOW opus xhigh brief=/d/brief.md", "launch"),
+        ("R13 orca-desk: launch lane-a sonnet low brief=/d/brief.md", "launch"),
+        ("R14 (7:05 PM) orca-desk: launch lane-a NOW claude-opus-5-5 high brief=/d/brief.md", "launch"),
+        ("R1907 (7:05 PM) orca-desk: launch alerts-api-1933-fix NOW incident xhigh brief=/Users/me/.claude/scratch/release-v3/briefs/alerts-api-1933-fix.md", "launch"),
+        ("orca-desk: launch alerts-api-1933-fix NOW incident xhigh brief=/Users/me/.claude/scratch/release-v3/briefs/alerts-api-1933-fix.md", "launch"),
+        ("orca-desk: launch alerts-api-1933-fix-case2 NOW incident xhigh brief=/d/case2.md", "launch"),
+        ("R16 (9:46 PM) orca-desk: withdraw R13", "withdraw"),
+        ("R16 (9:46 PM) orca-desk: withdraw lane-a", "withdraw"),
+        ("orca-desk: withdraw unfixed:msg_fc99fa64dc83:2", "withdraw"),
+        ("orca-desk: alert dd-333042395 https://app.datadoghq.com/monitors/333042395 :: Datadog OK -> Alert at 2026-10-16T01:41:35+00:00: Runner refusing runs", "alert"),
+        ("orca-desk: incident dd-333042395 https://app.datadoghq.com/monitors/333042395 reported=18:41 :: Datadog OK -> Alert Runner refusing runs", "incident"),
+        ("orca-desk: incident alerts-api-1841 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791941123606789 reported=18:41 :: Datadog Warn mount failing", "incident"),
+        ("orca-desk: incident eng_alerts-1841 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791941123606789 reported=18:41 :: Sentry [api] fetch failed", "incident"),
+        ("orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog 333042395 Runner refusing runs", "incident"),
+        ("orca-desk: hold release-api owner=lane-a :: api deploys, until #123 lands", "hold"),
+        ("orca-desk: unhold release-api", "unhold"),
+    ],
+)
+def test_every_documented_inbox_form_parses(line, verb):
+    directive = runner_module.INBOX_DIRECTIVE.match(line)
+    assert directive and directive["verb"] == verb
+    assert DIRECTIVE_SPECS[verb].match(directive["rest"])
+
+
 def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
@@ -4445,6 +4485,18 @@ def test_the_unfixed_case_brief_renders_with_every_field_filled():
     assert "{" not in text and all(value in text for value in fields.values())
     assert "fix proven only on a synthetic or neighbouring case is not ready." in text
     assert "`UNFIXED dd-7-fix-case1: none`" in text and "`READY dd-7-fix-case1: " in text
+
+
+def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(shell, config, tmp_path):
+    orca_pass(shell, config)
+    shell.launch_line = "runner-refusing-1841-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    desk_inbox(tmp_path, "orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog OK -> Alert Runner refusing runs")
+    orca_pass(shell, config)
+    shell.launch("runner-refusing-1841-fix", "ctx_n")
+    orca_pass(shell, config)
+    brief = shell.attachments["runner-refusing-1841-fix.full.md"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), "runner-refusing-1841-fix", "incident", "xhigh", str(brief)]]
+    assert "  - Reported 18:41 PT. The bar is fixed and live within 20 minutes of the\n    report, by 19:01 PT;" in brief.read_text()
 
 
 def test_an_incident_line_without_the_report_time_launches_nothing(shell, config, tmp_path):

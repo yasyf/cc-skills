@@ -774,13 +774,16 @@ def test_launch_leaves_a_short_pointer_unlinked(orca):
     assert not (Path(orca.env["HOME"]) / ".claude").exists()
 
 
-def test_launch_refuses_a_worktree_path_that_alone_passes_500_characters(orca):
+def test_launch_starts_a_lane_whose_worktree_path_alone_passes_500_characters(orca):
     orca.healthy()
-    orca.env["ORCA_LAUNCH_ROOT"] = str(orca.root / ("x" * 500))
+    worktree = orca.root / ("x" * 250) / ("y" * 250) / "v3-lane-a-base"
+    orca.env["ORCA_LAUNCH_ROOT"] = str(worktree.parent)
+    orca.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(worktree)}}}, "mkdir": str(worktree)})
     result = orca.launch()
-    assert result.returncode == 1
-    assert "over 500" in result.stdout
-    assert orca.calls() == []
+    assert result.returncode == 0, result.stdout + result.stderr
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert len(spec) > 500
+    assert f"Worktree {worktree}, " in spec
 
 
 def test_launch_fails_when_the_receipt_is_not_ready(orca):
