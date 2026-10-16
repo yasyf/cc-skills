@@ -202,10 +202,14 @@ def supervisor_note(row: dict) -> str:
     return f"; supervisor is {row['supervisor_input']}" if "supervisor_input" in row else ""
 
 
-def receipt_lane(receipt: Path) -> dict[str, str]:
+def receipt_lane(receipt: Path) -> dict[str, str] | None:
     try:
-        return {json.loads(receipt.read_text())["result"]["dispatchId"]: receipt.stem}
-    except (json.JSONDecodeError, KeyError, TypeError):
+        document = json.loads(receipt.read_text())
+    except json.JSONDecodeError:
+        return None
+    try:
+        return {document["result"]["dispatchId"]: receipt.stem}
+    except (KeyError, TypeError):
         return {}
 
 
@@ -227,7 +231,8 @@ class Watch:
         for receipt in sorted((Path.home() / RECEIPTS / run).glob("*.json")):
             info = receipt.stat()
             key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-            if named := self.receipts.get(key) or receipt_lane(receipt):
+            named = self.receipts[key] if key in self.receipts else receipt_lane(receipt)
+            if named is not None:
                 found[key] = named
         self.receipts = found
         return {dispatch: lane for named in found.values() for dispatch, lane in named.items()}

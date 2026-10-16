@@ -748,18 +748,37 @@ def test_a_receipt_rewritten_in_place_at_the_same_size_with_its_mtime_restored_i
 
 
 @pytest.mark.parametrize(
-    "malformed",
+    "artifact",
     [
-        '{"ok": true, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": "ctx_',
         "[]",
+        f"[{worker_start('ctx_25f8965ea0fb')}]",
         '{"ok": false, "error": {"code": "worker_start_failed", "message": "no agent"}}',
         '{"ok": true, "result": {"worktree": {"path": "/work/app-bake"}}}',
         '{"ok": true, "result": {"dispatchId": ["ctx_25f8965ea0fb"]}}',
+    ],
+    ids=["array", "array-of-receipts", "error-reply", "worktree-reply", "unhashable-dispatch"],
+)
+def test_a_valid_json_side_artifact_names_no_lane_and_is_opened_once_across_polls(home, shell, opened, artifact):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    launched("bake", LOCAL)
+    (Path.home() / prompt_watch.RECEIPTS / RUN / "lint.json").write_text(artifact)
+
+    first, second = watch.lanes(RUN), watch.lanes(RUN)
+    reads = list(opened)
+
+    assert (first, second, list(watch.receipts.values()), reads) == ({LOCAL: "bake"}, {LOCAL: "bake"}, [{LOCAL: "bake"}, {}], ["bake.json", "lint.json"])
+    assert second == prompt_watch.Watch(shell, DRIVE).lanes(RUN)
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        '{"ok": true, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": "ctx_',
         "setup: installing\n{}",
     ],
-    ids=["truncated", "array", "error-reply", "worktree-reply", "unhashable-dispatch", "not-json"],
+    ids=["truncated", "not-json"],
 )
-def test_a_malformed_receipt_names_no_lane_and_is_opened_on_every_poll_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, opened, malformed):
+def test_a_receipt_that_is_not_valid_json_names_no_lane_and_is_opened_on_every_poll_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, opened, malformed):
     watch = prompt_watch.Watch(shell, DRIVE)
     launched("bake", LOCAL)
     partial = Path.home() / prompt_watch.RECEIPTS / RUN / "ship.json"
@@ -770,11 +789,26 @@ def test_a_malformed_receipt_names_no_lane_and_is_opened_on_every_poll_and_a_par
     first = watch.lanes(RUN)
     with partial.open("a") as rest:
         rest.write(written[len(written) // 2 :])
-    second = watch.lanes(RUN)
+    second, third = watch.lanes(RUN), watch.lanes(RUN)
     reads = list(opened)
 
-    assert (first, second, reads) == ({LOCAL: "bake"}, {LOCAL: "bake", REMOTE: "ship"}, ["bake.json", "lint.json", "ship.json", "lint.json", "ship.json"])
+    assert (first, second, third, list(watch.receipts.values())) == ({LOCAL: "bake"}, {LOCAL: "bake", REMOTE: "ship"}, {LOCAL: "bake", REMOTE: "ship"}, [{LOCAL: "bake"}, {REMOTE: "ship"}])
+    assert reads == ["bake.json", "lint.json", "ship.json", "lint.json", "ship.json", "lint.json"]
     assert second == prompt_watch.Watch(shell, DRIVE).lanes(RUN)
+
+
+def test_a_side_artifact_rewritten_in_place_into_a_receipt_with_only_its_ctime_changed_is_read_again_and_named(home, shell, opened):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    receipt = worker_start(LOCAL)
+    bake = Path.home() / prompt_watch.RECEIPTS / RUN / "bake.json"
+    bake.parent.mkdir(parents=True)
+    bake.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b"}}).ljust(len(receipt)))
+
+    first, second = watch.lanes(RUN), watch.lanes(RUN)
+    overwritten(bake, receipt)
+    third, fourth = watch.lanes(RUN), watch.lanes(RUN)
+
+    assert (first, second, third, fourth, opened) == ({}, {}, {LOCAL: "bake"}, {LOCAL: "bake"}, ["bake.json", "bake.json"])
 
 
 def test_a_receipt_rewritten_into_invalid_json_drops_the_lane_it_named(home, shell, opened):
