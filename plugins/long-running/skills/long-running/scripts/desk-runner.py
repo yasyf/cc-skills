@@ -2277,7 +2277,7 @@ def routed_blocker(detail: str) -> str:
 
 
 def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
-    by_branch = {row.get("branch"): pr for pr, row in open_rows.items()}
+    by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
     covered = set()
     for pr in open_rows:
         below = pr
@@ -2372,7 +2372,7 @@ class Landing:
 
     def trees(self, rows: dict[str, dict]) -> list[list[str]]:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        by_branch = {row.get("branch"): pr for pr, row in open_rows.items()}
+        by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
         tracked = {pr: row for pr, row in open_rows.items() if row.get("ours")}
         bases = {row.get("base") for row in tracked.values()}
         grouped: dict[str, list[str]] = {}

@@ -1051,6 +1051,24 @@ def stack_rows(**states: str) -> list[dict]:
     ]
 
 
+@pytest.mark.parametrize("pending", [{"pr": "38417", "ours": True}, {"pr": "38417", "ours": True, "branch": None, "base": None}, {"pr": "38417", "ours": True, "branch": "", "base": ""}])
+@pytest.mark.parametrize(("held", "covered"), [([], set()), (["38417"], {"38417"}), (["29016"], {"29016", "29020"}), (["28997"], {"28997", "29016", "29020"})])
+def test_pending_pr_metadata_creates_no_hold_ancestry_edge(pending, held, covered):
+    rows = {row["pr"]: row for row in [*stack_rows(), pending]}
+    assert runner_module.under_hold(rows, held) == covered
+    assert rows["38417"] == pending
+
+
+def test_stack_trees_do_not_walk_an_unknown_base_into_a_pending_pr(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = {row["pr"]: dict(row, ours=True) for row in stack_rows()}
+    rows["38416"] = {"pr": "38416", "branch": "unknown-base", "ours": True}
+    rows["38417"] = {"pr": "38417", "ours": True}
+    assert landing.trees(rows) == [["29020"], ["38416"]]
+    assert rows["38417"] == {"pr": "38417", "ours": True}
+
+
 def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.rows = stack_rows()
