@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ REMOTE = "ctx_1e2e970fc485"
 REMOTE_TERMINAL = "term_5cfcad9a-6928-47d6-88e3-f04749533661"
 GONE = "ctx_726698aaa803"
 ENVIRONMENT = "codex-hooks-proof"
+RUN = "run_4104a86f0a03"
 READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("terminal", "wait"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
 TUI_IDLE = ("terminal", "wait", "--terminal", SUPERVISOR, "--for", "tui-idle", "--timeout-ms", "1000")
 DIALOG_WORDS = ("runs rm", "Do you want to proceed", "Kick it off", "Would you like to run", "rm -rf")
@@ -617,6 +619,117 @@ def test_an_unbound_terminal_lists_every_run_so_none_of_those_workers_are_taken(
     shell.orca[("orchestration", "worker-list", "--include-remote")] = listed
 
     assert sorted(poll(shell)) == [ROOT]
+
+
+def launched(name: str, dispatch: str) -> Path:
+    path = Path.home() / prompt_watch.RECEIPTS / RUN / f"{name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": dispatch}}))
+    return path
+
+
+def touched(path: Path) -> None:
+    info = path.stat()
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
+
+
+@pytest.fixture
+def opened(monkeypatch) -> list[str]:
+    names: list[str] = []
+    read_text = Path.read_text
+
+    def counted(path: Path, *args, **kwargs) -> str:
+        if path.parent.name == RUN:
+            names.append(path.name)
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted)
+    return names
+
+
+def test_the_lane_names_match_a_cold_read_across_added_rewritten_replaced_deleted_and_untouched_receipts(home, shell):
+    watch = prompt_watch.Watch(shell, DRIVE)
+
+    def polled() -> dict[str, str]:
+        warm = watch.lanes(RUN)
+        assert warm == prompt_watch.Watch(shell, DRIVE).lanes(RUN)
+        return warm
+
+    deleting, adding, rewriting, replacing = "ctx_9f8e7d6c5b4a", "ctx_0a1b2c3d4e5f", "ctx_f5e4d3c2b1a0", "ctx_1a2b3c4d5e6f"
+    launched("kept", LOCAL)
+    rewritten = launched("rewritten", REMOTE)
+    replaced = launched("replaced", GONE)
+    deleted = launched("deleted", deleting)
+    polls = [polled()]
+    launched("added", adding)
+    polls.append(polled())
+    before = rewritten.stat()
+    launched("rewritten", rewriting)
+    touched(rewritten)
+    polls.append(polled())
+    original = replaced.stat()
+    swap = replaced.with_name(f"{replaced.name}.new")
+    swap.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": replacing}}))
+    os.utime(swap, ns=(original.st_atime_ns, original.st_mtime_ns))
+    swap.replace(replaced)
+    polls.append(polled())
+    deleted.unlink()
+    polls.append(polled())
+    after, swapped = rewritten.stat(), replaced.stat()
+
+    assert ((after.st_ino, after.st_size), after.st_mtime_ns != before.st_mtime_ns) == ((before.st_ino, before.st_size), True)
+    assert ((swapped.st_size, swapped.st_mtime_ns), swapped.st_ino != original.st_ino) == ((original.st_size, original.st_mtime_ns), True)
+    assert polls == [
+        {LOCAL: "kept", REMOTE: "rewritten", GONE: "replaced", deleting: "deleted"},
+        {LOCAL: "kept", REMOTE: "rewritten", GONE: "replaced", deleting: "deleted", adding: "added"},
+        {LOCAL: "kept", rewriting: "rewritten", GONE: "replaced", deleting: "deleted", adding: "added"},
+        {LOCAL: "kept", rewriting: "rewritten", replacing: "replaced", deleting: "deleted", adding: "added"},
+        {LOCAL: "kept", rewriting: "rewritten", replacing: "replaced", adding: "added"},
+    ]
+
+
+def test_a_receipt_unchanged_since_the_last_poll_is_not_opened_again(home, shell, opened):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    launched("bake", LOCAL)
+    shipped = launched("ship", REMOTE)
+    (shipped.parent / "bake.worktree.json").write_text(json.dumps({"ok": True, "result": {"worktree": {"path": "/work/app-bake"}}}))
+
+    first, second = watch.lanes(RUN), watch.lanes(RUN)
+    reads = list(opened)
+    launched("ship", GONE)
+    touched(shipped)
+    third = watch.lanes(RUN)
+
+    assert (first, second, reads) == ({LOCAL: "bake", REMOTE: "ship"}, {LOCAL: "bake", REMOTE: "ship"}, ["bake.json", "bake.worktree.json", "ship.json"])
+    assert (third, opened[len(reads) :]) == ({LOCAL: "bake", GONE: "ship"}, ["ship.json"])
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        '{"ok": true, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": "ctx_',
+        "[]",
+        '{"ok": false, "error": {"code": "worker_start_failed", "message": "no agent"}}',
+        '{"ok": true, "result": {"dispatchId": ["ctx_25f8965ea0fb"]}}',
+        "setup: installing\n{}",
+    ],
+    ids=["truncated", "array", "error-reply", "unhashable-dispatch", "not-json"],
+)
+def test_a_malformed_receipt_names_no_lane_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, malformed):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    launched("bake", LOCAL)
+    partial = Path.home() / prompt_watch.RECEIPTS / RUN / "ship.json"
+    written = json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": REMOTE}})
+    partial.write_text(written[: len(written) // 2])
+    (partial.parent / "lint.json").write_text(malformed)
+
+    first = watch.lanes(RUN)
+    with partial.open("a") as rest:
+        rest.write(written[len(written) // 2 :])
+    second = watch.lanes(RUN)
+
+    assert (first, second) == ({LOCAL: "bake"}, {LOCAL: "bake", REMOTE: "ship"})
+    assert second == prompt_watch.Watch(shell, DRIVE).lanes(RUN)
 
 
 def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, shell):

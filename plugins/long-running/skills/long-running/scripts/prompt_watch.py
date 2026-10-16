@@ -202,10 +202,18 @@ def supervisor_note(row: dict) -> str:
     return f"; supervisor is {row['supervisor_input']}" if "supervisor_input" in row else ""
 
 
+def receipt_lane(receipt: Path) -> dict[str, str]:
+    try:
+        return {json.loads(receipt.read_text())["result"]["dispatchId"]: receipt.stem}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return {}
+
+
 class Watch:
     def __init__(self, shell: Shell, ident: str):
         self.shell = shell
         self.ident = ident
+        self.receipts: dict[tuple[Path, int, int, int, int], dict[str, str]] = {}
 
     def orca(self, *argv: str, environment: str = "", env: dict[str, str] | None = None) -> dict:
         done = self.shell.run(["orca", *argv, *(["--environment", environment] if environment else []), "--json"], env)
@@ -215,13 +223,14 @@ class Watch:
             return {"ok": False, "error": {"code": "timeout" if done.code == TIMED_OUT else UNPARSEABLE, "message": (done.out or done.err).strip()}}
 
     def lanes(self, run: str) -> dict[str, str]:
-        named = {}
+        """Each launch receipt's dispatch named by its file stem; a receipt whose device, inode, size, and mtime all match the last poll's is not read again."""
+        found = {}
         for receipt in sorted((Path.home() / RECEIPTS / run).glob("*.json")):
-            try:
-                named[json.loads(receipt.read_text())["result"]["dispatchId"]] = receipt.stem
-            except (json.JSONDecodeError, KeyError, TypeError):
-                continue
-        return named
+            info = receipt.stat()
+            key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+            found[key] = self.receipts[key] if key in self.receipts else receipt_lane(receipt)
+        self.receipts = found
+        return {dispatch: lane for named in found.values() for dispatch, lane in named.items()}
 
     def workers(self, entry: dict) -> list[Subject]:
         """Every in-progress worker of the drive's Run, or of the Run bound to the coordinator's terminal when the registry names none."""
