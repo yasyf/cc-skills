@@ -7,6 +7,7 @@ import importlib.util
 import itertools
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -82,6 +83,8 @@ class FakeShell(runner_module.Shell):
         self.status_read_error = ""
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
+        self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
+        self.quota_error = ""
         self.drafts: list[dict] = []
         self.draft_list_error = ""
         self.workflow_runs: list[list[str]] = []
@@ -191,6 +194,12 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+        if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
+            assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
+            return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
+        if argv[:3] == ["gh", "api", "graphql"]:
+            assert argv[3] == "-f" and len(argv) == 5
+            return self.graphql(argv[4].removeprefix("query="))
         if argv[:2] == ["gh", "api"] and "/issues/" in argv[2]:
             return self.label(argv[2:], stdin)
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
@@ -201,11 +210,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
         if argv == ["git", "patch-id", "--stable"]:
             return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
-        if argv[:2] == ["gh", "api"] and len(argv) == 3:
-            assert argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status")
-            if self.status_read_error:
-                return runner_module.Done(1, "", self.status_read_error)
-            return runner_module.Done(0, json.dumps({"statuses": self.combined_statuses.get(argv[2].split("/")[-2], [])}), "")
         if argv[:2] == ["gh", "api"]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
             if self.status_error:
@@ -256,6 +260,14 @@ class FakeShell(runner_module.Shell):
                 self.post_ids[flags["--id"]] = len(self.posts)
             return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def graphql(self, query: str) -> runner_module.Done:
+        assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
+        if self.status_read_error:
+            return runner_module.Done(1, "", self.status_read_error)
+        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state \} \} \} \}', query)
+        commits = {alias: {"status": {"contexts": [{**status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
+        return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
 
     def label(self, argv: list[str], stdin: str | None) -> runner_module.Done:
         number = argv[0].split("/")[4]
@@ -2278,6 +2290,75 @@ def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shel
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["STATUS-READ-FAILED"]
 
 
+def graphql_reads(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["gh", "api", "graphql"]]
+
+
+def github_calls(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[0] == "gh" or call[:4] == ["ccx", "vcs", "pr", "status"] or Path(call[0]).name == "stack-enqueue" or (len(call) > 1 and Path(call[1]).name == "ledger.py" and call[4] != "list")]
+
+
+def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.Landing:
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner_module.seed_policy(runner)
+    return runner_module.Landing(runner, runner.config.landing)
+
+
+def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    queue_draft(shell, 30)
+    shell.combined_statuses[DRAFT_HEAD] = [{"context": "landing-gates", "state": "success"}]
+    landing_pass(shell, config)
+    [read] = graphql_reads(shell)
+    assert "cccc333333" in read[4] and DRAFT_HEAD in read[4]
+    assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
+    assert shell.workflow_runs == [] and len(shell.enqueues()) == 1
+
+
+def test_a_head_is_read_again_only_after_a_minute_or_once_the_runner_writes_to_it(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "success"}]
+    assert landing.head_statuses("29020", "cccc333333") == [{"context": "ci", "state": "success"}]
+    shell.clock += timedelta(seconds=59)
+    assert landing.head_statuses("29020", "cccc333") == [{"context": "ci", "state": "success"}]
+    assert len(graphql_reads(shell)) == 1
+    shell.clock += timedelta(seconds=1)
+    landing.head_statuses("29020", "cccc333333")
+    landing.forget("cccc333")
+    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "failure"}]
+    assert landing.head_statuses("29020", "cccc333333") == [{"context": "fidelity", "state": "failure"}]
+    assert len(graphql_reads(shell)) == 3
+
+
+@pytest.mark.parametrize("bucket", ["core", "graphql"])
+def test_a_quota_under_the_floor_reads_nothing_until_its_reset_and_keeps_the_accepted_enqueue(shell, config, tmp_path, bucket):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    shell.quota[bucket]["remaining"] = int(shell.quota[bucket]["limit"] * 0.05) - 1
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert github_calls(shell) == []
+    [action] = enqueues_of(tmp_path).values()
+    assert action.status == "accepted"
+    [backoff] = escalations(shell)
+    assert backoff.startswith(f"GITHUB-BACKOFF github-backoff:{bucket}:1790892000 landing: GitHub's {bucket} quota has")
+    shell.quota[bucket]["remaining"] = shell.quota[bucket]["limit"]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
+def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.quota_error = "ccx: GitHub unreachable"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["QUOTA-READ-FAILED"]
+
+
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -2328,7 +2409,7 @@ def test_the_status_is_on_the_head_before_the_gate_reads_it(shell, config, tmp_p
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
-    calls = [call for call in shell.calls if call[:2] == ["gh", "api"] or Path(call[0]).name == "stack-enqueue"]
+    calls = [call for call in shell.calls if (call[:2] == ["gh", "api"] and call[2] != "graphql") or Path(call[0]).name == "stack-enqueue"]
     assert calls[0] == ["gh", "api", "repos/Forge-AI/monorepo/statuses/cccc333333", "--method", "POST", "--input", "-"]
     assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
 
@@ -2703,7 +2784,7 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     shell.rows = [{"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     landing_pass(shell, config)
-    assert not [call for call in shell.calls if call[:2] == ["ccx", "vcs"]]
+    assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged") -> dict:
