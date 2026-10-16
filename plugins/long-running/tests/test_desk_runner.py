@@ -80,6 +80,10 @@ class FakeShell(runner_module.Shell):
         self.head_statuses: list[dict] = []
         self.combined_statuses: dict[str, list[dict]] = {}
         self.status_read_error = ""
+        self.drafts: list[dict] = []
+        self.draft_list_error = ""
+        self.workflow_runs: list[list[str]] = []
+        self.workflow_error = ""
         self.status_error = ""
         self.label_calls: list[tuple[str, str]] = []
         self.label_error = ""
@@ -194,6 +198,16 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.status_error)
             self.head_statuses.append({"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)})
             return runner_module.Done(0, "{}\n", "")
+        if argv[:3] == ["gh", "pr", "list"]:
+            assert argv[3:5] == ["--repo", "Forge-AI/monorepo"] and "--state" in argv
+            if self.draft_list_error:
+                return runner_module.Done(1, "", self.draft_list_error)
+            return runner_module.Done(0, json.dumps(self.drafts), "")
+        if argv[:3] == ["gh", "workflow", "run"]:
+            if self.workflow_error:
+                return runner_module.Done(1, "", self.workflow_error)
+            self.workflow_runs.append(argv[3:])
+            return runner_module.Done(0, "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
@@ -5167,3 +5181,75 @@ def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config
     orca_pass(shell, config)
     assert launches(shell) == [] and sprite_launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+
+
+DRAFT_HEAD = "d2fcb6390d6a29d373a91d8043882244d50b1d9f"
+
+
+def queue_draft(shell: FakeShell, opened_minutes_ago: int, title: str = "[Graphite MQ] Draft PR GROUP:batch_3fbecc (PRs 38868, 38876)") -> None:
+    opened = shell.clock - timedelta(minutes=opened_minutes_ago)
+    shell.drafts = [{"number": 38889, "title": title, "headRefOid": DRAFT_HEAD, "createdAt": opened.strftime("%Y-%m-%dT%H:%M:%SZ")}]
+
+
+def gates_posts(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["topic"].startswith(("gates-", "gates:"))]
+
+
+def test_a_queue_draft_inside_the_grace_is_left_to_its_own_grade(shell, config):
+    queue_draft(shell, 4)
+    landing_pass(shell, config)
+    assert shell.workflow_runs == [] and shell.posts == []
+
+
+def test_a_queue_draft_with_its_landing_gates_status_is_never_redispatched(shell, config):
+    queue_draft(shell, 30)
+    shell.combined_statuses[DRAFT_HEAD] = [{"context": "buildkite/test", "state": "success"}, {"context": "landing-gates", "state": "success"}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.workflow_runs == [] and shell.posts == []
+
+
+def test_a_pull_request_that_is_no_queue_draft_is_ignored(shell, config):
+    queue_draft(shell, 30, title="ci-infra: a change")
+    landing_pass(shell, config)
+    assert shell.workflow_runs == [] and shell.posts == []
+
+
+def test_a_queue_draft_without_landing_gates_past_the_grace_is_redispatched_once_with_one_state_line(shell, config):
+    queue_draft(shell, 6)
+    shell.combined_statuses[DRAFT_HEAD] = [{"context": "buildkite/test", "state": "success"}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.workflow_runs == [["landing-gates.yaml", "--repo", "Forge-AI/monorepo", "-f", "pr=38889", "-f", f"head={DRAFT_HEAD}"]]
+    assert [(post["kind"], post["to"]) for post in gates_posts(shell)] == [("state", "root")]
+
+
+def test_a_queue_draft_still_without_landing_gates_after_the_redispatch_reports_one_defect(shell, config):
+    queue_draft(shell, 6)
+    landing_pass(shell, config)
+    shell.clock += timedelta(minutes=4)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in gates_posts(shell)] == ["state"]
+    shell.clock += timedelta(minutes=2)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.workflow_runs) == 1
+    assert [post["kind"] for post in gates_posts(shell)] == ["state", "defect"]
+
+
+def test_a_dispatch_github_refuses_is_reported_once_and_dispatched_again_on_the_next_pass(shell, config):
+    queue_draft(shell, 6)
+    shell.workflow_error = "HTTP 503: Service Unavailable"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.workflow_runs == [] and [post["kind"] for post in gates_posts(shell)] == ["defect"]
+    shell.workflow_error = ""
+    landing_pass(shell, config)
+    assert len(shell.workflow_runs) == 1 and [post["kind"] for post in gates_posts(shell)] == ["defect", "state"]
+
+
+def test_a_queue_draft_listing_github_refuses_is_reported_once_per_hour(shell, config):
+    shell.draft_list_error = "HTTP 502: Bad Gateway"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["defect"] and shell.workflow_runs == []
