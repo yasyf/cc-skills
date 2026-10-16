@@ -17,6 +17,7 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 | What does the cloud account spend per day? | `aws-spend` with the account's `profile` and `target_per_day` |
 | What is in flight? | `cci-lanes`, `orca`, `tasks`, `asks` titled for the owner's own asks |
 | What is done and what is left in the plan? | `lr.plan-progress`: the drive's cc-notes tasks per plan step |
+| Where does each plan step stand, what holds it, and what went wrong so far? | `view` titled Plan table over `plan-table.md`, which long-running's `plan-table.py` regenerates from the owner table doc |
 | Which PRs need my review, and what lands if I approve? | `pr-review-queue`, `stack-graph`, `landing-preview`, `held-prs` |
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
 | Which test cells pass, and where is each one's evidence? | `matrix-file` over the test lane's results file |
