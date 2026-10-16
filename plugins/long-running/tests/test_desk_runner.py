@@ -4639,7 +4639,7 @@ def test_a_worker_done_that_lists_unfixed_cases_launches_no_case_lane(shell, con
 
 @pytest.mark.parametrize(
     ("lane", "kind", "to"),
-    [(LANE, "not-ours", []), (LANE, "stand-down", []), (f"{LANE}-opus", "not-ours", []), ("root", "stand-down", [LANE]), (LANE, "stopped", [])],
+    [(LANE, "not-ours", []), (LANE, "stand-down", []), (f"{LANE}-opus", "not-ours", []), ("root", "stand-down", [LANE]), ("root", "stopped", [LANE]), (LANE, "stopped", [])],
 )
 def test_a_report_after_its_incident_ended_launches_no_case_lane_and_tells_the_root_once(shell, config, tmp_path, lane, kind, to):
     clocked_lane(shell, config, tmp_path)
@@ -4652,6 +4652,30 @@ def test_a_report_after_its_incident_ended_launches_no_case_lane_and_tells_the_r
     assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
         f"UNFIXED {LANE} 11:02: {CASES[0]}; {CASES[1]} | no case lane launched: the incident ended with #{seq} {kind.upper()} {lane}"
     ]
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {"subject": "ready: NOT-OURS: release-v3 owns this incident"},
+        {"subject": "fix-live: stood down, root gave the incident to another drive"},
+        {"body": "Stopped by the root.\n" + "\n".join(f"UNFIXED {LANE}: {case}" for case in CASES)},
+    ],
+)
+def test_a_report_that_hands_the_incident_back_launches_no_case_lane_and_files_no_decide(shell, config, tmp_path, report):
+    clocked_lane(shell, config, tmp_path)
+    unfixed_report(shell, LANE, "ready", *CASES, **report)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and shell.entries == [] and incident_lines(shell) == []
+    assert not [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))]
+
+
+def test_a_case_lane_that_hands_the_incident_back_files_no_decide(shell, config, tmp_path):
+    two_case_lanes(shell, config, tmp_path)
+    unfixed_report(shell, f"{LANE}-case2", "ready", "monitoring stays with release-v3", subject="ready: NOT-OURS: duplicate monitoring repair")
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 3
+    assert not [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))]
 
 
 def test_a_stopped_posted_after_the_report_leaves_its_case_lanes_launching(shell, config, tmp_path):
@@ -4742,6 +4766,81 @@ def test_an_incident_line_without_the_report_time_launches_nothing(shell, config
     assert launches(shell) == []
     [line] = escalations(shell)
     assert line == f"INCIDENT-FAILED R44 inbox: one incident per line, in the form `{runner_module.INCIDENT_GRAMMAR}`; nothing was launched"
+
+
+OWNED_LINE = "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx"
+
+
+def owner_claim(shell: FakeShell, claim: str) -> str:
+    if claim == "done":
+        named = cci_record(shell, lane="alerts-desk", kind="incident", text="[dd-7] api 5xx since 11:02", to=["root"])
+        return f"root@d1 done #{cci_record(shell, kind='done', text='Handed to release-v3', resolves=named)}"
+    if claim == "stopped":
+        return f"root@d1 stopped #{cci_record(shell, kind='stopped', text='STAND DOWN dd-7-fix', to=['dd-7-fix'])}"
+    return f"root@release-v3 answer #{cci_record(shell, drive='release-v3', kind='answer', text='release-v3 owns incident dd-7', to=['root@d1'])}"
+
+
+@pytest.mark.parametrize("claim", ["done", "stopped", "answer"])
+def test_an_incident_another_owner_holds_launches_no_lane_and_posts_one_state_line(shell, config, tmp_path, claim):
+    orca_pass(shell, config)
+    owner = owner_claim(shell, claim)
+    desk_inbox(tmp_path, OWNED_LINE)
+    orca_pass(shell, config)
+    assert launches(shell) == [] and shell.entries == [] and "dd-7-fix.full.md" not in shell.attachments
+    assert escalations(shell) == [f"INCIDENT-OWNED inbox@0 dd-7-fix: incident dd-7 owned by {owner}; no launch"]
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("state", "inbox@0")]
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"kind": "done", "text": "Handed off", "resolves": 1},
+        {"kind": "stopped", "text": "STAND DOWN other-fix", "to": ["other-fix"]},
+        {"kind": "stopped", "lane": "dd-7-fix", "text": "stopped", "to": ["root"], "at": "2026-01-01T00:00:00Z"},
+        {"kind": "answer", "drive": "release-v3", "text": "release-v3 owns incident dd-8", "to": ["root@d1"]},
+        {"kind": "answer", "drive": "release-v3", "text": "release-v3 owns incident dd-7", "to": ["root@other"]},
+        {"kind": "answer", "text": "d1 owns incident dd-7", "to": ["root@d1"]},
+    ],
+)
+def test_a_record_that_does_not_give_the_incident_away_leaves_its_launch_alone(shell, config, tmp_path, record):
+    shell.launch_line = "dd-7-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    cci_record(shell, lane="alerts-desk", kind="incident", text="[dd-7] api 5xx since 11:02", to=["root"])
+    cci_record(shell, **record)
+    desk_inbox(tmp_path, OWNED_LINE)
+    orca_pass(shell, config)
+    shell.launch("dd-7-fix", "ctx_n")
+    orca_pass(shell, config)
+    brief = shell.attachments["dd-7-fix.full.md"]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-7-fix", "incident", "xhigh", str(brief)]]
+    assert not [line for line in escalations(shell) if line.startswith("INCIDENT-OWNED ")]
+
+
+def test_a_launch_pending_when_another_owner_takes_the_incident_fails_and_never_starts(shell, config, tmp_path):
+    orca_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    desk_inbox(tmp_path, OWNED_LINE)
+    runner.read_inbox()
+    assert incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "accepted"
+    owner = owner_claim(shell, "done")
+    runner.deliver()
+    runner.flush()
+    assert launches(shell) == []
+    assert incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "failed"
+    assert escalations(shell)[-1] == f"INCIDENT-OWNED inbox@0 dd-7-fix: incident dd-7 owned by {owner}; no launch"
+
+
+def test_a_cci_read_that_fails_holds_a_pending_incident_launch_until_it_can_be_read(shell, config, tmp_path):
+    orca_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    desk_inbox(tmp_path, OWNED_LINE)
+    runner.read_inbox()
+    shell.tail_error = "cci: daemon unavailable"
+    runner.deliver()
+    assert launches(shell) == [] and incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "accepted"
+    shell.tail_error = ""
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1
 
 
 STANDING_ORDERS = """Standing orders, fixed in this template:

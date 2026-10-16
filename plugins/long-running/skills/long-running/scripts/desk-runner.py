@@ -70,7 +70,11 @@ runner launched. An `orca-desk: alert <slug> <link> :: <what fired>`
 line, which monitor-watch writes, records the transition and launches nothing. An
 `orca-desk: incident` line in the same form, with `reported=<HH:MM>` or `reported=<H:MM AM|PM>`
 before the `::` naming the first report's Pacific time, which the alerts desk writes when it judges a lane necessary,
-launches `<slug>-fix` on the incident alias from the alert-fix brief.
+launches `<slug>-fix` on the incident alias from the alert-fix brief, unless another owner holds the
+incident: the root's `done` resolving a record that names the slug, its `stopped` addressed to
+`<slug>-fix`, or another drive's root `answer` addressed to `root@<this drive>` naming the slug. The
+runner checks at intake and again before the launch starts, fails a pending launch, and posts one
+`state` record `INCIDENT-OWNED <key> <lane>: incident <slug> owned by <who>; no launch`.
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
 an `incident=`, unless the launch's own role or that brief names a role other than `fix` or
@@ -117,9 +121,10 @@ root in one `DECIDE` that carries, per case, the ready
 already attached: each case past that cap, each new case a case lane reports, since case
 lanes are one generation, and each case of a report whose text, or whose lane's newest
 `mechanism` record or status, says `UNKNOWN`. An incident ends at a `not-ours` or
-`stand-down` record its fix lane or `-opus` fallback posts, at a root `stand-down` addressed
+`stand-down` record its fix lane or `-opus` fallback posts, at a root `stand-down` or `stopped` addressed
 to either or to the case lane, and, for a report, at a `stopped` its lane posted before it.
-A report after the end, or from a lane the root withdrew, logs
+A report whose subject or first body line opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case
+lane and files no `DECIDE`. A report after the end, or from a lane the root withdrew, logs
 `UNFIXED <lane> <time>: <cases> | no case lane launched: …` and launches nothing, and a
 case launch still pending at the end fails and logs `WITHDRAWN`. A case already known,
 such as a case lane's own, launches nothing. A case
@@ -220,7 +225,7 @@ inbox append or an exiting launch or judge, and its sweep shows only dispatches 
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -267,7 +272,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -358,6 +363,7 @@ UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P
 UNFIXED_CASES = "unfixed-cases"
 UNFIXED_KEY = "unfixed:"
 UNKNOWN_CAUSE = re.compile(r"\bUNKNOWN\b")
+HANDED_BACK = re.compile(r"^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b", re.IGNORECASE)
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 NAMES_NOTHING = "none"
@@ -531,6 +537,11 @@ def unfixed_cases(text: str, lane: str) -> dict[str, str]:
         if match["lane"] == lane and match["case"].rstrip(".").lower() != NAMES_NOTHING:
             cases.setdefault(" ".join(match["case"].split()), match["case"])
     return cases
+
+
+def handed_back(message: dict) -> bool:
+    """Whether a lane's report opens, in its subject or the first line of its body, with NOT-OURS, `stood down`, or `Stopped`: the lane gave its incident back, so the cases it lists are no case lane's to launch."""
+    return any(HANDED_BACK.match(line.strip()) for line in (message.get("subject") or "", (message.get("body") or "").strip().partition("\n")[0]))
 
 
 def clock_mark(record: dict) -> str:
@@ -1273,6 +1284,14 @@ class Runner:
         if monitors and (peer := self.incident_lane(monitors, lane)):
             self.record(log, f"LAUNCH-SKIPPED {key} {lane}: duplicate of {peer}, already on monitor {', '.join(sorted(monitors))}")
             return
+        try:
+            owner = self.incident_owner(slug, lane)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            owner = ""
+        if owner:
+            self.escalate(key, "INCIDENT-OWNED", lane, f"incident {slug} owned by {owner}; no launch")
+            return
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
@@ -1286,7 +1305,7 @@ class Runner:
         if brief is None:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: {failure}")
             return
-        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True, incident=slug)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
     def drive_facts(self) -> str:
@@ -1304,7 +1323,7 @@ class Runner:
     def unfixed(self, lane: str, message: dict) -> None:
         """Launch an incident lane for each case an incident fix lane's `ready:` or `fix-live:` report names as `UNFIXED <lane>: <case>`, up to `incident.case_lanes` per incident, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Every other new case goes to the root as one `DECIDE` carrying a launch line per case: each past the cap, each from a case lane, since case lanes are one generation, and each from a lane whose report or newest mechanism says its cause is UNKNOWN. A report from a lane the root withdrew, or after its incident ended, launches nothing and goes to the root as one line."""
         cases = unfixed_cases(message.get("body") or "", lane)
-        if not cases or lane_container(lane) not in self.book.store.ids():
+        if not cases or handed_back(message) or lane_container(lane) not in self.book.store.ids():
             return
         launch = fix_launch(self.book.load(lane_container(lane)))
         if not launch:
@@ -1347,7 +1366,7 @@ class Runner:
         return (name for n in itertools.count(1) if lane_container(name := f"{first}{CASE}{n}") not in held)
 
     def incident_end(self, first: str, lane: str, reported: datetime | None = None) -> str:
-        """The record that ended the incident `first` leads, as `#<seq> <KIND> <lane>`: a `not-ours` or `stand-down` its fix lane or Opus fallback posted, the root's `stand-down` to either of them or to `lane`, or a `stopped` that `lane` posted before `reported`; empty while the incident is open."""
+        """The record that ended the incident `first` leads, as `#<seq> <KIND> <lane>`: a `not-ours` or `stand-down` its fix lane or Opus fallback posted, the root's `stand-down` or `stopped` to either of them or to `lane`, or a `stopped` that `lane` posted before `reported`; empty while the incident is open."""
         owners = {*lane_aliases(first), *lane_aliases(f"{first}{CLOCK_FALLBACK}")}
         own = set(lane_aliases(lane))
         launch = fix_launch(self.book.load(lane_container(first)))
@@ -1359,11 +1378,23 @@ class Runner:
                 continue
             if (
                 (record["lane"] in owners and record["kind"] in INCIDENT_ENDS)
-                or (record["lane"] == ROOT and record["kind"] == STAND_DOWN and (owners | own) & set(record.get("to") or []))
+                or (record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and (owners | own) & set(record.get("to") or []))
                 or (record["lane"] in own and record["kind"] == STOPPED and reported is not None and at < reported)
             ):
                 return f"#{record['seq']} {record['kind'].upper()} {record['lane']}"
         return ""
+
+    def incident_owner(self, slug: str, lane: str) -> str:
+        """Who else holds the incident `slug`, as `<lane>@<drive> <kind> #<seq>`, or empty while this drive does: the root's `done` that resolves a record naming the slug, its `stopped` addressed to `lane`, or another drive's root `answer` addressed to `root@<this drive>` that names the slug."""
+        named = {record["seq"] for record in cci.records(self.cci_tail, self.config.drive, "--kind=incident") if record["drive"] == self.config.drive and (record.get("topic") == slug or slug in record["text"])}
+        names = set(lane_aliases(lane))
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=done", "--kind=stopped", since=min(named, default=0))
+        answered = cci.records(self.cci_tail, self.config.drive, "--reader", ROOT, "--kind=answer")
+        claims = [
+            *(record for record in posted if record["drive"] == self.config.drive and ((record["kind"] == "done" and record.get("resolves") in named) or (record["kind"] == STOPPED and names & set(record.get("to") or [])))),
+            *(record for record in answered if record["drive"] != self.config.drive and record["lane"] == ROOT and record["kind"] == "answer" and f"{ROOT}@{self.config.drive}" in (record.get("to") or []) and slug in record["text"]),
+        ]
+        return next((f"{record['lane']}@{record['drive']} {record['kind']} #{record['seq']}" for record in claims), "")
 
     def unknown_cause(self, lane: str, launch: actions.Action, message: dict) -> str:
         """Which of the lane's records says its cause is UNKNOWN: the report itself, or its newest mechanism record or status since its launch; empty when none does."""
@@ -1521,9 +1552,9 @@ class Runner:
         claimed = {json.loads(reply.target)["reply_to"] for reply in self.book.actions(self.lane(lane), kind="reply") if reply.action_id != key and reply.status != "failed"}
         return next((question for question in questions if question not in claimed), "")
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "") -> tuple[actions.Action, bool]:
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast, "role": role})
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast, "role": role, "incident": incident})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -1566,7 +1597,7 @@ class Runner:
             pending = self.book.actions(container, status="accepted")
             relays = [action for action in pending if action.kind in ("relay", "reply")]
             for action in pending:
-                if action.kind == "launch" and not self.holds_case_launch(container, lane, action):
+                if action.kind == "launch" and not self.holds_case_launch(container, lane, action) and not self.holds_owned_launch(container, lane, action):
                     self.launch(container, lane, action)
             if relays:
                 self.deliver_relays(container, lane, relays)
@@ -1585,6 +1616,21 @@ class Runner:
             self.book.edit(container, lambda incident: incident.fail(action.action_id, f"the incident ended with {ended}"))
             self.record(f"escalation:{container}/{action.action_id}:ended", f"WITHDRAWN {action.action_id} {lane}: the incident ended with {ended}; nothing was launched")
         return bool(ended)
+
+    def holds_owned_launch(self, container: str, lane: str, action: actions.Action) -> bool:
+        """Fail a pending incident launch once another owner holds its incident, and say whether the launch must wait: failed, or left for the next pass when cci cannot be read."""
+        slug = json.loads(action.target).get("incident")
+        if not slug:
+            return False
+        try:
+            owner = self.incident_owner(slug, lane)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
+        if owner:
+            self.book.edit(container, lambda incident: incident.fail(action.action_id, f"incident {slug} owned by {owner}"))
+            self.escalate(action.action_id, "INCIDENT-OWNED", lane, f"incident {slug} owned by {owner}; no launch")
+        return bool(owner)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
         """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each relay no send delivered as RELAY-FAILED now."""

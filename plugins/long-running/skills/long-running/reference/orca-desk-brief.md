@@ -133,7 +133,12 @@ it to the briefs log as `<slug>-fix.full.md` with `ccn log append --attach
 --replace`, and launches `<slug>-fix` on incident xhigh at once on that
 attachment's `ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
 to attach logs `INCIDENT` with the ccn error and launches nothing. A repeat relays
-to the live lane and keeps its brief. The root ratifies from `INCIDENT`: evidence
+to the live lane and keeps its brief. An incident another owner holds launches no lane: the root's `done` that resolves a
+record naming the slug, its `stopped` addressed to `<slug>-fix`, or an `answer` from another
+drive's root addressed to `root@<this drive>` that names the slug. The runner reads cci for
+these at intake and again just before the launch starts, fails a pending launch, and posts one
+`state` record, `INCIDENT-OWNED <key> <lane>: incident <slug> owned by <who>; no launch`.
+The root ratifies from `INCIDENT`: evidence
 and incident-doc lanes, target fence, and comms in the affected account channels
 and, for a platform-wide incident, `#outage` under R16. The evidence lane attaches
 `<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix
@@ -228,9 +233,10 @@ case lanes are one generation. Or the report's own text, or the lane's newest
 case lane nothing to extend, so each case waits for the root to post its line.
 
 An incident ends at a `not-ours` or `stand-down` record its fix lane or `-opus`
-fallback posts, or at a root `stand-down` addressed to either or to the case lane. A
-`stopped` the reporting lane posted before its report ends it for that report. A
-report after the end, or from a lane the root withdrew, launches nothing and logs one
+fallback posts, or at a root `stand-down` or `stopped` addressed to either or to the case lane. A
+`stopped` the reporting lane posted before its report ends it for that report. A report whose
+subject or first body line opens with `NOT-OURS`, `stood down`, or `Stopped` launches no case
+lane and files no `DECIDE`. A report after the end, or from a lane the root withdrew, launches nothing and logs one
 line:
 
 ```text
@@ -710,6 +716,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 |---|---|
 | `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
+| `INCIDENT-OWNED` | None. Another owner holds the incident the line names, so the runner launched nothing; check the named record agrees. |
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
