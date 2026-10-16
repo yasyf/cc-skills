@@ -693,9 +693,10 @@ a landed row with no `landed_at`. A `merge-fast` landing whose body has no
 
 A `BLOCKED` head routes at most once per head, and only for red CI, a merge
 conflict, a changes-requested review or fidelity grade, or a queue ejection. A
-pending check, a missing approval, an ejection blaming a PR outside the stack, a
-PR based on another open PR's branch, and a PR held, labelled `hold`, or stacked
-above such a PR never route. A queue drop that blames a PR outside the stack
+pending check, a missing approval, an ejection blaming a PR outside the stack,
+and a PR held, labelled `hold`, or stacked above such a PR never route. A PR
+based on another open PR's branch gets no failing-required route unless a
+status other than a gate's, such as `buildkite/test`, is red on its own head. A queue drop that blames a PR outside the stack
 re-enqueues the same head after the root's next `go` record naming the PR. The runner
 re-runs the gate immediately before creating the route, suppressing a blocker
 that has already cleared. Orca delivery can occur later; the gate is not re-read

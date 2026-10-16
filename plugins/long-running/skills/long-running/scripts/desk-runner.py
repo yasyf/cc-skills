@@ -185,8 +185,9 @@ batch's failure: it routes no blocker, logs one `AWAITS-GO` line to root, and th
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
 when `cci who` lists no live session for that lane. A gate's `BLOCKED` verdict goes to the lane at most once per head, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
-missing approval or an ejection blaming a PR outside its stack, never for a PR whose base is another open row's branch, and never for a
-PR that is held, carries GitHub's `hold` label, or is stacked above such a PR until that hold lifts. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
+missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
+stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
+unless a commit status other than `landing-gates`, `release-pr-check`, `emergency-head`, or `fidelity` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
@@ -323,6 +324,9 @@ SHOW_WORKERS = 8
 GATE_WORKERS = 4
 MIRROR_WRITES = 3
 GATES_STATUS = "landing-gates"
+GATE_STATUSES = frozenset({GATES_STATUS, FIDELITY_STATUS, "release-pr-check", "emergency-head"})
+RED_STATES = frozenset({"failure", "error"})
+FAILING_REQUIRED = re.compile(r"^graphite FAILING\w*$")
 GATES_WORKFLOW = "landing-gates.yaml"
 GATES_GRACE = timedelta(minutes=5)
 QUEUE_DRAFT_TITLE = "[Graphite MQ] Draft PR"
@@ -2431,9 +2435,9 @@ def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
 
-def routed_blocker(detail: str, stack: set[str]) -> str:
-    """The segments of a gate's `BLOCKED` detail a lane must act on, with their hints; an ejection blaming a PR outside `stack` is the batch's failure, not this PR's, and is left out."""
-    segments = [segment for segment in detail.split("; ") if not foreign_failure(segment, stack)]
+def routed_blocker(detail: str, stack: set[str], gated_red: bool) -> str:
+    """The segments of a gate's `BLOCKED` detail a lane must act on, with their hints; an ejection blaming a PR outside `stack` is the batch's failure, not this PR's, and is left out, and so is a failing required check when `gated_red` says only gates and the base are red."""
+    segments = [segment for segment in detail.split("; ") if not foreign_failure(segment, stack) and not (gated_red and FAILING_REQUIRED.match(segment))]
     if not any(ROUTED_BLOCKER.match(segment) for segment in segments):
         return ""
     return "; ".join(segment for segment in segments if ROUTED_BLOCKER.match(segment) or BLOCKER_HINT.match(segment))
@@ -2584,7 +2588,8 @@ class Landing:
             if not row.get("ours") and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
-        covered = under_hold(open_rows, held) | stacked(open_rows)
+        covered = under_hold(open_rows, held)
+        children = stacked(open_rows)
         waiting = under_hold(open_rows, sorted(self.unlabeled))
         trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
@@ -2602,8 +2607,14 @@ class Landing:
                     self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
-                    if blocker := routed_blocker(match["detail"], stack):
-                        self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack)
+                    gated_red = pr in children and any(FAILING_REQUIRED.match(segment) for segment in match["detail"].split("; ")) and self.gated_red(pr, match["sha"])
+                    if blocker := routed_blocker(match["detail"], stack, gated_red):
+                        self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red)
+
+    def gated_red(self, pr: str, sha: str) -> bool:
+        """Whether a stacked PR's failing required check comes only from a gate status or from its unlanded base: no status but a gate's is red on its own head. A status read that fails counts as gated for this pass, and the next pass reads again."""
+        statuses = self.head_statuses(pr, sha)
+        return statuses is None or not any(status["state"] in RED_STATES and status["context"] not in GATE_STATUSES for status in statuses)
 
     def proven_stacks(self, tips: list[str]) -> list[tuple[list[str], Done]]:
         gated = []
@@ -3026,7 +3037,7 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
-    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], stack: set[str]) -> None:
+    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], stack: set[str], gated_red: bool) -> None:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
         key = f"blocker:{pr}:{sha}"
         owner = self.owner(pr, row)
@@ -3034,7 +3045,7 @@ class Landing:
             return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
-        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"], stack) == blocker:
+        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"], stack, gated_red) == blocker:
             self.route(key, owner, f"#{pr} {sha}: {blocker}", pr)
 
     def owner(self, pr: str, row: dict) -> str:

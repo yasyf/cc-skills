@@ -1305,7 +1305,10 @@ def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, con
         )
     ]
     landing_pass(shell, config)
-    assert relayed(shell) == ["#37102 aaaa111111: graphite FAILING_REQUIRED"]
+    assert sorted(relayed(shell)) == [
+        "#37102 aaaa111111: graphite FAILING_REQUIRED",
+        "#37103 bbbb222222: conflicts with origin/dev in go/a.go",
+    ]
     assert shell.label_calls == [("add", "37102"), ("remove", "37102")]
 
 
@@ -1320,7 +1323,16 @@ def test_a_pr_carrying_the_hold_label_and_the_stack_above_it_get_no_blocker(shel
     assert blockers(shell) == [] and escalations(shell) == [] and shell.label_calls == []
 
 
-def test_a_pr_based_on_another_open_prs_branch_gets_no_blocker(shell, config, tmp_path):
+@pytest.mark.parametrize(
+    "statuses",
+    [
+        [],
+        [{"context": "landing-gates", "state": "failure"}, {"context": "release-pr-check", "state": "failure"}, {"context": "buildkite/test", "state": "success"}],
+        [{"context": "emergency-head", "state": "error"}, {"context": "buildkite/test", "state": "pending"}],
+    ],
+)
+def test_a_pr_on_another_open_prs_branch_gets_no_failing_required_blocker_while_only_gates_or_its_base_are_red(shell, config, tmp_path, statuses):
+    shell.combined_statuses["bbbb222222"] = statuses
     shell.rows = [
         {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
         {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "labels": "merge"},
@@ -1329,6 +1341,18 @@ def test_a_pr_based_on_another_open_prs_branch_gets_no_blocker(shell, config, tm
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [(post["topic"], post["text"]) for post in blockers(shell)] == [("39007", "#39007 aaaa111111: graphite FAILING_REQUIRED")]
+
+
+def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_per_head(shell, config, tmp_path):
+    shell.combined_statuses["bbbb222222"] = [{"context": "landing-gates", "state": "failure"}, {"context": "buildkite/test", "state": "failure"}]
+    shell.rows = [
+        {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+    ]
+    shell.gates["39050"] = [gate("#39007 GREEN aaaa111111 graphite READY", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [(post["to"], post["text"]) for post in blockers(shell)] == [("hj-rows-fixture", "#39050 bbbb222222: graphite FAILING_REQUIRED")]
 
 
 def test_a_held_prefix_is_never_routed_and_its_holds_reach_github_as_the_hold_label(shell, config, tmp_path):
@@ -1564,6 +1588,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
+    shell.combined_statuses["eeee555555"] = [{"context": "buildkite/test", "state": "failure"}]
     grade_gated_heads_ok(shell)
     shell.enqueue_out["36487 36501"] = (0, "enqueue #36463 #36487 #36501: {}\n")
     landing_pass(shell, config)
@@ -1572,7 +1597,8 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
     assert [call[1:] for call in shell.enqueues()] == [["36487", "36501"]]
     assert shell.label_calls == [("add", "36510")]
-    assert shell.sends() == []
+    blockers = [call[call.index("--body") + 1] for call in shell.sends()]
+    assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
 
 def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
