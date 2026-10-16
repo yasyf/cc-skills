@@ -223,12 +223,12 @@ class Watch:
             return {"ok": False, "error": {"code": "timeout" if done.code == TIMED_OUT else UNPARSEABLE, "message": (done.out or done.err).strip()}}
 
     def lanes(self, run: str) -> dict[str, str]:
-        """Each launch receipt's dispatch named by its file stem; a receipt whose device, inode, size, and mtime all match the last poll's is not read again."""
         found = {}
         for receipt in sorted((Path.home() / RECEIPTS / run).glob("*.json")):
             info = receipt.stat()
             key = (receipt, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
-            found[key] = self.receipts[key] if key in self.receipts else receipt_lane(receipt)
+            if named := self.receipts.get(key) or receipt_lane(receipt):
+                found[key] = named
         self.receipts = found
         return {dispatch: lane for named in found.values() for dispatch, lane in named.items()}
 
@@ -251,6 +251,8 @@ class Watch:
             if not result["page"]["hasMore"]:
                 break
             cursor = ["--cursor", result["page"]["nextCursor"]]
+        if not found:
+            return []
         lanes = self.lanes(run or result["scope"]["run"])
         return [Subject(f"dispatch:{worker['dispatchId']}", WORKER, lanes.get(worker["dispatchId"], worker["dispatchId"]), dispatch=worker["dispatchId"]) for worker in found]
 

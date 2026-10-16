@@ -502,14 +502,14 @@ def test_a_screen_orca_cannot_render_is_unknown_whatever_its_text_holds(home, sh
 
 
 def workers(home: Path, shell: FakeShell, local: str = "clear") -> None:
-    register(home, orca_run="run_4104a86f0a03")
+    register(home, orca_run=RUN)
     coordinator(shell, "clear", "coordinator.answered")
-    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")] = fixture("worker-list")
+    shell.orca[("orchestration", "worker-list", "--run", RUN, "--include-remote")] = fixture("worker-list")
     shell.orca[worker_show(LOCAL)] = fixture(f"worker-show.local.{local}")
     shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
     shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture("screen.managed-server.working")
     shell.orca[worker_show(GONE)] = fixture("error.remote-runtime-unavailable")
-    receipts = Path.home() / prompt_watch.RECEIPTS / "run_4104a86f0a03"
+    receipts = Path.home() / prompt_watch.RECEIPTS / RUN
     receipts.mkdir(parents=True)
     (receipts / "bake.json").write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": LOCAL}}))
 
@@ -621,16 +621,30 @@ def test_an_unbound_terminal_lists_every_run_so_none_of_those_workers_are_taken(
     assert sorted(poll(shell)) == [ROOT]
 
 
+def worker_start(dispatch: str) -> str:
+    return json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": dispatch}})
+
+
 def launched(name: str, dispatch: str) -> Path:
     path = Path.home() / prompt_watch.RECEIPTS / RUN / f"{name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": dispatch}}))
+    path.write_text(worker_start(dispatch))
     return path
 
 
 def touched(path: Path) -> None:
     info = path.stat()
     os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
+
+
+def swapped(path: Path, text: str) -> None:
+    original = path.stat()
+    swap = path.with_name(f"{path.name}.new")
+    swap.write_text(text)
+    os.utime(swap, ns=(original.st_atime_ns, original.st_mtime_ns))
+    swap.replace(path)
+    replaced = path.stat()
+    assert ((replaced.st_size, replaced.st_mtime_ns), replaced.st_ino != original.st_ino) == ((original.st_size, original.st_mtime_ns), True)
 
 
 @pytest.fixture
@@ -667,18 +681,13 @@ def test_the_lane_names_match_a_cold_read_across_added_rewritten_replaced_delete
     launched("rewritten", rewriting)
     touched(rewritten)
     polls.append(polled())
-    original = replaced.stat()
-    swap = replaced.with_name(f"{replaced.name}.new")
-    swap.write_text(json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": replacing}}))
-    os.utime(swap, ns=(original.st_atime_ns, original.st_mtime_ns))
-    swap.replace(replaced)
+    swapped(replaced, worker_start(replacing))
     polls.append(polled())
     deleted.unlink()
     polls.append(polled())
-    after, swapped = rewritten.stat(), replaced.stat()
+    after = rewritten.stat()
 
     assert ((after.st_ino, after.st_size), after.st_mtime_ns != before.st_mtime_ns) == ((before.st_ino, before.st_size), True)
-    assert ((swapped.st_size, swapped.st_mtime_ns), swapped.st_ino != original.st_ino) == ((original.st_size, original.st_mtime_ns), True)
     assert polls == [
         {LOCAL: "kept", REMOTE: "rewritten", GONE: "replaced", deleting: "deleted"},
         {LOCAL: "kept", REMOTE: "rewritten", GONE: "replaced", deleting: "deleted", adding: "added"},
@@ -692,7 +701,6 @@ def test_a_receipt_unchanged_since_the_last_poll_is_not_opened_again(home, shell
     watch = prompt_watch.Watch(shell, DRIVE)
     launched("bake", LOCAL)
     shipped = launched("ship", REMOTE)
-    (shipped.parent / "bake.worktree.json").write_text(json.dumps({"ok": True, "result": {"worktree": {"path": "/work/app-bake"}}}))
 
     first, second = watch.lanes(RUN), watch.lanes(RUN)
     reads = list(opened)
@@ -700,8 +708,24 @@ def test_a_receipt_unchanged_since_the_last_poll_is_not_opened_again(home, shell
     touched(shipped)
     third = watch.lanes(RUN)
 
-    assert (first, second, reads) == ({LOCAL: "bake", REMOTE: "ship"}, {LOCAL: "bake", REMOTE: "ship"}, ["bake.json", "bake.worktree.json", "ship.json"])
+    assert (first, second, reads) == ({LOCAL: "bake", REMOTE: "ship"}, {LOCAL: "bake", REMOTE: "ship"}, ["bake.json", "ship.json"])
     assert (third, opened[len(reads) :]) == ({LOCAL: "bake", GONE: "ship"}, ["ship.json"])
+
+
+def test_a_symlinked_receipt_is_read_again_when_its_target_is_replaced(home, shell, opened):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    target = home / "launches" / "bake.json"
+    target.parent.mkdir()
+    target.write_text(worker_start(LOCAL))
+    link = Path.home() / prompt_watch.RECEIPTS / RUN / "bake.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+
+    first, second = watch.lanes(RUN), watch.lanes(RUN)
+    swapped(target, worker_start(REMOTE))
+    third = watch.lanes(RUN)
+
+    assert (first, second, third, opened) == ({LOCAL: "bake"}, {LOCAL: "bake"}, {REMOTE: "bake"}, ["bake.json", "bake.json"])
 
 
 @pytest.mark.parametrize(
@@ -710,16 +734,17 @@ def test_a_receipt_unchanged_since_the_last_poll_is_not_opened_again(home, shell
         '{"ok": true, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": "ctx_',
         "[]",
         '{"ok": false, "error": {"code": "worker_start_failed", "message": "no agent"}}',
+        '{"ok": true, "result": {"worktree": {"path": "/work/app-bake"}}}',
         '{"ok": true, "result": {"dispatchId": ["ctx_25f8965ea0fb"]}}',
         "setup: installing\n{}",
     ],
-    ids=["truncated", "array", "error-reply", "unhashable-dispatch", "not-json"],
+    ids=["truncated", "array", "error-reply", "worktree-reply", "unhashable-dispatch", "not-json"],
 )
-def test_a_malformed_receipt_names_no_lane_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, malformed):
+def test_a_malformed_receipt_names_no_lane_and_is_opened_on_every_poll_and_a_partly_written_one_is_named_once_it_is_whole(home, shell, opened, malformed):
     watch = prompt_watch.Watch(shell, DRIVE)
     launched("bake", LOCAL)
     partial = Path.home() / prompt_watch.RECEIPTS / RUN / "ship.json"
-    written = json.dumps({"ok": True, "result": {"taskId": "task_8c1d2e3f4a5b", "dispatchId": REMOTE}})
+    written = worker_start(REMOTE)
     partial.write_text(written[: len(written) // 2])
     (partial.parent / "lint.json").write_text(malformed)
 
@@ -727,9 +752,43 @@ def test_a_malformed_receipt_names_no_lane_and_a_partly_written_one_is_named_onc
     with partial.open("a") as rest:
         rest.write(written[len(written) // 2 :])
     second = watch.lanes(RUN)
+    reads = list(opened)
 
-    assert (first, second) == ({LOCAL: "bake"}, {LOCAL: "bake", REMOTE: "ship"})
+    assert (first, second, reads) == ({LOCAL: "bake"}, {LOCAL: "bake", REMOTE: "ship"}, ["bake.json", "lint.json", "ship.json", "lint.json", "ship.json"])
     assert second == prompt_watch.Watch(shell, DRIVE).lanes(RUN)
+
+
+def test_a_receipt_rewritten_into_invalid_json_drops_the_lane_it_named(home, shell, opened):
+    watch = prompt_watch.Watch(shell, DRIVE)
+    bake = launched("bake", LOCAL)
+    first = watch.lanes(RUN)
+    bake.write_text(worker_start(LOCAL)[:-1] + " ")
+    touched(bake)
+
+    second, third = watch.lanes(RUN), watch.lanes(RUN)
+
+    assert (first, second, third, watch.receipts, opened) == ({LOCAL: "bake"}, {}, {}, {}, ["bake.json", "bake.json", "bake.json"])
+
+
+def test_a_run_with_no_worker_in_progress_lists_and_reads_no_receipt(home, shell, opened, monkeypatch):
+    workers(home, shell)
+    listed = fixture("worker-list")
+    for worker in listed["result"]["workers"]:
+        worker["projection"]["outcome"] = "succeeded"
+    shell.orca[("orchestration", "worker-list", "--run", RUN, "--include-remote")] = listed
+    globbed: list[str] = []
+    glob = Path.glob
+
+    def counted(path: Path, pattern: str, **kwargs):
+        if path.name == RUN:
+            globbed.append(pattern)
+        return glob(path, pattern, **kwargs)
+
+    monkeypatch.setattr(Path, "glob", counted)
+
+    rows = poll(shell)
+
+    assert (sorted(rows), globbed, opened) == ([ROOT], [], [])
 
 
 def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, shell):
@@ -738,7 +797,7 @@ def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, s
     poll(shell)
     listed = fixture("worker-list")
     listed["result"]["workers"][0]["projection"]["outcome"] = "succeeded"
-    shell.orca[("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")] = listed
+    shell.orca[("orchestration", "worker-list", "--run", RUN, "--include-remote")] = listed
 
     rows = poll(shell)
 
@@ -751,7 +810,7 @@ def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, s
 def test_a_worker_list_that_fails_closes_no_prompt_and_the_same_prompt_is_not_raised_again(home, shell, capsys, page, cursor):
     workers(home, shell, "waiting")
     shell.orca[read(LOCAL_TERMINAL)] = fixture("screen.coordinator.approval")
-    listing = ("orchestration", "worker-list", "--run", "run_4104a86f0a03", "--include-remote")
+    listing = ("orchestration", "worker-list", "--run", RUN, "--include-remote")
     poll(shell)
     if cursor:
         paged = fixture("worker-list")
