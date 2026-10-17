@@ -1,1 +1,1 @@
-{"v":1,"lamport":4,"session":"8d9186e0-fba7-4817-bcc6-e16df6c05e3e","ops":[{"kind":"set_criterion_status","id":"a3119059a2a5a9eefa32cdd7b502f6f7","status":"met","note":"cci.py: trees = worktrees(ctx) only if any(stood) and a checkout (#485, 701204a)"}]}
+{"v":1,"lamport":5,"session":"8d9186e0-fba7-4817-bcc6-e16df6c05e3e","ops":[{"kind":"set_criterion_status","id":"15b24db1712cff429103c5f1f44281fb","status":"met","note":"candidate path unchanged; stood_down(record) helper"}]}
