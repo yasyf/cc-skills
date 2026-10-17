@@ -73,6 +73,17 @@ def test_lanes_list_only_active_lanes_and_stood_down_lanes_holding_a_worktree(tm
     table = cci.lanes(ctx)
     assert [(row["lane"], row["group"], row["tone"]) for row in table.rows] == [("lane-one", "active", "ok"), ("lane-old", "holds a worktree", "bad")]
     assert (table.group_by, table.note) == ("group", "Not listed: 1 idle over 1h, 0 stood down.")
+    assert [call for call in ctx.calls if call[0] == "git"] == [["git", "-C", "/checkout", "worktree", "list", "--porcelain"]]
+
+
+def test_lanes_skip_the_worktree_listing_when_only_owner_lanes_stood_down(tmp_path):
+    lanes = [record for record in fixture("cci-lanes.json") if record["lane"] != "lane-old"]
+    lanes.append({"seq": 44, "lane": "root", "kind": "handoff", "at": "2026-10-06T23:00:00Z", "text": "STAND-DOWN", "refs": {}, "fields": {}})
+    ctx = fake(tmp_path, cci_replies={"lanes": lanes})
+    table = cci.lanes(ctx)
+    assert [(row["lane"], row["group"], row["tone"]) for row in table.rows] == [("lane-one", "active", "ok")]
+    assert table.note == "Not listed: 1 idle over 1h, 0 stood down."
+    assert [call for call in ctx.calls if call[0] == "git"] == []
 
 
 def test_lanes_name_live_orca_workers_needing_attention_and_skip_settled_ones(tmp_path):
@@ -81,7 +92,7 @@ def test_lanes_name_live_orca_workers_needing_attention_and_skip_settled_ones(tm
 
     workers = {"result": {"workers": [worker("ctx_1", "task_1", "dispatched", "live"), worker("ctx_2", "task_2", "completed", "live"), worker("ctx_3", "task_3", "dispatched", "unverifiable")], "page": {}}}
     tasks = {"result": {"tasks": [{"id": "task_1", "display_name": "merge-walker"}, {"id": "task_2", "display_name": "done-lane"}, {"id": "task_3", "display_name": "ghost"}]}}
-    ctx = fake(tmp_path, facts={"orca_run": "run_1"}, replies={("git", "-C", "/checkout", "worktree", "list"): "", ("orca", "orchestration", "worker-list"): workers, ("orca", "orchestration", "task-list"): tasks}, cci_replies={"lanes": []})
+    ctx = fake(tmp_path, facts={"orca_run": "run_1"}, replies={("orca", "orchestration", "worker-list"): workers, ("orca", "orchestration", "task-list"): tasks}, cci_replies={"lanes": []})
     assert [(row["lane"], row["group"], row["text"]) for row in cci.lanes(ctx).rows] == [("merge-walker", "needs attention", "input")]
 
 

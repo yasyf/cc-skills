@@ -87,6 +87,10 @@ def worktrees(ctx: Context) -> set[str]:
     return {Path(line.removeprefix("worktree ")).name for line in listing.splitlines() if line.startswith("worktree ")}
 
 
+def stood_down(record: dict) -> bool:
+    return record["kind"] in ("handoff", "withdraw") or bool(STOOD_DOWN.search(record["text"]))
+
+
 def orca_attention(ctx: Context, run: str) -> list[dict]:
     names = {task["id"]: task.get("display_name") or task.get("task_title") for task in ctx.json(["orca", "orchestration", "task-list", "--run", run, "--json"])["result"]["tasks"]}
     out = []
@@ -105,14 +109,12 @@ def lanes(ctx: Context, *, idle_hours: float = 1.0) -> Table:
     """Lanes whose latest cci record is within `idle_hours`, stood-down lanes still holding a worktree of the drive's
     checkout, and live Orca workers asking for attention, named by their task. Idle and stood-down lanes are counted in
     the note, not listed; settled Orca dispatches never show."""
-    latest = ctx.cci("lanes")
-    trees = worktrees(ctx) if ctx.facts.get("checkout") else set()
+    latest = [record for record in ctx.cci("lanes") if record["lane"] not in ("owner", "root", "main")]
+    stood = [stood_down(record) for record in latest]
+    trees = worktrees(ctx) if any(stood) and ctx.facts.get("checkout") else set()
     out = []
     quiet = {"idle": 0, "stood down": 0}
-    for record in latest:
-        if record["lane"] in ("owner", "root", "main"):
-            continue
-        down = record["kind"] in ("handoff", "withdraw") or bool(STOOD_DOWN.search(record["text"]))
+    for record, down in zip(latest, stood, strict=True):
         if down and record["lane"] not in trees:
             quiet["stood down"] += 1
             continue
