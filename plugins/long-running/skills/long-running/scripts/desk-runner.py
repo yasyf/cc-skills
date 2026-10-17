@@ -240,10 +240,10 @@ drive's root posts with `--re` or `--resolves` naming the release record or one 
 than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
-`deadlines.release_start_minutes` step. A worker's question goes to a Sonnet-low judge with the lane's
-brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
+`deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
+drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
-inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
+inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
@@ -360,7 +360,6 @@ RESEND_AFTER = timedelta(seconds=30)
 RESEND_LIMIT = 2
 RESEND = ":resend"
 RETRY = ":retry"
-ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
@@ -457,27 +456,6 @@ WITHDRAWN = "withdrawn"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
-JUDGE_SCHEMA = json.dumps(
-    {
-        "type": "object",
-        "properties": {"verdict": {"enum": ["answer", "escalate"]}, "text": {"type": "string"}},
-        "required": ["verdict", "text"],
-    }
-)
-JUDGE_PROMPT = """You answer one routine question from an Orca worker for its coordinator.
-Answer only when the lane's brief below settles the question; quote the brief's rule in the answer.
-When the brief does not settle it, or the answer changes scope, touches production, or needs the owner,
-return verdict "escalate" with the question restated in one line and 2-4 concrete options.
-
-<brief lane="{lane}">
-{brief}
-</brief>
-
-<question id="{msg}" type="{type}">
-{subject}
-{body}
-</question>
-"""
 
 
 @dataclass
@@ -512,10 +490,10 @@ class Shell:
                 return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
-    def spawn(self, argv: list[str], out: Path, env: dict[str, str], stdin: Path | None = None, err: Path | None = None) -> subprocess.Popen:
+    def spawn(self, argv: list[str], out: Path, env: dict[str, str]) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w") as sink, (err or Path(os.devnull)).open("w") as errors, (stdin or Path(os.devnull)).open() as source:
-            return subprocess.Popen(argv, stdin=source, stdout=sink, stderr=errors if err else subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+        with out.open("w") as sink:
+            return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
 
     def stat(self, path: Path) -> tuple[int, int] | None:
         try:
@@ -683,7 +661,6 @@ class Config:
     incident_pr_minutes: int
     incident_ready_minutes: int
     case_lanes: int
-    judge_model: str
     landing: dict | None
     alert_facts: Path | None
 
@@ -716,7 +693,6 @@ class Config:
             incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
             case_lanes=raw.get("incident", {}).get("case_lanes", 2),
-            judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
         )
@@ -914,7 +890,6 @@ class Runner:
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
         self.sprites: set[str] = set()
-        self.judging: dict[str, subprocess.Popen] = {}
         self.pass_binding: dict | None = None
         self.unreachable_passes = 0
         self.book.ensure(RUNNER, RUNNER)
@@ -1122,7 +1097,7 @@ class Runner:
             self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
 
     def read_cci(self) -> None:
-        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one desk inbox line, or that the root posted with `--re`, as a reply. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record, and records imported from the desk inbox were already read there."""
+        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one desk inbox line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record, and records imported from the desk inbox were already read there."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.load(RUNNER).facts.get(fact)
         try:
@@ -1135,7 +1110,7 @@ class Runner:
             already_read = f"import:{self.config.desk_inbox.resolve()}"
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
                 if record.get("re"):
-                    if record["lane"] == ROOT:
+                    if record["lane"] == ROOT and record["drive"] == self.config.drive:
                         self.root_reply(record, self.cci_record(record["re"]))
                 elif record["source"] != already_read:
                     self.cci_line(record)
@@ -2013,7 +1988,7 @@ class Runner:
         elif message["type"] in ("question", "escalation"):
             self.keep(message)
             if not self.withdrawn_ask(lane, message):
-                self.judge(message, lane)
+                self.escalate(message["id"], "DECIDE", lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}")
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
@@ -2136,65 +2111,8 @@ class Runner:
             done = self.briefs("log", "append", self.config.briefs_log, "--entry", entry, "--attach", str(path), "--replace")
         return "" if done.code == 0 else ccn_failure(done)
 
-    def judge(self, message: dict, lane: str) -> None:
-        """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""
-        key = f"judge:{message['id']}"
-        question = f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}"
-        _, created = self.book.accept(RUNNER, key, "judge", json.dumps({"msg": message["id"], "question": question}), lane, None)
-        if not created:
-            return
-        self.book.attempt(RUNNER, lambda incident: incident.start(key, self.now()))
-        brief = self.brief_for(lane)
-        if not brief:
-            self.book.attempt(RUNNER, lambda incident: incident.complete(key, {"verdict": "escalate", "text": f"no brief file for {lane}", "at": self.book.stamp()}))
-            return
-        prompt = self.judge_file(message["id"], "prompt")
-        prompt.parent.mkdir(parents=True, exist_ok=True)
-        prompt.write_text(JUDGE_PROMPT.format(lane=lane, brief=brief.read_text(), msg=message["id"], type=message["type"], subject=message.get("subject", ""), body=message.get("body", "")))
-        argv = ["claude", "-p", "--model", self.config.judge_model, "--effort", "low", "--no-session-persistence", "--strict-mcp-config", "--tools", "", "--output-format", "json", "--json-schema", JUDGE_SCHEMA]
-        self.judging[key] = self.shell.spawn(argv, self.judge_file(message["id"], "out"), {}, stdin=prompt, err=self.judge_file(message["id"], "err"))
-
-    def judge_file(self, msg: str, suffix: str) -> Path:
-        return (self.config.store or actions.incidents_dir()).parent / "desk-runner-judges" / f"{msg}.{suffix}"
-
-    def judged(self, key: str, msg: str) -> Done | None:
-        """The judge's output once its process exits; a judge a restart orphaned counts as done once it wrote anything."""
-        process = self.judging.get(key)
-        code = process.poll() if process else None
-        if process and code is None:
-            return None
-        out, err = (path.read_text() if path.is_file() else "" for path in (self.judge_file(msg, "out"), self.judge_file(msg, "err")))
-        if process:
-            del self.judging[key]
-            return Done(code, out, err)
-        if out.strip() or err.strip():
-            return Done(0 if out.strip() else 1, out, err)
-        return None
-
-    def resume_judges(self) -> None:
-        """Settle each finished judge, then carry it to its reply or escalation and verify it, so a restart between the verdict and its follow-up loses nothing."""
-        for judged in self.book.actions(RUNNER, kind="judge", status="started"):
-            spec = json.loads(judged.target)
-            if done := self.judged(judged.action_id, spec["msg"]):
-                verdict = judge_verdict(done)
-                self.book.attempt(RUNNER, lambda incident, key=judged.action_id, verdict=verdict: incident.complete(key, {**verdict, "at": self.book.stamp()}))
-            elif actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
-                self.escalate(spec["msg"], "DECIDE", judged.authority_ref, f"{spec['question']} (the judge never returned)")
-        followed = self.book.actions(RUNNER, kind="judge", status="completed")
-        for judged in followed:
-            spec = json.loads(judged.target)
-            lane = judged.authority_ref
-            if judged.response["verdict"] == "answer":
-                reply, created = self.accept_relay(f"answer:{spec['msg']}", lane, judged.response["text"], spec["msg"], self.config.start_minutes)
-                if created and (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
-                    self.send(lane_container(lane), dispatch, reply)
-            else:
-                self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} | {judged.response['text']}")
-        if followed:
-            self.book.edit(RUNNER, lambda incident: verify_all(incident, [judged.action_id for judged in followed], {"at": self.book.stamp()}))
-
     def idle(self, seconds: float) -> None:
-        """Wait out the gap between passes, cut short by a desk inbox append or a launch or judge process exiting."""
+        """Wait out the gap between passes, cut short by a desk inbox append or a launch process exiting."""
         inbox, running = self.shell.stat(self.config.desk_inbox), self.running()
         for _ in range(int(seconds / WAKE_SECONDS)):
             if self.shell.stat(self.config.desk_inbox) != inbox or self.running() < running or self.stop_requested():
@@ -2202,7 +2120,7 @@ class Runner:
             self.shell.sleep(WAKE_SECONDS)
 
     def running(self) -> int:
-        return sum(process.poll() is None for process in [*self.launching.values(), *self.judging.values()])
+        return sum(process.poll() is None for process in self.launching.values())
 
     def rotate_inboxes(self) -> None:
         for path in sorted(self.config.desk_inbox.parent.glob("*.md")):
@@ -2532,12 +2450,6 @@ def heads_query(repo: str, shas: list[str]) -> str:
 def same_head(one: str, other: str) -> bool:
     return one.startswith(other) or other.startswith(one)
 
-
-def judge_verdict(done: Done) -> dict:
-    if done.code != 0:
-        return {"verdict": "escalate", "text": f"the judge failed: {(done.err or done.out).strip()[-200:]}"}
-    payload = json.loads(done.out)
-    return (payload[-1] if isinstance(payload, list) else payload)["structured_output"]
 
 
 def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at: datetime) -> None:
@@ -3350,7 +3262,6 @@ def run_orca(runner: Runner, once: bool) -> int:
         try:
             if runner.check():
                 runner.reap()
-                runner.resume_judges()
                 runner.read_inbox()
                 runner.read_cci()
                 runner.deliver()
