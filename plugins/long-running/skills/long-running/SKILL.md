@@ -1250,7 +1250,9 @@ first line and its cci seq, once per grade record. A head with no grade reads
 `pending`, "awaiting <fidelity lane>'s grade of this head", until the lane
 grades it. The runner reads the head's statuses just before posting `pending`
 and posts nothing when a `fidelity` status is already there, so a grade the lane
-set on the head directly is never overwritten. The required `landing-gates`
+set on the head directly is never overwritten. A pass posts at most three
+statuses, the heads of PRs a `release` line names or a queued prefix holds
+first and the rest by PR number, so a backlog never starves a released head. The required `landing-gates`
 check reads that status and holds a head whose `fidelity` is not `success`,
 whoever enqueues it, so the grade binds a hand run, `gt merge`, and another
 drive's desk as well, and a head pushed after its grade waits for its own. A

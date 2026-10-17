@@ -227,6 +227,7 @@ of each open row's head into that head's `fidelity` commit status, `success` for
 described by the grade's first line and cci seq, once per grade record. The required `landing-gates` check holds any head whose
 `fidelity` status is not `success`, so a head pushed after its grade waits for its own whoever enqueues it. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
 head", until the lane grades it; the runner reads the head's statuses afresh just before that post and skips it when any `fidelity` status is already there or the read fails, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass.
+A pass posts at most three statuses, the heads of PRs a `release` line names or a believed-queued prefix holds first, then the rest by PR number, so a backlog of low-numbered replays never starves a released head.
 Each pass reads the commit statuses of every open row's head and every Graphite queue draft's head in one GraphQL query, and reuses a
 head's statuses for 60 s unless the runner itself posts to that head or re-dispatches its grade; a head read that fails logs
 `STATUS-READ-FAILED` once and counts as unread for that pass. Each pass starts with one free `rate_limit` read of the GitHub App
@@ -2787,13 +2788,14 @@ class Landing:
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
-    def mirror_grades(self, rows: dict[str, dict]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, first posts before retries, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+    def mirror_grades(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, heads of PRs a `release` line names or a believed-queued prefix holds first, then first posts before retries, then by PR number, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         posted: dict[tuple[str, str], tuple[str, int, str]] = {}
         for action in self.book.actions(LANDING, kind="status", status="completed"):
             _, pr, head, grade_ref = action.action_id.split(":", 3)
             latest = (action.response["at"], int(grade_ref) if grade_ref.isdigit() else -1, action.response["state"])
             posted[(pr, head)] = max(posted.get((pr, head), latest), latest)
+        prioritized = holds.released(entries, rows) | {pr for prs in self.believed_queued(rows).values() for pr in prs}
         due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
@@ -2813,7 +2815,7 @@ class Landing:
             known = self.book.known(LANDING, key)
             if (known and known.status != "accepted") or (pr, head) in posted and posted[(pr, head)][2] == state:
                 continue
-            due.append((known is not None, pr, head, key, source, state, description))
+            due.append(((pr not in prioritized, known is not None, int(pr)), pr, head, key, source, state, description))
         writes = 0
         for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0]):
             if writes == MIRROR_WRITES:
@@ -3119,13 +3121,16 @@ class Landing:
         replies = cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(seqs))
         return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get("re"), record.get("resolves")}), None)
 
-    def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a merge conflict goes to the lane as a blocker instead, and a red check or a downstack failure is left to the gate's `stack-enqueue`, which re-enqueues a head a batch-mate's failure ejected and blocks one its own red check did. A drop blaming a downstack failure on a PR outside the PR's own stack is the batch's failure: it posts no blocker, tells the root once, and the same head re-enqueues after the root's next `go` record naming the PR."""
-        believed = {
+    def believed_queued(self, rows: dict[str, dict]) -> dict[str, list[str]]:
+        return {
             action.action_id: [pr for pr, sha in enqueued_heads(action.action_id).items() if sha and pr in rows and rows[pr].get("state", "open") == "open" and rows[pr].get("head", "").startswith(sha)]
             for action in self.book.actions(LANDING, kind="enqueue", status="completed")
             if action.response["outcome"] in BELIEVED_QUEUED
         }
+
+    def requeue(self, rows: dict[str, dict]) -> None:
+        """A believed-queued prefix Graphite no longer holds at the heads it admitted becomes retryable, so the gate re-enqueues it once green, approved, unheld, and fidelity-ok; a drop for a merge conflict goes to the lane as a blocker instead, and a red check or a downstack failure is left to the gate's `stack-enqueue`, which re-enqueues a head a batch-mate's failure ejected and blocks one its own red check did. A drop blaming a downstack failure on a PR outside the PR's own stack is the batch's failure: it posts no blocker, tells the root once, and the same head re-enqueues after the root's next `go` record naming the PR."""
+        believed = self.believed_queued(rows)
         numbers = sorted({pr for prs in believed.values() for pr in prs}, key=int)
         if not numbers:
             return
@@ -3257,7 +3262,7 @@ class Landing:
         self.releases(rows)
         self.verify_restacks(rows)
         self.requeue(rows)
-        self.mirror_grades(rows)
+        self.mirror_grades(rows, entries)
         if not unread:
             self.mirror_holds(rows, entries)
         if not unread and (held := self.held(rows)) is not None:
