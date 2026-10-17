@@ -2798,17 +2798,18 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A pass posts at most `MIRROR_WRITES` statuses, heads of PRs a `release` line names or a believed-queued prefix holds first, then first posts before retries, then by PR number, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A PR in a believed-queued prefix gets no post once the runner has posted a status on its head, so `landing-gates` can still pass a head enqueued before its first post. A pass posts at most `MIRROR_WRITES` statuses, since each starts a `landing-gates` run on the repo's Actions token: grades for heads the runner has posted no status on first, then grades that flip a head's status, then `pending`, each tier with heads of PRs a `release` line names first, then first posts before retries, then by PR number, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         posted: dict[tuple[str, str], tuple[str, int, str]] = {}
         for action in self.book.actions(LANDING, kind="status", status="completed"):
             _, pr, head, grade_ref = action.action_id.split(":", 3)
             latest = (action.response["at"], int(grade_ref) if grade_ref.isdigit() else -1, action.response["state"])
             posted[(pr, head)] = max(posted.get((pr, head), latest), latest)
-        prioritized = holds.released(entries, rows) | {pr for prs in self.believed_queued(rows).values() for pr in prs}
+        released = holds.released(entries, rows)
+        queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or not head:
+            if row.get("state", "open") != "open" or not head or (pr in queued and (pr, head) in posted):
                 continue
             try:
                 grade = self.fidelity(pr, head, row.get("base") or "")
@@ -2824,7 +2825,8 @@ class Landing:
             known = self.book.known(LANDING, key)
             if (known and known.status != "accepted") or (pr, head) in posted and posted[(pr, head)][2] == state:
                 continue
-            due.append(((pr not in prioritized, known is not None, int(pr)), pr, head, key, source, state, description))
+            need = 2 if state == "pending" else int((pr, head) in posted)
+            due.append(((need, pr not in released, known is not None, int(pr)), pr, head, key, source, state, description))
         writes = 0
         for _, pr, head, key, source, state, description in sorted(due, key=lambda item: item[0]):
             if writes == MIRROR_WRITES:

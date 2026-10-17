@@ -2573,7 +2573,7 @@ def test_the_head_of_a_pr_a_release_line_names_is_mirrored_before_lower_numbered
     assert [status["sha"] for status in shell.head_statuses] == ["29104abcd", "29100abcd", "29101abcd"]
 
 
-def test_the_head_of_a_pr_in_a_believed_queued_prefix_is_mirrored_before_lower_numbered_heads(shell, config, tmp_path):
+def test_a_pr_in_a_believed_queued_prefix_gets_no_status_and_a_fresh_grade_goes_before_pending(shell, config, tmp_path):
     prs = [str(29100 + n) for n in range(7)]
     shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
     shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd buildkite/test pending")] for pr in prs}
@@ -2582,9 +2582,25 @@ def test_the_head_of_a_pr_in_a_believed_queued_prefix_is_mirrored_before_lower_n
     grade(shell, "29106", "ok F307 at 29106ab")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29106"]]
-    assert [status["sha"] for status in shell.head_statuses] == ["29100abcd", "29101abcd", "29102abcd"]
+    assert [status["sha"] for status in shell.head_statuses] == ["29106abcd", "29100abcd", "29101abcd"]
+    grade(shell, "29106", "missing F307 at 29106ab (View fix).")
     landing_pass(shell, config)
-    assert [status["sha"] for status in shell.head_statuses[3:]] == ["29106abcd", "29103abcd", "29104abcd"]
+    assert [status["sha"] for status in shell.head_statuses[3:]] == ["29102abcd", "29103abcd", "29104abcd"]
+
+
+def test_a_fresh_grade_on_an_open_head_is_mirrored_before_released_heads_that_already_carry_a_status(shell, config, tmp_path):
+    prs = [str(29100 + n) for n in range(4)]
+    (tmp_path / "holds.md").write_text("".join(f"release #{pr} sandbox proof landed\n" for pr in prs[:3]))
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd buildkite/test pending")] for pr in prs}
+    for pr in prs[:3]:
+        grade(shell, pr, f"missing F307 at {pr}ab (View fix).")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == [(f"{pr}abcd", "failure") for pr in prs[:3]]
+    for pr in prs:
+        grade(shell, pr, f"ok F307 at {pr}ab")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell)[3:] == [("29103abcd", "success"), ("29100abcd", "success"), ("29101abcd", "success")]
 
 
 def test_a_held_pr_whose_label_waits_for_a_later_pass_is_not_gated_until_it_is_written(shell, config, tmp_path):
