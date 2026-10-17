@@ -15,8 +15,26 @@ ranked fix 3).*
 Issue commands with the drive's R/L numbering. Submit a key once per action;
 submitting it again in the same lane returns the existing action. Never `SendMessage`
 a desk.
+
+The root never types an `R<n>` or a clock. It cannot read the desk inbox, so a key it
+picks can collide with one a line there already holds. `desk-launch.py` mints every
+keyed line the root sends. It takes one past the highest `R<n>` on a cci record
+addressed to `orca-desk` and in `inbox/orca-desk.md`, its archive included, stamps the
+Pacific clock, posts the line to `orca-desk` on cci, and prints the key and the line.
+
+```text
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
+desk-launch.py lane <lane> <model> <effort> <brief> [--now]
+desk-launch.py relay <lane>[,<lane>...] <text>
+desk-launch.py hold <slug> <owner> <what>
+desk-launch.py unhold <slug>
+desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>
+```
+
 A relay or a reply posted on cci can be any length and span lines; post it whole, as one record, and the runner relays all of it.
 Keep every other inbox line under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
+
+A desk keys its own commands to the runner:
 
 ```text
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
@@ -84,12 +102,13 @@ that is not a file. A line that says `orca-desk: launch` outside the form logs
 
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
 `desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
-root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>` past the root's newest `orca-desk:` record, posts
+root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>`
+past every key on an `orca-desk` cci record and in the desk inbox, posts
 with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
 A launch or a lane is withdrawn with one line naming its launch key, `R<m>` or a case
-launch's `unfixed:<msg>:<n>`, or the lane itself:
+launch's `unfixed:<msg>:<n>`, or the lane itself, which `desk-launch.py withdraw` posts:
 
 ```text
 R<n> (<time>) orca-desk: withdraw R<m>

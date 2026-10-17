@@ -479,7 +479,8 @@ When the root launches an incident pair itself, the launch is one command:
 desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
 ```
 
-It takes the next `R<n>`, posts `<name>-fix` and `<name>-evidence` to `orca-desk`
+It takes the next `R<n>`, one past every key on cci and in the desk inbox, posts
+`<name>-fix` and `<name>-evidence` to `orca-desk`
 on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
 the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or
 `LAUNCH-FAILED`, and prints each lane's dispatch and terminal. It exits 0 only when
@@ -490,7 +491,7 @@ that `orca-launch.sh` names in its brief, so it never asks the root for prose. T
 root answers a lane's question with `cci post --kind answer --to <lane> --re <seq>`
 on the lane's ask or on the runner's `DECIDE`. The runner relays that answer as the
 reply to the lane's open Orca question, so no question is left open. It withdraws
-a launch or a lane with `orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
+a launch or a lane with `desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>`.
 
 *Prevents the 11:49 PM Oct 11 incident launch: two unaddressed launch lines, a
 withdrawal the runner rejected, a codex lane that asked the root for PR prose, and
@@ -747,8 +748,8 @@ the lane editing the skill.
 with three lanes and two PRs (#28594, #28598) for one fix.*
 
 **R18. A ruling reaches a lane the way it reads.** Orca rulings use
-`desk-runner.py relay --config C --key R<n> --lane L --text T`; launches use its
-`launch` command under O1. A model desk gets rulings through its inbox under I1.
+`desk-launch.py relay <lane>[,<lane>...] <text>`; launches use `desk-launch.py lane`
+under O1. A model desk gets rulings through its inbox under I1.
 A running
 Agent lane gets a `SendMessage` AND the handoff line in the file it hands off
 through. The root confirms the handoff on disk before treating the lane as stood
@@ -1597,19 +1598,34 @@ The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first
 archival happens about six hours after the first mark.
 
-The root issues `relay`, `launch`, and `policy` commands with the drive's R/L
-keys. A repeated key in the same lane is one action. A relay can also be one
-`R<n> orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line appended to
-`inbox/orca-desk.md`; the runner delivers it once per lane and logs `RELAYED` or
-`RELAY-FAILED`. A launch can be one
-`R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
-the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
-and logs `LAUNCHED` or `LAUNCH-FAILED`. A
-`cci post --drive <drive> --lane root --kind go --to orca-desk --text "<line>"` record
-carrying the same line is read the same way; post it there or append it to the file,
-never both, since a key held twice logs `LAUNCH-FAILED`. `desk-launch.py lane <lane>
-<model> <effort> <brief> [--now]` does both steps: it takes the next `R<n>`, posts the
-line, and waits for the runner's verdict. An `orca-desk: withdraw <target>` line,
+The root never types an `R<n>` or a clock. It cannot read the desk inbox, so a key
+it picks by hand can collide with one already held, and a key held twice logs
+`LAUNCH-FAILED`. `desk-launch.py` mints every keyed line. It takes one past the
+highest `R<n>` on a cci record addressed to `orca-desk` and in `inbox/orca-desk.md`,
+its archive included, stamps the Pacific clock, and posts the line to `orca-desk` on
+cci.
+
+```sh
+desk-launch.py lane <lane> <model> <effort> <brief> [--now]
+desk-launch.py relay <lane>[,<lane>...] <text>
+desk-launch.py hold <slug> <owner> <what>
+desk-launch.py unhold <slug>
+desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane>
+```
+
+Each verb prints the key and the line it posted. `lane` then waits for the runner's
+`LAUNCHED` or `LAUNCH-FAILED`; the others return at once, and the runner's verdict
+reaches the root on cci.
+
+The runner reads the same lines from cci records addressed
+to `orca-desk` and from lines appended to `inbox/orca-desk.md`. A relay line is
+`R<n> orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>`; the runner
+delivers it once per lane and logs `RELAYED` or `RELAY-FAILED`. A launch line is
+`R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`; the
+runner runs `launch` for it once, `NOW` meaning `--owner-directed`, and logs
+`LAUNCHED` or `LAUNCH-FAILED`. The root appends no keyed line to the file. A repeated key in
+the same lane is one action, and `policy` takes the drive's L keys. An
+`orca-desk: withdraw <target>` line,
 naming `R<n>`, a case launch's `unfixed:<msg>:<n>`, or a lane, fails a launch the
 runner accepted and has not started, stops a launched dispatch with worker-stop, marks
 the lane withdrawn, and logs `WITHDRAWN`; `WITHDRAW-FAILED` names a launch still
@@ -1637,9 +1653,9 @@ commands, passes, acknowledgement contract, escalation kinds, and cutover.
 superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3 and
 ranked fix 3).*
 
-**O1. Launch through the runner.** The root submits
-`desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH`.
-The runner starts `orca-launch.sh` detached. No model desk runs lifecycle helpers.
+**O1. Launch through the runner.** The root runs
+`desk-launch.py lane <lane> <model> <effort> <brief> [--now]`, which mints the key; the
+runner runs `launch` for its line and starts `orca-launch.sh` detached. No model desk runs lifecycle helpers.
 
 **O2. Settle a launch from its line or receipt.** A `ready` or `unsupervised` line
 counts as launched, as does a new dispatch receipt when the log is empty. Other
@@ -1679,7 +1695,8 @@ relays nothing.
 worker drawn from its brief alone. It contradicted root decision #89633, and the
 worker stalled until the root overrode it.*
 
-**O5. Relay to the current dispatch.** Submit
+**O5. Relay to the current dispatch.** The root runs
+`desk-launch.py relay <lane> <text>`, which mints the key; a desk submits
 `desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <msg id>]`.
 The runner checks the current receipt and dispatch. A guidance relay sends the action's
 thread id and requests `started <key>` before acting and `done <key>: <result>`
@@ -1909,7 +1926,8 @@ These I-rules apply to the landing desk, priority desks, and shards. The owner r
 Durable owner rulings, decisions, runbooks, and design docs stay in cc-notes.
 The orca desk reads its launch, relay, and hold lines from `inbox/orca-desk.md` and
 from cci records addressed to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
-Incident Turn names.
+Incident Turn names. The root posts each one with `desk-launch.py`, which mints the
+`R<n>` and the clock.
 The root never `SendMessage`s a desk.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling
@@ -2242,8 +2260,7 @@ with a scoped brief.
 Keep the original lane running; the new lane must not duplicate its active work.
 
 A lane using the separate desktop Orca adapter is a session the Agent tool cannot
-message. Submit `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E
---brief PATH`; the runner invokes `scripts/orca-launch.sh` using
+message. Run `desk-launch.py lane <lane> <model> <effort> <brief>`; the runner invokes `scripts/orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤500-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,

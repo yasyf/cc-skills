@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""Launch Orca lanes through the orca desk in one command: allocate the next `R<n>`, post each launch line to `orca-desk` on cci, and wait for the runner's verdict.
+"""Post every keyed orca desk line in one command: allocate the next `R<n>`, stamp the clock, post the line to `orca-desk` on cci, and for a launch wait for the runner's verdict.
 
     desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--drive D] [--lane L] [--timeout-seconds S]
     desk-launch.py lane <lane> <model> <effort> <brief> [--now] [--drive D] [--lane L] [--timeout-seconds S]
+    desk-launch.py relay <lane>[,<lane>...] <text> [--drive D] [--lane L]
+    desk-launch.py hold <slug> <owner> <what> [--drive D] [--lane L]
+    desk-launch.py unhold <slug> [--drive D] [--lane L]
+    desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lane> [--drive D] [--lane L]
     desk-launch.py refused <lane> (--drive D | --session ID)
 
 STDLIB ONLY. `incident` launches `<name>-fix`, and `<name>-evidence` when an evidence brief is
 given, each `NOW incident xhigh` under its role, `role=fix` or `role=evidence`, the Incident
 Turn's route; the runner's incident clock holds only the fix lane. `lane` launches one lane on any
-model `orca-launch.sh` starts; `--now` skips the runner's load hold. The next key is one past
-the highest `R<n>` that opens a root `orca-desk:` record on the drive. Each launch is one
+model `orca-launch.sh` starts; `--now` skips the runner's load hold. `relay`, `hold`,
+`unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
+since the runner's verdict reaches the root on cci. The next key is one past the highest
+`R<n>` the runner can hold: one opening an `orca-desk:` record addressed to `orca-desk` on
+the drive, or a line of the drive's `inbox/orca-desk.md`, its archive included, so a line
+appended by hand is never keyed twice. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
-unaddressed or in another form. The command then reads the runner's records on the drive
+unaddressed or in another form. A launch then reads the runner's records on the drive
 until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
 `SPRITE-UNVERIFIABLE`, and prints one line per lane: its key, the runner's line, and so the
 dispatch and terminal of a launched lane. It exits 0 when every lane launched, 1 when any
@@ -27,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -36,8 +45,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import drive as registry
+import inboxes
 
 DESK = "orca-desk"
+INBOX = Path("inbox") / f"{DESK}.md"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
@@ -61,9 +72,33 @@ def records(out: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
+def desk_inbox(drive: str) -> Path:
+    session = os.environ.get(registry.SESSION_ENV)
+    entry = next((entry for entry in registry.drives() if registry.cci_drive(entry) == drive or (not drive and session in entry["sessions"])), None)
+    if not entry:
+        sys.exit(f"no drive in the registry is {f'cci drive {drive}' if drive else f'bound to session {session}'}, so the keys in its {INBOX} are unread and no R<n> is safe to take")
+    return Path(entry["state_dir"]) / INBOX
+
+
 def next_key(drive: str) -> int:
-    posted = records(cci(drive, "grep", f"R[0-9]+ .*{DESK}: ", "--lane", "root", "--json", "--limit", "20", "--budget", BUDGET))
-    return 1 + max((int(match[1]) for record in posted if (match := KEY.match(record["text"]))), default=0)
+    posted = [record["text"] for record in records(cci(drive, "grep", f"R[0-9]+ .*{DESK}: ", "--to", DESK, "--json", "--limit", "20", "--budget", BUDGET))]
+    appended = [line.text for line in inboxes.Inbox(desk_inbox(drive)).lines()]
+    return 1 + max((int(match[1]) for text in [*posted, *appended] if (match := KEY.match(text.strip()))), default=0)
+
+
+def directive(args: argparse.Namespace) -> tuple[str, str]:
+    if args.verb == "relay":
+        lanes = args.lanes.split(",")
+        return lanes[0], f"relay to {', '.join(lanes)}: {args.text}"
+    if args.verb == "hold":
+        return args.slug, f"hold {args.slug} owner={args.owner} :: {args.what}"
+    if args.verb == "unhold":
+        return args.slug, f"unhold {args.slug}"
+    return args.target, f"withdraw {args.target}"
+
+
+def launch_directive(lane: str, model: str, effort: str, now: bool, role: str, brief: Path) -> str:
+    return f"launch {lane}{' NOW' if now else ''} {model} {effort}{f' role={role}' if role else ''} brief={brief}"
 
 
 def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, Path]]:
@@ -95,11 +130,10 @@ def refused(args: argparse.Namespace) -> int:
     return 1
 
 
-def post(drive: str, author: str, topic: str, key: int, lane: str, model: str, effort: str, now: bool, role: str, brief: Path) -> int:
-    clock = datetime.now(PACIFIC).strftime("%-I:%M %p")
-    line = f"R{key} ({clock}) {DESK}: launch {lane}{' NOW' if now else ''} {model} {effort}{f' role={role}' if role else ''} brief={brief}"
+def post(drive: str, author: str, topic: str, key: int, text: str) -> int:
+    line = f"R{key} ({datetime.now(PACIFIC).strftime('%-I:%M %p')}) {DESK}: {text}"
     stored = json.loads(cci(drive, "post", "--lane", author, "--kind", "go", "--to", DESK, "--topic", topic, "--text", line, "--json"))
-    print(f"posted R{key} {lane} as cci #{stored['seq']}", flush=True)
+    print(f"posted R{key} as cci #{stored['seq']}: {line}", flush=True)
     return stored["seq"]
 
 
@@ -119,9 +153,10 @@ def wait(drive: str, since: int, lanes: dict[str, str], timeout: float) -> dict[
 
 
 def main(argv: list[str] | None = None) -> int:
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--drive", default="", help="the cci drive the orca runner reads; default the drive bound to this session")
-    common.add_argument("--lane", default="root", help="the lane posting the launch lines")
+    poster = argparse.ArgumentParser(add_help=False)
+    poster.add_argument("--drive", default="", help="the cci drive the orca runner reads; default the drive bound to this session")
+    poster.add_argument("--lane", default="root", help="the lane posting the lines")
+    common = argparse.ArgumentParser(add_help=False, parents=[poster])
     common.add_argument("--timeout-seconds", type=float, default=600)
     parser = argparse.ArgumentParser(prog="desk-launch.py", description=__doc__.split("\n", 1)[0])
     verbs = parser.add_subparsers(dest="verb", required=True)
@@ -135,6 +170,17 @@ def main(argv: list[str] | None = None) -> int:
     lane.add_argument("effort")
     lane.add_argument("brief", type=Path)
     lane.add_argument("--now", action="store_true", help="owner-directed: skip the runner's load hold")
+    relay = verbs.add_parser("relay", parents=[poster], help="relay text to each named lane's live dispatch")
+    relay.add_argument("lanes", metavar="lane[,lane...]")
+    relay.add_argument("text")
+    hold = verbs.add_parser("hold", parents=[poster], help="start the runner's clock on an urgent hold")
+    hold.add_argument("slug")
+    hold.add_argument("owner")
+    hold.add_argument("what")
+    unhold = verbs.add_parser("unhold", parents=[poster], help="lift a hold")
+    unhold.add_argument("slug")
+    withdraw = verbs.add_parser("withdraw", parents=[poster], help="withdraw a launch by key, or a lane")
+    withdraw.add_argument("target", metavar="R<n>|unfixed:<msg>:<n>|lane")
     load = verbs.add_parser("refused", help="print the runner's load refusal that sends <lane> to an in-process launch")
     load.add_argument("target", metavar="lane")
     which = load.add_mutually_exclusive_group(required=True)
@@ -143,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.verb == "refused":
         return refused(args)
+    if args.verb in ("relay", "hold", "unhold", "withdraw"):
+        topic, text = directive(args)
+        post(args.drive, args.lane, topic, next_key(args.drive), text)
+        return 0
     planned = launches(args)
     for *_, brief in planned:
         if not brief.is_file():
@@ -150,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     topic = args.name if args.verb == "incident" else args.target
     first = next_key(args.drive)
     keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
-    since = min(post(args.drive, args.lane, topic, first + offset, lane, model, effort, now, role, brief.resolve()) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
+    since = min(post(args.drive, args.lane, topic, first + offset, launch_directive(lane, model, effort, now, role, brief.resolve())) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
     settled = wait(args.drive, since, keys, args.timeout_seconds)
     for key, lane in keys.items():
         if key not in settled:
