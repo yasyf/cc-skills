@@ -82,6 +82,7 @@ class FakeShell(runner_module.Shell):
         self.head_statuses: list[dict] = []
         self.combined_statuses: dict[str, list[dict]] = {}
         self.status_read_error = ""
+        self.advance_error = ""
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
@@ -188,6 +189,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
+        if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
+            assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
+            return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
@@ -2315,6 +2319,22 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner_module.seed_policy(runner)
     return runner_module.Landing(runner, runner.config.landing)
+
+
+def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.advance_error = "fatal: Not possible to fast-forward, aborting."
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["CHECKOUT-STALE"]
+    shell.advance_error = ""
+    shell.calls.clear()
+    landing_pass(shell, config)
+    names = [call[3] if call[0] == "git" else Path(call[0]).name for call in shell.calls if call[0] == "git" or Path(call[0]).name == "stack-enqueue"]
+    assert names[:2] == ["fetch", "merge"] and "stack-enqueue" in names[2:]
+    assert len(shell.enqueues()) == 1
 
 
 def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp_path):
