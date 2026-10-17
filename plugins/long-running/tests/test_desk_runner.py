@@ -534,6 +534,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "ledger": "abc",
                     "checkout": str(tmp_path / "checkout"),
                     "holds": str(tmp_path / "holds.md"),
+                    "fidelity_lane": "fidelity-desk",
                     "release_owner": "peer:sole-51",
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
@@ -2205,6 +2206,17 @@ def test_the_fidelity_lane_is_the_one_runner_json_names(shell, config, tmp_path)
     grade(shell, "29020", "ok F307 at cccc333.", lane="parity-desk")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
+
+
+def test_the_landing_desk_refuses_to_start_without_a_fidelity_lane(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    del raw["landing"]["fidelity_lane"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert shell.enqueues() == [] and shell.head_statuses == []
+    [line] = escalations(shell)
+    assert line.startswith("FIDELITY-LANE-UNSET ") and "names no landing.fidelity_lane" in line
 
 
 def test_a_fidelity_lane_added_to_runner_json_counts_without_a_restart(shell, config, tmp_path):

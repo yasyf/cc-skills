@@ -663,7 +663,8 @@ names the head it graded in every record, as in `fidelity: ok F307 at 9c0b891`.
 Without an ok the runner enqueues nothing from the prefix and posts one cci
 `blocker` per head and grade to the PR's lane and the fidelity lane. It checks
 again just before the enqueue call and completes the action as `blocked` when
-the ok is gone. `landing.fidelity_lane` names the lane, default `fidelity-desk`, and the
+the ok is gone. `landing.fidelity_lane` names the lane, with no default: the landing desk
+refuses to start without it and posts `FIDELITY-LANE-UNSET`. The
 runner re-reads it from `runner.json` on every use, so an edit needs no restart. It
 also takes a list of lane names, `"fidelity_lane": ["fidelity-desk-6", "fidelity-desk-7"]`,
 for a drive that shards grading: a grade from any listed lane counts, the newest
