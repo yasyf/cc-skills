@@ -1665,14 +1665,19 @@ which counted 20 relayed `worker_done` messages and 12 skipped heartbeats. Also
 prevents acknowledging mail Orca re-addressed to the Run behind the cursor, which
 0.7.60 marked read unrelayed.*
 
-**O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
-with no tools reads the lane's brief. It answers what the brief settles or emits
-`DECIDE` with the question and options. Missing briefs and judge failures can
-escalate without options. The root answers with `relay --reply-to <msg id>`, or
-with `cci post --kind answer --to <lane> --re <DECIDE seq> --text "<answer>"`, which
+**O4. Only the root answers a worker's question.** The runner escalates every
+`question` or `escalation` to root as `DECIDE`, carrying the worker's question
+and options. It never answers one itself. The root answers with
+`relay --reply-to <msg id>`, or with
+`cci post --kind answer --to <lane> --re <DECIDE seq> --text "<answer>"`, which
 the runner relays as the reply to that question. A root cci reply with `--re` on a
 lane's own record also answers that lane's open question, so the question never
-outlives the answer.
+outlives the answer. Only this drive's root answers; a peer drive's reply
+relays nothing.
+
+*Prevents `msg_9d11bf1237ab` of 2026-10-16, a Sonnet judge's answer to an incident
+worker drawn from its brief alone. It contradicted root decision #89633, and the
+worker stalled until the root overrode it.*
 
 **O5. Relay to the current dispatch.** Submit
 `desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <msg id>]`.
@@ -1722,11 +1727,11 @@ then relay its pointer from `ccn attachment path <briefs log> <lane>.full.md`.
 Never start another lane to carry a follow-up.
 
 **O10. Never answer stale questions to a replacement.** Keep the original
-question id as the reply address. The current judge path lacks a stale-sender
-fence; this rule must not be reported as an enforced runner guarantee.
+question id as the reply address. The runner has no stale-sender fence; this
+rule must not be reported as an enforced runner guarantee.
 
 **O11. Treat a capacity fallback like an ask.** Workers whose `ask` returns
-`capacity reached` send `question` or `escalation`. Both use the same judge path.
+`capacity reached` send `question` or `escalation`. Both escalate as `DECIDE`.
 
 **O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
 between passes. The landing process uses its configured 180-second interval.

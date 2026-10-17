@@ -417,7 +417,6 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "enqueue_minutes": 15,
     "release_start_minutes": 10
   },
-  "judge_model": "claude-sonnet-5-5",
   "landing": {
     "repo": "Forge-AI/monorepo",
     "ledger": "<ledger id>",
@@ -549,9 +548,10 @@ Each pass takes the Run's oldest unacknowledged Delivery with
 under `relayed:<run>`. A Delivery message with no saved id is relayed before the
 acknowledgement, or logged `UNRELAYED` when its type has no relay.
 
-**O4. Judge questions from the brief.** A Sonnet-low `claude -p` call with no
-tools reads the lane's brief for each question or escalation. It answers what
-the brief settles; otherwise, it emits `DECIDE` with the question and options.
+**O4. Only the root answers a worker's question.** Each question or escalation
+goes to root as `DECIDE` with the worker's question and options. The runner never
+answers one; only this drive's root answers, through `relay --reply-to` or a cci
+reply with `--re`.
 
 **O5. Address the current dispatch.** Relays use the current receipt and
 `worker-show`; completed or failed dispatches receive no new relay. Replies
@@ -577,11 +577,11 @@ then submit its pointer from `ccn attachment path <briefs log> <lane>.full.md`
 through `relay`.
 
 **O10. Never answer a stale dispatch's question to its replacement.** Preserve
-the original question id. The current judge path does not fence stale senders;
-do not treat it as proof that this rule is enforced.
+the original question id. The runner does not fence stale senders; do not treat
+it as proof that this rule is enforced.
 
 **O11. Treat a capacity fallback like an ask.** Workers send `question` or
-`escalation` when `ask` returns `capacity reached`; both reach the same judge.
+`escalation` when `ask` returns `capacity reached`; both escalate as `DECIDE`.
 
 **O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
 between passes; the landing process sleeps for its configured interval.
@@ -759,9 +759,8 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `ORCA-BACK` | None; Orca answers again and the runner resumes every relay and launch where it stopped. |
 
 The store deduplicates escalation keys. Liveness keys include the hour;
-`ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Missing
-briefs and failed judge calls can emit `DECIDE` without options. Routine quiet
-polls do not wake a model.
+`ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Routine
+quiet polls do not wake a model.
 
 The runner never edits worker code, mutates production, writes Slack, invents
 scope, or derives authority from a branch prefix or a display name. The root

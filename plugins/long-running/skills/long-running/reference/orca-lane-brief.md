@@ -98,7 +98,7 @@ is listed under Escalate stops for the coordinator: use the preamble's
 `orca orchestration ask` with the question and 2-4 options. If it returns
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
-runner judges those messages from your brief exactly like an ask.
+runner escalates those messages to the root exactly like an ask.
 Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
 take the brief's default, log it with `ccn log append <drive log id>`, and report it.
 

@@ -1,4 +1,4 @@
-"""desk-runner.py against a fake Orca Run, ledger, stack-enqueue, and judge, on a fake clock: every side effect is recorded on ``shell.calls``."""
+"""desk-runner.py against a fake Orca Run, ledger, and stack-enqueue, on a fake clock: every side effect is recorded on ``shell.calls``."""
 
 from __future__ import annotations
 
@@ -100,7 +100,6 @@ class FakeShell(runner_module.Shell):
         self.bodies: dict[str, str] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
-        self.verdict = {"verdict": "answer", "text": "the brief says yes"}
         self.launch_line = ""
         self.cpu_load = 1.0
         self.attachments: dict[str, Path] = {}
@@ -124,7 +123,6 @@ class FakeShell(runner_module.Shell):
         self.post_error = ""
         self.post_out = ""
         self.post_ids: dict[str, int] = {}
-        self.judge_process: Running | None = None
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
@@ -144,7 +142,7 @@ class FakeShell(runner_module.Shell):
     def cores(self):
         return 8
 
-    def spawn(self, argv, out, env, stdin=None, err=None):
+    def spawn(self, argv, out, env):
         self.calls.append(list(argv))
         self.spawned_env[Path(argv[0]).name] = env
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -155,16 +153,13 @@ class FakeShell(runner_module.Shell):
                 attempt.mkdir(exist_ok=True)
                 (attempt / name).write_text(text)
             return Process()
-        if argv[0] == "claude" and self.judge_process:
-            out.write_text("")
-            return self.judge_process
         if Path(argv[0]).name == "orca-launch.sh" and (ready := runner_module.LAUNCHED.search(self.launch_line)):
             state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / ".claude/scratch/orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
             state.mkdir(parents=True, exist_ok=True)
             (state / f"{argv[1]}.json").write_text(json.dumps({"result": {"taskId": "task_1", "dispatchId": ready["dispatch"]}}))
             (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
             self.dispatches[ready["dispatch"]] = {"status": "dispatched", "terminal": ready["terminal"]}
-        out.write_text(json.dumps([{"type": "system"}, {"type": "result", "structured_output": self.verdict}]) if argv[0] == "claude" else self.launch_line)
+        out.write_text(self.launch_line)
         return Process()
 
     def stat(self, path):
@@ -952,7 +947,7 @@ def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_
     assert not [call for call in shell.calls if Path(call[0]).name == "claude"]
 
 
-def test_a_routine_question_the_brief_settles_is_answered_without_escalating(shell, config, tmp_path):
+def test_a_worker_question_escalates_once_to_root_and_the_runner_never_answers_it(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     question = {"id": "msg_q1", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE}
@@ -960,45 +955,39 @@ def test_a_routine_question_the_brief_settles_is_answered_without_escalating(she
     orca_pass(shell, config)
     shell.receive(question)
     orca_pass(shell, config)
-    replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
-    assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q1"
-    assert len([call for call in shell.calls if Path(call[0]).name == "claude"]) == 1
-    assert escalations(shell) == []
+    assert escalations(shell) == [f"DECIDE msg_q1 {LANE}: rebase?: may I rebase onto dev"]
+    assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+    assert not [call for call in shell.calls if Path(call[0]).name == "claude"]
 
 
-def test_an_ask_from_a_dispatch_handle_is_judged_against_its_lanes_brief(shell, config, tmp_path):
+def test_an_ask_from_a_dispatch_handle_escalates_under_its_lane(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     shell.receive({"id": "msg_q3", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "from_handle": "dispatch:ctx_a"})
     orca_pass(shell, config)
-    replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
-    assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q3"
-    assert len([call for call in shell.calls if Path(call[0]).name == "claude"]) == 1
-    assert escalations(shell) == []
+    assert escalations(shell) == [f"DECIDE msg_q3 {LANE}: rebase?: may I rebase onto dev"]
+    assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
 
 
-def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, config, tmp_path):
+def test_a_worker_escalation_escalates_to_root_as_a_decide(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
-    shell.verdict = {"verdict": "escalate", "text": "apply to prod? A) wait B) apply now"}
-    shell.receive({"id": "msg_q2", "type": "escalation", "subject": "apply?", "body": "", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
+    shell.receive({"id": "msg_q2", "type": "escalation", "subject": "apply?", "body": "A) wait B) apply now", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
-    lines = escalations(shell)
-    assert len(lines) == 1 and "DECIDE msg_q2" in lines[0] and "A) wait B) apply now" in lines[0]
+    assert escalations(shell) == [f"DECIDE msg_q2 {LANE}: apply?: A) wait B) apply now"]
     assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
 
 
 def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
-    shell.verdict = {"verdict": "escalate", "text": "scope? A) widen B) hold"}
     body = "The scope surprise is " + "x" * 2_955 + " A) take it B) leave it"
     shell.receive({"id": "msg_q9", "type": "question", "subject": "scope?", "body": body, "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
     [post] = [post for post in shell.posts if post["to"] == "root"]
     receipt = Path(post["path"]).read_text()
     assert len(body) == 3_000 and len(post["text"]) <= runner_module.CCI_TEXT
-    assert post["text"].startswith("DECIDE msg_q9") and receipt.startswith("DECIDE msg_q9") and "A) widen B) hold" in receipt
+    assert post["text"].startswith("DECIDE msg_q9") and receipt.startswith("DECIDE msg_q9")
     assert f"scope?\n\n{body}\n" in receipt
 
 
@@ -3134,52 +3123,6 @@ def test_a_second_orca_outage_logs_its_own_streak(shell, config, tmp_path):
     assert runner_module.UNREACHABLE_FACT in incident(tmp_path, "desk-runner").facts
 
 
-def test_a_judge_runs_beside_the_pass_and_answers_once_it_exits(shell, config, tmp_path):
-    orca_pass(shell, config)
-    shell.launch(LANE, "ctx_a")
-    shell.judge_process = Running()
-    shell.receive({"id": "msg_q5", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    runner.check()
-    runner.resume_judges()
-
-    def replies():
-        return [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
-
-    assert replies() == [] and incident(tmp_path, "desk-runner").actions["judge:msg_q5"].status == "started"
-    runner.judge_file("msg_q5", "out").write_text(json.dumps([{"type": "result", "structured_output": shell.verdict}]))
-    shell.judge_process.code = 0
-    runner.resume_judges()
-    runner.resume_judges()
-    assert len(replies()) == 1 and incident(tmp_path, "desk-runner").actions["judge:msg_q5"].status == "verified"
-
-
-def test_a_judged_answer_survives_a_restart_before_its_reply(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    store = actions.Store(tmp_path / "store")
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
-    runner.book.accept("desk-runner", "judge:msg_q3", "judge", json.dumps({"msg": "msg_q3", "question": "rebase?"}), LANE, None)
-    with store.owned("desk-runner", 0) as live:
-        live.start("judge:msg_q3", shell.now())
-        live.complete("judge:msg_q3", {"verdict": "answer", "text": "yes, per the brief", "at": "2026-10-01T18:00:00Z"})
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
-    assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q3"
-
-
-def test_a_judge_that_never_returned_escalates(shell, config, tmp_path):
-    store = actions.Store(tmp_path / "store")
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
-    runner.book.accept("desk-runner", "judge:msg_q4", "judge", json.dumps({"msg": "msg_q4", "question": "scope?"}), LANE, None)
-    with store.owned("desk-runner", 0) as live:
-        live.start("judge:msg_q4", shell.now())
-    shell.sleep(6 * 60)
-    orca_pass(shell, config)
-    lines = escalations(shell)
-    assert len(lines) == 1 and "DECIDE msg_q4" in lines[0] and "never returned" in lines[0]
-
-
 def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [
@@ -4162,6 +4105,18 @@ def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tm
     assert reply[reply.index("--id") + 1] == "msg_q9"
     assert reply[reply.index("--body") + 1].startswith("30s NLB delay, 35s preStop.\n")
     assert escalations(shell) == [f"RELAYED cci#34767 {LANE}: reply to question msg_q9 of dispatch ctx_a"]
+
+
+def test_a_peer_drives_root_reply_to_a_decide_relays_nothing(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
+    cci_record(shell, drive="other-drive", kind="answer", to=["root"], re=decide, text="take option 1")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert replies(shell) == [] and shell.sends() == []
+    assert escalations(shell) == []
 
 
 def test_a_root_reply_to_a_decide_whose_question_an_inbox_relay_answered_is_a_plain_relay(shell, config, tmp_path):

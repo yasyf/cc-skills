@@ -181,8 +181,8 @@ Codex 0.160 accepts `service_tier=fast` and resolves it to the catalog id `prior
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
 Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
 `capacity reached`, they send `--type question` or `--type escalation` and keep
-working on everything that does not depend on the answer. The runner judges
-either message from the brief; the root answers a `DECIDE` through
+working on everything that does not depend on the answer. The runner escalates
+either message as a `DECIDE`; the root answers it through
 `desk-runner.py relay --config C --key R<n> --lane L --text T --reply-to <msg id>`.
 
 **R56. Reply to the original question id.** Submit
@@ -390,7 +390,7 @@ and every message in the delivery that holds no relay record.
 An escalated question can be recorded as awaiting a
 root ruling before acknowledging its delivery; the question's message id remains
 the reply address. Never answer a stale question to a replacement dispatch;
-[O10](../SKILL.md#the-orca-desk) records the current judge path's missing fence.
+[O10](../SKILL.md#the-orca-desk) records the runner's missing fence.
 
 `--peek` prints unread messages without waiting or marking them read. Arguments
 after `--` pass through to `orca orchestration check`; workers use
