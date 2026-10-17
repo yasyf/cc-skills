@@ -1629,7 +1629,9 @@ the same lane is one action, and `policy` takes the drive's L keys. An
 naming `R<n>`, a case launch's `unfixed:<msg>:<n>`, or a lane, fails a launch the
 runner accepted and has not started, stops a launched dispatch with worker-stop, marks
 the lane withdrawn, and logs `WITHDRAWN`; `WITHDRAW-FAILED` names a launch still
-starting, a target that holds nothing, or a stop Orca refused. A root `cci post --kind withdraw --re <seq>` of a launch record does the same. The root never `SendMessage`s a desk. It
+starting, a target that holds nothing, or a stop Orca refused, and
+`WITHDRAW-UNCONFIRMED` a stop Orca took but never showed settled with its terminal gone or
+idle within 30 seconds; the root runs `orca-gc --done` on it. A root `cci post --kind withdraw --re <seq>` of a launch record does the same. The root never `SendMessage`s a desk. It
 receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.

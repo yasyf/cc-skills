@@ -75,6 +75,7 @@ class FakeShell(runner_module.Shell):
         self.stale_out = ""
         self.prompt_watch: dict = {}
         self.screens: dict[str, list[str]] = {}
+        self.stop_answers: dict[str, tuple[str, int | None]] = {}
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
@@ -356,6 +357,10 @@ class FakeShell(runner_module.Shell):
             if argv[3] not in self.dispatches:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_not_found", "message": f"no dispatch {argv[3]}"}}), "")
             dispatch = self.dispatches[argv[3]]
+            if "settles_in" in dispatch:
+                dispatch["settles_in"] -= 1
+                if not dispatch["settles_in"]:
+                    dispatch["status"] = "failed"
             fence = {"capabilityRevokedAt": "2026-10-01T18:00:00Z"} if dispatch.get("fenced") else {}
             return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb in (["orchestration", "worker-stop"], ["orchestration", "worker-abandon"]):
@@ -363,6 +368,12 @@ class FakeShell(runner_module.Shell):
             dispatch = self.dispatches[argv[3]]
             if verb[1] == "worker-stop" and dispatch.get("fenced"):
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_inactive"}}), "")
+            if argv[3] in self.stop_answers:
+                answer, settles_in = self.stop_answers[argv[3]]
+                dispatch["fenced"] = True
+                if settles_in is not None:
+                    dispatch["settles_in"] = settles_in
+                return runner_module.Done(1, json.dumps({"ok": True, "result": {"state": answer, "processAction": "none", "lastError": "The worker terminal is unproven; no terminal was closed."}}), "")
             dispatch |= {"status": "failed", "fenced": True}
             return self.ok({"state": "stopped" if verb[1] == "worker-stop" else "abandoned", "processAction": "terminated"})
         if verb == ["orchestration", "send"]:
@@ -4077,6 +4088,49 @@ def test_a_withdraw_of_a_launched_key_stops_its_dispatch_and_an_unknown_target_f
         f"WITHDRAW-FAILED R23 inbox: one withdrawal per line, in the form `{runner_module.WITHDRAW_GRAMMAR}`; nothing was withdrawn",
         "WITHDRAW-FAILED R24 nobody-fix: the runner holds no launch or lane under nobody-fix; nothing was withdrawn",
     ]
+
+
+WORKING = ["✳ Cogitating… (6m 2s · esc to interrupt)", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
+
+
+@pytest.mark.parametrize(
+    ("answer", "shows"),
+    [
+        ("stop_unknown", "dispatch ctx_n still dispatched on terminal term_ctx_n"),
+        ("stopped", "dispatch ctx_n failed, but terminal term_ctx_n still at work"),
+    ],
+)
+def test_a_withdraw_orca_cannot_confirm_stopped_is_unconfirmed_not_withdrawn(shell, config, tmp_path, answer, shows):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    if answer == "stop_unknown":
+        shell.stop_answers["ctx_n"] = (answer, None)
+    shell.screens["term_ctx_n"] = WORKING
+    started = shell.clock
+    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20")
+    orca_pass(shell, config)
+    assert stops(shell) == [["worker-stop", "--dispatch", "ctx_n"]]
+    assert withdrawals(shell) == [
+        f"WITHDRAW-UNCONFIRMED R21 {LANE}: worker-stop of dispatch ctx_n answered {answer}, but after 30s Orca shows {shows}; it is marked withdrawn, so no report of it launches a case lane; stop it with orca-gc --done"
+    ]
+    assert shell.clock - started >= runner_module.STOP_CONFIRM
+    assert not [call for call in shell.calls if call[:3] == ["orca", "terminal", "close"]]
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["withdrawn"] == {"dispatch": "ctx_n", "by": "R21"}
+
+
+def test_a_withdraw_whose_stop_orca_settles_within_the_wait_is_withdrawn(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.stop_answers["ctx_n"] = ("stop_unknown", 4)
+    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20")
+    orca_pass(shell, config)
+    assert withdrawals(shell) == [f"WITHDRAWN R20 {LANE}: by R21; dispatch ctx_n stopped (stop_unknown), and no report of it launches a case lane"]
 
 
 def test_a_root_cci_withdraw_of_a_launch_record_withdraws_it_and_is_no_directive(shell, config, tmp_path):
