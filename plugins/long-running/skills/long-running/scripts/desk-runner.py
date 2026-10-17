@@ -136,7 +136,10 @@ from the desk inbox itself or one that carries `--re`; a record that is no direc
 sequence. An `orca-desk: withdraw <target>` line names a launch key, `R<n>` or a case
 launch's `unfixed:<msg>:<n>`, or a lane. It fails each launch under the key, or each of the
 lane's launches, that the runner accepted and has not started, and stops the dispatch the
-key or lane launched with worker-stop, as `orca-gc --done` does, logging `WITHDRAWN`. The
+key or lane launched with worker-stop, as `orca-gc --done` does. It logs `WITHDRAWN` only once
+Orca shows the dispatch settled and its terminal gone or at an idle prompt within 30 seconds,
+and `WITHDRAW-UNCONFIRMED` with the dispatch and terminal otherwise, as when worker-stop
+answers `stop_unknown`. The
 lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
 leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
 case lane whose dispatch the root stopped by hand is marked the same way. A launch still
@@ -339,6 +342,8 @@ PASS_SECONDS = 10
 COMMAND_TIMEOUT_SECONDS = 1800
 TIMED_OUT = 124
 WAKE_SECONDS = 0.25
+STOP_CONFIRM = timedelta(seconds=30)
+STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 4
 MIRROR_WRITES = 3
@@ -847,6 +852,10 @@ class Orca:
         shown = self.call("orchestration", "request-show", "--request", request)
         return (shown.get("result") or {}).get("state", "absent") if shown.get("ok") else UNREAD
 
+    def at_rest(self, terminal: str) -> bool:
+        screen = self.call("terminal", "read", "--terminal", terminal, "--screen")
+        return bool(screen.get("ok") and prompt_screen.input_state(screen["result"]["terminal"]) == prompt_screen.IDLE)
+
     def wake(self, terminal: str, text: str) -> bool:
         screen = self.call("terminal", "read", "--terminal", terminal, "--screen")
         if not (screen.get("ok") and prompt_screen.idle_prompt(screen["result"]["terminal"])):
@@ -1257,7 +1266,27 @@ class Runner:
         if not state:
             self.record(log, f"WITHDRAW-FAILED {key} {lane}: worker-stop of dispatch {dispatch} failed: {error}; it is marked withdrawn, so no report of it launches a case lane; stop it with orca-gc --done")
             return
+        if unconfirmed := self.unconfirmed_stop(lane, dispatch):
+            self.record(log, f"WITHDRAW-UNCONFIRMED {key} {lane}: worker-stop of dispatch {dispatch} answered {state}, but after {int(STOP_CONFIRM.total_seconds())}s Orca shows {unconfirmed}; it is marked withdrawn, so no report of it launches a case lane; stop it with orca-gc --done")
+            return
         self.record(log, f"WITHDRAWN {target} {lane}: by {key}; dispatch {dispatch} stopped ({state}), and no report of it launches a case lane")
+
+    def unconfirmed_stop(self, lane: str, dispatch: str) -> str:
+        """Poll Orca until the stopped dispatch is settled and its terminal is gone or at an idle prompt; empty once it is, or what Orca last showed when STOP_CONFIRM ran out first."""
+        deadline = self.now() + STOP_CONFIRM
+        while True:
+            shown = self.orca.show(lane, dispatch)
+            if shown is None:
+                seen = f"no dispatch {dispatch}, and terminal {self.orca.terminal(lane) or 'unknown'} unchecked"
+            elif shown.status not in INACTIVE:
+                seen = f"dispatch {dispatch} still {shown.status} on terminal {shown.terminal}"
+            elif shown.live and not self.orca.at_rest(shown.terminal):
+                seen = f"dispatch {dispatch} {shown.status}, but terminal {shown.terminal} still at work"
+            else:
+                return ""
+            if self.now() >= deadline:
+                return seen
+            self.shell.sleep(STOP_POLL_SECONDS)
 
     def withdrawn_by(self, lane: str) -> str:
         """Who withdrew the lane's current dispatch, or empty."""

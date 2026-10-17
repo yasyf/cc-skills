@@ -120,7 +120,10 @@ and stops a launched dispatch with worker-stop, as `orca-gc --done` does. It log
 `WITHDRAWN` and marks the lane withdrawn, so the lane's `UNFIXED` lines launch no case
 lane and Orca's offer to dispatch it again logs `WITHDRAWN`, not `DECIDE`. A launch
 still starting, a settled launch with no dispatch, a key or lane that holds nothing, or
-a worker-stop Orca refuses logs `WITHDRAW-FAILED`.
+a worker-stop Orca refuses logs `WITHDRAW-FAILED`. A worker-stop Orca takes but never
+shows settled, with its terminal gone or at an idle prompt, within 30 seconds, such as one
+answering `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch and terminal
+instead of `WITHDRAWN`.
 A root `cci post --kind withdraw --re <seq>` whose record is a launch line addressed
 to `orca-desk` withdraws that launch the same way. Any other record carrying `--re`
 is a reply, never a directive, so it logs no `DIRECTIVE-FAILED`.
