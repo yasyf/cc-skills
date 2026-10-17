@@ -1254,7 +1254,7 @@ first line and its cci seq, once per grade record. A head with no grade reads
 grades it. The runner reads the head's statuses just before posting `pending`
 and posts nothing when a `fidelity` status is already there, so a grade the lane
 set on the head directly is never overwritten. A PR in a queued prefix gets
-no post. A pass posts at most three statuses, since each starts a
+no post once its head carries a status the runner posted. A pass posts at most three statuses, since each starts a
 `landing-gates` run: a grade for a head with no status first, then a grade that
 flips a head's status, then `pending`, so a fresh grade never waits behind a
 re-write. The required `landing-gates`
