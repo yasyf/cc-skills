@@ -24,8 +24,8 @@ def flag(argv: tuple[str, ...], name: str) -> str:
 class Drive:
     def __init__(self):
         self.records = [
-            {"seq": 100, "lane": "root", "kind": "go", "text": "R2025 (11:50 PM) orca-desk: launch old-fix NOW incident xhigh brief=/b.md"},
-            {"seq": 101, "lane": "root", "kind": "go", "text": "orca-desk: unhold sandsql-5177"},
+            {"seq": 100, "lane": "root", "kind": "go", "to": ["orca-desk"], "text": "R2025 (11:50 PM) orca-desk: launch old-fix NOW incident xhigh brief=/b.md"},
+            {"seq": 101, "lane": "root", "kind": "go", "to": ["orca-desk"], "text": "orca-desk: unhold sandsql-5177"},
         ]
         self.verdicts: dict[str, str] = {}
         self.calls: list[tuple[str, ...]] = []
@@ -33,8 +33,8 @@ class Drive:
     def __call__(self, drive: str, *argv: str) -> str:
         self.calls.append((drive, *argv))
         if argv[0] == "grep":
-            lane = flag(argv, "--lane")
-            return "".join(f"{json.dumps(record)}\n" for record in reversed(self.records) if record["lane"] == lane and re.search(argv[1], record["text"]))
+            match = (lambda record: flag(argv, "--to") in record.get("to", [])) if "--to" in argv else (lambda record: record["lane"] == flag(argv, "--lane"))
+            return "".join(f"{json.dumps(record)}\n" for record in reversed(self.records) if match(record) and re.search(argv[1], record["text"]))
         if argv[0] == "post":
             record = {"seq": self.records[-1]["seq"] + 1, "lane": flag(argv, "--lane"), "kind": flag(argv, "--kind"), "to": [flag(argv, "--to")], "text": flag(argv, "--text")}
             self.records.append(record)
@@ -49,11 +49,24 @@ class Drive:
 
 
 @pytest.fixture
-def drive(monkeypatch: pytest.MonkeyPatch) -> Drive:
+def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    directory = tmp_path / "prog"
+    (directory / "inbox").mkdir(parents=True)
+    monkeypatch.setenv(desk_launch.registry.SESSION_ENV, "s1")
+    monkeypatch.setattr(desk_launch.registry, "drives", lambda: [{"drive": "prog", "sessions": ["s1"], "state_dir": str(directory)}])
+    return directory
+
+
+@pytest.fixture
+def drive(monkeypatch: pytest.MonkeyPatch, state: Path) -> Drive:
     fake = Drive()
     monkeypatch.setattr(desk_launch, "cci", fake)
     monkeypatch.setattr(desk_launch.time, "sleep", lambda seconds: None)
     return fake
+
+
+def posted(drive: Drive) -> list[str]:
+    return [flag(call, "--text") for call in drive.calls if call[1] == "post"]
 
 
 def briefs(tmp_path: Path) -> tuple[Path, Path]:
@@ -146,3 +159,37 @@ def test_a_session_reads_its_drive_from_the_registry(drive, monkeypatch):
     assert [call[0] for call in drive.calls if call[1] == "grep"] == ["prog"]
     with pytest.raises(SystemExit, match="no drive in the registry claims session s2"):
         desk_launch.main(["refused", "inc-x", "--session", "s2"])
+
+
+def test_the_next_key_passes_every_key_the_desk_inbox_and_its_archive_hold(drive, state, tmp_path):
+    inbox = state / "inbox" / "orca-desk.md"
+    (archive := inbox.with_name("orca-desk.md.archive")).mkdir()
+    (archive / "2026-10-16.md").write_text("- R3001 (9:00 PM) orca-desk: relay to a: go\n")
+    inbox.write_text("R2999 (12:38 AM) orca-desk: launch by-hand NOW opus xhigh brief=/b.md\norca-desk: alert m1 https://x :: fired\n")
+    _, evidence = briefs(tmp_path)
+    desk_launch.main(["lane", "next-lane", "opus", "xhigh", str(evidence), "--timeout-seconds", "0"])
+    assert posted(drive)[0].startswith("R3002 (")
+
+
+@pytest.mark.parametrize(
+    ("argv", "line"),
+    [
+        (["relay", "lane-a,lane-b", "restack onto dev"], "orca-desk: relay to lane-a, lane-b: restack onto dev"),
+        (["hold", "sandsql-5177", "root", "sand releases until #12 lands"], "orca-desk: hold sandsql-5177 owner=root :: sand releases until #12 lands"),
+        (["unhold", "sandsql-5177"], "orca-desk: unhold sandsql-5177"),
+        (["withdraw", "R2025"], "orca-desk: withdraw R2025"),
+    ],
+)
+def test_each_keyed_line_posts_under_the_next_key_and_prints_it_without_waiting(drive, capsys, argv, line):
+    assert desk_launch.main(argv) == 0
+    [text] = posted(drive)
+    assert re.fullmatch(rf"R2026 \(\d{{1,2}}:\d\d [AP]M\) {re.escape(line)}", text)
+    assert [call[1] for call in drive.calls] == ["grep", "post"]
+    assert capsys.readouterr().out == f"posted R2026 as cci #102: {text}\n"
+
+
+def test_a_drive_the_registry_lacks_posts_nothing(drive, monkeypatch):
+    monkeypatch.setattr(desk_launch.registry, "drives", lambda: [])
+    with pytest.raises(SystemExit, match="no drive in the registry is bound to session s1"):
+        desk_launch.main(["unhold", "sandsql-5177"])
+    assert posted(drive) == []
