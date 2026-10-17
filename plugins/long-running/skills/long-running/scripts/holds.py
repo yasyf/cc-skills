@@ -98,10 +98,16 @@ def held(entries: Sequence[Entry], rows: dict[str, dict]) -> set[str]:
     lanes = {lane for entry in entries for lane in entry.lanes}
     numbers = {pr for entry in entries for pr in entry.prs} | {pr for pr in open_rows if rows[pr].get("lane") in lanes}
     if any(entry.holds_all for entry in entries):
-        freed = "\n".join(entry.freed for entry in entries)
-        freed_lanes = set(HELD_LANE.findall(freed))
-        numbers |= open_rows - set(HELD_PR.findall(freed)) - {pr for pr, row in rows.items() if row.get("lane") in freed_lanes}
+        numbers |= open_rows - released(entries, rows)
     return numbers
+
+
+def released(entries: Sequence[Entry], rows: dict[str, dict]) -> set[str]:
+    """Every open row a `release` line names, by number or by its lane."""
+    freed = "\n".join(entry.freed for entry in entries)
+    freed_lanes = set(HELD_LANE.findall(freed))
+    named = set(HELD_PR.findall(freed))
+    return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and (pr in named or row.get("lane") in freed_lanes)}
 
 
 def rowless(entries: Sequence[Entry], rows: dict[str, dict]) -> dict[str, list[str]]:

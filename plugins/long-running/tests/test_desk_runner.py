@@ -2521,6 +2521,27 @@ def test_a_pass_writes_at_most_mirror_writes_statuses_and_labels_and_the_next_pa
     assert shell.label_calls == [("add", pr) for pr in prs]
 
 
+def test_the_head_of_a_pr_a_release_line_names_is_mirrored_before_lower_numbered_heads(shell, config, tmp_path):
+    five_held_rows(shell, tmp_path)
+    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\nrelease #29104 sandbox proof landed\n")
+    landing_pass(shell, config)
+    assert [status["sha"] for status in shell.head_statuses] == ["29104abcd", "29100abcd", "29101abcd"]
+
+
+def test_the_head_of_a_pr_in_a_believed_queued_prefix_is_mirrored_before_lower_numbered_heads(shell, config, tmp_path):
+    prs = [str(29100 + n) for n in range(7)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd buildkite/test pending")] for pr in prs}
+    shell.gates["29106"] = [gate("#29106 GREEN 29106abcd graphite READY", would="#29106")]
+    shell.enqueue_out["29106"] = (0, "enqueue #29106: {}\n")
+    grade(shell, "29106", "ok F307 at 29106ab")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29106"]]
+    assert [status["sha"] for status in shell.head_statuses] == ["29100abcd", "29101abcd", "29102abcd"]
+    landing_pass(shell, config)
+    assert [status["sha"] for status in shell.head_statuses[3:]] == ["29106abcd", "29103abcd", "29104abcd"]
+
+
 def test_a_held_pr_whose_label_waits_for_a_later_pass_is_not_gated_until_it_is_written(shell, config, tmp_path):
     prs = five_held_rows(shell, tmp_path)
     landing_pass(shell, config)
