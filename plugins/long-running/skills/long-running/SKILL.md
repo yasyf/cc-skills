@@ -1226,12 +1226,12 @@ current head by a short sha, and takes the newest. Only `fidelity: ok` passes.
 A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
 lane, and nothing in its prefix is enqueued. The check runs again just before
-the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, default
-`fidelity-desk`, or a list of lane names when grading is sharded: a grade from any
+the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
+name or a list of lane names when grading is sharded: a grade from any
 listed lane counts and the newest decides. The runner re-reads the lane from
 `runner.json` on every use, so adding a desk needs no restart. A head no listed lane has graded also
-passes when its `fidelity` commit status reads `success`. A drive with no fidelity
-lane enqueues nothing through the runner.
+passes when its `fidelity` commit status reads `success`. The landing desk refuses
+to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
 
 A restack carries its grade. When no grade names the current head, the runner
 takes each head an older `fidelity: ok` names whose own newest grade is ok, and

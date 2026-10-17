@@ -217,7 +217,7 @@ the label mirror for that pass. The action book records each label the runner ad
 so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
 A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
-a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, default `fidelity-desk`) about that PR whose text starts
+a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without) about that PR whose text starts
 `fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`; a head no fidelity lane has graded
 also passes when its `fidelity` commit status reads `success`, and the status mirror leaves such a head's status alone. A head no
 grade names carries the ok of an older head an ok names, whose own newest grade is ok, when `git patch-id --stable` of both heads'
@@ -324,7 +324,6 @@ RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused",
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
-FIDELITY_LANE = "fidelity-desk"
 OWNER_KINDS = ("head", "opened", "ready", "claim")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
@@ -2633,7 +2632,7 @@ class Landing:
 
     @property
     def fidelity_lanes(self) -> list[str]:
-        configured = json.loads(self.runner.config.source.read_text())["landing"].get("fidelity_lane", FIDELITY_LANE)
+        configured = json.loads(self.runner.config.source.read_text())["landing"]["fidelity_lane"]
         return [configured] if isinstance(configured, str) else list(configured)
 
     @property
@@ -3346,6 +3345,12 @@ def run_orca(runner: Runner, once: bool) -> int:
 
 
 def run_landing(runner: Runner, once: bool) -> int:
+    if "fidelity_lane" not in runner.config.landing:
+        why = f"{runner.config.source} names no landing.fidelity_lane, so no fidelity grade would count; the runner refused to start"
+        runner.escalate(f"fidelity-lane-unset:{runner.config.source}", "FIDELITY-LANE-UNSET", "runner", why)
+        runner.flush()
+        print(why, file=sys.stderr)
+        return 3
     seed_policy(runner)
     landing = Landing(runner, runner.config.landing)
     interval = runner.config.landing.get("interval_seconds", 180)
