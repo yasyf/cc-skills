@@ -1200,8 +1200,10 @@ Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR ab
 An open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run. Restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
 Where the checkout carries `.agents/skills/submit-pr/scripts/stack-enqueue`,
-`desk-runner.py run --desk landing` runs D3. Each pass runs `ledger.py refresh`
-and `reconcile`, reads rows, groups every tracked open stack tip by the root of
+`desk-runner.py run --desk landing` runs D3. Each pass fast-forwards the checkout
+to the remote trunk, so `landing.checkout` names a worktree only the runner uses;
+one that cannot fast-forward logs `CHECKOUT-STALE` and gates nothing that pass.
+It then runs `ledger.py refresh` and `reconcile`, reads rows, groups every tracked open stack tip by the root of
 its stack, and gates each stack in parallel, naming every tip of a fork in one call:
 `stack-enqueue <tip>... --check [--whole]`. The gate selects the largest
 ready bottom prefix. The runner accepts an enqueue for its exact prefix heads

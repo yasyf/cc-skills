@@ -180,7 +180,9 @@ may have left a remote worker: it becomes `unverifiable` and logs
 names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
-blockers and restacks. A prefix `ccx vcs pr status` reads out of the queue at the heads it
+blockers and restacks. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+`stack-enqueue` it runs is the trunk's; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
+A prefix `ccx vcs pr status` reads out of the queue at the heads it
 admitted is gated again, unless the PR's Merge activity comment names a merge conflict,
 which goes to the lane as a blocker. A red check or a downstack failure is gated again, and `stack-enqueue`
 decides whether the PR's own head failed or a batch-mate did. A drop for downstack failures on a PR outside the PR's own stack is the
@@ -303,6 +305,7 @@ ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED"
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
+TRUNK = "dev"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 ENQUEUE_FAILED = 5
 DEQUEUE_RELEASED = (0, 1)
@@ -3246,9 +3249,23 @@ class Landing:
                 receipt = {"head": row.get("head", ""), "state": row.get("state", ""), "at": self.book.stamp()}
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
 
+    def advance(self) -> bool:
+        """Fast-forward the checkout to the remote trunk without writing a shared ref, so the pass gates with the trunk's `stack-enqueue`; a checkout that cannot is escalated once per error."""
+        git = ["git", "-C", str(self.checkout)]
+        done = self.shell.run([*git, "fetch", "-q", "--no-tags", "--refmap=", "origin", f"refs/heads/{TRUNK}"])
+        if not done.code:
+            done = self.shell.run([*git, "merge", "-q", "--ff-only", "FETCH_HEAD"])
+        if done.code:
+            self.runner.escalate(
+                f"checkout:{hashlib.sha1(done.err.encode()).hexdigest()[:8]}", "CHECKOUT-STALE", "landing",
+                f"{self.checkout} did not fast-forward to origin/{TRUNK}, so this pass gated and enqueued nothing: {done.err.strip()}",
+            )
+        return not done.code
+
     def run(self) -> None:
         if self.quota_low():
             return
+        advanced = self.advance()
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         drafts = self.queue_drafts()
@@ -3272,7 +3289,7 @@ class Landing:
         self.mirror_grades(rows, entries)
         if not unread:
             self.mirror_holds(rows, entries)
-        if not unread and (held := self.held(rows)) is not None:
+        if advanced and not unread and (held := self.held(rows)) is not None:
             self.gate(rows, held)
             self.enqueue()
         self.runner.overdue(LANDING, "landing")
