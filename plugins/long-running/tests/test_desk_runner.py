@@ -2203,6 +2203,19 @@ def test_the_fidelity_lane_is_the_one_runner_json_names(shell, config, tmp_path)
     assert len(shell.enqueues()) == 1
 
 
+def test_a_fidelity_lane_added_to_runner_json_counts_without_a_restart(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.", lane="fidelity-desk-10")
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    assert shell.enqueues() == []
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-10"]
+    config.write_text(json.dumps(raw))
+    landing.run()
+    assert len(shell.enqueues()) == 1
+
+
 def test_every_lane_a_fidelity_list_names_can_grade_a_head(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]

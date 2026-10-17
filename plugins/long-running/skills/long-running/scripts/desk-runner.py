@@ -2501,9 +2501,6 @@ class Landing:
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
-        configured = config.get("fidelity_lane", FIDELITY_LANE)
-        self.fidelity_lanes = [configured] if isinstance(configured, str) else list(configured)
-        self.fidelity_names = " or ".join(self.fidelity_lanes)
         self.unlabeled: set[str] = set()
         self.landed: set[str] = set()
         self.gated: set[tuple[str, str]] = set()
@@ -2631,11 +2628,21 @@ class Landing:
                 break
         return done
 
+    @property
+    def fidelity_lanes(self) -> list[str]:
+        configured = json.loads(self.runner.config.source.read_text())["landing"].get("fidelity_lane", FIDELITY_LANE)
+        return [configured] if isinstance(configured, str) else list(configured)
+
+    @property
+    def fidelity_names(self) -> str:
+        return " or ".join(self.fidelity_lanes)
+
     def fidelity(self, pr: str, sha: str, base: str) -> dict | None:
         """The newest grade naming `sha`; with none, an ok carried from an older head whose own newest grade is ok and whose patch against `base` is identical to this head's."""
         drive = self.runner.config.drive
-        reviews = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane, "--pr", pr)]
-        grades = [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in self.fidelity_lanes and record["text"].startswith(FIDELITY_GRADES)]
+        lanes = self.fidelity_lanes
+        reviews = [record for lane in lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane, "--pr", pr)]
+        grades = [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in lanes and record["text"].startswith(FIDELITY_GRADES)]
         return newest_naming(grades, sha) or (self.carried(pr, sha, base, grades) if sha and base else None)
 
     def carried(self, pr: str, sha: str, base: str, grades: list[dict]) -> dict | None:
