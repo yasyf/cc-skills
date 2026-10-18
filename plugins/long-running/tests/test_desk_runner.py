@@ -215,6 +215,11 @@ class FakeShell(runner_module.Shell):
             assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
             if self.status_error:
                 return runner_module.Done(1, "", self.status_error)
+            description = json.loads(stdin)["description"]
+            if any(ord(char) > 0xFFFF for char in description):
+                return runner_module.Done(1, "", "gh: Validation Failed: Description doesn't accept 4-byte Unicode (HTTP 422)")
+            if len(description) > 140:
+                return runner_module.Done(1, "", "gh: Validation Failed: description is too long (maximum is 140 characters) (HTTP 422)")
             self.head_statuses.append({"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)})
             return runner_module.Done(0, "{}\n", "")
         if argv[:3] == ["gh", "pr", "list"]:
@@ -2523,6 +2528,24 @@ def test_the_status_describes_the_grade_by_its_first_line_clipped_to_the_github_
     [status] = shell.head_statuses
     assert (status["sha"], status["state"]) == ("cccc333333", "failure")
     assert len(status["description"]) == 140 and status["description"] == f"cci #{seq} fidelity: {first_line}"[:139] + "…"
+
+
+@pytest.mark.parametrize(
+    ("first_line", "kept"),
+    [
+        ("missing F307 at cccc333: #40043 quotes `go/ci: 💚 green again`.", "missing F307 at cccc333: #40043 quotes `go/ci:  green again`."),
+        ("missing F307 at cccc333. " + "🚀 ♻️ the sandbox build is owed. " * 6, "missing F307 at cccc333. " + " ♻️ the sandbox build is owed. " * 6),
+    ],
+)
+def test_the_status_description_drops_characters_github_refuses_and_keeps_the_github_limit(shell, config, tmp_path, first_line, kept):
+    held_pr(shell, tmp_path)
+    seq = grade(shell, "29020", first_line)
+    landing_pass(shell, config)
+    [status] = shell.head_statuses
+    expected = f"cci #{seq} fidelity: {kept}"
+    assert status["description"] == (expected if len(expected) <= 140 else expected[:139] + "…")
+    assert len(status["description"]) <= 140 and all(ord(char) <= 0xFFFF for char in status["description"])
+    assert escalations(shell) == []
 
 
 def test_the_status_is_on_the_head_before_the_gate_reads_it(shell, config, tmp_path):
