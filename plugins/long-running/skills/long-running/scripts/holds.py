@@ -12,6 +12,8 @@ This module is the one parse of that file. A line is a PR hold, a lane hold writ
 or `release lane:<name>` line, or blank. Any other line is unknown: `list` says so, and the
 landing runner enqueues nothing while one stands. `held` resolves the entries against ledger rows,
 and `rowless` names each lane line whose lane no ledger row carries, which stops the runner too.
+The landing runner writes the file in one case: a `hold` label it added that someone removed
+from GitHub lifts the PR, and `removing` takes the PR's `#<n>` out of the file.
 """
 
 from __future__ import annotations
@@ -166,19 +168,23 @@ def without(entry: Entry, kind: str, name: str) -> Entry | None:
     return remaining
 
 
+def holding(entries: Sequence[Entry], kind: str, name: str) -> list[Entry]:
+    return [entry for entry in entries if name in (entry.prs if kind == "pr" else entry.lanes)]
+
+
+def removing(entries: Sequence[Entry], kind: str, name: str) -> list[Entry]:
+    """`entries` with `name` taken out of every line that holds it, a line left holding nothing dropped; `Refused` when a line cannot be split."""
+    held_by = holding(entries, kind, name)
+    return [remaining for entry in entries if (remaining := without(entry, kind, name) if entry in held_by else entry) is not None]
+
+
 def rm(path: Path, args: argparse.Namespace) -> str:
     kind, name = target(args)
     entries = read(path)
-    holding = [entry for entry in entries if name in (entry.prs if kind == "pr" else entry.lanes)]
-    if not holding:
+    if not (held_by := holding(entries, kind, name)):
         raise Refused(f"no line in {path} holds {'#' + name if kind == 'pr' else 'lane:' + name}")
-    kept = [
-        remaining
-        for entry in entries
-        if (remaining := without(entry, kind, name) if entry in holding else entry) is not None
-    ]
-    write(path, kept)
-    return f"removed {'#' + name if kind == 'pr' else 'lane:' + name} from {len(holding)} line(s) of {path}"
+    write(path, removing(entries, kind, name))
+    return f"removed {'#' + name if kind == 'pr' else 'lane:' + name} from {len(held_by)} line(s) of {path}"
 
 
 def listing(path: Path, _: argparse.Namespace) -> str:

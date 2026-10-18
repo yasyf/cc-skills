@@ -215,6 +215,8 @@ On each pass that reads the file, every open ledger row a PR line, a lane line, 
 holds gets the label, and a label the runner added comes off once nothing holds the row. A `cci tail` that fails skips
 the label mirror for that pass. The action book records each label the runner adds or removes,
 so a restart posts none again, a `hold` label a human added is never removed, and a row that lands or closes keeps its label.
+Removing a label the runner added is a lift: once a ledger refresh after the add reads the PR without it, and only the PR's `#<n>`
+holds-file lines hold it, the runner removes those lines through `holds.py`, never puts the label back, and logs `HOLD-LIFTED`.
 A label write GitHub refuses logs `LABEL-FAILED` once and runs again on each pass. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without) about that PR whose text starts
@@ -330,6 +332,7 @@ FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 HOLD_LABEL = "hold"
+LABEL_SEEN = "hold-label-seen"
 LABEL_GONE = "(HTTP 404)"
 STATUS_TEXT = 140
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -2852,15 +2855,14 @@ class Landing:
                 self.runner.escalate(key, "STATUS-FAILED", f"#{pr}", f"GitHub refused the `{FIDELITY_STATUS}` commit status on {head}: {last[0]}; the runner posts it again on the next pass")
 
     def mirror_holds(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
-        """Add the `hold` label to every open row a hold names and lift the labels the runner added once nothing holds the row. A pass writes at most `MIRROR_WRITES` labels, first writes before retries; a held row whose label is still unwritten stays in `unlabeled`, and the gate leaves it and every PR stacked above it out of that pass."""
+        """Add the `hold` label to every open row a hold names and lift the labels the runner added once nothing holds the row. A label the runner added that someone removed from GitHub lifts the row's holds-file lines first, through `lift_removed`. A pass writes at most `MIRROR_WRITES` labels, first writes before retries; a held row whose label is still unwritten stays in `unlabeled`, and the gate leaves it and every PR stacked above it out of that pass."""
         try:
-            wanted = holds.held(entries, rows) | cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
+            records = set(cci.held_prs(self.runner.cci_tail, self.runner.config.drive))
         except CciTailFailed as failure:
             self.runner.tail_failed(failure)
             return
-        labels: dict[str, list[actions.Action]] = {}
-        for action in self.book.actions(LANDING, kind="label"):
-            labels.setdefault(action.target, []).append(action)
+        wanted = holds.held(self.lift_removed(rows, entries, records), rows) | records
+        labels = self.label_actions()
         due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             latest = max(labels.get(pr, []), key=label_order, default=None)
@@ -2884,6 +2886,49 @@ class Landing:
             else:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(key, "LABEL-FAILED", f"#{pr}", f"GitHub refused to {'remove' if applied else 'add'} the `{HOLD_LABEL}` label: {last[0]}; the runner tries again on the next pass")
+
+    def label_actions(self) -> dict[str, list[actions.Action]]:
+        labels: dict[str, list[actions.Action]] = {}
+        for action in self.book.actions(LANDING, kind="label"):
+            labels.setdefault(action.target, []).append(action)
+        return labels
+
+    def lift_removed(self, rows: dict[str, dict], entries: list[holds.Entry], records: set[str]) -> list[holds.Entry]:
+        """Take a `hold` label someone removed from GitHub as the lift of the PR's `#<n>` holds-file lines, when nothing else holds the PR: those lines leave the file through `holds.py`, the label is never put back, and `HOLD-LIFTED` tells the root. The label is on from the runner's own add, or from the first ledger refresh that read it on a row the file holds; a later refresh that reads the row without it is the removal, which also settles the runner's own add as lifted, so a PR another hold still holds gets the label again. A line `holds.py` cannot split logs `LIFT-FAILED` and stays. Returns the entries the file holds after."""
+        seen = self.book.load(LANDING).facts.get(LABEL_SEEN, {})
+        labels = self.label_actions()
+        file_held = holds.held(entries, rows)
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            if row.get("state", "open") != "open" or pr not in file_held:
+                continue
+            latest = max(labels.get(pr, []), key=label_order, default=None)
+            added = latest is not None and latest.status == "completed" and not label_order(latest)[1]
+            refreshed = row.get("last_refresh", "")
+            if HOLD_LABEL in row.get("labels", "").split(","):
+                if not added and pr not in seen and refreshed:
+                    self.book.edit(LANDING, lambda incident, pr=pr, at=refreshed: incident.facts.setdefault(LABEL_SEEN, {}).update({pr: at}))
+                continue
+            since = latest.response["at"] if added else seen.get(pr, "")
+            if pr in seen:
+                self.book.edit(LANDING, lambda incident, pr=pr: incident.facts.get(LABEL_SEEN, {}).pop(pr, None))
+            if not since or refreshed <= since:
+                continue
+            if added:
+                key = f"hold:{pr}:{label_order(latest)[0]}:lift"
+                self.book.accept(LANDING, key, "label", pr, "github", None)
+                self.book.attempt(LANDING, lambda incident, key=key: (incident.start(key, self.runner.now()), incident.complete(key, {"at": self.book.stamp(), "by": "github"})))
+            try:
+                kept = holds.removing(entries, "pr", pr)
+            except holds.Refused as refusal:
+                self.runner.escalate(f"lift:{pr}:{since}", "LIFT-FAILED", f"#{pr}", f"the `{HOLD_LABEL}` label on since {since} is gone from GitHub, but {refusal}; the runner puts the label back while the line holds the PR")
+                continue
+            if pr in holds.held(kept, rows) | records:
+                continue
+            lines = ", ".join(f"`{entry.line}`" for entry in holds.holding(entries, "pr", pr))
+            holds.write(self.holds, kept)
+            entries, file_held = kept, holds.held(kept, rows)
+            self.runner.escalate(f"hold-lifted:{pr}:{since}", "HOLD-LIFTED", f"#{pr}", f"the `{HOLD_LABEL}` label on since {since} is gone from GitHub, so the runner took that as the lift and removed {lines} from {self.holds}")
+        return entries
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""

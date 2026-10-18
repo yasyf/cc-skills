@@ -1554,6 +1554,47 @@ def test_a_hold_label_a_human_added_is_never_removed(shell, config, tmp_path):
     assert shell.label_calls == [] and escalations(shell) == []
 
 
+def refreshed(shell: FakeShell, minutes: int, labels: str) -> None:
+    shell.rows[0] |= {"labels": labels, "last_refresh": actions.stamp(shell.now() + timedelta(minutes=minutes))}
+
+
+def test_removing_a_hand_added_hold_label_lifts_its_line_instead_of_putting_the_label_back(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    refreshed(shell, 0, "merge,hold")
+    landing_pass(shell, config)
+    refreshed(shell, 3, "merge")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.label_calls == [] and (tmp_path / "holds.md").read_text() == ""
+    [line] = escalations(shell)
+    assert line.startswith("HOLD-LIFTED hold-lifted:29020:") and "removed `#29020 owner review`" in line
+
+
+def test_removing_the_runners_hold_label_lifts_its_line_and_settles_the_add(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    landing_pass(shell, config)
+    refreshed(shell, 3, "")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020")] and (tmp_path / "holds.md").read_text() == ""
+    labels = {key: action.status for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "label"}
+    assert labels == {"hold:29020:1:add": "completed", "hold:29020:1:lift": "completed"}
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["HOLD-LIFTED"]
+
+
+def test_a_removed_hold_label_goes_back_on_while_another_hold_still_holds_the_pr(shell, config, tmp_path):
+    held_pr(shell, tmp_path)
+    lines = f"#29020 owner review\nlane:{LANE} ships whole\n"
+    (tmp_path / "holds.md").write_text(lines)
+    landing_pass(shell, config)
+    refreshed(shell, 3, "")
+    landing_pass(shell, config)
+    refreshed(shell, 6, "hold")
+    landing_pass(shell, config)
+    assert shell.label_calls == [("add", "29020"), ("add", "29020")]
+    assert (tmp_path / "holds.md").read_text() == lines and escalations(shell) == []
+
+
 def test_a_labelled_row_that_lands_keeps_its_label(shell, config, tmp_path):
     held_pr(shell, tmp_path)
     landing_pass(shell, config)
