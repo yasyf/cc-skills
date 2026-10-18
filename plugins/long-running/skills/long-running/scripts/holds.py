@@ -2,7 +2,9 @@
 """Edit the root's landing holds file, the one desk-runner.py reads before every enqueue.
 
 `add --pr <n> --reason R` writes `#<n> R`, `add --lane <name> --reason R` writes
-`lane:<name> R`, `rm` deletes that entry, and `list` prints every line with what it holds.
+`lane:<name> R`, `add --all --reason R` writes `hold:all R`, and `release --pr <n> --reason R`
+or `release --lane <name> --reason R` writes `release #<n> R` or `release lane:<name> R`.
+`rm` deletes the entry `add` or `release` names, and `list` prints every line with what it holds.
 A line holds the one PR its leading `#<n>` names; every later `#<n>` is prose. A reason
 never carries `lane:<name>`, and a PR line whose reason says the PR should land is refused:
 remove its hold instead. Name the file with `--file`, or with `--config` for a desk-runner config.
@@ -32,6 +34,7 @@ LANE_HOLD = re.compile(r"^(?:HOLD\s+([\w.-]+)|([\w.-]+)\s+HOLD)(?=\s|$)")
 HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
 RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
 LANE_NAME = re.compile(r"^[\w.-]+$")
+PR_REF = re.compile(r"#\d")
 SHOULD_LAND = re.compile(
     r"\b(?:ours|ready|ok|okay|clear|cleared|free|safe|good|fine) to (?:land|merge|enqueue)\b"
     r"|^(?:land|merge|enqueue|release|unhold|lift)\b|\b(?:released|lifted|unheld|not held)\b",
@@ -137,6 +140,8 @@ def check_reason(reason: str, pr: str | None) -> str:
 
 
 def target(args: argparse.Namespace) -> tuple[str, str]:
+    if getattr(args, "all", False):
+        return "all", ""
     if args.pr is not None:
         if not args.pr.lstrip("#").isdigit():
             raise Refused(f"--pr takes a PR number, not `{args.pr}`")
@@ -146,13 +151,34 @@ def target(args: argparse.Namespace) -> tuple[str, str]:
     return "lane", args.lane
 
 
+def subject(kind: str, name: str) -> str:
+    return {"pr": f"#{name}", "lane": f"lane:{name}", "all": "hold:all"}[kind]
+
+
 def add(path: Path, args: argparse.Namespace) -> str:
     kind, name = target(args)
     reason = check_reason(args.reason, name if kind == "pr" else None)
     entries = read(path)
-    if existing := next((entry for entry in entries if name in (entry.prs if kind == "pr" else entry.lanes)), None):
+    if existing := next((entry for entry in entries if (entry.holds_all if kind == "all" else name in (entry.prs if kind == "pr" else entry.lanes))), None):
         raise Refused(f"`{existing.line}` already {existing.describe()}; `rm` it before adding another reason")
-    line = f"#{name} {reason}" if kind == "pr" else f"lane:{name} {reason}"
+    line = f"{subject(kind, name)} {reason}"
+    write(path, [*entries, Entry(line)])
+    return f"added `{line}` to {path}"
+
+
+def releases(entry: Entry, kind: str, name: str) -> bool:
+    return entry.release and entry.freed.split()[:1] == [subject(kind, name)]
+
+
+def release(path: Path, args: argparse.Namespace) -> str:
+    kind, name = target(args)
+    reason = check_reason(args.reason, None)
+    if PR_REF.search(reason):
+        raise Refused(f"the reason `{reason}` names a PR, which a `release` line reads as another release; name it without the `#`")
+    entries = read(path)
+    if existing := next((entry for entry in entries if releases(entry, kind, name)), None):
+        raise Refused(f"`{existing.line}` already {existing.describe()}; `rm --release` it before adding another reason")
+    line = f"release {subject(kind, name)} {reason}"
     write(path, [*entries, Entry(line)])
     return f"added `{line}` to {path}"
 
@@ -181,6 +207,12 @@ def removing(entries: Sequence[Entry], kind: str, name: str) -> list[Entry]:
 def rm(path: Path, args: argparse.Namespace) -> str:
     kind, name = target(args)
     entries = read(path)
+    if kind == "all" or args.release:
+        dropped = [entry for entry in entries if (releases(entry, kind, name) if args.release else entry.holds_all)]
+        if not dropped:
+            raise Refused(f"no line in {path} {'releases ' if args.release else 'is '}{subject(kind, name)}")
+        write(path, [entry for entry in entries if entry not in dropped])
+        return f"removed {len(dropped)} line(s) of {path}"
     if not (held_by := holding(entries, kind, name)):
         raise Refused(f"no line in {path} holds {'#' + name if kind == 'pr' else 'lane:' + name}")
     write(path, removing(entries, kind, name))
@@ -198,12 +230,16 @@ def build_parser() -> argparse.ArgumentParser:
     where.add_argument("--file")
     where.add_argument("--config")
     verbs = parser.add_subparsers(dest="verb", required=True)
-    for verb in ("add", "rm"):
+    for verb in ("add", "rm", "release"):
         sub = verbs.add_parser(verb)
         which = sub.add_mutually_exclusive_group(required=True)
         which.add_argument("--pr")
         which.add_argument("--lane")
-        if verb == "add":
+        if verb != "release":
+            which.add_argument("--all", action="store_true")
+        if verb == "rm":
+            sub.add_argument("--release", action="store_true")
+        else:
             sub.add_argument("--reason", required=True)
     verbs.add_parser("list")
     return parser
@@ -212,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        print({"add": add, "rm": rm, "list": listing}[args.verb](holds_path(args), args))
+        print({"add": add, "rm": rm, "release": release, "list": listing}[args.verb](holds_path(args), args))
     except Refused as refusal:
         print(f"holds.py: refused: {refusal}", file=sys.stderr)
         return 1
