@@ -35,7 +35,7 @@
     ledger.py list    --ledger ID [--repo owner/name] [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
-branch under a lane's registered prefix, or because refresh was handed its number; the
+branch under a lane's registered prefix or in the Graphite stack of the worktree the lane registered from, or because refresh was handed its number; the
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
@@ -283,27 +283,27 @@ class Shell:
     output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
     """
 
-    def run(self, argv: list[str], stdin: str | None = None) -> str:
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         for attempt in range(CCN_READ_ATTEMPTS - 1 if is_ccn_read(argv) else 0):
             try:
-                return self.once(argv, stdin)
+                return self.once(argv, stdin, cwd)
             except subprocess.CalledProcessError:
                 time.sleep(CCN_READ_BACKOFF_SECONDS * 2**attempt)
         for attempt in range(REF_LOCK_ATTEMPTS - 1 if is_git_fetch(argv) else 0):
             try:
-                return self.once(argv, stdin)
+                return self.once(argv, stdin, cwd)
             except subprocess.CalledProcessError as error:
                 if REF_LOCK_RACE not in (error.stderr or ""):
                     raise
                 time.sleep(REF_LOCK_BACKOFF_SECONDS * 2**attempt)
-        return self.once(argv, stdin)
+        return self.once(argv, stdin, cwd)
 
     @staticmethod
-    def once(argv: list[str], stdin: str | None) -> str:
+    def once(argv: list[str], stdin: str | None, cwd: Path | None = None) -> str:
         with tempfile.TemporaryFile("w+") as feed:
             feed.write(stdin or "")
             feed.seek(0)
-            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS).stdout
+            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=cwd).stdout
 
 
 class ForgeUnreachable(RuntimeError):
@@ -1392,6 +1392,33 @@ def prefix_prs(state: dict, prefix: str) -> list[str]:
     return [pr for pr in map(str, state["lanes"][prefix]) if on_prefix(state["prs"][pr]["headRefName"], prefix)]
 
 
+def stack_listing(shell: Shell, ccx: str, worktree: Path) -> dict:
+    return json.loads(shell.run([ccx, "vcs", "stack", "list", "--json"], cwd=worktree))
+
+
+def lane_worktree(shell: Shell, args: argparse.Namespace) -> str:
+    """The working copy register runs in when its Graphite stack holds the lane's branch in the lane's repository, else empty."""
+    try:
+        listing = stack_listing(shell, args.ccx, Path.cwd())
+    except subprocess.CalledProcessError:
+        return ""
+    held = any(on_prefix(branch["branch"], args.branch_prefix) for branch in listing["branches"])
+    return listing["root"] if held and same_repo(origin_repo(shell, Path(listing["root"])), args.repo) else ""
+
+
+def lane_stack(shell: Shell, ccx: str, registration: dict[str, str]) -> list[str]:
+    """Every branch of the Graphite stack in the lane's registered worktree, so each branch `ccx vcs stack new` cuts there is tracked; none once the worktree is gone."""
+    worktree = registration.get("worktree")
+    if not worktree or not Path(worktree).is_dir():
+        return []
+    try:
+        listing = stack_listing(shell, ccx, Path(worktree))
+    except subprocess.CalledProcessError as failure:
+        print(f"ledger.py: lane {registration['lane']}'s worktree {worktree} lists no stack, so only its prefix is tracked: {(failure.stderr or '').strip() or failure}", file=sys.stderr)
+        return []
+    return [branch["branch"] for branch in listing["branches"]]
+
+
 def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
     """Open PRs on the prefix that another lane already owns or that predate the drive's ledger."""
     try:
@@ -1437,7 +1464,7 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
         guard_prefix(shell, args, notes)
-        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
+        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "worktree": lane_worktree(shell, args), "registered_at": utc_stamp()})
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
@@ -1513,13 +1540,18 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
-    prefixes = sorted({lane["branch_prefix"] for lane in registrations})
+    stacks = {lane["lane"]: lane_stack(shell, args.ccx, lane) for lane in registrations}
+    prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
     wanted = sorted((set(known) | set(named)) - settled, key=int)
     try:
         state = pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
+    for lane, branches in stacks.items():
+        for pr in (pr for branch in branches for pr in prefix_prs(state, branch)):
+            if pr not in registered and every.get(pr, {}).get("lane", lane) == lane:
+                registered[pr] = lane
     rows = []
     for key in sorted((set(wanted) | set(registered)) - settled, key=int):
         if key in reopenable and state["prs"][key]["state"] != "OPEN":
