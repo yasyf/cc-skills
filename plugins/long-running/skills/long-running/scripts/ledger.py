@@ -87,7 +87,7 @@ import tempfile
 import time
 from collections.abc import Collection
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
@@ -259,6 +259,15 @@ REFUSAL = {
 }
 
 
+@contextmanager
+def stage(name: str):
+    """Name one step of a call on stderr as it starts, and again with its seconds once it ends, so a step that stalls is named instead of silent."""
+    print(f"ledger.py: {name} …", file=sys.stderr, flush=True)
+    started = time.monotonic()
+    yield
+    print(f"ledger.py: {name} took {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
+
+
 def is_ccn_read(argv: list[str]) -> bool:
     return argv[:3] == ["ccn", "ledger", "show"]
 
@@ -278,7 +287,15 @@ class Shell:
     output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
     """
 
+    trace = False
+
     def run(self, argv: list[str], stdin: str | None = None) -> str:
+        if not self.trace:
+            return self.attempts(argv, stdin)
+        with stage(" ".join(argv[:3])):
+            return self.attempts(argv, stdin)
+
+    def attempts(self, argv: list[str], stdin: str | None) -> str:
         for attempt in range(CCN_READ_ATTEMPTS - 1 if is_ccn_read(argv) else 0):
             try:
                 return self.once(argv, stdin)
@@ -1423,22 +1440,29 @@ def discovered_only(fields: dict[str, str], lane: str, prefix: str) -> bool:
 
 
 def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
-    """A PR row keeps the lane that first claimed it; a re-push only moves its registered head."""
+    """A PR row keeps the lane that first claimed it; a re-push only moves its registered head. Each step and subprocess is named on stderr as it starts and with its seconds once it ends."""
     if not args.branch_prefix and not args.pr:
         raise SystemExit("register needs --branch-prefix, --pr, or both")
     if args.head and len(args.pr) != 1:
         raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
+    shell.trace = True
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
-        guard_prefix(shell, args, notes)
-        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
-    with locked(default_lock(args.ledger)):
-        rows = notes.pr_rows() if args.pr else {}
+        with stage(f"check prefix {args.branch_prefix}"):
+            guard_prefix(shell, args, notes)
+        with stage(f"write lane {args.lane}"):
+            notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
+    with ExitStack() as held:
+        with stage("wait for the ledger lock"):
+            held.enter_context(locked(default_lock(args.ledger)))
+        with stage("read PR rows"):
+            rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
         for pr, owner in owners.items():
             fields = {"lane": owner, "registered": owner} | ({"registered_head": args.head} if args.head else {})
             if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
-                notes.set_fields(pr, fields)
+                with stage(f"write row #{pr}"):
+                    notes.set_fields(pr, fields)
     namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
     claimed = "".join(f" #{pr}" if owner == args.lane else f" #{pr} (lane {owner})" for pr, owner in owners.items())
     print(f"registered {args.lane}{namespace}{claimed}")
