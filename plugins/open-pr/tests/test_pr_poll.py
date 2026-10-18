@@ -10,6 +10,7 @@ from conftest import (
     MOVED_HEAD,
     PR,
     check_run,
+    check_suite,
     comment,
     event,
     labeled,
@@ -226,6 +227,49 @@ def test_poll_uses_rest_only(poll):
     run = poll(queued, surface(pull(), events=[labeled(1), unlabeled(2)]))
     assert run.gh_calls
     assert all(call.startswith("api ") and "graphql" not in call for call in run.gh_calls)
+
+
+ACTIONS_RUN_REGISTERING = check_suite(status="queued", check_runs=0, suite_id=2)
+
+
+def test_partial_green_list_with_an_actions_run_still_registering_its_jobs_keeps_watching(poll):
+    partial = surface(pull(), runs=[check_run("guides / pr-check")], suites=[check_suite(), ACTIONS_RUN_REGISTERING])
+    run = poll(partial, partial)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
+def test_green_list_once_every_actions_run_registers_and_completes_is_ready_to_merge(poll):
+    partial = surface(pull(), runs=[check_run("guides / pr-check")], suites=[check_suite(), ACTIONS_RUN_REGISTERING])
+    complete = surface(
+        pull(),
+        runs=[check_run("guides / pr-check"), check_run("test", run_id=2)],
+        suites=[check_suite(), check_suite(suite_id=2)],
+    )
+    run = poll(partial, complete)
+    assert run.lines[-2:] == ["CHECK test pass https://ci.example/test", "DONE ready-to-merge"]
+
+
+def test_unapproved_green_list_with_an_actions_run_still_registering_is_not_awaiting_review(poll):
+    partial = surface(
+        pull(mergeable_state="blocked"), runs=[check_run("guides / pr-check")], suites=[ACTIONS_RUN_REGISTERING]
+    )
+    run = poll(partial, partial)
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
+def test_another_apps_queued_suite_without_check_runs_does_not_hold_the_verdict(poll):
+    idle = check_suite(status="queued", check_runs=0, app="travis-ci", suite_id=3)
+    run = poll(surface(pull(), suites=[check_suite(), idle]))
+    assert run.done == "DONE ready-to-merge"
+
+
+def test_failed_check_suite_read_never_reports_ready(poll):
+    blind = surface(pull())
+    blind[f"commits/{HEAD}/check-suites"] = "FAIL"
+    run = poll(blind, blind)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
 
 
 def test_startup_failure_is_a_failed_check(poll):

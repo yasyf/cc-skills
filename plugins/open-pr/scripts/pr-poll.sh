@@ -160,12 +160,18 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   and exit 0. Exits 3 when another poller holds the state file.
 
   PR_POLL_INTERVAL defaults to 120 and is floored there. Each pass spends
-  ~7 REST calls, one more on a stacked PR and on a new head, and every
-  watcher on a stack spends them against one shared hourly budget, so the
-  interval is also floored at 10 seconds per
-  concurrently watched PR: set PR_POLL_STACK to the number of PRs being
-  watched at once (default 1). PR_POLL_QUEUE_LABEL names the merge-queue
-  label (default merge).
+  ~7 REST calls, one more on a stacked PR, on a new head, and on a green
+  pass, and every watcher on a stack spends them against one shared hourly
+  budget, so the interval is also floored at 10 seconds per concurrently
+  watched PR: set PR_POLL_STACK to the number of PRs being watched at once
+  (default 1). PR_POLL_QUEUE_LABEL names the merge-queue label (default
+  merge).
+
+  A green check list is ready only once every GitHub Actions check suite on
+  the head has completed: a workflow run registers its suite before its
+  jobs, so a partial list can read green while a run is still queued.
+  Other apps' suites are not consulted, since an installed app that never
+  runs leaves its suite queued with no check runs.
 
   A round ends with DONE window-elapsed after PR_POLL_WINDOW seconds (1500,
   under the harness's 30-minute Monitor cap); re-run on the same state file
@@ -321,9 +327,18 @@ eviction_reason() {
   printf 'unknown label removed by %s\n' "$actor"
 }
 
+actions_completed() {
+  local open
+  open=$(gh api --paginate "repos/$REPO/commits/$1/check-suites?per_page=100" \
+    --jq '[.check_suites[] | select(.app.slug == "github-actions" and .status != "completed")] | length' \
+    2>/dev/null) || return 1
+  [ "$(jq -s 'add // 0' <<<"$open")" = 0 ]
+}
+
 green() {
   local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4 downstack=$5
   [ "$reviews_ok" = 1 ] || return 0
+  actions_completed "$head" || return 0
   if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then
     finish "ready-to-merge${downstack:+ downstack #$downstack}"
   fi
