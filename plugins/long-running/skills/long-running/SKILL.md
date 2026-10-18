@@ -417,6 +417,7 @@ refusal, Orca message delivery, and the ledger gap.*
 **R15. CI is the verifier, never the box.**
 Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
 That holds for one failing test and a single artifact as much as for a whole package.
+The pack's `local_builds` hook refuses each such command in every session of a drive, the root's included; a Go golden's single `go test -update` run is the one exception.
 Machine load never holds a Buildkite build, a hand apply of a saved plan, an
 incident step, or an owner-directed step; those run at once.
 
