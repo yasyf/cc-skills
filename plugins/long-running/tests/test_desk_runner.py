@@ -69,6 +69,7 @@ class FakeShell(runner_module.Shell):
         self.lose_replies = 0
         self.answered: dict[str, str] = {}
         self.reject_sends = 0
+        self.send_stderr = ""
         self.mailbox_down = False
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
@@ -383,7 +384,7 @@ class FakeShell(runner_module.Shell):
         if verb == ["orchestration", "send"]:
             if self.reject_sends:
                 self.reject_sends -= 1
-                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "refused"}}), "")
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "refused"}}), self.send_stderr)
             if self.garble_sends:
                 self.garble_sends -= 1
                 return runner_module.Done(1, "", "socket hang up")
@@ -391,7 +392,7 @@ class FakeShell(runner_module.Shell):
                 self.lose_sends -= 1
                 request = f"00000000-0000-0000-0000-{self.sequence:012d}"
                 self.sequence += 1
-                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "data": {"orchestrationRequestId": request}}}), "")
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "data": {"orchestrationRequestId": request}}}), self.send_stderr)
             if argv[argv.index("--to") + 1].startswith("run:"):
                 return self.ok({"message": {"id": self.next_id("msg")}})
             to = argv[argv.index("--to") + 1].removeprefix("dispatch:")
@@ -3198,6 +3199,36 @@ def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):
     view = (tmp_path / "desk-runner.md").read_text()
     assert "R625 relay [accepted] accepted 11:00" in view
     assert "Z" not in view.split("\n", 1)[1].replace("desk-lane", "")
+
+
+def send_actions(tmp_path: Path) -> list[actions.Action]:
+    return [action for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"]
+
+
+def test_a_lost_send_keeps_its_request_id_caller_error_stderr_and_receipt_state(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.lose_sends = 1
+    shell.send_stderr = "orca: Timed out waiting for the Orca runtime to respond"
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    [send] = send_actions(tmp_path)
+    assert send.status == "unverifiable"
+    assert send.response["request_id"].startswith("00000000-0000-0000-0000-") and send.response["error"]["code"] == "runtime_unavailable"
+    assert send.response["stderr"] == "orca: Timed out waiting for the Orca runtime to respond" and "caller" in send.response
+    later_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions[send.action_id].response["receipt"] == "absent"
+
+
+def test_a_refused_send_keeps_its_stderr_and_the_send_failed_line_quotes_it(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.reject_sends = 3
+    shell.send_stderr = "orca: dispatch fenced\nrefused: capability revoked"
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    for _ in range(4):
+        orca_pass(shell, config)
+    assert all(send.status == "failed" and send.response["stderr"].endswith("refused: capability revoked") for send in send_actions(tmp_path))
+    [line] = [line for line in escalations(shell) if line.startswith("SEND-FAILED")]
+    assert "; stderr: refused: capability revoked; each try's request id" in line
 
 
 def test_a_send_with_no_parseable_reply_is_unverifiable_not_failed(shell, config, tmp_path):
