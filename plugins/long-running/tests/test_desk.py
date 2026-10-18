@@ -65,8 +65,8 @@ def run(shell, *argv) -> int:
     return ledger.main(list(argv), shell)
 
 
-def desk_shell(**pull) -> FakeShell:
-    shell = FakeShell()
+def desk_shell(kind: type[FakeShell] = FakeShell, **pull) -> FakeShell:
+    shell = kind()
     shell.pulls[PR] = {
         "number": int(PR),
         "state": "open",
@@ -825,6 +825,33 @@ def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(ca
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
     assert "cannot lock ref" in capsys.readouterr().err
     assert shell.fields(PR).get("state") is None
+
+
+class RacingShell(FakeShell):
+    races = 1
+
+    def run(self, argv, stdin=None):
+        return ledger.Shell.run(self, argv, stdin)
+
+    def once(self, argv, stdin):
+        if ledger.is_git_fetch(argv) and self.races:
+            self.races -= 1
+            raise subprocess.CalledProcessError(1, argv, stderr="error: cannot lock ref 'refs/desk/base/dev': is at 1a3f56ec but expected 8a099d99\n")
+        return FakeShell.run(self, argv, stdin)
+
+
+def test_a_settle_that_loses_the_base_ref_lock_to_a_concurrent_fetch_retries_and_lands(capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(ledger, "REF_LOCK_BACKOFF_SECONDS", 0)
+    shell = desk_shell(RacingShell, state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert shell.races == 0
+    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["landed_sha"] == SQUASH
 
 
 def reconcile_shell() -> FakeShell:
