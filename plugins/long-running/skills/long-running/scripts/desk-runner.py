@@ -163,8 +163,8 @@ lost mid-run holds every launch and escalates UNBOUND once. `rebind` runs
 binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
 each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
-incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
-waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
+incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; a case lane, which ranks below its incident's
+fix lane, and any other launch waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
 cci and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
 says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
 repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load. The
@@ -1486,7 +1486,7 @@ class Runner:
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
-        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True, sheds=True)
         self.record(log, f"{line} | case lane {lane} launching on incident xhigh, brief {brief}; root: ratify, and keep the reporter told that this case is still open")
         return True
 
@@ -1609,8 +1609,8 @@ class Runner:
         claimed = {json.loads(reply.target)["reply_to"] for reply in self.book.actions(self.lane(lane), kind="reply") if reply.action_id != key and reply.status != "failed"}
         return next((question for question in questions if question not in claimed), "")
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
-        urgent = owner_directed or model == INCIDENT_MODEL
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "", sheds: bool = False) -> tuple[actions.Action, bool]:
+        urgent = (owner_directed or model == INCIDENT_MODEL) and not sheds
         target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent, "fast": fast, "role": role, "incident": incident})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
