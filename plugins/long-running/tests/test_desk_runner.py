@@ -1695,7 +1695,7 @@ def test_a_prefix_member_with_no_ledger_row_that_a_lane_posted_opened_is_admitte
 
 
 def test_a_rider_with_no_ledger_row_that_a_lane_posted_opened_is_admitted_not_foreign(shell, config, tmp_path):
-    shell.rows = fork_rows()[:3]
+    shell.rows = fork_rows()[:2]
     shell.records = [{"seq": 7, "drive": "d1", "lane": "root", "kind": "opened", "to": ["landing-desk"], "refs": {"prs": [36530]}, "text": "opened #36530 for release-order"}]
     shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36530 BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #36487; name it too or pass --partial to leave it out")]
     landing_pass(shell, config)
