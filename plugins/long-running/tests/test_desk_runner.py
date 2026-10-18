@@ -5410,6 +5410,19 @@ def test_a_stopped_posted_after_the_report_leaves_its_case_lanes_launching(shell
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
 
 
+def test_a_case_lane_on_load_waits_out_the_hold_instead_of_failing_at_once(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    message = unfixed_report(shell, LANE, "ready", CASES[0])
+    shell.cpu_load = 40
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}-case1").actions[f"unfixed:{message['id']}:1"].status == "accepted"
+    assert [line for line in escalations(shell) if line.startswith("LAUNCH-FAILED")] == []
+    shell.cpu_load = 1.0
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1"]
+
+
 def test_a_case_launch_still_pending_when_the_root_stands_the_incident_down_never_starts(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
