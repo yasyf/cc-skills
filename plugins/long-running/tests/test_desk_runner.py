@@ -4293,6 +4293,30 @@ def test_a_root_reply_to_a_decide_answers_that_worker_question(shell, config, tm
     assert escalations(shell) == [f"RELAYED cci#34767 {LANE}: reply to question msg_q9 of dispatch ctx_a"]
 
 
+def test_a_root_decision_that_resolves_a_decide_answers_that_worker_question(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: A or B? | options")
+    cci_record(shell, kind="decision", to=[LANE, "desk-runner"], resolves=decide, text="A now: keep the follower retry.")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [reply] = replies(shell)
+    assert reply[reply.index("--id") + 1] == "msg_q9"
+    assert reply[reply.index("--body") + 1].startswith("A now: keep the follower retry.\n")
+
+
+def test_a_root_record_that_resolves_a_lanes_own_record_relays_nothing(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
+    orca_pass(shell, config)
+    hold = cci_record(shell, lane=LANE, kind="hold", to=["root"], text="HOLD #29020 until the migration lands")
+    cci_record(shell, kind="lift", to=[LANE], resolves=hold, text="migration landed")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert replies(shell) == [] and escalations(shell) == []
+
+
 def test_a_peer_drives_root_reply_to_a_decide_relays_nothing(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]

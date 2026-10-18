@@ -1698,7 +1698,8 @@ prevents acknowledging mail Orca re-addressed to the Run behind the cursor, whic
 and options. It never answers one itself. The root answers with
 `relay --reply-to <msg id>`, or with
 `cci post --kind answer --to <lane> --re <DECIDE seq> --text "<answer>"`, which
-the runner relays as the reply to that question. A root cci reply with `--re` on a
+the runner relays as the reply to that question; a root decision that closes the
+`DECIDE` with `--resolves <DECIDE seq>` is relayed the same way. A root cci reply with `--re` on a
 lane's own record also answers that lane's open question, so the question never
 outlives the answer. Only this drive's root answers; a peer drive's reply
 relays nothing.

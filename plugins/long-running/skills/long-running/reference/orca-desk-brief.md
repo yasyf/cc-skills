@@ -748,7 +748,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 
 | Kind | Root action |
 |---|---|
-| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>`, or `relay --reply-to <msg id>`. |
+| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `cci post --kind answer --to <lane> --re <DECIDE seq>` (a record that `--resolves <DECIDE seq>` relays too), or `relay --reply-to <msg id>`. |
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
 | `INCIDENT-OWNED` | None. Another owner holds the incident the line names, so the runner launched nothing; check the named record agrees. |
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
