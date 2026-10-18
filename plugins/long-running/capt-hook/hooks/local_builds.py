@@ -39,9 +39,9 @@ RELEASE_CLI = "tools/ci"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
 ROOT = [CompactionState(active=True)]
 REFUSAL = (
-    "No local compile, test, vet, typecheck, or lint in a drive, in any lane or the root and for any reason, a red CI step included"
-    " (owner, Oct 13; F341, F348): CI grades. Commit and run `ccx vcs ship`, then read the failing step's log."
-    " A Go golden's single `go test -update` run is the one exception."
+    "No local compile, test, vet, typecheck, or lint runs in a drive, in any lane or the root, a red CI step included,"
+    " and a Go golden's single `go test -update` run is the one exception (owner, Oct 13; F341, F348)."
+    " Commit and run `ccx vcs ship`, then read the failing step's log, since CI grades."
 )
 
 
@@ -100,7 +100,7 @@ def in_drive(evt: BaseHookEvent) -> bool:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local compile, test, vet, typecheck, or lint in a drive[\s\S]*ccx vcs ship"),
+        Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local compile, test, vet, typecheck, or lint runs in a drive[\s\S]*ccx vcs ship"),
         Input(command="go build ./...", state=ROOT): Block(),
         Input(command="go vet ./internal/sandsql/...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(),
         Input(command="cd go/sand && go test ./internal/vm/...", env=LANE_ENV): Block(),
