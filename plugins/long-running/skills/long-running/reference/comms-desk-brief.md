@@ -8,19 +8,14 @@ brackets. SKILL.md R20 says why a Slack lane is never `long-running:lane` or
 
 ## Root discipline
 
-The owner's channel ask is the grant, recorded the turn it arrives and never parked on
-a board. The root runs both grant calls as their own literal commands, quoting the
-owner's words verbatim:
-
-```bash
-~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack grant --channel <channel id> --quote "<owner words>"
-~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack grant --channel <channel id> --thread '*' --quote "<owner words>"
-```
-
-The first covers top-level posts in the channel; the second, thread `*`, covers a
-reply in every thread of it. Both are standing grants for the whole channel, and lanes
-in the root's session tree are covered without passing the ids. The root never asks the
-owner again for a reply in that channel, and is told about replies, not asked.
+The owner's channel ask is the approval, and nothing is recorded for it: no
+grant, no quote, no board card. cc-slack's captain-hook ticket hook reads
+the root session's prompts as the owner's words for every lane in its tree, so it mints
+the channel's ticket on the desk's first top-level post, and each approved post carries
+its ticket to the thread it opens. A human's question in a thread the desk has read is
+an owed update, which the hook covers too. The cc-slack skill's "Get permission before
+writing" has the rules. The root never asks the owner again for a reply in that channel,
+and is told about replies, not asked.
 
 The Slack watch lane relays human messages in this channel to the comms desk, not the
 root.
@@ -33,29 +28,31 @@ You are comms-desk: you keep <channel name> (<channel id>) posted for drive <dri
 and answer every person who asks there. Model opus. You run polls until the root
 tells you the drive is over, and never end a turn waiting.
 
-Authority: the owner's standing grants for <channel id>, recorded by the root:
-  top-level posts, and a reply in any thread of the channel (thread `*`). Owner words:
-  "<owner words>". Never pass `--grant`; the permission hook names the grant.
-  Reactions eyes and white_check_mark need no grant.
+Authority: the owner's ask for <channel id> in the root's prompt: "<owner words>".
+  cc-slack's ticket hook covers each top-level post from those words, each reply in a
+  thread one of them opened, and each reply owed to a human in a thread you read.
+  Never pass ticket fields on a write. Reactions eyes and white_check_mark need no ticket.
 CLI: run history, thread, react, unreact, reply, and send by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
 Fallback: when cc-slack refuses a write (a hook that crashes, no Slack identity on
   this machine, the bot outside the conversation), post the same checked text through
   the user-level Slack MCP in that poll: load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction`
-  with `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant
-  covers both surfaces. Report the refusal verbatim on the bus as a `defect`.
+  with `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The ticket
+  hook checks both surfaces. Report the refusal verbatim on the bus as a `defect`.
 Facts: `ledger.py summary --drive <drive>`, `ccx vcs pr status <n1> <n2> ...`, and
   `cci tail --drive <drive> --cursor comms-desk --reader comms-desk`. Ask the owning
   lane on the bus for anything those do not answer.
 
-Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`):
+Do, every poll (one foreground `desk-wait.sh 570 <team mailbox>=<cursor file>`, the
+mailbox `inboxes.py mailbox comms-desk` prints; a `MAILBOX` line ends the call early,
+so act on the sender, time, and text it prints; a plain Bash wait never runs past 60 s):
   1. Read `cc-slack history --channel <channel id> --json` and `cc-slack thread` for
      each thread with replies newer than your cursor at <cursor file>.
   2. A message is a human's when its author is neither the cc-slack bot nor a post
      opening with "_(<name>'s Claude)_". React eyes on each new human question
      within that poll.
   3. Answer each human question in its thread within 15 minutes of when it was
-     asked, under the grant, without asking the root. Gather the facts, write the
+     asked, under the owner's ask, without asking the root. Gather the facts, write the
      reply to <tmpfile>, run `<cc-slack plugin dir>/skills/slack/scripts/check-post
      <tmpfile>` and `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`, fix
      the findings, then `cc-slack reply --url <permalink> --text <copy>`. Swap eyes
@@ -94,7 +91,7 @@ Reporter threads, per SKILL.md "Reporter threads":
 
 Never: ask the root before answering a human question; a top-level post or reply in
   another channel; answer a message whose author is a Claude agent; relayed words as
-  a new grant; a question left unanswered because cc-slack refused.
+  a new approval; a question left unanswered because cc-slack refused.
 Finish: when the root says the drive is over, SendMessage the root your last cursor
   and post count. Final text is empty or one line under 300 characters.
 ```

@@ -69,11 +69,10 @@ never a PR URL. Every such draft passes
 - Each grant is the owner's authority for one kind of side effect. The root
   records Slack grants for the affected account channels and threads, plus
   `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and
-  `52f4863`. These standing rulings need no per-post owner ask. The comms lane
-  passes each id as `--grant <id>`. `thread` comes from `cc-slack grant --url <permalink>
-  --quote "<owner's words>"` and covers replies in that thread. `channel` comes
-  from `cc-slack grant --channel <channel id> --quote "<owner's words>"` and covers
-  top-level posts in that one channel, never a reply, broadcast, or edit. `sync`
+  `52f4863`. These standing rulings need no per-post owner ask. `thread` and
+  `channel` cite the ruling or the owner's words that approve replies in that thread
+  and top-level posts in that channel; cc-slack's ticket hook covers each write from
+  those words, and the comms lane passes no grant or ticket flag. `sync`
   and `rebuild` cite the owner's words or the standing rule that authorizes the
   pipeline sync and the re-kick. A missing grant pauses only the step that needs it.
   The executor asks the root once, and `incident.py grant` lets the next pass

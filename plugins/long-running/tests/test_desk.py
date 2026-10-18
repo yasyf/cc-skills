@@ -37,11 +37,11 @@ def test_lanes_never_block_a_plain_wait_past_sixty_seconds(path):
     assert "-- <command>" in text
 
 
-def test_the_comms_desk_answers_under_the_drive_start_channel_grant_without_the_root():
+def test_the_comms_desk_answers_under_the_owners_channel_ask_without_the_root():
     skill = Path(__file__).resolve().parents[1] / "skills/long-running"
     brief = (skill / "reference/comms-desk-brief.md").read_text()
-    assert "--channel <channel id> --quote" in brief
-    assert "--channel <channel id> --thread '*' --quote" in brief
+    assert "ticket hook" in brief and "cc-slack grant" not in brief and "--grant" not in brief
+    assert "desk-wait.sh 570 <team mailbox>=<cursor file>" in brief and "desk-wait.sh 265" not in brief
     assert "within 15 minutes" in brief
     assert "ask the root before answering a human question" in brief
     assert "reference/comms-desk-brief.md" in (skill / "SKILL.md").read_text()

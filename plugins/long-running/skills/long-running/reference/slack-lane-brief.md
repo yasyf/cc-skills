@@ -99,7 +99,7 @@ Use for an incident the executor owns (`reference/active-alert-brief.md`), spawn
 the R16 turn. Spawn `general-purpose` on opus. It posts without a root turn:
 the first account posts use the standing rulings in cc-notes answers `5ad4507`
 and `52f4863`, with grants supplied at launch. Each executor event also carries
-its cc-slack grant id. No per-post owner ask precedes the acknowledgement.
+its grant reference. No per-post owner ask precedes the acknowledgement.
 
 ```text
 ccx: role=comms
