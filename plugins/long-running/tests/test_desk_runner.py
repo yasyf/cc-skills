@@ -1679,6 +1679,30 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
 
+def admissions(shell: FakeShell) -> list[list[str]]:
+    return [call[5:] for call in shell.calls if len(call) > 4 and Path(call[1]).name == "ledger.py" and call[4] == "refresh" and "--pr" in call]
+
+
+def test_a_prefix_member_with_no_ledger_row_that_a_lane_posted_opened_is_admitted_not_refused(shell, config, tmp_path):
+    shell.rows = stack_rows()[1:]
+    shell.records = [{"seq": 7, "drive": "d1", "lane": "artifact-retry", "kind": "opened", "to": ["root"], "refs": {"prs": [28997]}, "text": "opened #28997"}]
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert admissions(shell) == [["--repo", "Forge-AI/monorepo", "--ledger", "abc", "--pr", "28997", "--lane", "28997=artifact-retry"]]
+    [line] = escalations(shell)
+    assert line.startswith("ADMITTED admitted:28997 #28997: ") and "under artifact-retry, who posted it opened on cci #7" in line
+
+
+def test_a_rider_with_no_ledger_row_that_a_lane_posted_opened_is_admitted_not_foreign(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    shell.records = [{"seq": 7, "drive": "d1", "lane": "root", "kind": "opened", "to": ["landing-desk"], "refs": {"prs": [36530]}, "text": "opened #36530 for release-order"}]
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36530 BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #36487; name it too or pass --partial to leave it out")]
+    landing_pass(shell, config)
+    assert [call[-2:] for call in admissions(shell)] == [["--lane", "36530=root"]]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["ADMITTED"]
+
+
 def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shell, config, tmp_path):
     shell.rows = fork_rows()[:3]
     shell.gates["36487"] = [

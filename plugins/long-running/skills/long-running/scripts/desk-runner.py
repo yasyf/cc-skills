@@ -194,7 +194,8 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
 unless a commit status other than `landing-gates`, `release-pr-check`, `emergency-head`, or `fidelity` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. It logs one `NOT-OURS`
+holding a PR that no drive lane registered or posted opened on cci. A prefix member or rider with no ledger row that a drive lane posted
+`opened` gets a row through `ledger.py refresh --pr` under that lane, logged `ADMITTED`, and is gated from the next pass. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
 the required `landing-gates` check enforces, and removes that label once the record closes. A `hold:all <reason>` line in
@@ -2593,8 +2594,8 @@ class Landing:
             if would := WOULD_ENQUEUE.search(done.out):
                 self.accept(tips, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
             for pr, match in verdicts.items():
-                if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
-                    self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+                if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"] and not self.admit_opened([pr]):
+                    self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, has no ledger row, and no drive lane posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
                     gated_red = pr in children and any(FAILING_REQUIRED.match(segment) for segment in match["detail"].split("; ")) and self.gated_red(pr, match["sha"])
@@ -2945,7 +2946,10 @@ class Landing:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
-            self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
+            admitted = self.admit_opened([pr for pr in foreign if pr not in rows])
+            if refused := [pr for pr in foreign if pr not in admitted]:
+                why = "; ".join(f"#{pr} {'has a ledger row no drive lane registered' if pr in rows else 'has no ledger row'}, and no drive lane posted it opened on cci" for pr in refused)
+                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {numbered(refused)}: {why}; nothing was enqueued; the lane that opened each runs ledger.py register --lane <lane> --pr <n>")
             return
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
@@ -2963,6 +2967,26 @@ class Landing:
         policy = self.runner.landing_policy()
         authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), authority, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+
+    def admit_opened(self, prs: list[str]) -> list[str]:
+        """Give each PR of `prs` that a drive lane posted `opened` on cci a ledger row, through one `ledger.py refresh --pr`, under the lane of its newest such record, so a stack member the lane never registered is gated from the next pass; the PRs admitted. `stack-enqueue` named each PR in this repository's stack, so a cci `opened` record, which carries no repository, is enough. A refresh that fails logs `ADMIT-FAILED` and admits none."""
+        drive = self.runner.config.drive
+        lanes = {}
+        for pr in prs:
+            opened = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=opened", "--pr", pr) if (record["kind"], record["drive"]) == ("opened", drive) and int(pr) in record["refs"].get("prs", [])]
+            if opened:
+                lanes[pr] = (opened[-1]["lane"], opened[-1]["seq"])
+        if not lanes:
+            return []
+        flags = [flag for pr, (lane, _) in lanes.items() for flag in ("--pr", pr, "--lane", f"{pr}={lane}")]
+        done = self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger, *flags)
+        if done.code:
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            self.runner.escalate(f"admit:{','.join(lanes)}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "ADMIT-FAILED", numbered(list(lanes)), f"ledger.py refresh could not admit them: {last[0]}; the runner tries again on the next pass")
+            return []
+        for pr, (lane, seq) in lanes.items():
+            self.runner.escalate(f"admitted:{pr}", "ADMITTED", f"#{pr}", f"no ledger row held it, so the runner gave it one under {lane}, who posted it opened on cci #{seq}; the next pass gates it")
+        return list(lanes)
 
     def awaiting_go(self, enqueues: list[actions.Action], heads: dict[str, str]) -> bool:
         """Whether a head in `heads` the queue dropped for a failure outside its stack still waits for a root `go` record naming its PR, posted after the newest such drop."""
