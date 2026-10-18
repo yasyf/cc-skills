@@ -878,6 +878,11 @@ class Orca:
         return True
 
 
+def status_description(text: str) -> str:
+    text = "".join(char for char in text if ord(char) <= 0xFFFF)
+    return text if len(text) <= STATUS_TEXT else text[: STATUS_TEXT - 1] + "…"
+
+
 def clipped_by_cci(text: str) -> bool:
     return len(text) == CCI_TEXT and text.endswith("…")
 
@@ -2874,7 +2879,7 @@ class Landing:
             payload = {
                 "state": state,
                 "context": FIDELITY_STATUS,
-                "description": description if len(description) <= STATUS_TEXT else description[: STATUS_TEXT - 1] + "…",
+                "description": status_description(description),
             }
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
             self.forget(head)
