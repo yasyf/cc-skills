@@ -19,6 +19,8 @@ A relay is accepted, then started and completed by the lane itself: it replies
 `started <key>` and `done <key>: <result>` on the action's thread. The send is its own
 `send:` action, delivery evidence only. A send whose response is lost, Orca's runtime
 unreachable or its output not JSON, becomes `unverifiable` and is settled from Orca's request receipt or the recipient's mailbox.
+Every failed or lost send keeps the request id Orca named, the caller identity the runner sent as, Orca's error, the call's
+stderr, and, once read, the receipt state, on its send action.
 With neither thirty seconds on, the runner sends the relay again on the same thread,
 under the same key, and repeats that once every thirty seconds until Orca holds a
 receipt or the message shows on the thread. A delivered resend logs nothing. A status
@@ -370,6 +372,7 @@ HEARTBEAT = "orca-runner.heartbeat.json"
 ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
 RESEND_LIMIT = 2
+STDERR_KEPT = 1200
 RESEND = ":resend"
 RETRY = ":retry"
 SEND_ATTEMPTS = 3
@@ -794,11 +797,15 @@ class Orca:
         self.sender: dict[str, str] = {}
 
     def call(self, *argv: str) -> dict:
+        """Orca's JSON reply; a refusal also carries the call's stderr under `stderr`, and output that is not JSON reads as an `unparseable` refusal."""
         done = self.shell.run(["orca", *argv, "--json"], env=self.sender or None)
         try:
-            return json.loads(done.out)
+            reply = json.loads(done.out)
         except json.JSONDecodeError:
-            return {"ok": False, "error": {"code": UNPARSEABLE, "message": (done.out or done.err).strip()[:300]}}
+            return {"ok": False, "error": {"code": UNPARSEABLE, "message": (done.out or done.err).strip()[:300]}, "stderr": done.err.strip()[-STDERR_KEPT:]}
+        if not reply.get("ok") and done.err.strip():
+            reply["stderr"] = done.err.strip()[-STDERR_KEPT:]
+        return reply
 
     def ask(self, *argv: str) -> dict:
         """`call`, raising OrcaUnreachable when Orca gave no answer: a runtime or connection error, a timeout, or output that is not its JSON."""
@@ -1710,7 +1717,8 @@ class Runner:
         if any(attempt.status != "failed" for attempt in tries):
             return
         if len(tries) >= SEND_ATTEMPTS or resends(tries):
-            self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}")
+            stderr = ((tries[-1].response or {}).get("stderr") or "").splitlines()[-1:]
+            self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}{f'; stderr: {stderr[0]}' if stderr else ''}; each try's request id, caller, error, and stderr are on its send action")
             return
         send_id = f"send:{action.action_id}:{dispatch.id}#{len(tries) + 1}"
         self.book.accept(container, send_id, "send", dispatch.id, action.action_id, None)
@@ -1744,12 +1752,16 @@ class Runner:
             if not answers:
                 self.orca.wake(dispatch.terminal, f"{action.authority_ref}: read Orca message on thread {thread} now")
         elif answers and reply["error"]["code"] == ANSWER_CONFLICT:
-            self.book.attempt(container, lambda incident: incident.fail(send_id, f"{ANSWER_CONFLICT}: {reply['error'].get('message', '')}"[:300]))
+            self.book.attempt(container, lambda incident: failed(incident, send_id, f"{ANSWER_CONFLICT}: {reply['error'].get('message', '')}"[:300], self.send_record(reply)))
             self.send(container, dispatch, action)
         elif reply["error"]["code"] in UNREACHABLE:
-            self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request_id(reply)}))
+            self.book.attempt(container, lambda incident: lost(incident, send_id, self.send_record(reply)))
         else:
-            self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
+            self.book.attempt(container, lambda incident: failed(incident, send_id, json.dumps(reply.get("error"))[:300], self.send_record(reply)))
+
+    def send_record(self, reply: dict) -> dict:
+        """What a failed send keeps for diagnosis: the request id Orca named, the caller identity the runner sent as, Orca's error, and the call's stderr."""
+        return {"request_id": request_id(reply), "caller": self.orca.sender.get("ORCA_TERMINAL_HANDLE") or self.shell.env("ORCA_TERMINAL_HANDLE"), "error": reply.get("error"), "stderr": reply.get("stderr", "")}
 
     def answered_elsewhere(self, container: str, action: actions.Action, dispatch: Dispatch) -> bool:
         """Whether Orca refused a reply of `action` because its question already holds another answer, so the text goes to the dispatch as a message instead."""
@@ -1767,6 +1779,7 @@ class Runner:
             state = self.orca.request_state(request) if request else "absent"
             if state in ("pending", UNREAD):
                 continue
+            self.book.attempt(container, lambda incident, key=send.action_id, state=state: setattr(incident.action(key), "response", {**(incident.action(key).response or {}), "receipt": state}))
             dispatch = self.orca.show(lane)
             current = dispatch if dispatch and dispatch.id == send.target else None
             if state == "completed" and current:
@@ -2382,6 +2395,11 @@ class Runner:
 
 def lost(incident: actions.Incident, key: str, response: dict) -> None:
     incident.lose(key)
+    incident.action(key).response = response
+
+
+def failed(incident: actions.Incident, key: str, reason: str, response: dict) -> None:
+    incident.fail(key, reason)
     incident.action(key).response = response
 
 
