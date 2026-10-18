@@ -2149,19 +2149,30 @@ class StalledShell(FakeShell):
         return super().run(argv, stdin)
 
 
-def test_a_register_that_stalls_names_the_stalled_step_on_stderr(capsys):
-    assert run(StalledShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070") == 1
+def command_line_register(shell: FakeShell, monkeypatch) -> int:
+    monkeypatch.setattr(sys, "argv", ["ledger.py", "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070"])
+    return ledger.main(None, shell)
+
+
+def test_a_register_that_stalls_names_the_stalled_step_on_stderr(capsys, monkeypatch):
+    assert command_line_register(StalledShell(), monkeypatch) == 1
 
     err = capsys.readouterr().err.splitlines()
     assert err[0] == "ledger.py: wait for the ledger lock …" and err[1].startswith("ledger.py: wait for the ledger lock took ")
     assert err[2:] == ["ledger.py: read PR rows …", f"ccn ledger show {LEDGER} --json timed out after 600s and was killed"]
 
 
-def test_a_register_names_each_step_with_its_seconds(capsys):
-    run(FakeShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070")
+def test_a_command_line_register_names_each_step_with_its_seconds(capsys, monkeypatch):
+    command_line_register(FakeShell(), monkeypatch)
 
     steps = [line.split(" took ")[0] for line in capsys.readouterr().err.splitlines() if " took " in line]
     assert steps == ["ledger.py: wait for the ledger lock", "ledger.py: read PR rows", "ledger.py: write row #24070"]
+
+
+def test_a_register_run_in_process_prints_no_steps(capsys):
+    run(FakeShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070")
+
+    assert capsys.readouterr().err == ""
 
 
 def test_unregister_drops_the_prefix_and_only_the_untouched_rows_it_alone_pulled_in(capsys, lock):

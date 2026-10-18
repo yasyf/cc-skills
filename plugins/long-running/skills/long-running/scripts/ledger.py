@@ -260,12 +260,14 @@ REFUSAL = {
 
 
 @contextmanager
-def stage(name: str):
-    """Name one step of a call on stderr as it starts, and again with its seconds once it ends, so a step that stalls is named instead of silent."""
-    print(f"ledger.py: {name} …", file=sys.stderr, flush=True)
+def stage(name: str, traced: bool = True):
+    """Name one step of a call on stderr as it starts, and again with its seconds once it ends, so a step that stalls is named instead of silent; silent unless `traced`."""
+    if traced:
+        print(f"ledger.py: {name} …", file=sys.stderr, flush=True)
     started = time.monotonic()
     yield
-    print(f"ledger.py: {name} took {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
+    if traced:
+        print(f"ledger.py: {name} took {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
 
 
 def is_ccn_read(argv: list[str]) -> bool:
@@ -1440,28 +1442,27 @@ def discovered_only(fields: dict[str, str], lane: str, prefix: str) -> bool:
 
 
 def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
-    """A PR row keeps the lane that first claimed it; a re-push only moves its registered head. Each step and subprocess is named on stderr as it starts and with its seconds once it ends."""
+    """A PR row keeps the lane that first claimed it; a re-push only moves its registered head. Run from the command line, each step and subprocess is named on stderr as it starts and with its seconds once it ends."""
     if not args.branch_prefix and not args.pr:
         raise SystemExit("register needs --branch-prefix, --pr, or both")
     if args.head and len(args.pr) != 1:
         raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
-    shell.trace = True
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
-        with stage(f"check prefix {args.branch_prefix}"):
+        with stage(f"check prefix {args.branch_prefix}", shell.trace):
             guard_prefix(shell, args, notes)
-        with stage(f"write lane {args.lane}"):
+        with stage(f"write lane {args.lane}", shell.trace):
             notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
     with ExitStack() as held:
-        with stage("wait for the ledger lock"):
+        with stage("wait for the ledger lock", shell.trace):
             held.enter_context(locked(default_lock(args.ledger)))
-        with stage("read PR rows"):
+        with stage("read PR rows", shell.trace):
             rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
         for pr, owner in owners.items():
             fields = {"lane": owner, "registered": owner} | ({"registered_head": args.head} if args.head else {})
             if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
-                with stage(f"write row #{pr}"):
+                with stage(f"write row #{pr}", shell.trace):
                     notes.set_fields(pr, fields)
     namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
     claimed = "".join(f" #{pr}" if owner == args.lane else f" #{pr} (lane {owner})" for pr, owner in owners.items())
@@ -2577,6 +2578,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.directory:
         os.chdir(args.directory)
     shell = shell or Shell()
+    shell.trace = argv is None and args.handler is cmd_register
     if "repo" in vars(args):
         default = working_repo(shell, args.repo)
         checkout = vars(args).get("checkout")
