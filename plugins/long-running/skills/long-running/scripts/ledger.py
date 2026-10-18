@@ -124,6 +124,9 @@ MESSAGE_ANSWERER = "ledger"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 CCN_READ_ATTEMPTS = 4
 CCN_READ_BACKOFF_SECONDS = 0.5
+REF_LOCK_ATTEMPTS = 5
+REF_LOCK_BACKOFF_SECONDS = 0.2
+REF_LOCK_RACE = "cannot lock ref"
 COMMAND_TIMEOUT_SECONDS = 600
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
@@ -260,11 +263,17 @@ def is_ccn_read(argv: list[str]) -> bool:
     return argv[:3] == ["ccn", "ledger", "show"]
 
 
+def is_git_fetch(argv: list[str]) -> bool:
+    return argv[0] == "git" and "fetch" in argv[1:4]
+
+
 class Shell:
     """The single subprocess boundary: `gh`, `bk`, `git`, `ccx`, and `ccn` all pass through here.
 
     A `ccn ledger show` exits non-zero while another desk is writing the same ledger, so
     reads retry with a short backoff; writes never do, because a retried write can land twice.
+    A `git fetch` that loses a ref lock to a concurrent fetch retries the same way, since a
+    forced refspec lands once however many times it runs.
     Input reaches the child from a file, never a pipe this process writes while the child's
     output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
     """
@@ -275,6 +284,13 @@ class Shell:
                 return self.once(argv, stdin)
             except subprocess.CalledProcessError:
                 time.sleep(CCN_READ_BACKOFF_SECONDS * 2**attempt)
+        for attempt in range(REF_LOCK_ATTEMPTS - 1 if is_git_fetch(argv) else 0):
+            try:
+                return self.once(argv, stdin)
+            except subprocess.CalledProcessError as error:
+                if REF_LOCK_RACE not in (error.stderr or ""):
+                    raise
+                time.sleep(REF_LOCK_BACKOFF_SECONDS * 2**attempt)
         return self.once(argv, stdin)
 
     @staticmethod
