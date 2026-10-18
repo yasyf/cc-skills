@@ -462,7 +462,7 @@ executor owns the incident, through the final reply:
   launching or live. It refuses Claude for the fix and
   evidence roles and never uses fable or astra.
 - It posts each comms event (ack, PR, review request, landing, live, final reply)
-  to the comms lane on the bus with that event's cc-slack grant id. It confirms each
+  to the comms lane on the bus with that event's grant reference. It confirms each
   posted ts from the lane's bus answer.
 - It holds a landed fix at `activation_pending` until the live configuration reads
   back as the landed tree. It runs a canary, rebuilds each failed head of the outage
@@ -845,18 +845,18 @@ finding. Then run
 
 Permission follows the cc-slack skill. An owner instruction that says what to post or
 who gets it ("explain to X …", "tell them …", "reply there", "manage the comms") is the
-approval: the root records `slack_grant` for the thread under discussion with the
-owner's words verbatim that turn and hands the grant id to the Slack lane, which posts
-directly with no draft round trip. Only a post the owner did not ask for goes back as
+approval: cc-slack's ticket hook reads it in the root's prompt and covers the Slack
+lane's writes to that place, so the lane posts directly with no draft round trip and
+nothing is recorded first. Only a post the owner did not ask for goes back as
 an exact draft for an `AskUserQuestion` `Send` preview. On a hook refusal for a judge
 timeout, the lane retries once, then reports the verdict to the hook lane and keeps going.
 The root hands the Slack lane facts: what happened, when in Pacific time, who asked,
 and every link. It never hands over wording, never writes a "proposed reply" into a
 question, and never tells a lane to post its words "verbatim". An approval freezes
 the wording it shows, so a root-written draft reaches the thread unchanged.
-The incident comms lane posts with the cc-slack grant id on each executor event
-(`--grant <id>`) and never returns drafts for a granted thread. The grant comes
-from the owner through cc-slack, never from owner words a lane relays.
+The incident comms lane posts on each executor event under the ticket the owner's
+words or a standing ruling minted, and never returns drafts for a covered thread. The
+approval comes from the owner's own words, never from owner words a lane relays.
 
 The root does not compose Slack copy; the Slack lane drafts and posts as the cc-slack
 bot. A write the owner approved, through an `AskUserQuestion` `Send` preview or an
@@ -955,10 +955,10 @@ cloud run so what does it have to do with his local sand?", and in the thread it
 "lol sorry for the insane spam here".*
 
 **The drive's updates channel.** The turn the owner names a channel for the drive's
-updates, the root records the owner's words as the channel's grant and spawns
-`comms-desk` from `reference/comms-desk-brief.md`. The grant is two literal
-`cc-slack grant` commands quoting those words: `--channel <id>` for top-level posts,
-and `--channel <id> --thread '*'` for a reply in every thread of the channel. Neither
+updates, the root spawns `comms-desk` from `reference/comms-desk-brief.md`. The
+owner's words in the root's prompt are the approval: cc-slack's ticket hook mints the
+channel's ticket from them on the first post, each post's ticket covers the thread it
+opens, and a reply owed to a human in a thread the desk read is covered too. Nothing
 waits on a board or a second owner ask. Under them the comms desk answers a human's
 question in the channel within 15 minutes without asking the root; only a reply that
 commits the drive to new behaviour goes to the root first.
