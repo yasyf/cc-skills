@@ -158,8 +158,7 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   cci drive <drive>; desk <desk>; cci cursor <desk>
   holds file <path>, root-owned; rules-override inbox <path, read by rules-review.py>
-  team mailbox <absolute <team dir>/inboxes/<desk>.json, the team dir from
-    `inboxes.py mailbox <any live teammate>`, never the drive id>; mailbox cursor <path>
+  team mailbox source `mailbox:<desk>`, resolved by desk-wait; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
@@ -175,11 +174,13 @@ After your own compaction, resume in place. `cci` holds your addressed records, 
 At spawn:
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
     `timeout: 60000`, running
-    `desk-wait.sh 50 cci:<drive>:<desk> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+    `desk-wait.sh 50 cci:<drive>:<desk> mailbox:<desk>=<mailbox cursor> [<other file>=<cursor file>...]`.
     It waits at most 50 seconds and returns on new addressed records, a new line
     in another watched file, or a `MAILBOX <n> unread` line followed by each new
     message's sender, time, and full text. Claude Code delivers mail only after
-    your turn ends, so act on that printed text. Run step 0 on the output, then
+    your turn ends, so act on that printed text. Run it as the Bash call itself
+    and never filter or discard its output: the `MAILBOX` text is your only copy
+    of that mail. Run step 0 on the output, then
     rerun the call in a loop.
     Top-level session: arm one Monitor on
     `cci watch --drive <drive> --cursor <desk> --to <desk>`

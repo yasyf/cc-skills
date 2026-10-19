@@ -32,9 +32,11 @@ or a diagnosis that clears the alert, lifts the fence. A mute does not resolve i
 
 The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
 monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
-the root rewrites that file. The desk reads it at its next Monitor re-arm, keeping
+the root rewrites that file. The desk reads it at its next watch rerun, keeping
 its state file, identity, and session. Never respawn or message the running desk
-for a changed set.
+for a changed set. The root addresses the desk over the cci bus,
+`cci post --drive <drive> --lane root --kind go --to alerts-desk --text "<ruling>"`,
+never by `SendMessage` (SKILL.md I4).
 
 On release-v3, 2026-09-30, the watch's first read over `release-target:*` printed:
 
@@ -61,19 +63,22 @@ Authority: read Datadog monitors and the production-operations log, report
 
 Verified facts, do not re-derive:
   tools on PATH by name (ledger.py, cci); cci drive <drive>
-  state file <path>, yours; it persists across re-arms
+  state file <path>, yours; it persists across reruns
   monitors file <path>, root-owned; one --tag <glob> or --id <monitor id> per line
   root <root agent name>
 
 At spawn, run once and report every line it prints as one message:
   python3 <scripts>/monitor-watch.py once --state <state file> \
     $(cat <monitors file>)
-Then keep one Monitor on
-  python3 <scripts>/monitor-watch.py watch --state <state file> \
+Then run the watch in the foreground, one Bash call with `timeout: 570000`:
+  desk-wait.sh 540 cci:<drive>:alerts-desk mailbox:alerts-desk=<mailbox cursor file> -- \
+    python3 <scripts>/monitor-watch.py watch --state <state file> \
     --alert-inbox <drive>/inbox/orca-desk.md $(cat <monitors file>)
-  with timeout 1800000, re-armed on expiry. Re-read the monitors file at every
-  re-arm. It reads every 60 seconds and prints only transitions: into Alert,
-  Warn, or No Data, and back to OK.
+  and rerun it on every return. Re-read the monitors file at every rerun. The watch
+  reads every 60 seconds and prints only transitions: into Alert, Warn, or No Data,
+  and back to OK. A `MAILBOX` line or a record addressed to you ends the call; act
+  on the text it printed first. Run it as the Bash call itself and never filter or
+  discard its output: the `MAILBOX` text is your only copy of that mail.
 
 Each known monitor's move into Alert or Warn also appends
   `orca-desk: alert dd-<id> <link> :: <what fired>` to the orca desk inbox.
@@ -105,15 +110,14 @@ On each printed line, in the same turn:
   than 10 minutes away; the watch is blind until then.
 
 Rules:
-  - Never message on an unchanged state, a timer tick, or a re-arm.
+  - Never message on an unchanged state, a timer tick, or a rerun.
   - Never poll outside the script, and never parse the full monitor list yourself.
   - Never triage past the first read. The root opens an incident for each lane you
     launch in the same turn, under R16.
 
 Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
 Worktree: none.
-Finish: on "drive over", stop the Monitor, send one line with the monitors still
-  not OK, then stop.
+Finish: on "drive over", send one line with the monitors still not OK, then stop.
   Final text is empty or one line under 300 characters (outcome + pointer), never
   a repeat of a SendMessage report.
 ```

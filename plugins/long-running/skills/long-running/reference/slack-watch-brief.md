@@ -35,14 +35,18 @@ Incident inbox: <drive>/inbox/orca-desk.md.
 Tools: ToolSearch-load mcp__slack__slack_conversations_history,
   mcp__slack__slack_get_thread, and SendMessage once at start.
 
-Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<mailbox cursor file>
-  <state dir>/slack/watched-threads.jsonl=<watch list cursor file>`; team mailbox is
-  <absolute path, from `inboxes.py mailbox <lane>`>):
+Do, every poll (foreground `desk-wait.sh 265 cci:<drive>:<watch lane name>
+  mailbox:<watch lane name>=<mailbox cursor file>
+  <state dir>/slack/watched-threads.jsonl=<watch list cursor file>`, naming your own
+  lane, never a predecessor's):
   Use a separate cursor file for the mailbox and for the watch list. A
   `MAILBOX <n> unread` line ends the Bash call, followed by each new message's
-  sender, time, and full text. Claude Code delivers mail only after your turn
-  ends, so act on that text. A row appended to the watch list ends the call
-  within seconds and prints the row; poll it at once. Never end the turn waiting.
+  sender, time, and full text, and so does a cci record the root addresses to you.
+  Claude Code delivers mail only after your turn ends, so act on that text.
+  Run it as the Bash call itself and never filter or discard its output: the
+  `MAILBOX` text is your only copy of that mail. A row appended to the watch list
+  ends the call within seconds and prints the row; poll it at once. Never end the
+  turn waiting.
   1. Re-read watched-threads.jsonl in full. The open threads are every thread with
      a post or link row after its last close row; rows appended since the last
      poll join this poll.

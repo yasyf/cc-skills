@@ -3,7 +3,7 @@
 
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...
     inbox-rotate.py [--hours 6] FILE...
-    desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]
+    desk-wait.sh <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]
     inboxes.py mailbox <lane>
 
 STDLIB ONLY. The shims call this module's digest, rotate, and wait commands.
@@ -35,8 +35,11 @@ each such entry as a `== <from> <timestamp>` header and its full text. Claude Co
 delivers an in-process teammate's mail only once its turn ends, so a busy lane reads
 the message here, not from the harness. The stat check runs every
 0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
-never wake it. A cci:<drive>:<lane> source prints the cci records addressed to
-<lane> past the cursor named <lane>, through `cci tail`, which advances it.
+never wake it. A mailbox:<lane> source watches the team mailbox `mailbox` resolves
+for <lane>, and the call exits 1 when no roster lists it. A <file> source must be an
+absolute path; a relative one exits 2. A cci:<drive>:<lane> source prints the cci
+records addressed to <lane> past the cursor named <lane>, through `cci tail`, which
+advances it.
 
 wait ... -- <command> runs the command in its own process group, with its output
 passing through, and returns with its exit status when it exits first. When a source
@@ -73,7 +76,8 @@ DISPLAY_CHARS = 400
 DIGEST_CHARS = 200
 DIGEST_BYTES = 6144
 ROTATE_HOURS = 6.0
-WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]"
+WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]"
+MAILBOX_SOURCE = "mailbox:"
 WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
@@ -286,11 +290,18 @@ def wait(argv: list[str]) -> int:
     if len(argv) < 2 or not re.fullmatch(r"[0-9]+", argv[0]) or not all(sources) or (guarded and not command):
         print(WAIT_USAGE, file=sys.stderr)
         return 2
+    paths = [(source["file"], source_path(source["file"]), Path(source["cursor"])) for source in sources if source["file"]]
+    for named, path, _ in paths:
+        if path is None:
+            print(f"no team roster lists {named.removeprefix(MAILBOX_SOURCE)}", file=sys.stderr)
+            return 1
+        if not path.is_absolute():
+            print(f"desk-wait.sh: {named} is not an absolute path; name a team mailbox as {MAILBOX_SOURCE}<lane>", file=sys.stderr)
+            return 2
     deadline = time.monotonic() + int(argv[0])
     feeds = [(source["drive"], source["lane"]) for source in sources if source["drive"]]
-    paths = [source for source in sources if source["file"]]
-    files = [source for source in paths if not Mailbox.holds(Path(source["file"]))]
-    mailboxes = [(Mailbox(Path(source["file"])), Path(source["cursor"])) for source in paths if Mailbox.holds(Path(source["file"]))]
+    files = [(path, cursor) for _, path, cursor in paths if not Mailbox.holds(path)]
+    mailboxes = [(Mailbox(path), cursor) for _, path, cursor in paths if Mailbox.holds(path)]
     child = subprocess.Popen(command, start_new_session=True) if command else None
     while True:
         changed = False
@@ -310,8 +321,7 @@ def wait(argv: list[str]) -> int:
                 for entry in fresh:
                     print(f"== {entry['from']} {entry['timestamp']}\n{entry['text']}", flush=True)
                 changed = True
-        for source in files:
-            watched, cursor = Path(source["file"]), Path(source["cursor"])
+        for watched, cursor in files:
             seen = seen_count(cursor)
             lines = Inbox(watched).lines() if watched.is_file() else []
             if len(lines) > seen:
@@ -331,6 +341,11 @@ def wait(argv: list[str]) -> int:
                 end(child)
             return 0
         pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes], child)
+
+
+def source_path(file: str) -> Path | None:
+    lane = file.removeprefix(MAILBOX_SOURCE)
+    return mailbox_of(lane) if lane != file else Path(file)
 
 
 def mailbox_of(lane: str) -> Path | None:

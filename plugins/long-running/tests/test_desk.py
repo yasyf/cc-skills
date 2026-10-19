@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,16 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     assert "timeout: 60000" in text
     assert "cci watch" in text
     assert "tail -n 0 -F" not in text
+
+
+DESK_BRIEFS = ["landing-desk", "priority-desk", "comms-desk", "slack-watch", "drive-watchdog", "alerts-desk"]
+
+
+@pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md", *(f"reference/{desk}-brief.md" for desk in DESK_BRIEFS)])
+def test_every_desk_wait_names_a_mailbox_source_desk_wait_resolves(path):
+    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
+    assert re.search(r"desk-wait\.sh [^`]*mailbox:", text)
+    assert "<team mailbox>" not in text
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md"])
