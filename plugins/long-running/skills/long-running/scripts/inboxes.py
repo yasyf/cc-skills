@@ -205,13 +205,21 @@ def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | No
             return
 
 
+def signal_group(child: subprocess.Popen, signum: int) -> None:
+    try:
+        os.killpg(child.pid, signum)
+    except PermissionError:
+        if child.poll() is None:
+            raise
+
+
 def end(child: subprocess.Popen) -> None:
     if child.poll() is None:
-        os.killpg(child.pid, signal.SIGTERM)
+        signal_group(child, signal.SIGTERM)
         try:
             child.wait(CHILD_GRACE)
         except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
+            signal_group(child, signal.SIGKILL)
             child.wait()
 
 

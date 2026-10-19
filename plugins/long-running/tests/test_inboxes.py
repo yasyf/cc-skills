@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -200,3 +202,28 @@ def test_mailbox_names_the_newest_roster_entry_for_the_lane(tmp_path, monkeypatc
 
     assert inboxes.mailbox_of("desk.v2") == teams / "session-d8680ece" / "inboxes" / "desk-v2.json"
     assert inboxes.mailbox_of("desk-3") is None
+
+
+def refused(*_: int) -> None:
+    raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+
+
+def test_signalling_a_group_left_with_only_the_exited_child_reaps_it(monkeypatch):
+    child = subprocess.Popen(["true"], start_new_session=True)
+    os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+    monkeypatch.setattr(os, "killpg", refused)
+
+    inboxes.signal_group(child, signal.SIGTERM)
+
+    assert child.returncode == 0
+
+
+def test_a_refused_signal_to_a_live_child_raises(monkeypatch):
+    child = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    monkeypatch.setattr(os, "killpg", refused)
+    try:
+        with pytest.raises(PermissionError):
+            inboxes.signal_group(child, signal.SIGTERM)
+    finally:
+        child.kill()
+        child.wait()
