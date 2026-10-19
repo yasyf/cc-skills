@@ -5069,14 +5069,15 @@ def test_only_an_incident_fix_lane_is_clocked(shell, config, tmp_path, capsys, m
     assert ("- incident clock [" in capsys.readouterr().out) is clocked
 
 
+@pytest.mark.parametrize("named", [False, True], ids=["role", "name-only"])
 @pytest.mark.parametrize(("minutes", "threshold"), [(10, "mechanism"), (15, "pr"), (20, "ready")])
-def test_an_evidence_lane_launched_with_its_role_passes_each_threshold_unclocked(shell, config, tmp_path, minutes, threshold):
+def test_an_evidence_lane_launched_with_its_role_or_its_name_passes_each_threshold_unclocked(shell, config, tmp_path, minutes, threshold, named):
     lanes = {"inc-fix": "fix", "inc-evidence": "evidence"}
     orca_pass(shell, config)
     for n, (lane, role) in enumerate(lanes.items(), 1):
         brief = tmp_path / f"{lane}.brief.md"
         brief.write_text("Work the alert on api.\n")
-        cci_go(shell, f"R{n} orca-desk: launch {lane} NOW incident xhigh role={role} brief={brief}")
+        cci_go(shell, f"R{n} orca-desk: launch {lane} NOW incident xhigh {'' if named else f'role={role} '}brief={brief}")
     orca_pass(shell, config)
     for lane in lanes:
         shell.launch(lane, f"ctx_{lane}")
@@ -5087,6 +5088,27 @@ def test_an_evidence_lane_launched_with_its_role_passes_each_threshold_unclocked
     assert [line.split(":", 1)[0] for line in clock_lines(shell, "inc-fix")][-1] == f"INCIDENT-CLOCK inc-fix {threshold}"
     assert clock_lines(shell, "inc-evidence") == []
     assert sorted(argv[1] for argv in launches(shell)) == ["inc-evidence", "inc-fix", "inc-fix-opus"]
+
+
+@pytest.mark.parametrize("source", ["cci", "status", "base-name"])
+def test_a_fix_live_from_any_lane_of_the_incident_stops_every_clock_of_that_incident(shell, config, tmp_path, capsys, source):
+    for lane, model, header in (("inc-fix", "incident", ""), ("inc-fix-opus", "opus", "ccx: role=incident\n"), ("other-fix", "incident", "")):
+        clocked_lane(shell, config, tmp_path, lane=lane, model=model, header=header)
+    shell.sleep(5 * 60)
+    if source == "status":
+        shell.receive({"subject": "fix-live: 11:05 AM PT alert recovered", "from_handle": "term_ctx_inc-fix"})
+    else:
+        lane_record(shell, "inc" if source == "base-name" else "inc-fix", "fix-live")
+    orca_pass(shell, config)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell, "inc-fix") == clock_lines(shell, "inc-fix-opus") == []
+    assert [line.split(":", 1)[0] for line in clock_lines(shell, "other-fix")] == [f"INCIDENT-CLOCK other-fix {about}" for about in ("mechanism", "pr", "ready")]
+    assert sorted(argv[1] for argv in launches(shell)) == ["inc-fix", "inc-fix-opus", "other-fix", "other-fix-opus"]
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert capsys.readouterr().out.count("- incident clock [stopped: fix-live] launched 11:00; ") == 2
 
 
 def test_the_clock_thresholds_come_from_the_configs_deadlines(shell, config, tmp_path):
