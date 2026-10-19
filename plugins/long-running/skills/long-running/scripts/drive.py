@@ -8,7 +8,7 @@
     drive.py current
     drive.py orca-run
     drive.py list    [--json]
-    drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
+    drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] [--opened] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
     drive.py watch   --session ID --lane NAME [--drive ID] --channel ID [--message TS] [--thread-ts TS]
@@ -33,7 +33,10 @@ inherit from ``orca-launch.sh``. ``current`` also resolves the drive whose Orca 
 desk runner that holds no session still launches workers into the drive. ``orca-run`` prints the Orca run
 of the drive this session belongs to, which ``orca-launch.sh`` launches into when ``ORCA_LAUNCH_RUN`` is unset.
 A session in no drive, a command run outside the drive's repository, and a pull request on another repository
-are not the drive's and record nothing; a session in no drive says so on stderr.
+are not the drive's and record nothing; a session in no drive says so on stderr. ``--opened`` also posts each
+PR's ``opened`` record on the drive's cci drive under ``--lane``, for a Codex worker, whose ``ccx vcs ship``
+runs no PR hook and binds no cci lane, so neither the ledger row nor the ``opened`` record exists unless it
+runs ``record`` itself.
 
 ``landed`` is the pack's entry point after a ``cci post --kind landed`` or a ``gh pr close``: it settles each named
 PR the drive's ledger tracks against the trunk in the drive's checkout through ``ledger.py landed``, so the row
@@ -292,6 +295,8 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 file=sys.stderr,
             )
             return 1
+        if args.opened:
+            shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "opened", "--pr", spec["pr"], "--text", f"opened #{spec['pr']}"])
     return 0
 
 
@@ -419,6 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
     record.add_argument("--lane", required=True)
     record.add_argument("--cwd", required=True, type=Path)
+    record.add_argument("--opened", action="store_true", help="also post each PR's opened record on the drive's cci drive under --lane")
     record.add_argument("--pr", required=True, action="append", type=pr_spec, metavar="[OWNER/NAME#]N[=SHA]")
     record.set_defaults(handler=cmd_record)
 

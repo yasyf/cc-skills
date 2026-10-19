@@ -330,6 +330,17 @@ def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca, m
     text = copy.read_text()
     assert text.startswith(orca.brief.read_text())
     assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "Never ask the root" in text
+    assert "## PR record" not in text
+
+
+def test_a_codex_lane_in_a_drive_reads_a_brief_copy_that_records_its_pr_and_posts_it_opened(orca):
+    orca.env["CLAUDE_LONG_RUNNING_DRIVE"] = "900424b6"
+    orca.healthy(agent="codex")
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
+    text = (orca.receipts / "lane-a.brief.md").read_text()
+    assert text.index("## PR prose") < text.index("## PR record")
+    assert f"`'{BIN}/drive.py' record --opened --drive '900424b6' --session \"$CODEX_THREAD_ID\" --lane 'lane-a' --cwd \"$PWD\" --pr <number>=<head>`" in text
 
 
 def test_a_claude_lane_reads_its_brief_itself(orca):

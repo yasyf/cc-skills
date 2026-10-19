@@ -384,7 +384,8 @@ Escalate: with no mechanism 15 minutes after launch, the executor launches an
   mechanism within 10 minutes, an opened PR within 15, ready within 20. It
   reads your `mechanism:`, `ready:`, and `fix-live:` status messages and the cci records
   posted as <fix lane name>: `mechanism`, the PR's `opened` record, which
-  `ccx vcs ship` posts, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
+  `ccx vcs ship` posts in a Claude session and `drive.py record --opened` in a
+  Codex one, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
   PR wins. You get one Opus fallback, from whichever of the two fires first.
   Each missed limit sends a blocker to the root, who tells the owner.
