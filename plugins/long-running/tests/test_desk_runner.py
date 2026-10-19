@@ -1169,6 +1169,37 @@ def test_a_prefix_holding_a_pr_no_drive_lane_opened_is_never_enqueued(shell, con
     assert len(lines) == 1 and "FOREIGN" in lines[0] and "#28997" in lines[0] and "nothing was enqueued" in lines[0]
 
 
+def registrations(shell: FakeShell) -> list[list[str]]:
+    return [call[4:] for call in shell.calls if len(call) > 4 and Path(call[1]).name == "ledger.py" and call[4] == "register"]
+
+
+def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_registered_and_enqueued(shell, config, tmp_path):
+    shell.rows = stack_rows()[1:]
+    shell.records.append({"seq": 34766, "drive": "d1", "lane": "wf_ccb4ca77-be1", "kind": "opened", "to": [], "refs": {"prs": [28997]}, "text": "#28997 opened", "source": "post"})
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE\n")
+    landing_pass(shell, config)
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "wf_ccb4ca77-be1", "--pr", "28997"]]
+    assert shell.enqueues() == [] and not [line for line in escalations(shell) if "FOREIGN" in line]
+    shell.rows = stack_rows()
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert not [line for line in escalations(shell) if "FOREIGN" in line]
+
+
+def test_a_rowless_rider_a_drive_lane_posted_opened_is_registered_instead_of_escalated(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    shell.records.append({"seq": 34766, "drive": "d1", "lane": "wf_rider", "kind": "opened", "to": [], "refs": {"prs": [36530]}, "text": "#36530 opened", "source": "post"})
+    rider = "rides the batch through #36463 but is neither named nor below #{}; name it too or pass --partial to leave it out"
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 " + rider.format(36487), "#36530 BLOCKED 9999aaaaaa " + rider.format(36487))]
+    shell.gates["36487 36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36530 BLOCKED 9999aaaaaa " + rider.format("36487 #36501"))]
+    landing_pass(shell, config)
+    assert ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "wf_rider", "--pr", "36530"] in registrations(shell)
+    assert not [line for line in escalations(shell) if "FOREIGN" in line] and shell.enqueues() == []
+
+
 def test_a_tip_no_drive_lane_opened_never_reaches_stack_enqueue(shell, config, tmp_path):
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": False}]
     landing_pass(shell, config)
