@@ -4166,10 +4166,47 @@ def test_a_withdraw_of_a_launched_key_stops_its_dispatch_and_an_unknown_target_f
     assert len(launches(shell)) == 1 and stops(shell) == [["worker-stop", "--dispatch", "ctx_n"]]
     assert withdrawals(shell) == [
         f"WITHDRAWN R20 {LANE}: by R21; dispatch ctx_n stopped (stopped), and no report of it launches a case lane",
-        "WITHDRAW-FAILED R22 R19: the runner holds no launch or lane under R19; nothing was withdrawn",
+        f"WITHDRAW-PENDING R22 R19: the runner holds no launch or lane under R19 yet; until {pending_until(tmp_path, 'R19')} it fails the first launch it accepts under R19, so nothing launches",
         f"WITHDRAW-FAILED R23 inbox: one withdrawal per line, in the form `{runner_module.WITHDRAW_GRAMMAR}`; nothing was withdrawn",
-        "WITHDRAW-FAILED R24 nobody-fix: the runner holds no launch or lane under nobody-fix; nothing was withdrawn",
+        f"WITHDRAW-PENDING R24 nobody-fix: the runner holds no launch or lane under nobody-fix yet; until {pending_until(tmp_path, 'nobody-fix')} it fails the first launch it accepts under nobody-fix, so nothing launches",
     ]
+
+
+def pending_until(tmp_path: Path, target: str) -> str:
+    return runner_module.pacific(actions.parse_stamp(incident(tmp_path, runner_module.RUNNER).facts[runner_module.PENDING_WITHDRAWALS][target]["until"]))
+
+
+def test_a_lane_withdrawn_before_its_launch_line_is_read_launches_nothing_once(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}")
+    orca_pass(shell, config)
+    until = pending_until(tmp_path, LANE)
+    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R20"].status == "failed"
+    desk_inbox(tmp_path, f"R22 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1
+    assert withdrawals(shell) == [
+        f"WITHDRAW-PENDING R21 {LANE}: the runner holds no launch or lane under {LANE} yet; until {until} it fails the first launch it accepts under {LANE}, so nothing launches",
+        f"WITHDRAWN R20 {LANE}: by R21, read before the runner accepted it; nothing was launched",
+    ]
+
+
+@pytest.mark.parametrize(("wait", "launched"), [(timedelta(minutes=59), 0), (runner_module.PENDING_WITHDRAW, 1)])
+def test_a_key_withdrawn_before_its_launch_line_is_read_launches_nothing_within_the_hour(shell, config, tmp_path, wait, launched):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R31 orca-desk: withdraw R30")
+    orca_pass(shell, config)
+    shell.clock += wait
+    cci_record(shell, to=["orca-desk"], text=f"R30 (11:49 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert len(launches(shell)) == launched
 
 
 WORKING = ["✳ Cogitating… (6m 2s · esc to interrupt)", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
