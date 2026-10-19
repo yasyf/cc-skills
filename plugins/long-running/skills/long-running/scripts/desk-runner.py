@@ -80,7 +80,8 @@ runner checks at intake and again before the launch starts, fails a pending laun
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
 an `incident=`, unless the launch's own role or that brief names a role other than `fix` or
-`incident`; `desk-launch.py incident` launches its evidence lane with `role=evidence`. Each pass
+`incident`; `desk-launch.py incident` launches its evidence lane with `role=evidence`, and a
+launch with no role for a lane named `<name>-evidence` has that role too. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
 `not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `MECHANISM`
 or `READY`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses. A lane's records
@@ -102,8 +103,11 @@ the fallback brief, for the root to start `<lane>-opus` in its own session as a
 `long-running:lane-ship` Agent. A fix lane gets one Opus fallback: a lane an incident
 executor adopted gets none from the clock while that executor's own Opus backup is launching
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
-stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
-settles, and `show` prints each clocked lane's minutes and milestones.
+stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, at a `fix-live` record or
+Run status from any lane of its incident, or when the dispatch settles, and `show` prints each
+clocked lane's minutes and milestones. A lane's incident is its name without trailing `-opus`
+and `-case<n>` parts and then without a trailing `-fix` or `-evidence`, so `<name>-fix`,
+`<name>-evidence`, and their fallbacks and case lanes share the incident `<name>`.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -425,13 +429,16 @@ CLOCK = "incident-clock"
 MILESTONE_STATUSES = "milestone-statuses"
 MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
-CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
+FIX_LIVE = "fix-live"
+CLOCK_ENDS = (FIX_LIVE, "not-ours", "stopped", "stand-down")
 STAND_DOWN = "stand-down"
 INCIDENT_ENDS = ("not-ours", STAND_DOWN)
 STOPPED = "stopped"
 TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
 TEXT_MARK_KINDS = ("report", "incident")
 FIX_ALIAS = "-fix"
+EVIDENCE_ALIAS = "-evidence"
+EVIDENCE = "evidence"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
@@ -537,8 +544,9 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
-def incident_fix(model: str, brief: Path, role: str) -> bool:
-    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident."""
+def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
+    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident; a launch naming no role for a `<name>-evidence` lane has the evidence role."""
+    role = role or (EVIDENCE if first_lane(lane).endswith(EVIDENCE_ALIAS) else "")
     roles = (set(ROLE.findall(brief.read_text())) if brief.is_file() else set()) | ({role} if role else set())
     return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
 
@@ -549,12 +557,17 @@ def fix_launch(incident: actions.Incident) -> actions.Action | None:
     if not launch:
         return None
     spec = json.loads(launch.target)
-    return launch if incident_fix(spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
+    return launch if incident_fix(incident.incident_id.removeprefix(LANE_PREFIX), spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
 
 
 def first_lane(lane: str) -> str:
     """The lane an incident's fallback and case lanes descend from: the name without its trailing `-opus` and `-case<n>` parts."""
     return LINEAGE.sub("", lane)
+
+
+def incident_name(lane: str) -> str:
+    """The incident a lane works: its `first_lane` without a trailing `-fix` or `-evidence`."""
+    return first_lane(lane).removesuffix(FIX_ALIAS).removesuffix(EVIDENCE_ALIAS)
 
 
 def is_case_lane(lane: str) -> bool:
@@ -2277,14 +2290,23 @@ class Runner:
                 self.book.edit(container, lambda incident, clock=clock: incident.facts.update({CLOCK: clock}))
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
-        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run."""
+        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, its milestone statuses from the Run, and each `fix-live` from any lane of its incident."""
         marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, *TEXT_MARK_KINDS) if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
+        marks += [(FIX_LIVE, at) for at in self.incident_fix_live(lane)]
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
             if actions.parse_stamp(at) >= launched:
                 reached.setdefault(name, at)
         return reached
+
+    def incident_fix_live(self, lane: str) -> list[str]:
+        """The stamp of each `fix-live` cci record or Run status from any lane of `lane`'s incident."""
+        name = incident_name(lane)
+        posted = cci.records(self.cci_tail, self.config.drive, f"--kind={FIX_LIVE}")
+        stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["kind"] == FIX_LIVE and incident_name(record["lane"]) == name]
+        siblings = [container for container in self.book.containers(LANE_PREFIX) if incident_name(container.removeprefix(LANE_PREFIX)) == name]
+        return stamps + [status["at"] for container in siblings for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values() if status["name"] == FIX_LIVE]
 
     def overrun(self, lane: str, launch: actions.Action, launched: datetime, reached: dict[str, str]) -> None:
         """Log each threshold the lane has passed without its milestone or a later one, once per launch; the mechanism and PR thresholds launch the Opus fallback first, and the ready threshold names the gap."""
