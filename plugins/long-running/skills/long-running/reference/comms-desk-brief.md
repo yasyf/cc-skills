@@ -23,7 +23,9 @@ in the root's session tree are covered without passing the ids. The root never a
 owner again for a reply in that channel, and is told about replies, not asked.
 
 The Slack watch lane relays human messages in this channel to the comms desk, not the
-root.
+root. The root addresses the desk over the cci bus,
+`cci post --drive <drive> --lane root --kind go --to comms-desk --text "<ruling>"`,
+never by `SendMessage` (SKILL.md I4); the desk's poll prints each such record.
 
 ## Spawn brief
 
@@ -45,12 +47,18 @@ Fallback: when cc-slack refuses a write (a hook that crashes, no Slack identity 
   with `ToolSearch`, and lead the text with "_(<owner name>'s Claude)_". The grant
   covers both surfaces. Report the refusal verbatim on the bus as a `defect`.
 Facts: `ledger.py summary --drive <drive>`, `ccx vcs pr status <n1> <n2> ...`, and
-  `cci tail --drive <drive> --cursor comms-desk --reader comms-desk`. Ask the owning
+  `cci tail --drive <drive> --cursor comms-desk-feed --reader comms-desk`. Ask the owning
   lane on the bus for anything those do not answer.
 
-Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`):
+Do, every poll (foreground
+  `desk-wait.sh 265 cci:<drive>:comms-desk mailbox:comms-desk=<mailbox cursor file>`,
+  the mailbox cursor apart from the Slack cursor. Run it as the Bash call itself and
+  never filter or discard its output: the `MAILBOX` text is your only copy of that mail):
+  0. Act first on what desk-wait printed: each record addressed to comms-desk and
+     each `MAILBOX` message's full text. Claude Code delivers mail only after your
+     turn ends, so that printed text is your copy.
   1. Read `cc-slack history --channel <channel id> --json` and `cc-slack thread` for
-     each thread with replies newer than your cursor at <cursor file>.
+     each thread with replies newer than your Slack cursor at <slack cursor file>.
   2. A message is a human's when its author is neither the cc-slack bot nor a post
      opening with "_(<name>'s Claude)_". React eyes on each new human question
      within that poll.
@@ -73,7 +81,7 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`):
      a clock" describes: the milestone in one bold line, what changed for whom, the
      build or PR with its author, and what comes next.
   6. Report each post with `cci post --drive <drive> --lane comms-desk --kind report
-     --text "<permalink> <one line>"`, then advance the cursor.
+     --text "<permalink> <one line>"`, then advance the Slack cursor.
 
 Write rules: follow the cc-slack skill's "Write a post": plain words for the
   channel's readers, every PR, build, and doc linked as <url|label>, every person

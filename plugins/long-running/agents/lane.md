@@ -13,11 +13,12 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Drive to a terminal state in the foreground. Never end a turn waiting; poll with
   one Bash call of at most 570000 ms at a time and re-run it until the state is terminal.
   A plain Bash wait never blocks longer than 60 s. Every longer wait goes through
-  `desk-wait.sh` on the lane's team mailbox, the absolute path
-  `inboxes.py mailbox <your lane name>` prints, and a blocking read-only watch runs as
-  `desk-wait.sh <seconds> <mailbox>=<cursor> -- <command>`, so a `MAILBOX` line ends
-  the call. Claude Code delivers teammate mail only after your turn ends, so act on
-  the sender, time, and full text desk-wait prints after `MAILBOX`.
+  `desk-wait.sh` with the source `mailbox:<your lane name>=<cursor file>`, and a
+  blocking read-only watch runs as
+  `desk-wait.sh <seconds> mailbox:<your lane name>=<cursor file> -- <command>`, so a
+  `MAILBOX` line ends the call. Run it as the Bash call itself and never filter or
+  discard its output. Claude Code delivers teammate mail only after your turn ends,
+  so act on the sender, time, and full text desk-wait prints after `MAILBOX`.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when

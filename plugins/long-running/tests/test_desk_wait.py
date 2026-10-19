@@ -201,7 +201,34 @@ def test_bad_arguments_print_usage_and_exit_two(tmp_path, args):
     result = subprocess.run([str(SCRIPT), *args], cwd=tmp_path, capture_output=True, text=True, timeout=3)
 
     assert result.returncode == 2
-    assert result.stderr == "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]\n"
+    assert result.stderr == "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | mailbox:<lane>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]\n"
+
+
+def test_a_relative_file_source_exits_two_naming_the_mailbox_form(tmp_path):
+    result = subprocess.run([str(SCRIPT), "1", f"comms-desk={tmp_path / 'cursor'}"], cwd=tmp_path, capture_output=True, text=True, timeout=3)
+
+    assert result.returncode == 2
+    assert result.stderr == "desk-wait.sh: comms-desk is not an absolute path; name a team mailbox as mailbox:<lane>\n"
+
+
+def test_a_mailbox_source_wakes_on_the_lanes_roster_mailbox(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    (mailbox.parent.parent / "config.json").write_text(json.dumps({"members": [{"name": "lane", "joinedAt": 1}]}))
+    mailbox.write_text(json.dumps([message(read=False)]))
+    cursor = tmp_path / "mailbox.cursor"
+
+    result = subprocess.run([str(SCRIPT), "1", f"mailbox:lane={cursor}"], capture_output=True, text=True, timeout=5, env={"CLAUDE_CONFIG_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
+    assert cursor.read_text() == "1\n"
+
+
+def test_a_mailbox_source_no_roster_lists_exits_one(tmp_path):
+    result = subprocess.run([str(SCRIPT), "1", f"mailbox:comms-desk={tmp_path / 'cursor'}"], capture_output=True, text=True, timeout=3, env={"CLAUDE_CONFIG_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"})
+
+    assert result.returncode == 1
+    assert result.stderr == "no team roster lists comms-desk\n"
 
 
 def test_cci_source_prints_addressed_records_through_cci_tail(tmp_path):

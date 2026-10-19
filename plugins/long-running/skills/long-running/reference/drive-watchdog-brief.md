@@ -8,6 +8,9 @@ Fill the angle brackets and paste the brief.
 
 ## Root discipline
 
+The root addresses the watchdog over the cci bus, never by `SendMessage` (SKILL.md I4):
+`cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+
 The root answers a watchdog `decide` within 10 minutes: re-brief the lane, stand it
 down, or post the ruling that makes the finding moot. A second post on the same
 finding means the lane did not correct within 15 minutes, and the root acts on it
@@ -30,9 +33,11 @@ work>; <root never parks>; <no local builds or tests>; <who decides owner asks
 while the owner is away>; one owner per stack; every READY-HELD PR names its gate.
 
 Loop, forever, in the foreground:
-  `cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
-  in one foreground call of at most 570000 ms, plus `cci digest --drive <drive>`
-  every 10 minutes.
+  `desk-wait.sh 540 mailbox:drive-watchdog=<mailbox cursor file> -- cci watch --drive <drive> --cursor drive-watchdog --kind state,ask,decide,blocker,blocked,hold,defect,report,done,ready,opened`
+  in one foreground call with `timeout: 570000`, plus `cci digest --drive <drive>`
+  every 10 minutes. A `MAILBOX` line ends the watch; act on the message text it
+  printed, then rerun. Run it as the Bash call itself and never filter or discard
+  its output: the `MAILBOX` text is your only copy of that mail.
 
 For every record, judge five things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a

@@ -1477,7 +1477,7 @@ minute at `:00`, `:01`, and `:02`. Each pass reads every PR number in one batche
 
 Every lane that reports a PR runs
 `ccx vcs pr watch --lane-prefix <prefix> --until landed` under
-Monitor, re-armed on expiry, or in the foreground as `desk-wait.sh 540 "<team mailbox>=<cursor
+Monitor, re-armed on expiry, or in the foreground as `desk-wait.sh 540 "mailbox:<lane>=<cursor
 file>" -- ccx vcs pr watch --lane-prefix <prefix> --until landed` with `timeout: 570000`,
 instead of ad-hoc polling. An in-process lane never runs that watch as a bare foreground command.
 `ejected` or `conflicting` means rebase now. The lane watches until its PRs land.
@@ -1846,8 +1846,9 @@ applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and 
 dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
 `reference/active-alert-brief.md` holds the executor's runbook and its lane briefs.
 
-**A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
-`monitor-watch.py watch --alert-inbox <drive>/inbox/orca-desk.md` over the drive's
+**A1. Report monitor transitions, and nothing else.** The desk runs
+`monitor-watch.py watch --alert-inbox <drive>/inbox/orca-desk.md` in the foreground under
+`desk-wait.sh`, so its mailbox ends the watch, over the drive's
 monitors, by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
 one-line first read. Under R24 that first read names any `production-operations`
@@ -1991,12 +1992,13 @@ marked "R312 done" once deploy-experience's `tools/deploy --since` task built
 toward it.*
 
 **I7. In-process teammate desks wait in the foreground.** Every Agent-spawned
-desk is in-process. Every in-process desk and lane names its own team mailbox as a
-source: the absolute path `inboxes.py mailbox <lane name>` prints from the live team
-roster. The team is the root process's own, `session-<id>` under `~/.claude/teams/`;
-that id is not the drive id and need not be the root's current session id. Run one foreground
+desk is in-process. Every in-process desk and lane names its own team mailbox as the
+source `mailbox:<lane name>=<cursor file>`, which desk-wait resolves on every call from
+the live team roster, the root process's own `session-<id>` under `~/.claude/teams/`.
+`inboxes.py mailbox <lane name>` prints that path. A numbered successor names its own
+lane name, never the one baked into a predecessor's scripts. Run one foreground
 Bash call with `timeout: 60000`:
-`desk-wait.sh 50 cci:<drive>:<desk> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+`desk-wait.sh 50 cci:<drive>:<desk> mailbox:<desk>=<cursor file> [<other file>=<cursor file>...]`.
 
 It waits at most 50 seconds and returns on new addressed records, a new line in
 another watched file, or `MAILBOX <n> unread`, where `n` counts all unread mailbox
@@ -2005,12 +2007,19 @@ and its full text. It clips displayed records and file lines to 400 characters, 
 clipped lines with an ellipsis; mailbox text is never clipped. Claude Code delivers an
 in-process teammate's mail only after its turn ends, never at a tool-call boundary, so
 the printed text is the lane's only copy until then: act on it, run step 0 on the
-output, then rerun the call in a loop.
+output, then rerun the call in a loop. Run desk-wait as the Bash call itself, or from a
+script that passes its whole output through; a `>/dev/null`, `| tail`, or `| cut` drops
+that copy.
 
 *Prevents the 2026-10-12 oncall-core-reopen-2 hour: seven root and peer messages sat in
 its mailbox for 50 minutes across two `MAILBOX` wakes, while the lane searched for a
 team named after the root's session id instead of the root process's team.*
 A foreground watch in the same loop appends `-- <command>` to that call, so the mailbox ends the watch.
+
+*Prevents the 2026-10-19 release-v3 night. The comms-desk brief named `comms-desk=<cursor>`
+as its mailbox, so its poll script waited on an unused cci cursor, and three root
+messages from 4:12 to 5:27 AM never reached it. slack-watch-26 ran slack-watch-25's
+scripts, which watched slack-watch-25's mailbox through `| tail -12`.*
 
 The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk
 past the cci cursor named for it, advancing that cursor. The script also advances
@@ -2151,10 +2160,10 @@ Plan task: register your unit at spawn so the dashboard's Plan progress card cou
   then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
   ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
 Worktree: <absolute path, exclusive to this lane>.
-Team mailbox: <absolute path: `<team dir>/inboxes/<lane>.json`, the team dir being the one
-  `inboxes.py mailbox <any live teammate>` prints; never built from the drive id>.
-  Confirm it at spawn with `inboxes.py mailbox <lane>`. Claude Code delivers your mail
+Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being your own
+  name; desk-wait resolves it from the live team roster. Claude Code delivers your mail
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
+  Run desk-wait as the Bash call itself and never filter or discard its output.
 Keep record text to one line; `cci post` spills text over 400 characters to a file, posts its first line, and prints the path. Attach a body you wrote with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register once at start through hooks.
@@ -2308,7 +2317,7 @@ example, landing a PR through a merge queue:
 Do:
   1. gh pr edit <n> --repo <repo> --add-label merge
   2. Poll origin/dev for the squash commit "(#<n>)" until it appears or 40 min pass,
-     waiting between polls with `desk-wait.sh 30 <team mailbox>=<cursor file>`.
+     waiting between polls with `desk-wait.sh 30 mailbox:<lane>=<cursor file>`.
      A queue-merged PR reads state=CLOSED, mergedAt=null; the commit is the truth.
   3. On landing, <the dependent step this chain exists to trigger>.
 Finish: one report - landed sha, dependent step result, or the blocking state.
@@ -2372,7 +2381,7 @@ seconds. Any longer wait goes through `desk-wait.sh` on the lane's own team mail
 watch runs after `--`, and the mailbox ends it within about two seconds:
 
 ```sh
-desk-wait.sh 540 "<team mailbox>=<cursor file>" -- bk build watch <build>
+desk-wait.sh 540 "mailbox:<lane>=<cursor file>" -- bk build watch <build>
 ```
 
 Run it with `timeout: 570000`. The helper passes the command's output and exit status
@@ -2392,7 +2401,7 @@ while (( SECONDS < deadline )); do
     passed|merged|CREATE_COMPLETE|UPDATE_COMPLETE) echo "TERMINAL ok $state"; exit 0 ;;
     failed|broken|canceled|timed_out|ROLLBACK_*|*_FAILED) echo "TERMINAL bad $state"; exit 1 ;;
   esac
-  wake=$(desk-wait.sh 30 "<team mailbox>=<cursor file>")
+  wake=$(desk-wait.sh 30 "mailbox:<lane>=<cursor file>")
   case "$wake" in
     MAILBOX*) echo "$wake"; exit 0 ;;
   esac
