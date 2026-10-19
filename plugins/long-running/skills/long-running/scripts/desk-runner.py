@@ -143,8 +143,10 @@ answers `stop_unknown`. The
 lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
 leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
 case lane whose dispatch the root stopped by hand is marked the same way. A launch still
-starting, a settled launch with no dispatch, a key or lane the runner holds nothing under,
-or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each root cci record carrying `--re`, read in sequence
+starting, a settled launch with no dispatch, or a worker-stop Orca refuses logs
+`WITHDRAW-FAILED`. A key or lane the runner holds nothing under logs `WITHDRAW-PENDING`: for
+the next hour the first launch the runner accepts under that key or lane fails before it
+starts and logs `WITHDRAWN`, so a withdrawal read before its launch line still sticks. Each root cci record carrying `--re`, read in sequence
 order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
 reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
@@ -461,6 +463,8 @@ UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
 LAUNCH_KEY = re.compile(r"R\d+|unfixed:[\w-]+:\d+|inbox@\S+")
 WITHDRAWN = "withdrawn"
+PENDING_WITHDRAWALS = "pending-withdrawals"
+PENDING_WITHDRAW = timedelta(hours=1)
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
@@ -1241,7 +1245,10 @@ class Runner:
             known = lane_container(target) in self.book.store.ids()
             held = [(target, self.book.actions(lane_container(target), kind="launch") if known else [])] if known or self.orca.receipt(target) else []
         if not held:
-            self.record(log, f"WITHDRAW-FAILED {key} {target}: the runner holds no launch or lane under {target}; nothing was withdrawn")
+            until = self.now() + PENDING_WITHDRAW
+            pending = {**self.pending_withdrawals(), target: {"by": key, "until": actions.stamp(until)}}
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({PENDING_WITHDRAWALS: pending}))
+            self.record(log, f"WITHDRAW-PENDING {key} {target}: the runner holds no launch or lane under {target} yet; until {pacific(until)} it fails the first launch it accepts under {target}, so nothing launches")
         for lane, launches in held:
             for action in launches:
                 if action.status == "accepted":
@@ -1257,6 +1264,23 @@ class Runner:
                 self.stop_withdrawn(f"{log}:{lane}", key, target, lane, dispatch)
             elif keyed and launches[0].status not in ("accepted", "started"):
                 self.record(f"{log}:{lane}", f"WITHDRAW-FAILED {key} {lane}: launch {target} is {launches[0].status}; nothing was withdrawn")
+
+    def pending_withdrawals(self) -> dict[str, dict]:
+        """Each withdrawal target that held nothing when its line was read, with the key that withdrew it, while its hour lasts."""
+        pending = self.book.load(RUNNER).facts.get(PENDING_WITHDRAWALS) or {}
+        return {target: mark for target, mark in pending.items() if actions.parse_stamp(mark["until"]) > self.now()}
+
+    def withdrawn_before_accept(self, container: str, lane: str, action: actions.Action) -> bool:
+        """Fail a pending launch whose key or lane a withdrawal named before the runner accepted it, and say whether it did; that withdrawal is then spent."""
+        pending = self.pending_withdrawals()
+        target = next((name for name in (action.action_id, lane) if name in pending), "")
+        if not target:
+            return False
+        by = pending.pop(target)["by"]
+        self.book.edit(RUNNER, lambda incident: incident.facts.update({PENDING_WITHDRAWALS: pending}))
+        self.book.edit(container, lambda incident: incident.fail(action.action_id, f"withdrawn by {by}"))
+        self.record(f"escalation:withdraw:{by}:{lane}:{action.action_id}", f"WITHDRAWN {action.action_id} {lane}: by {by}, read before the runner accepted it; nothing was launched")
+        return True
 
     def stop_withdrawn(self, log: str, key: str, target: str, lane: str, dispatch: str) -> None:
         """Mark the lane's dispatch withdrawn, so no report of it launches a case lane and Orca's offer to dispatch it again asks no one, then stop it unless it already settled."""
@@ -1642,7 +1666,7 @@ class Runner:
             pending = self.book.actions(container, status="accepted")
             relays = [action for action in pending if action.kind in ("relay", "reply")]
             for action in pending:
-                if action.kind == "launch" and not self.holds_case_launch(container, lane, action) and not self.holds_owned_launch(container, lane, action):
+                if action.kind == "launch" and not self.withdrawn_before_accept(container, lane, action) and not self.holds_case_launch(container, lane, action) and not self.holds_owned_launch(container, lane, action):
                     self.launch(container, lane, action)
             if relays:
                 self.deliver_relays(container, lane, relays)
