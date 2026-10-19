@@ -194,8 +194,9 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
 unless a commit status other than `landing-gates`, `release-pr-check`, `emergency-head`, or `fidelity` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. A PR in a prefix or riding a batch that has no ledger row but an `opened` record
-on the drive is registered under the record's lane, and the next pass gates it as ours. It logs one `NOT-OURS`
+holding a PR that no drive lane registered or posted opened on cci. A PR of this repo that has no ledger row but an `opened` record
+on the drive is registered under the record's lane each pass, and the next pass mirrors its grade and gates it as ours: an `owner/repo#N` ref
+names its repo, and a bare number counts once GitHub shows that PR open here and opened no later than the record. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
 the required `landing-gates` check enforces, and removes that label once the record closes. A `hold:all <reason>` line in
@@ -2460,6 +2461,17 @@ def newest_naming(grades: list[dict], sha: str) -> dict | None:
     return max((record for record in grades if any(names_head(named, sha) for named in SHORT_SHA.findall(record["text"]))), key=lambda record: record["seq"], default=None)
 
 
+def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
+    """Each PR `record` names that may be in `repo`, with whether its ref says so: `owner/repo#N` refs to `repo`, and bare numbers, which name no repo."""
+    named = []
+    for ref in record.get("refs", {}).get("prs", []):
+        if isinstance(ref, int):
+            named.append((str(ref), False))
+        elif (where := str(ref).rpartition("#"))[0].lower() == repo.lower():
+            named.append((where[2], True))
+    return named
+
+
 def names_pr(record: dict, pr: str) -> bool:
     return int(pr) in record.get("refs", {}).get("prs", []) or re.search(rf"#{pr}\b", record["text"]) is not None
 
@@ -2510,6 +2522,7 @@ class Landing:
         self.patch_ids: dict[tuple[str, str], str] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.reading = threading.Lock()
+        self.opened_seen = 0
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -2917,10 +2930,38 @@ class Landing:
         unclaimed = []
         for pr in prs:
             posted = cci.records(self.runner.cci_tail, drive, "--kind=opened", "--pr", pr)
-            opened = [record for record in posted if (record["kind"], record["drive"]) == ("opened", drive) and int(pr) in record["refs"].get("prs", [])]
+            opened = [record for record in posted if (record["kind"], record["drive"]) == ("opened", drive) and pr in dict(repo_prs(record, self.repo))]
             if not opened or self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", opened[-1]["lane"], "--pr", pr).code:
                 unclaimed.append(pr)
         return unclaimed
+
+    def admit_drive_opened(self, rows: dict[str, dict]) -> None:
+        """Register each PR of this repo that an `opened` record on this drive names and the ledger lacks, under the lane that posted it, so its next refresh fills the row and the desk mirrors its grade and gates it. A ref to `owner/repo#N` names its repo; a bare number, as ccx claimed tool-repo PRs before it qualified them, counts only once GitHub shows that PR open here and opened no later than the record. Each record is read once per process; a GitHub read that fails stops the pass's admissions at that record, which the next pass reads again."""
+        drive = self.runner.config.drive
+        known = set(rows)
+        for record in cci.records(self.runner.cci_tail, drive, "--kind=opened", since=self.opened_seen):
+            if (record["kind"], record["drive"]) == ("opened", drive):
+                for pr, qualified in repo_prs(record, self.repo):
+                    if pr in known:
+                        continue
+                    if not qualified and (here := self.opened_here(pr, record["at"])) is not True:
+                        if here is None:
+                            return
+                        continue
+                    done = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", record["lane"], "--pr", pr)
+                    if done.code:
+                        last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                        self.runner.escalate(f"admit:{pr}", "ADMIT-FAILED", f"#{pr}", f"ledger.py register refused #{pr}, which {record['lane']} posted opened on cci #{record['seq']}: {last[0]}; its grade is not mirrored until a lane registers it")
+                    known.add(pr)
+            self.opened_seen = record["seq"]
+
+    def opened_here(self, pr: str, at: str) -> bool | None:
+        """Whether GitHub shows `pr` open in this repo and opened no later than `at`; None when GitHub refuses the read for any reason but a missing PR."""
+        done = self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}"])
+        if done.code:
+            return False if "HTTP 404" in done.err else None
+        pull = json.loads(done.out)
+        return pull["state"] == "open" and actions.parse_stamp(pull["created_at"]) <= actions.parse_stamp(at)
 
     def awaiting_go(self, enqueues: list[actions.Action], heads: dict[str, str]) -> bool:
         """Whether a head in `heads` the queue dropped for a failure outside its stack still waits for a root `go` record naming its PR, posted after the newest such drop."""
@@ -3004,7 +3045,7 @@ class Landing:
 
         def about_pr(kind: str) -> list[dict]:
             found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", pr)
-            return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in map(str, record["refs"].get("prs", []))]
+            return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
         if not (posted := about_pr("hold")):
             return ""
@@ -3208,7 +3249,7 @@ class Landing:
         """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
         posted = cci.records(self.runner.cci_tail, drive, "--pr", pr, *(f"--kind={kind}" for kind in OWNER_KINDS))
-        claims = [record for record in posted if record["drive"] == drive and record["kind"] in OWNER_KINDS and int(pr) in record["refs"].get("prs", [])]
+        claims = [record for record in posted if record["drive"] == drive and record["kind"] in OWNER_KINDS and pr in dict(repo_prs(record, self.repo))]
         return claims[-1]["lane"] if claims else row.get("lane", "")
 
     def reach(self, lane: str) -> list[str]:
@@ -3292,6 +3333,10 @@ class Landing:
             self.regrade_gates(drafts)
         if rows is None:
             return
+        try:
+            self.admit_drive_opened(rows)
+        except CciTailFailed as failure:
+            self.runner.tail_failed(failure)
         entries = holds.read(self.holds)
         unread = self.holds_unread(entries, rows)
         if not rows:

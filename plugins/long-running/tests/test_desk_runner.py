@@ -85,6 +85,7 @@ class FakeShell(runner_module.Shell):
         self.advance_error = ""
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
+        self.pulls: dict[str, dict] = {}
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
         self.quota_error = ""
         self.drafts: list[dict] = []
@@ -208,6 +209,10 @@ class FakeShell(runner_module.Shell):
             if head in self.compare_errors:
                 return runner_module.Done(1, "", self.compare_errors[head])
             return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/"):
+            assert len(argv) == 3
+            pull = self.pulls.get(argv[2].rsplit("/", 1)[1])
+            return runner_module.Done(0, json.dumps(pull), "") if pull else runner_module.Done(1, "", "gh: Not Found (HTTP 404)")
         if argv == ["git", "patch-id", "--stable"]:
             return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
         if argv[:2] == ["gh", "api"]:
@@ -298,7 +303,7 @@ class FakeShell(runner_module.Shell):
             if record["seq"] > since
             and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
             and (not lanes or record.get("lane") in lanes)
-            and ("--pr" not in argv or int(argv[argv.index("--pr") + 1]) in record.get("refs", {}).get("prs", []))
+            and ("--pr" not in argv or any(str(ref).rpartition("#")[2] == argv[argv.index("--pr") + 1] for ref in record.get("refs", {}).get("prs", [])))
             and (not kinds or record.get("kind") in kinds)
         ]
         if "--limit" in argv:
@@ -1187,6 +1192,29 @@ def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_register
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
     assert not [line for line in escalations(shell) if "FOREIGN" in line]
+
+
+def test_an_open_pr_a_drive_lane_posted_opened_is_registered_before_any_gate_reaches_it(shell, config, tmp_path):
+    """#40339 on Oct 19: a ccx claim posted it opened, no gate ever named it, so it never became a row and its fidelity grade was never mirrored."""
+    shell.rows = stack_rows()
+    shell.records += [
+        {"seq": 34766, "drive": "d1", "lane": "mem-da4-suites", "kind": "opened", "to": [], "refs": {"prs": [40339]}, "text": "opened #40339", "source": "claim", "at": "2026-10-19T13:50:24Z"},
+        {"seq": 34767, "drive": "d1", "lane": "tooling", "kind": "opened", "to": [], "refs": {"prs": [397]}, "text": "opened #397", "source": "claim", "at": "2026-10-19T15:04:57Z"},
+        {"seq": 34768, "drive": "d1", "lane": "tooling", "kind": "opened", "to": [], "refs": {"prs": ["yasyf/cc-context#428"]}, "text": "opened yasyf/cc-context#428", "source": "claim", "at": "2026-10-19T15:04:35Z"},
+        {"seq": 34769, "drive": "d1", "lane": "mem-w6", "kind": "opened", "to": [], "refs": {"prs": ["Forge-AI/monorepo#40400"]}, "text": "opened Forge-AI/monorepo#40400", "source": "claim", "at": "2026-10-19T15:30:00Z"},
+        {"seq": 34770, "drive": "d1", "lane": "mem-r6", "kind": "opened", "to": [], "refs": {"prs": [40401]}, "text": "opened #40401", "source": "claim", "at": "2026-10-19T15:31:00Z"},
+        {"seq": 34771, "drive": "d1", "lane": LANE, "kind": "opened", "to": [], "refs": {"prs": [29020]}, "text": "opened #29020", "source": "post", "at": "2026-10-01T09:00:00Z"},
+    ]
+    shell.pulls = {
+        "40339": {"state": "open", "created_at": "2026-10-19T13:50:20Z"},
+        "397": {"state": "closed", "created_at": "2025-01-02T00:00:00Z"},
+        "40401": {"state": "open", "created_at": "2026-10-19T16:00:00Z"},
+    }
+    landing_pass(shell, config)
+    assert [call[-1] for call in registrations(shell)] == ["40339", "40400"]
+    assert registrations(shell)[0] == ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "mem-da4-suites", "--pr", "40339"]
+    asked = [call[2] for call in shell.calls if call[:2] == ["gh", "api"] and "/pulls/" in call[2]]
+    assert asked == ["repos/Forge-AI/monorepo/pulls/40339", "repos/Forge-AI/monorepo/pulls/397", "repos/Forge-AI/monorepo/pulls/40401"]
 
 
 def test_a_rowless_rider_a_drive_lane_posted_opened_is_registered_instead_of_escalated(shell, config, tmp_path):
