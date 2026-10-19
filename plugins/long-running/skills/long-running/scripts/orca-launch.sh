@@ -73,7 +73,11 @@ its own. Release v3 kept 279 of these idle shells, one per lane.
 A codex, incident, astra, or gpt-* lane reads a copy of its brief at
 $STATE/<lane>.brief.md, ending in a PR prose section: the lane writes no prose,
 so it runs the plugin's pr-prose.py, a headless Claude Opus 5.5 writer, for its PR
-title, body, and commit message, and never asks the root for them.
+title, body, and commit message, and never asks the root for them. In a drive the
+copy then carries a PR record section: Codex runs no PR hook and its cci posts bind
+no lane, so ship neither registers the PR in the ledger nor posts its opened record,
+and the lane runs drive.py record --opened after each ship that opens a PR, which
+the incident clock and the landing desk read.
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
@@ -277,6 +281,7 @@ if [ "$AGENT" != claude ]; then
   {
     cat "$BRIEF"
     printf '\n\n## PR prose\n\n%s\n' "You run on a model that writes no prose: Claude Opus 5.5 writes every PR title, PR body, and commit message. Once the change is committed, run \`'$BIN/pr-prose.py' --brief '$BRIEF'\` from your worktree, adding \`--notes <file>\` for each findings or evidence file the PR must carry. It prints the paths of the title, body, and commit message it wrote; ship with them verbatim, amending your commit to that message. Never ask the root, another lane, or an Orca question for prose."
+    [ -z "$DRIVE" ] || printf '\n\n## PR record\n\n%s\n' "Codex runs no PR hook, so \`ccx vcs ship\` neither registers your PR in the drive's ledger nor posts its \`opened\` record, and the incident clock and the landing desk read both. Right after each ship that opens a PR, run \`'$BIN/drive.py' record --opened --drive '$DRIVE' --session \"\$CODEX_THREAD_ID\" --lane '$LANE' --cwd \"\$PWD\" --pr <number>=<head>\` from your worktree."
   } >"$LANE_BRIEF.tmp"
   mv "$LANE_BRIEF.tmp" "$LANE_BRIEF"
 fi

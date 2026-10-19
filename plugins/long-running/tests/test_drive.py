@@ -6,7 +6,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import LEDGER, FakeShell
+from conftest import DRIVE, LEDGER, FakeShell
 
 ROOT_SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 RESUMED_SESSION = "a5c86fb7-27c5-4619-b702-8ffeaf7ab7e0"
@@ -247,6 +247,16 @@ def test_an_orca_worker_records_through_its_drive_env(repo):
     assert record(shell, worktree, "--session", WORKER_SESSION, "--drive", "900424b6", "--lane", "orca-desk", "--pr", "28557") == 0
 
     assert shell.fields("28557") == {"lane": "orca-desk", "registered": "orca-desk"}
+
+
+def test_a_codex_worker_records_its_pr_and_posts_it_opened_under_its_lane(repo):
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+
+    assert record(shell, repo, "--session", WORKER_SESSION, "--drive", "900424b6", "--lane", "inc-unrun-fix", "--opened", "--pr", f"40359={HEAD}") == 0
+
+    assert shell.fields("40359") == {"lane": "inc-unrun-fix", "registered": "inc-unrun-fix", "registered_head": HEAD}
+    assert [(post["lane"], post["kind"], post["text"]) for post in shell.cci] == [("inc-unrun-fix", "opened", "opened #40359")]
 
 
 @pytest.mark.parametrize(

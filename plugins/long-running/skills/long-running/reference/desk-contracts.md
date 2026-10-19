@@ -57,7 +57,8 @@ A lane registers its branch, or a namespace ending in `/` or `-`, with the desk 
 `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix> [--pr N]...`.
 Every open PR on that prefix is tracked from then on. `ccx vcs ship` records each PR it opens,
 as a ledger row through the hook and as an `opened` record on cci (cci 0.19.0 and later), so a
-lane never posts `opened` by hand.
+Claude lane never posts `opened` by hand. A Codex worker gets neither from ship and runs
+`drive.py record --opened` after it, as its brief copy's `## PR record` section says.
 
 ## An owner ask is a row, recorded by the root
 
