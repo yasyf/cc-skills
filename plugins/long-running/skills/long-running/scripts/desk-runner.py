@@ -2929,7 +2929,7 @@ class Landing:
         drive = self.runner.config.drive
         unclaimed = []
         for pr in prs:
-            posted = cci.records(self.runner.cci_tail, drive, "--kind=opened", "--pr", pr)
+            posted = cci.records(self.runner.cci_tail, drive, "--kind=opened", "--pr", f"{self.repo}#{pr}")
             opened = [record for record in posted if (record["kind"], record["drive"]) == ("opened", drive) and pr in dict(repo_prs(record, self.repo))]
             if not opened or self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", opened[-1]["lane"], "--pr", pr).code:
                 unclaimed.append(pr)
@@ -2944,7 +2944,7 @@ class Landing:
                 for pr, qualified in repo_prs(record, self.repo):
                     if pr in known:
                         continue
-                    if not qualified and (here := self.opened_here(pr, record["at"])) is not True:
+                    if not qualified and (here := self.opened_here(pr, record)) is not True:
                         if here is None:
                             return
                         continue
@@ -2955,13 +2955,13 @@ class Landing:
                     known.add(pr)
             self.opened_seen = record["seq"]
 
-    def opened_here(self, pr: str, at: str) -> bool | None:
-        """Whether GitHub shows `pr` open in this repo and opened no later than `at`; None when GitHub refuses the read for any reason but a missing PR."""
+    def opened_here(self, pr: str, record: dict) -> bool | None:
+        """Whether GitHub shows `pr` open in this repo and opened no later than `record`; None when GitHub refuses the read for any reason but a missing PR."""
         done = self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}"])
         if done.code:
             return False if "HTTP 404" in done.err else None
         pull = json.loads(done.out)
-        return pull["state"] == "open" and actions.parse_stamp(pull["created_at"]) <= actions.parse_stamp(at)
+        return pull["state"] == "open" and actions.parse_stamp(pull["created_at"]) <= actions.parse_stamp(record["at"])
 
     def awaiting_go(self, enqueues: list[actions.Action], heads: dict[str, str]) -> bool:
         """Whether a head in `heads` the queue dropped for a failure outside its stack still waits for a root `go` record naming its PR, posted after the newest such drop."""
@@ -3044,7 +3044,7 @@ class Landing:
         drive = self.runner.config.drive
 
         def about_pr(kind: str) -> list[dict]:
-            found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", pr)
+            found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
         if not (posted := about_pr("hold")):
@@ -3248,7 +3248,7 @@ class Landing:
     def owner(self, pr: str, row: dict) -> str:
         """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
-        posted = cci.records(self.runner.cci_tail, drive, "--pr", pr, *(f"--kind={kind}" for kind in OWNER_KINDS))
+        posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
         claims = [record for record in posted if record["drive"] == drive and record["kind"] in OWNER_KINDS and pr in dict(repo_prs(record, self.repo))]
         return claims[-1]["lane"] if claims else row.get("lane", "")
 
@@ -3333,10 +3333,6 @@ class Landing:
             self.regrade_gates(drafts)
         if rows is None:
             return
-        try:
-            self.admit_drive_opened(rows)
-        except CciTailFailed as failure:
-            self.runner.tail_failed(failure)
         entries = holds.read(self.holds)
         unread = self.holds_unread(entries, rows)
         if not rows:
@@ -3349,6 +3345,10 @@ class Landing:
         self.mirror_grades(rows, entries)
         if not unread:
             self.mirror_holds(rows, entries)
+        try:
+            self.admit_drive_opened(rows)
+        except CciTailFailed as failure:
+            self.runner.tail_failed(failure)
         if advanced and not unread and (held := self.held(rows)) is not None:
             self.gate(rows, held)
             self.enqueue()

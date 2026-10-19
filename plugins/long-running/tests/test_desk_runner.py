@@ -51,6 +51,13 @@ class Running:
         return self.code
 
 
+def cci_names(record: dict, pr: str) -> bool:
+    refs = record.get("refs", {}).get("prs", [])
+    if "#" in pr:
+        return pr in refs or int(pr.rpartition("#")[2]) in refs
+    return int(pr) in refs
+
+
 class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
@@ -303,7 +310,7 @@ class FakeShell(runner_module.Shell):
             if record["seq"] > since
             and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
             and (not lanes or record.get("lane") in lanes)
-            and ("--pr" not in argv or any(str(ref).rpartition("#")[2] == argv[argv.index("--pr") + 1] for ref in record.get("refs", {}).get("prs", [])))
+            and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
             and (not kinds or record.get("kind") in kinds)
         ]
         if "--limit" in argv:
@@ -1197,6 +1204,7 @@ def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_register
 def test_an_open_pr_a_drive_lane_posted_opened_is_registered_before_any_gate_reaches_it(shell, config, tmp_path):
     """#40339 on Oct 19: a ccx claim posted it opened, no gate ever named it, so it never became a row and its fidelity grade was never mirrored."""
     shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.records += [
         {"seq": 34766, "drive": "d1", "lane": "mem-da4-suites", "kind": "opened", "to": [], "refs": {"prs": [40339]}, "text": "opened #40339", "source": "claim", "at": "2026-10-19T13:50:24Z"},
         {"seq": 34767, "drive": "d1", "lane": "tooling", "kind": "opened", "to": [], "refs": {"prs": [397]}, "text": "opened #397", "source": "claim", "at": "2026-10-19T15:04:57Z"},
