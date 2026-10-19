@@ -258,8 +258,10 @@ Do, in this order, forever:
      trunk and settle the closed rest, in one trunk fetch, one log read, and one ccx
      cache read; it never fetches the PR's own base, which the queue deletes when a stack lands; a row
      the forge cannot answer records `settle_error` and the pass settles the rest.
-     Refresh never re-reads a row already `landed` or `closed-without-squash`, so a
-     settled verdict sticks. PR rows enter through a lane's report, registration, or an explicit
+     Refresh never re-reads a row already `landed`, so a landing sticks. It re-reads a
+     `closed-without-squash` row that `refresh --pr` names or that it last read within
+     24 hours, and reopens the row at its current head only when GitHub shows the PR
+     open again, as `stack-enqueue --dequeue` leaves one. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Refresh makes one `ccx vcs pr state --repo <repo> <PR numbers>`
      call with every tracked or explicitly supplied PR number and one
      `--lane-prefix <prefix>` per registered prefix. The same read returns the lanes'
