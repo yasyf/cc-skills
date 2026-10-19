@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 import ledger
 from conftest import DIRTY_HEAD, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell
 
@@ -116,6 +118,25 @@ def test_refresh_never_rereads_a_settled_row_so_a_landing_sticks(lock, red_route
     assert shell.fields("20961")["head"] == "stale"
     assert shell.fields("20970")["state"] == "closed-without-squash"
     assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "21052"]]
+
+
+def test_refresh_reopens_an_abandoned_row_github_shows_open_again(lock, red_routes):
+    """#40373 on Oct 19: `stack-enqueue --dequeue` closed it and reopened it at a new head, and its row kept `closed-without-squash` at the old head."""
+    recent = ledger.stamp(ledger.now() - timedelta(hours=1))
+    rows = [
+        {"key": "20961", "fields": {"head": "old", "state": "closed-without-squash", "last_refresh": "2020-01-01T00:00:00Z"}},
+        {"key": "21052", "fields": {"head": "old", "state": "closed-without-squash", "last_refresh": recent}},
+        {"key": "19999", "fields": {"head": "dead", "state": "closed-without-squash", "last_refresh": recent}},
+    ]
+    shell = FakeShell(rows=rows, routes=red_routes)
+    refresh(shell, lock)
+
+    assert shell.fields("20961")["state"] == "closed-without-squash"
+    assert (shell.fields("21052")["state"], shell.fields("21052")["head"]) == ("open", MOVED_HEAD)
+    assert shell.fields("19999")["state"] == "closed-without-squash"
+
+    refresh(shell, lock, pr=["20961"])
+    assert (shell.fields("20961")["state"], shell.fields("20961")["head"]) == ("open", DIRTY_HEAD)
 
 
 def test_an_unreachable_forge_writes_nothing_and_exits_non_zero(lock, red_routes, capsys):

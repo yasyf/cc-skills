@@ -168,6 +168,7 @@ SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 SQUASH_DEPTH = 3000
 SETTLE_WORKERS = 8
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
+REOPEN_WINDOW = timedelta(hours=24)
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
@@ -1486,7 +1487,8 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
 def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: dict[str, dict[str, str]], named: list[str], lanes: dict[str, str], moment: str) -> list[dict]:
     """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns the graded rows under their stored keys."""
     every = {key: fields for key, fields in scope.view(stored).items() if key.isdigit()}
-    settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES}
+    reopenable = {key for key, fields in every.items() if fields.get("state") == CLOSED_WITHOUT_SQUASH and (key in named or ((last := fields.get("last_refresh")) and parse_iso(moment) - parse_iso(last) < REOPEN_WINDOW))}
+    settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
     prefixes = sorted({lane["branch_prefix"] for lane in registrations})
@@ -1498,6 +1500,8 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
     rows = []
     for key in sorted((set(wanted) | set(registered)) - settled, key=int):
+        if key in reopenable and state["prs"][key]["state"] != "OPEN":
+            continue
         fields = grade(state["prs"][key])
         fields["last_refresh"] = moment
         if key not in known:
