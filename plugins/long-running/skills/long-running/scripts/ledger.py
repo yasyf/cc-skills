@@ -39,7 +39,7 @@ and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-w
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``cci`` records on ``--drive D``, keyed ``#<seq>`` and pending until lane ``ledger``
 posts an ``answer`` with ``--re <seq>``; owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
-``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. It marks an open PR ``ours`` only when a drive lane registered it here or posted it ``opened`` on cci, and ``label`` refuses a stack holding any PR that is not. A landing is proven by a
+``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. It marks an open PR ``ours`` only when a drive lane registered it here or posted an ``opened`` or ``head`` record naming it on cci, and ``label`` refuses a stack holding any PR that is not. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. A verb's ``--repo`` defaults to the origin of its
 ``--checkout``, else of the working directory, the same checkout ``ccn`` reads the ledger from. A PR row's key
@@ -251,7 +251,7 @@ REFUSAL = {
     "orphaned": "#{pr} is based on {base}, which is neither {trunk} nor exactly one open pull request's branch (found {found}); retarget it to {trunk}",
     "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
     "untracked": "#{pr} is below #{tip} in the stack and no lane reported it; the label on #{tip} would enqueue it too",
-    "foreign": "#{pr} is in #{tip}'s stack, but no drive lane registered it in the ledger or posted it opened on cci; the desk never enqueues a PR the drive did not open",
+    "foreign": "#{pr} is in #{tip}'s stack, but no drive lane registered it in the ledger or posted an opened or head record naming it on cci; the desk never enqueues a PR the drive did not open",
     "stack": "the stack {stack} enqueues as one entry, so {refused} refuses all of it; nothing was labelled",
     "enqueue": "stack-enqueue refused #{pr} (stack tip #{tip}): {detail}",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
@@ -781,18 +781,19 @@ def is_tracked(fields: dict[str, str]) -> bool:
     return bool(fields.get("reported_head") or fields.get("registered"))
 
 
-def opened_on_cci(shell: Shell, pr: str) -> bool:
+def claimed_on_cci(shell: Shell, repo: str, pr: str) -> bool:
     drive = os.environ.get(DRIVE_ENV)
-    argv = ["cci", "tail", *(["--drive", drive] if drive else []), "--kind", "opened", "--pr", pr, "--since", "0", "--json", "-n", "1"]
+    kinds = [flag for kind in cci.CLAIM_KINDS for flag in ("--kind", kind)]
+    argv = ["cci", "tail", *(["--drive", drive] if drive else []), *kinds, "--pr", f"{repo}#{pr}", "--since", "0", "--json", "-n", "1"]
     try:
         return bool(shell.run(argv).strip())
     except (subprocess.CalledProcessError, OSError):
         return False
 
 
-def is_ours(shell: Shell, fields: dict[str, str], pr: str) -> bool:
-    """A drive lane registered the PR in this ledger or posted it `opened` on cci; authorship never counts."""
-    return bool(fields.get("registered")) or opened_on_cci(shell, pr)
+def is_ours(shell: Shell, repo: str, fields: dict[str, str], pr: str) -> bool:
+    """A drive lane registered the PR in this ledger or posted an `opened` or `head` record naming `repo#pr` on cci, which also matches a bare `#pr` ref; authorship never counts."""
+    return bool(fields.get("registered")) or claimed_on_cci(shell, repo, pr)
 
 
 def lane_held(fields: dict[str, str]) -> bool:
@@ -1800,7 +1801,7 @@ def label_stack(
         fields = rows.get(pr, {})
         above = numbers[index + 1] if index + 1 < len(stack) else None
         try:
-            if not is_ours(shell, fields, pr):
+            if not is_ours(shell, gh.repo, fields, pr):
                 raise refusal("foreign", pr=pr, tip=number)
             if pr != number and not is_tracked(fields):
                 raise refusal("untracked", pr=pr, tip=number)
@@ -2267,7 +2268,7 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
     }
     ordered = sorted(rows.items(), key=lambda item: int(item[0]))
     if args.json:
-        print(json.dumps([{"pr": key, "repo": args.repo, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, fields, key)} for key, fields in ordered]))
+        print(json.dumps([{"pr": key, "repo": args.repo, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, args.repo, fields, key)} for key, fields in ordered]))
         return 0
     for key, fields in ordered:
         rules = " rules-blocked" if rules_blocked(every, key) else ""

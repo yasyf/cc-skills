@@ -1204,6 +1204,7 @@ def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_register
 def test_an_open_pr_a_drive_lane_posted_opened_is_registered_before_any_gate_reaches_it(shell, config, tmp_path):
     """#40339 on Oct 19: a ccx claim posted it opened, no gate ever named it, so it never became a row and its fidelity grade was never mirrored."""
     shell.rows = stack_rows()
+    shell.rows[2]["registered"] = LANE
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.records += [
         {"seq": 34766, "drive": "d1", "lane": "mem-da4-suites", "kind": "opened", "to": [], "refs": {"prs": [40339]}, "text": "opened #40339", "source": "claim", "at": "2026-10-19T13:50:24Z"},
@@ -1223,6 +1224,26 @@ def test_an_open_pr_a_drive_lane_posted_opened_is_registered_before_any_gate_rea
     assert registrations(shell)[0] == ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "mem-da4-suites", "--pr", "40339"]
     asked = [call[2] for call in shell.calls if call[:2] == ["gh", "api"] and "/pulls/" in call[2]]
     assert asked == ["repos/Forge-AI/monorepo/pulls/40339", "repos/Forge-AI/monorepo/pulls/397", "repos/Forge-AI/monorepo/pulls/40401"]
+
+
+def test_a_refreshed_row_a_drive_lane_posted_opened_or_head_is_registered_without_a_lane_round_trip(shell, config, tmp_path):
+    """#40902 and #40941 on Oct 20: a refresh rowed each before any lane registered it, and the only claims were a qualified `opened` and a bare `head`, so the desk skipped both as NOT-OURS."""
+    shell.rows = [*stack_rows(), {"pr": "40902", "branch": "durable-step-6a-detach-route", "base": "dev", "head": "6b42b36b990", "state": "open", "ours": False}, {"pr": "40941", "branch": "step-6-fork-detach", "base": "dev", "head": "e615fb42c6f", "state": "open", "ours": False}]
+    shell.rows[2]["registered"] = LANE
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.records += [
+        {"seq": 101750, "drive": "d1", "lane": "step-6", "kind": "opened", "to": [], "refs": {"prs": ["Forge-AI/monorepo#40902"]}, "text": "opened #Forge-AI/monorepo#40902", "source": "claim", "at": "2026-10-20T08:06:17Z"},
+        {"seq": 102513, "drive": "d1", "lane": "step-6", "kind": "head", "to": [], "refs": {"prs": [40941]}, "text": "OPENED #40941 e615fb4 (ruling 9e85f73), off dev", "source": "post", "at": "2026-10-20T13:58:51Z"},
+        {"seq": 102514, "drive": "d1", "lane": "step-6", "kind": "ask", "to": [], "refs": {"prs": [28997]}, "text": "Grade #28997", "source": "post", "at": "2026-10-20T13:58:52Z"},
+        {"seq": 102515, "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": [29020]}, "text": "#29020 cccc333333", "source": "post", "at": "2026-10-20T13:59:00Z"},
+    ]
+    shell.pulls = {"40941": {"state": "open", "created_at": "2026-10-20T13:58:28Z"}}
+    landing_pass(shell, config)
+    assert registrations(shell) == [
+        ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "step-6", "--pr", "40902"],
+        ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "step-6", "--pr", "40941"],
+    ]
+    assert [call[2] for call in shell.calls if call[:2] == ["gh", "api"] and "/pulls/" in call[2]] == ["repos/Forge-AI/monorepo/pulls/40941"]
 
 
 def test_a_rowless_rider_a_drive_lane_posted_opened_is_registered_instead_of_escalated(shell, config, tmp_path):

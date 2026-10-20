@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 
 PAGE_BYTES = 16000
+CLAIM_KINDS = ("opened", "head")
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int = 0) -> list[dict]:
