@@ -790,6 +790,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
 | `RELEASE-HELD-AFTER-LANDING` | Lift the hold or wait order the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
 | `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
+| `PARKED` | None while the PR stays parked; its lane has no live dispatch or session, so its conflict routes to no one. Relaunch or reassign the lane to have the conflict routed. |
 | `DEFERRED` | Work each held escalation the line names, now that the incident clock has ended. |
 | `SQUASH-FAILED` | Read GitHub's refusal of the incident fix's plain squash; fix what it names, and the runner merges the next approved, green head. |
 | `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
