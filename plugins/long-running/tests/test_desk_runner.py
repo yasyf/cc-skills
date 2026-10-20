@@ -3119,7 +3119,7 @@ def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_h
         landing_pass(shell, config)
     held = [line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]
     assert held == [f"RELEASE-HELD-AFTER-LANDING #36642: landed 5e11a9d0c2 at 11:03; its cut is owed now, the other PR gets its own cut when it lands (root #{seq})"]
-    assert [post["text"].split(": ", 1)[1].split(" as ")[0] for post in blockers(shell)] == ["landed 3 minutes ago", "landed 6 minutes ago"]
+    assert [post["text"].split(": ", 1)[1].split(" as ")[0] for post in blockers(shell) if post["text"].startswith("#36642 ")] == ["landed 3 minutes ago", "landed 6 minutes ago"]
 
 
 def test_a_released_build_posts_one_released_line_to_the_root_and_comms_once_every_component_is_live(shell, config, tmp_path):

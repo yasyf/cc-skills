@@ -48,7 +48,7 @@ INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on the Orca incident 
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
-PUBLISH_CLAIM = re.compile(r"\b(?:published|released|(?:is|went|now) live|cut)\b", re.IGNORECASE)
+PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
 PUBLISH_FROM_MEMORY = "quote the RELEASED record or run `tools/ci release live`; never from memory"
 SETTLED_INCIDENTS = frozenset({"closed", "recovered"})
@@ -179,6 +179,7 @@ def open_incidents() -> list[dict]:
         Input(transcript=reply_transcript("sand 1437 is live: https://buildkite.com/forge/release/builds/8748"), state=ACTIVE, env=INCIDENT_ENV): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, env=QUIET_ENV): Allow(),
         Input(transcript=reply_transcript("The fix lane is building the PR."), state=ACTIVE, env=INCIDENT_ENV): Allow(),
+        Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, env=INCIDENT_ENV): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), env=INCIDENT_ENV): Allow(),
     },
 )

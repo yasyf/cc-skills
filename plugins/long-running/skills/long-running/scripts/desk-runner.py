@@ -373,7 +373,7 @@ BUILD_NUMBER = re.compile(r"(\d+)/?$")
 NOT_LIVE = "not live"
 RELEASE_LANE = re.compile(r"(?:^|-)release(?:-|$)")
 CUT_ORDER = re.compile(r"\b(?:cut|release start)\b", re.IGNORECASE)
-CUT_COMPONENT = re.compile(r"\bcut\s+(?:a\s+|the\s+)?([a-z][\w-]*)", re.IGNORECASE)
+CUT_COMPONENT = re.compile(r"\b(?:cut|release start)(?:\s+--[\w-]+)*\s+(?:a\s+|the\s+)?([a-z][\w-]*)", re.IGNORECASE)
 CUT_KINDS = ("go", "decision")
 ALREADY_SHIPS = re.compile(r"already ships .* or later")
 CUT_CLOCKS = "cut-clocks"
@@ -2313,14 +2313,17 @@ class Runner:
             launch = fix_launch(incident)
             kept = incident.facts.get(CLOCK) or {}
             current = bool(launch) and kept.get("key") == launch.action_id
-            if not launch or (current and kept["ended"]) or not (dispatch := self.orca.show(lane)):
+            if not launch or (current and kept["ended"]):
                 continue
             launched = actions.parse_stamp(launch.verification_receipt["at"])
             clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
-            if dispatch.id != launch.dispatch_id:
-                clock["ended"] = f"relaunched as dispatch {dispatch.id}"
-            elif withdrawn := self.withdrawn_by(lane):
+            withdrawn = self.withdrawn_by(lane)
+            if not withdrawn and not (dispatch := self.orca.show(lane)):
+                continue
+            if withdrawn:
                 clock["ended"] = f"{WITHDRAWN} by {withdrawn}"
+            elif dispatch.id != launch.dispatch_id:
+                clock["ended"] = f"relaunched as dispatch {dispatch.id}"
             elif dispatch.status in INACTIVE:
                 clock["ended"] = f"dispatch {dispatch.status}"
             else:
@@ -2498,18 +2501,16 @@ class Runner:
     def cut_records(self, clock: dict, *kinds: str) -> list[dict]:
         """The drive's records of these kinds since the clock opened that answer it: from its release lane, or, for a landing's release, from any lane but the runner's that names the PR or one of its components."""
         since = actions.parse_stamp(clock["since"])
+        components = set(clock["components"])
+
+        def answers(record: dict) -> bool:
+            targets = set((record.get("refs") or {}).get("targets", []))
+            if record["lane"] == clock["lane"]:
+                return not targets or bool(targets & components)
+            return bool(clock["pr"]) and record["lane"] != RUNNER and bool(targets & components or names_pr(record, clock["pr"]))
+
         posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in kinds))
-        return [
-            record
-            for record in posted
-            if record["drive"] == self.config.drive
-            and record["kind"] in kinds
-            and actions.parse_stamp(record["at"]) >= since
-            and (
-                record["lane"] == clock["lane"]
-                or (clock["pr"] and record["lane"] != RUNNER and (set((record.get("refs") or {}).get("targets", [])) & set(clock["components"]) or names_pr(record, clock["pr"])))
-            )
-        ]
+        return [record for record in posted if record["drive"] == self.config.drive and record["kind"] in kinds and actions.parse_stamp(record["at"]) >= since and answers(record)]
 
     def press_cut(self, key: str, clock: dict) -> None:
         component = clock["components"][0]
@@ -3361,7 +3362,9 @@ class Landing:
             return
         view = json.loads(done.out)
         key = f"land:{pr}@{view['headRefOid']}"
-        if view["state"] != "OPEN" or view["reviewDecision"] != "APPROVED" or key in self.book.load(LANDING).actions:
+        if (squashed := self.book.known(LANDING, key)) and squashed.status == "completed" and "posted" not in squashed.response:
+            self.announce(pr, row, key, view["headRefOid"], squashed.response["sha"])
+        if view["state"] != "OPEN" or view["reviewDecision"] != "APPROVED" or squashed:
             return
         checks = self.shell.run(["gh", "pr", "checks", pr, "--repo", self.repo, "--required", "--json", "name,bucket"])
         try:
@@ -3381,8 +3384,14 @@ class Landing:
         read = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit"])
         commit = ((json.loads(read.out) if read.code == 0 else {}).get("mergeCommit") or {}).get("oid", "")
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"sha": commit, "at": self.book.stamp()}))
-        text = f"#{pr} {LANDED_BY_SQUASH} as {commit[:10] or 'an unread squash'}: an incident fix, approved and green at {view['headRefOid'][:10]}, merged by the landing runner (ef905a6); its release is owed now"
-        self.runner.cci_post("landed", text, ",".join(dict.fromkeys([self.owner(pr, row) or ROOT, ROOT])), pr, key, pr=pr, record_id=key)
+        self.announce(pr, row, key, view["headRefOid"], commit)
+
+    def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
+        """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
+        text = f"#{pr} {LANDED_BY_SQUASH} as {commit[:10] or 'an unread squash'}: an incident fix, approved and green at {head[:10]}, merged by the landing runner (ef905a6); its release is owed now"
+        done = self.runner.cci_post("landed", text, ",".join(dict.fromkeys([self.owner(pr, row) or ROOT, ROOT])), pr, key, pr=pr, record_id=key)
+        if done.code == 0 and (seq := POSTED.match(done.out)):
+            self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": int(seq[1])}))
 
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. A landing older than the first pass is history."""
@@ -3431,7 +3440,7 @@ class Landing:
         targets = f"targets {named}" if named else "targets a component"
         settles = "post `release --build <url> --target <component>`" if incident else f"post that record with --pr {pr} or --target <component>; a root reply to this record with --re also stops the blocker"
         minutes = int((self.runner.now() - actions.parse_stamp(landed["landed_at"])).total_seconds() // 60)
-        step = str(max(0, minutes // every))
+        step = "0" if minutes < every else str(minutes // every) if every == self.runner.config.release_start_minutes else f"{minutes // every}@{every}m"
         if step in posted:
             return
         if posted:
