@@ -8,11 +8,12 @@ import pytest
 from cc_transcript.query import Session
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook import CONFIRMED, UNCONFIRMED
-from captain_hook.testing.helpers import StubbedContext, build_context
+from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_commands
 
 from fire import fire
 from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
+from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
 
 MISFIRES = {
     "artifact-retry-repush": (
@@ -71,6 +72,13 @@ class Root:
         results = fire(owner_facing, evt)
         return results[0].message if results else None
 
+    def tool(self, name: str, tool_input: dict, *posted: dict, **raw: str) -> list[str]:
+        payload = {"session_id": "0123456789abcdef", "cwd": str(self.transcript.parent), "tool_name": name, "tool_input": tool_input}
+        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir), decisions=CONFIRMED)
+        evt = PreToolUseEvent(_raw=payload | raw, ctx=ctx)
+        with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": list(posted)})}):
+            return [result.message for result in fire(owner_facing, evt)]
+
     def reply(self, *entries: dict) -> list[str]:
         self.transcript.write_text("".join(json.dumps(item) + "\n" for item in entries))
         evt = self.event(StopEvent)
@@ -96,6 +104,30 @@ def refused(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture
 def root(tmp_path: Path, refused: list[str]) -> Root:
     return Root(tmp_path)
+
+
+@pytest.fixture
+def incidents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return tmp_path / ".claude" / "long-running" / "incidents"
+
+
+def incident(incidents: Path, name: str, status: str, *, hours_ago: float = 1, **facts: str) -> None:
+    incidents.mkdir(parents=True, exist_ok=True)
+    record = {
+        "incident_id": name,
+        "owner": f"incident-{name}",
+        "owner_generation": 1,
+        "opened_at": opened(hours_ago),
+        "facts": facts,
+        "status": status,
+        "actions": {},
+    }
+    (incidents / f"{name}.json").write_text(json.dumps(record))
+
+
+def question(text: str) -> dict:
+    return {"questions": [{"question": text, "header": "Ask", "options": [{"label": "Go"}, {"label": "Hold"}], "multiSelect": False}]}
 
 
 @pytest.mark.parametrize(
@@ -189,3 +221,66 @@ def test_a_fix_lane_the_desk_refused_on_load_spawns_in_process(root: Root, refus
 
     assert root.spawn("api-1n80-fix", prompt) is None
     assert root.spawn("api-1n81-fix", prompt) == owner_facing.INCIDENT_ROUTE
+
+
+@pytest.mark.parametrize("tool", ["EnterPlanMode", "ExitPlanMode"])
+def test_plan_mode_blocks_while_a_drive_incident_is_open(root: Root, incidents: Path, tool: str) -> None:
+    incident(incidents, "0820", "fix-pending", target="executor")
+
+    assert root.tool(tool, {}) == [owner_facing.PLAN_MODE_IN_INCIDENT]
+
+
+def test_a_posted_incident_record_blocks_plan_mode(root: Root, incidents: Path) -> None:
+    assert root.tool("EnterPlanMode", {}, OUTAGE_TWO) == [owner_facing.PLAN_MODE_IN_INCIDENT]
+
+
+@pytest.mark.parametrize(("status", "hours_ago"), [("closed", 1), ("recovered", 1), ("fix-pending", 7)])
+def test_plan_mode_passes_once_the_incident_closes_or_ages_out(root: Root, incidents: Path, status: str, hours_ago: float) -> None:
+    incident(incidents, "0820", status, hours_ago=hours_ago, target="executor")
+
+    assert root.tool("EnterPlanMode", {}) == []
+
+
+def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path, refused: list[str]) -> None:
+    incident(incidents, "0820", "fix-pending", target="executor")
+
+    assert Root(tmp_path, active=False).tool("EnterPlanMode", {}) == []
+
+
+def test_an_owner_question_on_other_work_blocks_while_the_alert_is_active(root: Root, incidents: Path) -> None:
+    incident(incidents, "sand-not-migrated", "open", target="sand")
+
+    [message] = root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?"))
+
+    assert message.startswith("the alert is active") and "sand-not-migrated" in message
+
+
+def test_the_incident_own_question_passes(root: Root, incidents: Path) -> None:
+    incident(incidents, "sand-not-migrated", "open", target="sand")
+
+    assert root.tool("AskUserQuestion", question("sand-not-migrated: approve the 0-delete apply on plat?")) == []
+
+
+def test_an_owner_question_after_the_incident_closes_passes(root: Root, incidents: Path) -> None:
+    incident(incidents, "sand-not-migrated", "closed", target="sand")
+
+    assert root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?")) == []
+
+
+def test_a_root_probe_blocks_while_the_alert_is_active(root: Root, incidents: Path) -> None:
+    incident(incidents, "sand-not-migrated", "open", target="sand")
+
+    assert root.tool("Bash", {"command": "kubectl -n plat get deploy api"}) == [owner_facing.ROOT_PROBE]
+
+
+@pytest.mark.parametrize(
+    ("command", "raw"),
+    [
+        ("kubectl -n plat get deploy api", {"agent_id": "aevidence-0123456789abcdef"}),
+        ("cci post --kind decision --lane root --to inc-sand-fix 'ship the fix'", {}),
+    ],
+)
+def test_lane_probes_and_root_routing_pass(root: Root, incidents: Path, command: str, raw: dict) -> None:
+    incident(incidents, "sand-not-migrated", "open", target="sand")
+
+    assert root.tool("Bash", {"command": command}, **raw) == []
