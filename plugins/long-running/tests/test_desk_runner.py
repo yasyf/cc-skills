@@ -2403,6 +2403,16 @@ def test_the_mirror_does_not_overwrite_a_success_status_with_pending(shell, conf
     assert shell.head_statuses == []
 
 
+@pytest.mark.parametrize("graded", [True, False])
+def test_the_mirror_posts_no_fidelity_status_on_a_row_no_drive_lane_registered(shell, config, tmp_path, graded):
+    held_pr(shell, tmp_path)
+    shell.rows[0]["ours"] = False
+    if graded:
+        grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert fidelity_statuses(shell) == []
+
+
 @pytest.mark.parametrize("state", ["success", "failure"])
 def test_a_fidelity_status_the_lane_sets_during_a_pass_is_never_overwritten_with_pending(shell, config, tmp_path, state):
     prs = five_held_rows(shell, tmp_path)

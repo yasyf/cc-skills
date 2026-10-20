@@ -1265,9 +1265,11 @@ grade for a diff already graded ok at c9fce65; landing-gates held the incident f
 for that grade at 2:31 PM.*
 
 The runner also mirrors each grade onto GitHub. On every pass it sets commit
-status `fidelity` on each open row's head the fidelity lane graded: `success`
+status `fidelity` on each open `ours` row's head the fidelity lane graded: `success`
 for `fidelity: ok`, `failure` for `fidelity: missing`, described by the grade's
-first line and its cci seq, once per grade record. A head with no grade reads
+first line and its cci seq, once per grade record. A row no drive lane
+registered or claimed gets no status, so a PR no drive grades never draws a
+fidelity wait on `landing-gates`. A head with no grade reads
 `pending`, "awaiting <fidelity lane>'s grade of this head", until the lane
 grades it. The runner reads the head's statuses just before posting `pending`
 and posts nothing when a `fidelity` status is already there, so a grade the lane
