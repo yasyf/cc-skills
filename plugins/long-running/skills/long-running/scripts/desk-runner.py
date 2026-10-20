@@ -194,8 +194,8 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
 unless a commit status other than `landing-gates`, `release-pr-check`, `emergency-head`, or `fidelity` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. A PR of this repo that has no ledger row but an `opened` record
-on the drive is registered under the record's lane each pass, and the next pass mirrors its grade and gates it as ours: an `owner/repo#N` ref
+holding a PR that no drive lane registered or named in an `opened` or `head` record on cci. A PR of this repo that has no registered ledger row but
+such a record on the drive is registered under the record's lane each pass, whether or not a refresh already gave it a row, and the next pass mirrors its grade and gates it as ours: an `owner/repo#N` ref
 names its repo, and a bare number counts once GitHub shows that PR open here and opened no later than the record. It logs one `NOT-OURS`
 escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record: the runner puts GitHub's `hold` label on it, which
@@ -327,6 +327,7 @@ BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 OWNER_KINDS = ("head", "opened", "ready", "claim")
+CLAIM_FILTERS = tuple(f"--kind={kind}" for kind in cci.CLAIM_KINDS)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 FIDELITY_STATUS = "fidelity"
@@ -2585,7 +2586,7 @@ class Landing:
         bases = {row.get("base") for row in open_rows.values()}
         for pr, row in open_rows.items():
             if not row.get("ours") and row.get("branch") not in bases:
-                self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted it opened on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+                self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted an opened or head record naming it on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
@@ -2604,7 +2605,7 @@ class Landing:
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and UNNAMED_RIDER in match["detail"]:
                     if self.admit_opened([pr]):
-                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted it opened on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted an opened or head record naming it on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
                     gated_red = pr in children and any(FAILING_REQUIRED.match(segment) for segment in match["detail"].split("; ")) and self.gated_red(pr, match["sha"])
@@ -2905,7 +2906,7 @@ class Landing:
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
             if unclaimed := self.admit_opened(foreign):
-                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which no drive lane registered or posted opened; nothing was enqueued")
+                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which no drive lane registered or named in an opened or head record; nothing was enqueued")
             return
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
@@ -2925,22 +2926,22 @@ class Landing:
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), authority, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
 
     def admit_opened(self, prs: list[str]) -> list[str]:
-        """Register each PR in `prs` that an `opened` record on this drive names under the lane that posted it, so the next pass's refresh fills its row and gates it as ours; returns the PRs no such record names or the ledger refused."""
+        """Register each PR in `prs` that an `opened` or `head` record on this drive names under the lane that posted it, so the next pass's refresh fills its row and gates it as ours; returns the PRs no such record names or the ledger refused."""
         drive = self.runner.config.drive
         unclaimed = []
         for pr in prs:
-            posted = cci.records(self.runner.cci_tail, drive, "--kind=opened", "--pr", f"{self.repo}#{pr}")
-            opened = [record for record in posted if (record["kind"], record["drive"]) == ("opened", drive) and pr in dict(repo_prs(record, self.repo))]
+            posted = cci.records(self.runner.cci_tail, drive, *CLAIM_FILTERS, "--pr", f"{self.repo}#{pr}")
+            opened = [record for record in posted if record["kind"] in cci.CLAIM_KINDS and record["drive"] == drive and pr in dict(repo_prs(record, self.repo))]
             if not opened or self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", opened[-1]["lane"], "--pr", pr).code:
                 unclaimed.append(pr)
         return unclaimed
 
     def admit_drive_opened(self, rows: dict[str, dict]) -> None:
-        """Register each PR of this repo that an `opened` record on this drive names and the ledger lacks, under the lane that posted it, so its next refresh fills the row and the desk mirrors its grade and gates it. A ref to `owner/repo#N` names its repo; a bare number, as ccx claimed tool-repo PRs before it qualified them, counts only once GitHub shows that PR open here and opened no later than the record. Each record is read once per process; a GitHub read that fails stops the pass's admissions at that record, which the next pass reads again."""
+        """Register each PR of this repo that an `opened` or `head` record on this drive names and no ledger row registers, under the lane that posted it, so its next refresh fills the row and the desk mirrors its grade and gates it. A ref to `owner/repo#N` names its repo; a bare number, as ccx claimed tool-repo PRs before it qualified them, counts only once GitHub shows that PR open here and opened no later than the record. Each record is read once per process; a GitHub read that fails stops the pass's admissions at that record, which the next pass reads again."""
         drive = self.runner.config.drive
-        known = set(rows)
-        for record in cci.records(self.runner.cci_tail, drive, "--kind=opened", since=self.opened_seen):
-            if (record["kind"], record["drive"]) == ("opened", drive):
+        known = {pr for pr, row in rows.items() if row.get("registered")}
+        for record in cci.records(self.runner.cci_tail, drive, *CLAIM_FILTERS, since=self.opened_seen):
+            if record["kind"] in cci.CLAIM_KINDS and record["drive"] == drive:
                 for pr, qualified in repo_prs(record, self.repo):
                     if pr in known:
                         continue
@@ -2951,7 +2952,7 @@ class Landing:
                     done = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", record["lane"], "--pr", pr)
                     if done.code:
                         last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                        self.runner.escalate(f"admit:{pr}", "ADMIT-FAILED", f"#{pr}", f"ledger.py register refused #{pr}, which {record['lane']} posted opened on cci #{record['seq']}: {last[0]}; its grade is not mirrored until a lane registers it")
+                        self.runner.escalate(f"admit:{pr}", "ADMIT-FAILED", f"#{pr}", f"ledger.py register refused #{pr}, which {record['lane']} posted {record['kind']} on cci #{record['seq']}: {last[0]}; its grade is not mirrored until a lane registers it")
                     known.add(pr)
             self.opened_seen = record["seq"]
 

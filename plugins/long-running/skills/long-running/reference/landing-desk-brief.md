@@ -450,7 +450,7 @@ Rules that are not the tool's to enforce:
 
 Do NOT touch: any lane's worktree or branch; any other engineer's PR; the `merge`
   label by hand. Never enqueue, label, or land a PR no drive lane registered in the
-  ledger or posted `opened` on cci, even when it is green and approved; the runner and
+  ledger or named in an `opened` or `head` record on cci, even when it is green and approved; the runner and
   `ledger.py label` refuse it, and the author login never makes a PR ours.
 Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`, and
   `git log` only.

@@ -81,7 +81,7 @@ class FakeShell(ledger.Shell):
     def run(self, argv, stdin=None):
         self.calls.append(list(argv))
         if argv[:2] == ["cci", "tail"] and "opened" in argv:
-            pr = argv[argv.index("--pr") + 1]
+            pr = argv[argv.index("--pr") + 1].rpartition("#")[2]
             return "" if pr in self.foreign else json.dumps({"kind": "opened", "refs": {"prs": [int(pr)]}}) + "\n"
         if argv[0] == "cci":
             return self._cci(argv)

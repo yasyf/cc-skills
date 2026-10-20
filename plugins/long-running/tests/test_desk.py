@@ -1400,7 +1400,7 @@ def test_a_stack_holding_a_pr_no_drive_lane_opened_is_never_enqueued(capsys, tmp
     script.write_text("")
 
     assert label_stack(shell, STACK[-1], "--checkout", str(tmp_path)) == 1
-    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger or posted it opened on cci" in capsys.readouterr().out
+    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger or posted an opened or head record naming it on cci" in capsys.readouterr().out
     assert shell.labelled == [] and shell.stack_enqueues == []
 
 
@@ -1423,7 +1423,7 @@ def test_list_marks_open_rows_ours_only_when_a_drive_lane_registered_or_opened_t
 
     assert run(shell, "list", "--ledger", LEDGER, "--json") == 0
     assert {row["pr"]: row["ours"] for row in json.loads(capsys.readouterr().out)} == {"24001": True, "24002": False, "24003": True}
-    assert ["cci", "tail", "--drive", "release-v3", "--kind", "opened", "--pr", "24001", "--since", "0", "--json", "-n", "1"] in shell.calls
+    assert ["cci", "tail", "--drive", "release-v3", "--kind", "opened", "--kind", "head", "--pr", f"{REPO}#24001", "--since", "0", "--json", "-n", "1"] in shell.calls
 
 
 def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
