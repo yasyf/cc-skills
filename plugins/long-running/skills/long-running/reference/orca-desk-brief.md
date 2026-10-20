@@ -720,6 +720,16 @@ A landing older than the landing runner's first pass sends nothing, and neither 
 a landed row with no `landed_at`. A `merge-fast` landing whose body has no
 `Release-With:` line is read once and sends nothing.
 
+An incident fix PR, one from an `incident-` or `outage-` lane, a fix lane on the
+incident clock, or named as an open incident's repair, is merged by the runner with
+`gh pr merge <n> --squash --match-head-commit <head>` in the pass its head is
+approved and green, and never enqueued. Its landing owes a release whatever its
+label, posts a blocker every `deadlines.incident_release_minutes` while an incident
+clock runs, and settles only on a `release` record with `--build` and `--target`.
+Once the settling record names a build, each pass reads
+`tools/ci release live <id> --json` and posts one `RELEASED` `fix-live` record to the
+root and `landing.comms_lane` when every component reads live.
+
 A `BLOCKED` head routes at most once per head, and only for red CI, a merge
 conflict, a changes-requested review or fidelity grade, or a queue ejection. A
 pending check, a missing approval, an ejection blaming a PR outside the stack,
@@ -776,6 +786,11 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `GITHUB-BACKOFF` | None while it lasts; the landing desk reads nothing from GitHub until the reset the line names, and accepted enqueues and root `go` records run on the first pass after it. A line every quota window means another consumer is spending the installation's quota; find it before the next window. |
 | `QUOTA-READ-FAILED` | Read why `ccx vcs gh -- api rate_limit` failed; until it reads again the desk runs without its back-off. |
 | `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
+| `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
+| `RELEASE-HELD-AFTER-LANDING` | Lift the hold or wait order the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
+| `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
+| `DEFERRED` | Work each held escalation the line names, now that the incident clock has ended. |
+| `SQUASH-FAILED` | Read GitHub's refusal of the incident fix's plain squash; fix what it names, and the runner merges the next approved, green head. |
 | `RELEASE-FAILED` | Start the release the line names, or post its `release` record when it is already running. When the line says cci refused the record, the `peer:` session has most often ended, so correct `landing.release_owner` and restart the landing runner. When it says cci printed no sequence, read what cci printed; the runner posts the record again under the same `--id` on its next pass. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |

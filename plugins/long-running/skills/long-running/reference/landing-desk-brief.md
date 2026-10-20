@@ -55,6 +55,14 @@ or the PR with `--pr`, or when the root replies to one of them with `--re <seq>`
 `release` record the release owner posts on its own drive does not count, so it posts
 with `--drive <drive>`, as the runner's record tells it to.
 
+Incident fixes land by plain squash the pass they are approved and green (ef905a6).
+The landing runner never enqueues an incident fix PR on the trunk: in the pass its
+head reads approved with every required check passing, it runs
+`gh pr merge <n> --squash --match-head-commit <head>` once per head and posts
+`landed`. Neither the root nor this desk enqueues one with `--fast`. Its landing owes
+a release under D20 whatever its label, every `deadlines.incident_release_minutes`
+while an incident clock runs, and settles only on a `release` record with `--build`.
+
 Hold a PR while its current head's review is pending or records an unwaived
 finding. No review, no base, and errored reviews fail open. Clean and overridden
 heads pass. The sweep mirrors each verdict into the head's `rules-review` commit

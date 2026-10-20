@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 from cc_transcript.models import AssistantEvent
 from captain_hook import (
@@ -46,6 +48,12 @@ INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on the Orca incident 
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
+PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
+PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
+PUBLISH_FROM_MEMORY = "quote the RELEASED record or run `tools/ci release live`; never from memory"
+SETTLED_INCIDENTS = frozenset({"closed", "recovered"})
+INCIDENT_ENV = {"CLAUDE_CONFIG_DIR": str(Path(__file__).parent / "tests" / "fixtures" / "claude-config-incident")}
+QUIET_ENV = {"CLAUDE_CONFIG_DIR": str(Path(__file__).parent / "tests" / "fixtures" / "claude-config")}
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
 LETTER_NAMES = re.compile(r"\b[B-HJ-Z]\b")
 CODENAME_JUDGE = Confirm(
@@ -151,6 +159,36 @@ def last_reply(evt: BaseHookEvent) -> str:
 def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)):
         queue_nudge(evt, UTC_IN_REPLY)
+    return None
+
+
+def open_incidents() -> list[dict]:
+    """The incident executor's records that are still open: not closed or recovered, and judged ours."""
+    root = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "incidents"
+    records = (json.loads(path.read_text()) for path in sorted(root.glob("*.json")))
+    return [record for record in records if record["status"] not in SETTLED_INCIDENTS and not record["facts"].get("not_ours")]
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, env=INCIDENT_ENV): Block(pattern=r"quote the RELEASED record"),
+        Input(transcript=reply_transcript("sand 1437 is published (#103935)."), state=ACTIVE, env=INCIDENT_ENV): Allow(),
+        Input(transcript=reply_transcript("sand 1437 is live: https://buildkite.com/forge/release/builds/8748"), state=ACTIVE, env=INCIDENT_ENV): Allow(),
+        Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, env=QUIET_ENV): Allow(),
+        Input(transcript=reply_transcript("The fix lane is building the PR."), state=ACTIVE, env=INCIDENT_ENV): Allow(),
+        Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, env=INCIDENT_ENV): Allow(),
+        Input(transcript=reply_transcript("sand 1437 is published."), env=INCIDENT_ENV): Allow(),
+    },
+)
+def publish_lines_quote_the_released_record(evt: BaseHookEvent) -> HookResult | None:
+    if not CompactionState.load(evt).active:
+        return None
+    reply = last_reply(evt)
+    if PUBLISH_CLAIM.search(reply) and not PUBLISH_PROOF.search(reply) and open_incidents():
+        return evt.block(PUBLISH_FROM_MEMORY)
     return None
 
 

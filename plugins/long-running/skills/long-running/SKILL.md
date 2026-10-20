@@ -504,10 +504,12 @@ pid, or a pass older than that, which the `desk_liveness` hook reports as
 `LAUNCH-FAILED`, means the root launches the fix lane inline in the same
 turn instead of waiting for the runner: a background `codex:codex-wrapper` running
 `codex-ask --incident` on the fix brief. Every incident fix brief says build, ship
-via submit-pr, enqueue `--fast`, and the inline lane carries that authority. Codex
-cannot run commit mechanics, so the wrapper hands its branch to a Claude
-`lane-ship` lane named `incident-<slug>` that ships and enqueues it; the pack's
-`lane_landing` hook admits that name. Never both: when the runner comes back
+via submit-pr, and post `ready`. Incident fixes land by plain squash the pass they
+are approved and green (ef905a6): the landing runner merges the PR with
+`gh pr merge <n> --squash`, never through the queue. Codex cannot run commit
+mechanics, so the wrapper hands its branch to a Claude `lane-ship` lane named
+`incident-<slug>` that ships it; the pack's `lane_landing` hook refuses that lane's
+`stack-enqueue` and names the plain squash. Never both: when the runner comes back
 and launches the same line, the root keeps the lane further along and stops the
 other.
 
@@ -576,7 +578,22 @@ both failures and the fallback brief. The root starts `<lane>-opus` that turn in
 own session, an `Agent` of type `long-running:lane-ship` on opus in fast mode with that
 brief, and never retries Orca a third time.
 `ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, or a settled dispatch
-stops the clock. `deadlines.incident_mechanism_minutes`,
+stops the clock. Three rules keep the clock to the incident, not the lane:
+
+- Milestones count across the incident. A clocked fix lane sharing the lane's
+  `<first>` name or `incident=` slug, such as a `-case<n>` sibling or the `-opus`
+  fallback, and the incident executor's Opus backup for one of them are siblings.
+  One mechanism, PR, or ready anywhere among them counts as the lane's mechanism,
+  so no mechanism fallback launches; the PR threshold still clocks the lane that
+  has no PR.
+- A clock whose lane the root withdrew, or sent `stand-down` or `stopped`, ends as
+  `withdrawn by <who>` and posts no `INCIDENT-CLOCK` line.
+- While any incident clock runs, `DEADLINE`, `UNACKED`, `HOLDS-UNREAD`, `LIVENESS`,
+  `STALE-MAIL`, and `RECLAIM` escalations about anything outside the incident go to
+  the runner's view only. When the last clock ends they reach the root as one
+  `DEFERRED <n> escalations held during <incident>` record naming each.
+
+`deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
 limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
 
@@ -656,8 +673,9 @@ The turn the `TAKEOVER` arrives, the root spawns `incident-<slug>-ship` as
 `long-running:lane-ship` on opus in fast mode. It checks out the PR's branch with
 `ccx vcs worktree add <branch>` and replays it onto current dev with
 `ccx vcs stack submit --restack`. It posts `opened --pr <n>` on this drive so the
-landing runner owns the PR, and enqueues it `--fast` once green, as D1's priority-PR
-path allows. On landing it posts the `release` record D20 needs for the cut. The root posts one
+landing runner owns the PR. Incident fixes land by plain squash the pass they are
+approved and green (ef905a6); the ship lane posts `ready` and the landing runner
+merges it. On landing it posts the `release` record D20 needs for the cut. The root posts one
 `decision` addressed to the owning drive's root and fix lane, naming the takeover and
 its trigger. It never sets the owning drive a deadline, never asks whether it is
 mid-push, and never waits for its root to rule. A head the owning drive pushes later
@@ -1177,7 +1195,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3 and mirrors the holds file onto GitHub's `hold` label; without it, the landing desk runs `ledger.py label`. A hold is GitHub's `hold` label: the runner writes it from the holds file and from every PR an open cci `hold` record names, which `ledger.py held --drive <drive>` prints, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR out of the queue on every path, and `stack-enqueue` takes no hold flag. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record and the runner removes its label. Without `stack-enqueue`, the desk re-reads the holds file and `ledger.py held` before every `ledger.py label`, never a cached set.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes, which it refuses only `stack-enqueue`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3 and mirrors the holds file onto GitHub's `hold` label; without it, the landing desk runs `ledger.py label`. A hold is GitHub's `hold` label: the runner writes it from the holds file and from every PR an open cci `hold` record names, which `ledger.py held --drive <drive>` prints, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR out of the queue on every path, and `stack-enqueue` takes no hold flag. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record and the runner removes its label. Without `stack-enqueue`, the desk re-reads the holds file and `ledger.py held` before every `ledger.py label`, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
@@ -1505,7 +1523,7 @@ artifact rebases and regenerates it on ejection, never resolving the file by han
 many independent PR stacks merging as possible, and shaping them carefully to avoid
 conflicts".*
 
-**D20. A fast-tracked fix that lands with a `Release-With` line starts its release in that pass.**
+**D20. A fast-tracked fix with a `Release-With` line, or any incident fix, starts its release in the pass it lands.**
 A fix reaches users when its components are released, not when its squash is on the
 base branch. When a ledger row lands carrying the `merge-fast` label and the PR body
 has a `Release-With:` line, the landing runner posts one cci `release` record to the
@@ -1532,9 +1550,46 @@ and is posted again on the next pass. So does a post that prints no sequence. Ea
 record carries `--id release:<pr>:<step>`, so a repost returns the stored record and
 no step is posted twice.
 
+An incident fix owes its release whatever its label. A landed row whose lane is an
+`incident-` or `outage-` lane or a fix lane on the incident clock, or whose PR an open
+incident names as its repair, owes a release in the pass that reads the landing:
+components from its `Release-With:` lines, or, with none, the release its squash
+needs. While an incident clock runs, the step is `deadlines.incident_release_minutes`,
+3 by default, instead of `deadlines.release_start_minutes`. An incident landing settles
+only on a `release` record carrying `--build` and `--target <component>`; a root
+`--re` or `--resolves` reply no longer settles it. A root `hold`, `decide`,
+`decision`, or `go` record that names a landed incident PR, or tells the release
+owner to wait for another PR, is answered by the runner with one
+`RELEASE-HELD-AFTER-LANDING #<pr>: landed <sha> at <time>; its cut is owed now, the other PR gets its own cut when it lands`
+line, and the blockers keep their cadence.
+
+Once the record that settles a landing names `--build`, the runner reads
+`tools/ci release live <id> --json` each pass, for the release id `releases/<id>`
+its text names or its build number, and posts exactly one
+`RELEASED <component> <version> (<build>)` record, `--kind fix-live --target <component> --build <url>`,
+keyed `release:<pr>:live`, to the root and `landing.comms_lane` once every component
+reads live. It is the only publish line the root forwards to the owner.
+
+A cut has a clock too. A root `go` or `decision` addressed to a release lane whose
+text orders a cut or `release start`, or a D20 `release` record with no build yet,
+opens one. With no `release --build` or `refuse` record from that lane within
+`deadlines.cut_minutes`, 4 by default, the orca runner posts
+`CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
+to the root once, and launches `manual-release-<component>` on opus xhigh from
+`reference/manual-release-brief.md`. A later `refuse` record saying a release
+`already ships <component> at <sha> or later` is relayed to that lane in the pass
+it arrives.
+
 The runner reads the label from the ledger row's `labels` and the body with one
 `gh pr view <pr> --json body` per landing. A landing older than the landing runner's
 first pass sends nothing, and neither does a landed row with no `landed_at`.
+
+*Prevents the Oct 20 sand holds. Incident fix #41063 landed by plain squash at 10:52
+with no `merge-fast` label, so D20 owed nothing; the root held its cut for unlanded
+#41071 and gave five cut orders, and #41063 reached users 24 minutes after landing.
+The owner asked five times whether sand was out and got cut orders, because the
+only publish truth was a lane reading `sand/latest.json` by hand. The 9:54 cut order
+named no watcher, so a refused start sat unseen for six minutes.*
 
 *Prevents a landed fix waiting on a release nobody started. On 2026-10-13 monorepo
 #36642, the fix for a customer-facing break, landed at 15:42Z through the merge queue
