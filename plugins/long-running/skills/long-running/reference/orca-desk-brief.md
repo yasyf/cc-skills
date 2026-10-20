@@ -677,14 +677,15 @@ GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
 patch-identical to <graded head>` under the graded record's seq. A compare GitHub
 refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 
-Each pass also mirrors the newest grade of every open row's head into that
+Each pass also mirrors the newest grade of every open `ours` row's head into that
 head's `fidelity` commit status: `success` for `fidelity: ok`, `failure` for
 `fidelity: missing`, with the grade's first line and cci seq as the description.
 It posts once per grade record and keeps the action in the landing container
 as `status:<pr>:<head>:<seq>`, so a restart does not post a completed status
 again. A post GitHub took whose completion was never written is sent once more,
 identical. A head with no grade reads `pending` under
-`status:<pr>:<head>:ungraded` until the lane grades it. A `cci tail` that fails skips
+`status:<pr>:<head>:ungraded` until the lane grades it. A row no drive lane registered
+or claimed gets no status at all. A `cci tail` that fails skips
 the mirror for that pass and logs `CCI-TAIL-FAILED`. The required `landing-gates` check reads the status and
 holds a head whose `fidelity` is not `success`, which is how a grade binds a caller
 that reads no cci. The fidelity lane posts no status itself; it keeps naming

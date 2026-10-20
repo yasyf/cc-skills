@@ -237,8 +237,8 @@ diffs against the PR's base, read from GitHub's compare, is equal, cited as `fid
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. On every pass the runner also mirrors the newest grade
-of each open row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
-described by the grade's first line and cci seq, once per grade record. The required `landing-gates` check holds any head whose
+of each open `ours` row's head into that head's `fidelity` commit status, `success` for `fidelity: ok` and `failure` for `fidelity: missing`,
+described by the grade's first line and cci seq, once per grade record; a row no drive lane registered or claimed gets no `fidelity` status, so its `landing-gates` passes without a grade. The required `landing-gates` check holds any head whose
 `fidelity` status is not `success`, so a head pushed after its grade waits for its own whoever enqueues it. A head with no grade reads `pending`, "awaiting <fidelity lane>'s grade of this
 head", until the lane grades it; the runner reads the head's statuses afresh just before that post and skips it when any `fidelity` status is already there or the read fails, and a post GitHub refuses logs `STATUS-FAILED` once and runs again on each pass.
 A pass posts at most three statuses, the heads of PRs a `release` line names or a believed-queued prefix holds first, then the rest by PR number, so a backlog of low-numbered replays never starves a released head.
@@ -3039,7 +3039,7 @@ class Landing:
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
 
     def mirror_grades(self, rows: dict[str, dict], entries: list[holds.Entry]) -> None:
-        """Mirror the fidelity lane's newest grade of each open row's head into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A PR in a believed-queued prefix gets no post once the runner has posted a status on its head, so `landing-gates` can still pass a head enqueued before its first post. A pass posts at most `MIRROR_WRITES` statuses, since each starts a `landing-gates` run on the repo's Actions token: grades for heads the runner has posted no status on first, then grades that flip a head's status, then `pending`, each tier with heads of PRs a `release` line names first, then first posts before retries, then by PR number, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
+        """Mirror the fidelity lane's newest grade of each open row's head that the ledger lists as `ours` into that head's `fidelity` commit status, success for `fidelity: ok` and failure for `fidelity: missing`, so the `landing-gates` check reads the grade off the head. A row no drive lane registered or claimed gets no post, so `landing-gates` never waits on a grade for a PR no drive grades. A head with no grade reads pending until the fidelity lane grades it, unless the head already carries a `fidelity` status, read just before the post, or that read fails. A grade whose state the head already carries posts nothing. A PR in a believed-queued prefix gets no post once the runner has posted a status on its head, so `landing-gates` can still pass a head enqueued before its first post. A pass posts at most `MIRROR_WRITES` statuses, since each starts a `landing-gates` run on the repo's Actions token: grades for heads the runner has posted no status on first, then grades that flip a head's status, then `pending`, each tier with heads of PRs a `release` line names first, then first posts before retries, then by PR number, and leaves the rest to later passes; a post GitHub refuses stays accepted and is retried. A cci read that fails ends the mirroring for that pass and logs `CCI-TAIL-FAILED`; the rest of the pass runs."""
         posted: dict[tuple[str, str], tuple[str, int, str]] = {}
         for action in self.book.actions(LANDING, kind="status", status="completed"):
             _, pr, head, grade_ref = action.action_id.split(":", 3)
@@ -3050,7 +3050,7 @@ class Landing:
         due = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or not head or (pr in queued and (pr, head) in posted):
+            if row.get("state", "open") != "open" or not row.get("ours") or not head or (pr in queued and (pr, head) in posted):
                 continue
             try:
                 grade = self.fidelity(pr, head, row.get("base") or "")
