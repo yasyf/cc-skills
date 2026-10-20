@@ -5236,9 +5236,10 @@ def test_a_cut_order_names_its_target_only_by_a_target_ref_never_by_a_word_of_it
         ({"kind": "note", "re": "order", "text": "noted; the walker cuts"}, None),
         ({"lane": "manual-release-at", "kind": "release", "refs": {"prs": [41176]}, "text": "CUT for #41176 started"}, "release"),
         ({"lane": "alerts-desk", "kind": "fix-live", "refs": {"prs": [41176]}, "text": "RELEASED sand 0.162.1467"}, "fix-live"),
+        ({"lane": "alerts-desk", "kind": "fix-live", "refs": {"prs": ["Forge-AI/monorepo#41176"]}, "text": "RELEASED sand 0.162.1467"}, "fix-live"),
         ({"lane": "manual-release-at", "kind": "release", "refs": {"prs": [41177]}, "text": "CUT for #41177 started"}, None),
     ],
-    ids=["root-resolves", "root-re", "release-naming-its-pr", "fix-live-naming-its-pr", "release-for-another-pr"],
+    ids=["root-resolves", "root-re", "release-naming-its-pr", "fix-live-naming-its-pr", "fix-live-naming-its-qualified-pr", "release-for-another-pr"],
 )
 def test_a_root_resolution_or_a_release_naming_its_pr_closes_the_cut_clock(shell, config, tmp_path, record, closed):
     seq = go_to_walker(shell, config, refs={"targets": ["sand"], "prs": [41176]})

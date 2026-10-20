@@ -2522,7 +2522,7 @@ class Runner:
         return [record for record in posted if record["drive"] == self.config.drive and record["kind"] in kinds and actions.parse_stamp(record["at"]) >= since and answers(record)]
 
     def press_cut(self, key: str, clock: dict) -> None:
-        component = clock["components"][0]
+        component = clock["components"][0] if "prs" in clock or not key.startswith("go:") else "<component>"
         manual = f"{MANUAL_RELEASE}{component}"
         if clock["ended"] == "silent":
             for record in self.cut_records(clock, "refuse"):
@@ -2558,6 +2558,7 @@ class Runner:
                 return f"#{resolved['seq']} resolves"
         if not prs:
             return ""
+        repo = self.config.landing["repo"] if self.config.landing else ""
         posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
         named = next(
             (
@@ -2567,7 +2568,7 @@ class Runner:
                 and record["kind"] in SETTLING_KINDS
                 and record["lane"] != RUNNER
                 and actions.parse_stamp(record["at"]) >= since
-                and any(names_pr(record, pr) for pr in prs)
+                and any(names_pr(record, pr) or pr in dict(repo_prs(record, repo)) for pr in prs)
             ),
             None,
         )
