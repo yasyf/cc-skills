@@ -1576,18 +1576,25 @@ its text names or its build number, and posts exactly one
 keyed `release:<pr>:live`, to the root and `landing.comms_lane` once every component
 reads live. It is the only publish line the root forwards to the owner.
 
-A cut has a clock too. A root `go` or `decision` addressed to a release lane whose
-text orders a cut or `release start`, or a D20 `release` record with no build yet,
-opens one. The clock's component comes from the order's `--target` refs or the
-landing's `Release-With:` line, never from a word of the order's text, so an order
-that names no `--target` launches no manual release lane. The clock closes with no
-line once the landing it holds settles, once the root posts `--resolves <seq>` on the
-order, or once another lane's `release` or `fix-live` record since it opened names
-one of its PRs. With no `release --build` or `refuse` record from that lane within
+A cut has a clock too. A cut order is a root `go` or `decision` addressed to a
+release lane that carries `--target <component>` and whose text orders a cut or
+`release start`, or a D20 `release` record with no build yet whose landing names
+`Release-With:` components. Only a cut order opens a clock, and its components come
+from those refs, never from a word of the order's text. A root record that mentions a
+cut in prose with no `--target` opens no clock, posts no CUT-SILENT, and launches
+nothing. The clock closes with no line once the landing it holds settles, once the
+root posts `--resolves <seq>` on the order, or once another lane's `release` or
+`fix-live` record since it opened names one of its PRs. An order that `--resolves`
+the release lane's own `release --build` or `refuse` record is answered by it.
+With no `release --build` or `refuse` record from that lane within
 `deadlines.cut_minutes`, 4 by default, the orca runner posts
 `CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
-to the root once, and launches `manual-release-<component>` on opus xhigh from
-`reference/manual-release-brief.md`. A later `refuse` record saying a release
+to the root once, and queues `manual-release-<component>` on opus xhigh from
+`reference/manual-release-brief.md`. That launch waits one minute after the
+CUT-SILENT posts. A root record that `--resolves` the CUT-SILENT, or a release
+lane answer or closing record arriving in that minute, fails the launch before
+it dispatches and logs `WITHDRAWN cut:<key> manual-release-<component>: <why>;
+nothing was launched`. A later `refuse` record saying a release
 `already ships <component> at <sha> or later` is relayed to that lane in the pass
 it arrives.
 

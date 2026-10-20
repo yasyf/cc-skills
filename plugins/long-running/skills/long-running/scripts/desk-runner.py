@@ -108,13 +108,14 @@ lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends it
 nothing. While any clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
-`release` record this runner posted, opens a cut clock. Its components are the order's `--target` refs, or the landing's
-`Release-With:` components, never a word of the order's text, and one that names none launches no manual lane. With no
-`release` record carrying a build and no `refuse` from that lane within `deadlines.cut_minutes` (default 4), the runner logs
-one `CUT-SILENT <lane> <component>` with the hand command and launches `manual-release-<component>` on opus xhigh from
-`reference/manual-release-brief.md`, and relays to it each later `refuse` that says a release already ships the commit or
-later. The clock closes silently once the landing it holds settles, the root posts `--resolves` on the order, or another
-lane's `release` or `fix-live` record since it opened names one of its PRs.
+`release` record this runner posted, opens a cut clock only when it names components: the order's `--target` refs, or the
+landing's `Release-With:` components, never a word of the order's text. With no `release` record carrying a build and no
+`refuse` from that lane within `deadlines.cut_minutes` (default 4), the runner logs one `CUT-SILENT <lane> <component>`
+with the hand command and queues `manual-release-<component>` on opus xhigh from `reference/manual-release-brief.md`, and
+relays to it each later `refuse` that says a release already ships the commit or later. The launch waits `CUT_GRACE` after
+the CUT-SILENT posts and fails as WITHDRAWN when the root resolves the CUT-SILENT or the order is answered or closed first.
+The clock closes silently once the landing it holds settles, the root posts `--resolves` on the order, another lane's
+`release` or `fix-live` record since it opened names one of its PRs, or the order resolves the lane's answering record.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -388,6 +389,8 @@ CONFLICT_BLOCKER = re.compile(r"graphite MERGE_CONFLICTS|conflicts with origin/|
 ALREADY_SHIPS = re.compile(r"already ships .* or later")
 CUT_CLOCKS = "cut-clocks"
 CUT_CURSOR = "cut-cursor"
+CUT_LAUNCH = "cut:"
+CUT_GRACE = timedelta(minutes=1)
 MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
 DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "HOLDS-UNREAD", "LIVENESS", "STALE-MAIL", "RECLAIM"})
@@ -1732,7 +1735,7 @@ class Runner:
             pending = self.book.actions(container, status="accepted")
             relays = [action for action in pending if action.kind in ("relay", "reply")]
             for action in pending:
-                if action.kind == "launch" and not self.holds_case_launch(container, lane, action) and not self.holds_owned_launch(container, lane, action):
+                if action.kind == "launch" and not self.holds_case_launch(container, lane, action) and not self.holds_owned_launch(container, lane, action) and not self.holds_cut_launch(container, lane, action):
                     self.launch(container, lane, action)
             if relays:
                 self.deliver_relays(container, lane, relays)
@@ -1766,6 +1769,36 @@ class Runner:
             self.book.edit(container, lambda incident: incident.fail(action.action_id, f"incident {slug} owned by {owner}"))
             self.escalate(action.action_id, "INCIDENT-OWNED", lane, f"incident {slug} owned by {owner}; no launch")
         return bool(owner)
+
+    def holds_cut_launch(self, container: str, lane: str, action: actions.Action) -> bool:
+        """Hold a manual release launch until `CUT_GRACE` after its CUT-SILENT posts, and fail it once the root resolves that CUT-SILENT or the order is answered or closed, and say whether the launch must wait."""
+        if not action.action_id.startswith(CUT_LAUNCH):
+            return False
+        key = action.action_id.removeprefix(CUT_LAUNCH)
+        runner = self.book.load(RUNNER)
+        silent = runner.actions[f"escalation:cut:{key}"]
+        if silent.status == "accepted":
+            return True
+        try:
+            withdrawn = self.cut_withdrawn(key, runner.facts[CUT_CLOCKS][key], silent)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
+        if withdrawn:
+            self.book.edit(container, lambda incident: incident.fail(action.action_id, withdrawn))
+            self.book.edit(RUNNER, lambda incident: incident.facts[CUT_CLOCKS][key].update({"ended": f"withdrawn: {withdrawn}"}))
+            self.record(f"escalation:{container}/{action.action_id}:withdrawn", f"WITHDRAWN {action.action_id} {lane}: {withdrawn}; nothing was launched")
+            return True
+        return self.now() - actions.parse_stamp(silent.response["at"]) < CUT_GRACE
+
+    def cut_withdrawn(self, key: str, clock: dict, silent: actions.Action) -> str:
+        """Why a silent cut's manual release must not launch: the root resolved its CUT-SILENT, or the order was answered or closed since; empty while none did."""
+        if posted := POSTED.search(silent.response.get("posted", "")):
+            seq = int(posted[1])
+            replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
+            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
+                return f"#{resolved['seq']} resolves CUT-SILENT #{seq}"
+        return self.cut_closed(key, clock) or self.cut_answer(clock)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
         """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each relay no send delivered as RELAY-FAILED now."""
@@ -2487,17 +2520,17 @@ class Runner:
         for record in orders:
             cursor = max(cursor, record["seq"])
             lanes = [lane for lane in record.get("to") or [] if RELEASE_LANE.search(lane)]
-            if (record["lane"], record["drive"]) != (ROOT, self.config.drive) or record["kind"] not in CUT_KINDS or not lanes or not CUT_ORDER.search(record["text"]):
-                continue
             refs = record.get("refs") or {}
+            if (record["lane"], record["drive"]) != (ROOT, self.config.drive) or record["kind"] not in CUT_KINDS or not lanes or not refs.get("targets") or not CUT_ORDER.search(record["text"]):
+                continue
             commit = refs.get("commit") or next(iter(SHORT_SHA.findall(record["text"])), "<sha>")
-            clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": refs.get("targets") or ["<component>"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "prs": [str(pr).rsplit("#", 1)[-1] for pr in refs.get("prs", [])], "ended": ""}
+            clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": refs["targets"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "prs": [str(pr).rsplit("#", 1)[-1] for pr in refs.get("prs", [])], "resolves": record.get("resolves"), "ended": ""}
         if self.config.landing:
             self.book.ensure(LANDING, LANDING)
             for action in self.book.actions(LANDING, kind="release"):
                 landed = json.loads(action.target)
-                if action.status == "completed":
-                    clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"] or ["<component>"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
+                if action.status == "completed" and landed["components"]:
+                    clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
 
         def keep(incident: actions.Incident) -> None:
             held = incident.facts.setdefault(CUT_CLOCKS, {})
@@ -2508,7 +2541,7 @@ class Runner:
         self.book.edit(RUNNER, keep)
 
     def cut_records(self, clock: dict, *kinds: str) -> list[dict]:
-        """The drive's records of these kinds since the clock opened that answer it: from its release lane, or, for a landing's release, from any lane but the runner's that names the PR or one of its components."""
+        """The drive's records of these kinds that answer the clock: from its release lane, or, for a landing's release, from any lane but the runner's that names the PR or one of its components, posted since the clock opened or resolved by the order that opened it."""
         since = actions.parse_stamp(clock["since"])
         components = set(clock["components"])
 
@@ -2519,7 +2552,12 @@ class Runner:
             return bool(clock["pr"]) and record["lane"] != RUNNER and bool(targets & components or names_pr(record, clock["pr"]))
 
         posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in kinds))
-        return [record for record in posted if record["drive"] == self.config.drive and record["kind"] in kinds and actions.parse_stamp(record["at"]) >= since and answers(record)]
+        return [record for record in posted if record["drive"] == self.config.drive and record["kind"] in kinds and (actions.parse_stamp(record["at"]) >= since or record["seq"] == clock.get("resolves")) and answers(record)]
+
+    def cut_answer(self, clock: dict) -> str:
+        """The release lane's answer to the clock's order, a `release` record with a build or a `refuse`, as `#<seq> <kind>`; empty while none came."""
+        answered = next((record for record in self.cut_records(clock, "release", "refuse") if record["kind"] == "refuse" or (record.get("refs") or {}).get("builds")), None)
+        return f"#{answered['seq']} {answered['kind']}" if answered else ""
 
     def press_cut(self, key: str, clock: dict) -> None:
         component = clock["components"][0] if "prs" in clock or not key.startswith("go:") else "<component>"
@@ -2534,8 +2572,8 @@ class Runner:
         if closed := self.cut_closed(key, clock):
             self.end_cut(key, closed)
             return
-        if answered := next((record for record in self.cut_records(clock, "release", "refuse") if record["kind"] == "refuse" or (record.get("refs") or {}).get("builds")), None):
-            self.end_cut(key, f"#{answered['seq']} {answered['kind']}")
+        if answered := self.cut_answer(clock):
+            self.end_cut(key, answered)
             return
         minutes = whole_minutes(actions.parse_stamp(clock["since"]), self.now())
         if minutes < self.config.cut_minutes:
@@ -2579,7 +2617,7 @@ class Runner:
 
     def manual_release(self, key: str, lane: str, component: str, clock: dict, hand: str) -> str:
         """Launch the manual release lane for a silent cut from the manual-release brief; the clause returned tells the root what was done."""
-        if refusal := self.launch_refusal(f"cut:{key}", lane, "opus", "xhigh", MANUAL_TEMPLATE):
+        if refusal := self.launch_refusal(f"{CUT_LAUNCH}{key}", lane, "opus", "xhigh", MANUAL_TEMPLATE):
             return f"{lane} not launched: {refusal}"
         brief, failure = self.attach_brief(
             lane,
@@ -2588,7 +2626,7 @@ class Runner:
         )
         if brief is None:
             return f"{lane} not launched: {failure}"
-        self.accept_launch(f"cut:{key}", lane, "opus", "xhigh", str(brief), True)
+        self.accept_launch(f"{CUT_LAUNCH}{key}", lane, "opus", "xhigh", str(brief), True)
         return f"{lane} launching on opus xhigh, brief {brief}"
 
     def executor_backup(self, lane: str) -> str:

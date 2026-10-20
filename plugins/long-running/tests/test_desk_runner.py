@@ -5210,23 +5210,95 @@ def cut_silent(shell: FakeShell) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("kind", "text", "refs"),
     [
-        "GO CUT (01:47 PM): sand-only --emergency cut NOW at f05ddf0dbbc (carries 41176 and 41178)",
-        "cut at dev head once #41178 lands",
-        "release start after the head lands, at 7d9d9602f9d",
+        ("go", "GO CUT (01:47 PM): sand-only --emergency cut NOW at f05ddf0dbbc (carries 41176 and 41178)", {"prs": [41176]}),
+        ("go", "release start after the head lands, at 7d9d9602f9d", {}),
+        ("decision", "Pre-ruling: a LANDED revert PR is forward-only and cuts under the standing foreign-cut rule (#98906)", {"path": "/blobs/82ca5ea90a3c62f3.txt"}),
+        ("go", "GO #41287 (open_elsewhere reopen): --fast enqueue on green; sand-only --emergency cut at its squash by manual-release-at", {"prs": [41287]}),
     ],
-    ids=["now", "at", "after"],
+    ids=["go-cut-with-prs", "release-start-no-refs", "prose-decision", "enqueue-go-mentioning-a-cut"],
 )
-def test_a_cut_order_names_its_target_only_by_a_target_ref_never_by_a_word_of_its_text(shell, config, tmp_path, text):
-    seq = go_to_walker(shell, config, text=text, refs={"prs": [41176]})
+def test_a_root_record_that_mentions_a_cut_without_a_target_ref_opens_no_cut_clock(shell, config, tmp_path, kind, text, refs):
+    seq = go_to_walker(shell, config, text=text, refs=refs)
+    shell.records[-1]["kind"] = kind
     orca_pass(shell, config)
     shell.sleep(5 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
-    [line] = cut_silent(shell)
-    assert line.startswith(f"CUT-SILENT {WALKER} <component>: no CUT or refusal 5 min after GO #{seq}; ") and line.endswith("| no manual release lane launched: the order names no component")
-    assert [call for call in launches(shell) if call[1].startswith("manual-release-")] == []
+    assert f"go:{seq}" not in incident(tmp_path, "desk-runner").facts.get("cut-clocks", {})
+    assert cut_silent(shell) == [] and [call for call in launches(shell) if call[1].startswith("manual-release-")] == []
+
+
+def test_a_landing_release_that_names_no_release_with_component_opens_no_cut_clock(shell, config, tmp_path):
+    land_incident(shell, config)
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert "release:36642" not in incident(tmp_path, "desk-runner").facts.get("cut-clocks", {}) and cut_silent(shell) == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "refs", "closed"),
+    [
+        ("release", {"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8864"]}, "release"),
+        ("refuse", {"targets": ["sand"]}, "refuse"),
+        ("release", {"targets": ["sand"]}, None),
+    ],
+    ids=["keeps-the-lanes-build", "keeps-the-lanes-refusal", "resolves-a-release-with-no-build"],
+)
+def test_an_order_that_resolves_the_release_lanes_answer_is_answered_by_it(shell, config, tmp_path, kind, refs, closed):
+    orca_pass(shell, config)
+    answer = cci_record(shell, lane=WALKER, kind=kind, refs=refs, at=actions.stamp(shell.now()), text="CUT ALREADY STARTED: build 8864")
+    shell.sleep(60)
+    seq = cci_record(shell, kind="go", to=[WALKER], resolves=answer, at=actions.stamp(shell.now()), text="KEEP 8864, the lane's sand cut at 94d61b91951", refs={"targets": ["sand"]})
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    ended = incident(tmp_path, "desk-runner").facts["cut-clocks"][f"go:{seq}"]["ended"]
+    if closed:
+        assert cut_silent(shell) == [] and ended == f"#{answer} {closed}"
+    else:
+        assert len(cut_silent(shell)) == 1 and ended == "silent"
+
+
+@pytest.mark.parametrize(
+    ("record", "withdrawn"),
+    [
+        ({"kind": "answer", "resolves": "silent", "text": "WITHDRAWN: not a cut-silent; build 8865 is the cut"}, "resolves CUT-SILENT"),
+        ({"lane": WALKER, "kind": "release", "refs": {"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8865"]}, "text": "CUT build 8865"}, "release"),
+        ({"kind": "note", "resolves": "order", "text": "the cut already runs"}, "resolves"),
+        ({"kind": "note", "re": "silent", "text": "noted"}, None),
+        (None, None),
+    ],
+    ids=["root-resolves-the-cut-silent", "lane-cuts-in-the-grace-minute", "root-resolves-the-order", "root-re-only", "nothing"],
+)
+def test_a_withdrawal_inside_the_grace_minute_fails_the_manual_release_launch_before_it_dispatches(shell, config, tmp_path, record, withdrawn):
+    seq = go_to_walker(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(4 * 60)
+    orca_pass(shell, config)
+    [silent] = [index + 1 for index, post in enumerate(shell.posts) if post["text"].startswith("CUT-SILENT")]
+    orca_pass(shell, config)
+    assert [call for call in launches(shell) if call[1] == "manual-release-sand"] == []
+    if record:
+        links = {link: {"silent": silent, "order": seq}[record[link]] for link in ("resolves", "re") if link in record}
+        cci_record(shell, at=actions.stamp(shell.now()), **(record | links))
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    launched = [call for call in launches(shell) if call[1] == "manual-release-sand"]
+    if withdrawn:
+        [line] = [line for line in escalations(shell) if line.startswith("WITHDRAWN")]
+        assert line.startswith(f"WITHDRAWN cut:go:{seq} manual-release-sand: #") and withdrawn in line and line.endswith("; nothing was launched")
+        assert launched == [] and incident(tmp_path, "desk-runner").facts["cut-clocks"][f"go:{seq}"]["ended"].startswith("withdrawn: #")
+        assert incident(tmp_path, "desk-lane-manual-release-sand").actions[f"cut:go:{seq}"].status == "failed"
+    else:
+        assert len(launched) == 1 and not [line for line in escalations(shell) if line.startswith("WITHDRAWN")]
 
 
 @pytest.mark.parametrize(
@@ -5269,6 +5341,8 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     [line] = [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
     hand = "tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
     assert line.startswith(f"CUT-SILENT {WALKER} sand: no CUT or refusal 4 min after GO #{seq}; hand path: {hand} | manual-release-sand launching on opus xhigh, brief ")
+    shell.sleep(60)
+    orca_pass(shell, config)
     [launch] = [call for call in launches(shell) if call[1] == "manual-release-sand"]
     assert launch[2:4] == ["opus", "xhigh"]
     brief = Path(launch[4]).read_text()
