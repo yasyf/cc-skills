@@ -87,10 +87,10 @@ class Root:
             pending, state.pending = state.pending, []
         return pending
 
-
     def publish(self, text: str) -> str | None:
         self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
-        result = owner_facing.publish_lines_quote_the_released_record(self.event(StopEvent))
+        with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": []})}):
+            result = owner_facing.publish_lines_quote_the_released_record(self.event(StopEvent))
         return result.message if result else None
 
 
@@ -138,14 +138,6 @@ def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
     assert root.reply(entry("user", "status?"), entry("assistant", text)) == [owner_facing.UTC_IN_REPLY]
 
 
-def incident_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str) -> None:
-    incidents = tmp_path / "config" / "long-running" / "incidents"
-    incidents.mkdir(parents=True)
-    record = {"incident_id": "0820", "owner": "executor", "owner_generation": 1, "opened_at": "2026-10-20T15:15:00Z", "facts": {"adopted": {}, "target": "sand"}, "status": status}
-    (incidents / "0820.json").write_text(json.dumps(record))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
-
-
 @pytest.mark.parametrize(
     ("status", "text", "blocked"),
     [
@@ -155,8 +147,8 @@ def incident_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str)
     ],
     ids=["open-incident-from-memory", "quotes-the-released-record", "closed-incident"],
 )
-def test_a_publish_line_during_an_open_incident_quotes_the_released_record(root: Root, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, text: str, blocked: bool) -> None:
-    incident_store(tmp_path, monkeypatch, status)
+def test_a_publish_line_during_an_open_incident_quotes_the_released_record(root: Root, incidents: Path, status: str, text: str, blocked: bool) -> None:
+    incident(incidents, "0820", status, target="sand")
 
     assert root.publish(text) == (owner_facing.PUBLISH_FROM_MEMORY if blocked else None)
 
