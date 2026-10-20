@@ -3382,7 +3382,7 @@ def test_a_root_resolves_on_a_release_held_line_settles_the_incident_landing(she
     landing_pass(shell, config)
     shell.sleep(3 * 60)
     landing_pass(shell, config)
-    assert len(blockers(shell)) == 1 and release_action(tmp_path).status == "verified"
+    assert [post["to"] for post in blockers(shell)] == ["peer:sole-51,root", "root"] and release_action(tmp_path).status == "verified"
 
 
 def test_a_fix_live_record_from_another_lane_settles_a_landing(shell, config, tmp_path):
