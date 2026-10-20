@@ -54,6 +54,13 @@ def test_an_unnamed_helper_of_a_lane_is_refused_under_the_lane_name(tmp_path):
     ]
 
 
+def test_an_incident_lane_enqueue_is_refused_and_names_the_plain_squash(tmp_path):
+    subagent(tmp_path, "a1f2e3d4", name="incident-api-500s", agentType="long-running:lane-ship")
+
+    assert run(tmp_path, "a1f2e3d4", "stack-enqueue 36050 --fast") == [lane_landing.INCIDENT_REFUSAL.format(lane="incident-api-500s")]
+    assert run(tmp_path, "a1f2e3d4", "gh pr merge 36050 --squash") == []
+
+
 def test_an_unnamed_helper_of_the_landing_desk_enqueues(tmp_path):
     subagent(tmp_path, "alanding-desk-1a2b", name="landing-desk", agentType="long-running:lane")
     subagent(tmp_path, "a9c8b7a6", agentType="general-purpose", parentAgentId="alanding-desk-1a2b")

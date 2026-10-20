@@ -101,7 +101,17 @@ the fallback brief, for the root to start `<lane>-opus` in its own session as a
 executor adopted gets none from the clock while that executor's own Opus backup is launching
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
-settles, and `show` prints each clocked lane's minutes and milestones.
+settles, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
+incident reached, a clocked fix lane sharing the lane's `<first>` name or `incident=` slug or the executor's Opus backup
+for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
+lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
+nothing. While any clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
+the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
+during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
+`release` record this runner posted, opens a cut clock; with no `release` record carrying a build and no `refuse` from
+that lane within `deadlines.cut_minutes` (default 4), the runner logs one `CUT-SILENT <lane> <component>` with the hand
+command and launches `manual-release-<component>` on opus xhigh from `reference/manual-release-brief.md`, and relays to it
+each later `refuse` that says a release already ships the commit or later.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -238,13 +248,23 @@ head's statuses for 60 s unless the runner itself posts to that head or re-dispa
 installation's quotas through `ccx vcs gh`. With the REST or GraphQL quota under 5% of its limit, the pass reads nothing from GitHub and
 logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; accepted enqueues stay accepted and root `go` records
 stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails while mirroring skips the mirror for that pass, and one that fails anywhere
-else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running. A PR whose ledger row lands carrying the `merge-fast`
-label, and whose body has a `Release-With:` line, sends one cci `release` record to `landing.release_owner` and the root in the pass
+else in a landing pass ends that pass before it gates or enqueues further; either logs `CCI-TAIL-FAILED` and the runner keeps running.
+An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `outage-` lane or a fix lane the runner clocks, or whose
+number an open executor incident names as its `repair_pr`, is never enqueued: in the pass its head reads `APPROVED` and every
+required check passes, the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
+`land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A PR whose ledger row lands carrying the `merge-fast`
+label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
 `release` record on the drive from another lane, stamped after the landing, names one of those components with `--target` or the
 PR with `--pr`, the runner posts one `blocker` to both each `deadlines.release_start_minutes` (default 10) after the landing, with
-the minutes elapsed. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
-drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends them too. A landing older
+the minutes elapsed, or each `deadlines.incident_release_minutes` (default 3) while an incident clock runs. An incident fix's
+landing settles only on a `release` record that carries `--build` and a `--target`, one of its components when it names any, and
+each root `hold`, `decide`, `decision`, or `go` after its landing that names the PR or tells the release owner to wait logs one
+`RELEASE-HELD-AFTER-LANDING`. Once the record that settles a landing carries a build, each pass reads
+`tools/ci release live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
+`RELEASED <component> <version> (<build>)` to the root and `landing.comms_lane` once every component reads live, keyed
+`release:<pr>:live`. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
+drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. A landing older
 than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
@@ -303,7 +323,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "GATES-REDISPATCH": "state"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "GATES-REDISPATCH": "state", "CUT-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -342,6 +362,26 @@ DOWNSTACK_FAILURE = re.compile(r"downstack failures on PR #\[?(\d+)")
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_SINCE = "release-since"
+INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
+EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
+SQUASH_PASS = "pass"
+LANDED_BY_SQUASH = "landed by plain squash"
+HOLD_KINDS = ("hold", "decide", "decision", "go")
+WAIT_ORDER = re.compile(r"\b(?:wait|hold)\b", re.IGNORECASE)
+RELEASE_ID = re.compile(r"\breleases/(\d{4}-\d{2}-\d{2}/\d+)\b")
+BUILD_NUMBER = re.compile(r"(\d+)/?$")
+NOT_LIVE = "not live"
+RELEASE_LANE = re.compile(r"(?:^|-)release(?:-|$)")
+CUT_ORDER = re.compile(r"\b(?:cut|release start)\b", re.IGNORECASE)
+CUT_COMPONENT = re.compile(r"\bcut\s+(?:a\s+|the\s+)?([a-z][\w-]*)", re.IGNORECASE)
+CUT_KINDS = ("go", "decision")
+ALREADY_SHIPS = re.compile(r"already ships .* or later")
+CUT_CLOCKS = "cut-clocks"
+CUT_CURSOR = "cut-cursor"
+MANUAL_RELEASE = "manual-release-"
+MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
+DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "HOLDS-UNREAD", "LIVENESS", "STALE-MAIL", "RECLAIM"})
+DEFERRED = "deferred-escalations"
 POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
@@ -668,6 +708,8 @@ class Config:
     enqueue_minutes: int
     hold_minutes: int
     release_start_minutes: int
+    incident_release_minutes: int
+    cut_minutes: int
     incident_mechanism_minutes: int
     incident_pr_minutes: int
     incident_ready_minutes: int
@@ -700,6 +742,8 @@ class Config:
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
             hold_minutes=deadlines.get("hold_minutes", 15),
             release_start_minutes=deadlines.get("release_start_minutes", 10),
+            incident_release_minutes=deadlines.get("incident_release_minutes", 3),
+            cut_minutes=deadlines.get("cut_minutes", 4),
             incident_mechanism_minutes=deadlines.get("incident_mechanism_minutes", 10),
             incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
@@ -939,9 +983,9 @@ class Runner:
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "") -> Done:
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None) -> Done:
         """Post one cci record; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
-        argv = ["cci", "post", "--drive", self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic]
+        argv = ["cci", "post", "--drive", self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
         if pr:
             argv += ["--pr", pr]
         if record_id:
@@ -956,9 +1000,17 @@ class Runner:
         return self.shell.run([*argv, "--text", text])
 
     def flush(self) -> bool:
+        """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
         failures = []
+        clocks = self.live_clocks()
+        incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
+        if not clocks:
+            self.release_deferred()
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
             label, topic = action.target.split()[:2]
+            if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
+                self.defer(action, clocks)
+                continue
             kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
             message = self.message_file(topic)
             done = self.cci_post(kind, action.target, "root", topic, action.action_id, message.read_text() if message.is_file() else "")
@@ -969,6 +1021,31 @@ class Runner:
         if failures:
             print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
         return not failures
+
+    def defer(self, action: actions.Action, clocks: list[str]) -> None:
+        def hold(incident: actions.Incident) -> None:
+            held = incident.facts.setdefault(DEFERRED, {"incident": ", ".join(sorted(clocks)), "ids": []})
+            if action.action_id not in held["ids"]:
+                held["ids"].append(action.action_id)
+
+        self.book.edit(RUNNER, hold)
+
+    def release_deferred(self) -> None:
+        """Settle every escalation deferred during the incident and log them as one DEFERRED line naming each."""
+        held = self.book.load(RUNNER).facts.get(DEFERRED)
+        if not held:
+            return
+        lines = [self.book.load(RUNNER).actions[key].target for key in held["ids"]]
+
+        def settle(incident: actions.Incident) -> None:
+            for key in held["ids"]:
+                if incident.action(key).status == "accepted":
+                    incident.start(key, self.now())
+                    incident.complete(key, {"at": self.book.stamp(), "deferred": True})
+            incident.facts.pop(DEFERRED)
+
+        self.book.edit(RUNNER, settle)
+        self.record(f"escalation:deferred:{held['ids'][0]}", f"DEFERRED {len(lines)} escalations held during {held['incident']}: {' | '.join(lines)}")
 
     def beat(self) -> None:
         drive = self.config.desk_inbox.parent
@@ -2242,29 +2319,76 @@ class Runner:
             clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
             if dispatch.id != launch.dispatch_id:
                 clock["ended"] = f"relaunched as dispatch {dispatch.id}"
+            elif withdrawn := self.withdrawn_by(lane):
+                clock["ended"] = f"{WITHDRAWN} by {withdrawn}"
             elif dispatch.status in INACTIVE:
                 clock["ended"] = f"dispatch {dispatch.status}"
             else:
                 try:
+                    stood_down = self.stood_down(lane, launched)
                     clock["reached"] = self.reached(container, lane, launched)
                 except CciTailFailed as failure:
                     self.tail_failed(failure)
                     continue
-                clock["ended"] = next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
+                clock["ended"] = f"{WITHDRAWN} by {stood_down}" if stood_down else next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
                 if not clock["ended"]:
                     self.overrun(lane, launch, launched, clock["reached"])
             if clock != kept:
                 self.book.edit(container, lambda incident, clock=clock: incident.facts.update({CLOCK: clock}))
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
-        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run."""
+        """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run. Any milestone a sibling lane on the same incident reached counts as this lane's mechanism, so the PR and ready thresholds stay the lane's own."""
         marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, *TEXT_MARK_KINDS) if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
+        marks += [("mechanism", at) for at in self.sibling_milestones(lane)]
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
             if actions.parse_stamp(at) >= launched:
                 reached.setdefault(name, at)
         return reached
+
+    def stood_down(self, lane: str, launched: datetime) -> str:
+        """The root's `stand-down` or `stopped` addressed to the lane since its launch, as `#<seq>`, or empty."""
+        names = set(lane_aliases(lane))
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
+        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
+
+    def incident_keys(self, lane: str, launch: actions.Action) -> set[str]:
+        """What names the incident a fix lane works: its `<first>` lane, the incident slug its launch carries, and its brief's `incident=` annotations."""
+        spec = json.loads(launch.target)
+        return {first_lane(lane), *(brief_incidents(Path(spec["brief"])) - {NAMES_NOTHING}), *([spec["incident"]] if spec.get("incident") else [])}
+
+    def siblings(self, lane: str) -> set[str]:
+        """Every other lane on the incident `lane` works: the fix lanes the runner launched that share one of its `incident_keys`, and the Opus backup an incident executor launched for any of them."""
+        own = fix_launch(self.book.load(lane_container(lane)))
+        keys = self.incident_keys(lane, own) if own else {first_lane(lane)}
+        family = {lane}
+        for container in self.book.containers(LANE_PREFIX):
+            other = container.removeprefix(LANE_PREFIX)
+            if other != lane and (launch := fix_launch(self.book.load(container))) and keys & self.incident_keys(other, launch):
+                family.add(other)
+        store = actions.Store()
+        for incident in map(store.load, store.ids()):
+            if (incident.facts.get("adopted") or {}).get("fix") in family and (backup := latest(incident, "dispatch:backup")):
+                family.add(backup.target)
+        return family - {lane}
+
+    def sibling_milestones(self, lane: str) -> list[str]:
+        """The stamps of every mechanism, PR, or ready milestone the lane's siblings reached, from their cci records and their milestone statuses."""
+        siblings = self.siblings(lane)
+        if not siblings:
+            return []
+        names = {name for sibling in siblings for name in lane_aliases(sibling)}
+        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*CLOCK_MILESTONES, *TEXT_MARK_KINDS)))
+        stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
+        for sibling in siblings:
+            if lane_container(sibling) in self.book.store.ids():
+                stamps += [status["at"] for status in (self.book.load(lane_container(sibling)).facts.get(MILESTONE_STATUSES) or {}).values()]
+        return stamps
+
+    def live_clocks(self) -> list[str]:
+        """The incident fix lanes whose clock is running."""
+        return [container.removeprefix(LANE_PREFIX) for container in self.book.containers(LANE_PREFIX) if (clock := self.book.load(container).facts.get(CLOCK)) and not clock["ended"]]
 
     def overrun(self, lane: str, launch: actions.Action, launched: datetime, reached: dict[str, str]) -> None:
         """Log each threshold the lane has passed without its milestone or a later one, once per launch; the mechanism and PR thresholds launch the Opus fallback first, and the ready threshold names the gap."""
@@ -2330,6 +2454,102 @@ class Runner:
                 f"INCIDENT-CLOCK {lane} in-process: the Orca launch of the Opus fallback {backup} failed twice: {reasons} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {brief}",
             )
 
+    def cut_clock(self) -> None:
+        """Hold every ordered cut to `deadlines.cut_minutes`: a root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's release record the landing runner posted with no build yet, opens a clock, and a `release` record with a build or a `refuse` from that lane stops it. Past the limit the runner logs one CUT-SILENT with the hand command and launches `manual-release-<component>`; a later `refuse` that says a release already ships the commit or later goes to that lane."""
+        try:
+            self.open_cut_clocks()
+            for key, clock in (self.book.load(RUNNER).facts.get(CUT_CLOCKS) or {}).items():
+                self.press_cut(key, clock)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+
+    def open_cut_clocks(self) -> None:
+        cursor = self.book.load(RUNNER).facts.get(CUT_CURSOR)
+        if cursor is None:
+            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({CUT_CURSOR: max((record["seq"] for record in newest), default=0)}))
+            return
+        clocks: dict[str, dict] = {}
+        orders = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *(f"--kind={kind}" for kind in CUT_KINDS), since=cursor)
+        for record in orders:
+            cursor = max(cursor, record["seq"])
+            lanes = [lane for lane in record.get("to") or [] if RELEASE_LANE.search(lane)]
+            if (record["lane"], record["drive"]) != (ROOT, self.config.drive) or record["kind"] not in CUT_KINDS or not lanes or not CUT_ORDER.search(record["text"]):
+                continue
+            refs = record.get("refs") or {}
+            named = refs.get("targets") or [match[1].lower() for match in CUT_COMPONENT.finditer(record["text"])][:1]
+            commit = refs.get("commit") or next(iter(SHORT_SHA.findall(record["text"])), "<sha>")
+            clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": named or ["<component>"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "ended": ""}
+        if self.config.landing:
+            self.book.ensure(LANDING, LANDING)
+            for action in self.book.actions(LANDING, kind="release"):
+                landed = json.loads(action.target)
+                if action.status == "completed":
+                    clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"] or ["<component>"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "ended": ""})
+
+        def keep(incident: actions.Incident) -> None:
+            held = incident.facts.setdefault(CUT_CLOCKS, {})
+            for key, clock in clocks.items():
+                held.setdefault(key, clock)
+            incident.facts[CUT_CURSOR] = cursor
+
+        self.book.edit(RUNNER, keep)
+
+    def cut_records(self, clock: dict, *kinds: str) -> list[dict]:
+        """The drive's records of these kinds since the clock opened that answer it: from its release lane, or, for a landing's release, from any lane but the runner's that names the PR or one of its components."""
+        since = actions.parse_stamp(clock["since"])
+        posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in kinds))
+        return [
+            record
+            for record in posted
+            if record["drive"] == self.config.drive
+            and record["kind"] in kinds
+            and actions.parse_stamp(record["at"]) >= since
+            and (
+                record["lane"] == clock["lane"]
+                or (clock["pr"] and record["lane"] != RUNNER and (set((record.get("refs") or {}).get("targets", [])) & set(clock["components"]) or names_pr(record, clock["pr"])))
+            )
+        ]
+
+    def press_cut(self, key: str, clock: dict) -> None:
+        component = clock["components"][0]
+        manual = f"{MANUAL_RELEASE}{component}"
+        if clock["ended"] == "silent":
+            for record in self.cut_records(clock, "refuse"):
+                if record["lane"] != RUNNER and ALREADY_SHIPS.search(record["text"]):
+                    self.accept_relay(f"cut-refuse:{record['seq']}", manual, f"{record['lane']} posted on cci #{record['seq']}: {record['text']}", "", self.config.start_minutes)
+            return
+        if clock["ended"]:
+            return
+        if answered := next((record for record in self.cut_records(clock, "release", "refuse") if record["kind"] == "refuse" or (record.get("refs") or {}).get("builds")), None):
+            self.end_cut(key, f"#{answered['seq']} {answered['kind']}")
+            return
+        minutes = whole_minutes(actions.parse_stamp(clock["since"]), self.now())
+        if minutes < self.config.cut_minutes:
+            return
+        hand = f"tools/ci release start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
+        line = f"CUT-SILENT {clock['lane']} {component}: no CUT or refusal {minutes} min after {clock['trigger']}; hand path: {hand}"
+        launched = self.manual_release(key, manual, component, clock, hand) if not component.startswith("<") else "no manual release lane launched: the order names no component"
+        self.end_cut(key, "silent")
+        self.record(f"escalation:cut:{key}", f"{line} | {launched}")
+
+    def end_cut(self, key: str, ended: str) -> None:
+        self.book.edit(RUNNER, lambda incident: incident.facts[CUT_CLOCKS][key].update({"ended": ended}))
+
+    def manual_release(self, key: str, lane: str, component: str, clock: dict, hand: str) -> str:
+        """Launch the manual release lane for a silent cut from the manual-release brief; the clause returned tells the root what was done."""
+        if refusal := self.launch_refusal(f"cut:{key}", lane, "opus", "xhigh", MANUAL_TEMPLATE):
+            return f"{lane} not launched: {refusal}"
+        brief, failure = self.attach_brief(
+            lane,
+            lambda briefs: MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs),
+            f"CUT-SILENT {clock['lane']}: manual release brief for {lane}",
+        )
+        if brief is None:
+            return f"{lane} not launched: {failure}"
+        self.accept_launch(f"cut:{key}", lane, "opus", "xhigh", str(brief), True)
+        return f"{lane} launching on opus xhigh, brief {brief}"
+
     def executor_backup(self, lane: str) -> str:
         """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
         store = actions.Store()
@@ -2350,6 +2570,9 @@ class Runner:
 
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
+        if held := self.book.load(RUNNER).facts.get(DEFERRED):
+            lines.append(f"deferred during {held['incident']}: {len(held['ids'])}")
+            lines += [f"- {self.book.load(RUNNER).actions[key].target}" for key in held["ids"]]
         if policy := self.landing_policy():
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
@@ -2517,6 +2740,7 @@ class Landing:
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
+        self.comms = config.get("comms_lane", "")
         self.unlabeled: set[str] = set()
         self.landed: set[str] = set()
         self.gated: set[tuple[str, str]] = set()
@@ -2590,7 +2814,7 @@ class Landing:
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
-        waiting = under_hold(open_rows, sorted(self.unlabeled))
+        waiting = under_hold(open_rows, sorted(self.unlabeled)) | under_hold(open_rows, self.incident_rows(open_rows))
         trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
@@ -3112,6 +3336,54 @@ class Landing:
             top = action.target.split(",")[-1]
             self.restack(top, rows)
 
+    def is_incident(self, pr: str, row: dict) -> bool:
+        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair."""
+        lane = row.get("lane", "")
+        if INCIDENT_NAME.match(lane) or (lane_container(lane) in self.book.store.ids() and fix_launch(self.book.load(lane_container(lane)))):
+            return True
+        store = actions.Store()
+        return any(str(incident.facts.get("repair_pr")) == pr for incident in map(store.load, store.ids()) if "adopted" in incident.facts and incident.status not in EXECUTOR_SETTLED and not incident.facts.get("not_ours"))
+
+    def incident_rows(self, open_rows: dict[str, dict]) -> list[str]:
+        return [pr for pr, row in open_rows.items() if row.get("ours") and row.get("base") == TRUNK and self.is_incident(pr, row)]
+
+    def squash_incidents(self, rows: dict[str, dict], held: list[str]) -> None:
+        """Merge each unheld incident fix PR on the trunk by plain squash in the pass its head is review-approved and every required check passes, once per head, and post `landed`; the queue never takes it."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        covered = under_hold(open_rows, held)
+        for pr in sorted(self.incident_rows(open_rows), key=int):
+            if pr not in covered:
+                self.squash(pr, open_rows[pr])
+
+    def squash(self, pr: str, row: dict) -> None:
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision,headRefOid,state"])
+        if done.code != 0:
+            return
+        view = json.loads(done.out)
+        key = f"land:{pr}@{view['headRefOid']}"
+        if view["state"] != "OPEN" or view["reviewDecision"] != "APPROVED" or key in self.book.load(LANDING).actions:
+            return
+        checks = self.shell.run(["gh", "pr", "checks", pr, "--repo", self.repo, "--required", "--json", "name,bucket"])
+        try:
+            required = json.loads(checks.out)
+        except json.JSONDecodeError:
+            return
+        if not required or any(check["bucket"] != SQUASH_PASS for check in required):
+            return
+        self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
+        self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
+        merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])
+        if merged.code != 0:
+            why = (merged.err or merged.out).strip()[:300] or f"exit {merged.code}"
+            self.book.attempt(LANDING, lambda incident: incident.fail(key, why))
+            self.runner.escalate(key, "SQUASH-FAILED", f"#{pr}", f"gh pr merge --squash refused the approved, green incident fix at {view['headRefOid'][:10]}: {why}")
+            return
+        read = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit"])
+        commit = ((json.loads(read.out) if read.code == 0 else {}).get("mergeCommit") or {}).get("oid", "")
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"sha": commit, "at": self.book.stamp()}))
+        text = f"#{pr} {LANDED_BY_SQUASH} as {commit[:10] or 'an unread squash'}: an incident fix, approved and green at {view['headRefOid'][:10]}, merged by the landing runner (ef905a6); its release is owed now"
+        self.runner.cci_post("landed", text, ",".join(dict.fromkeys([self.owner(pr, row) or ROOT, ROOT])), pr, key, pr=pr, record_id=key)
+
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. A landing older than the first pass is history."""
         desk = self.book.load(LANDING)
@@ -3120,40 +3392,90 @@ class Landing:
             self.book.edit(LANDING, lambda incident: incident.facts.update({RELEASE_SINCE: self.book.stamp()}))
             return
         for pr, row in rows.items():
-            if row.get("state") == "landed" and MERGE_FAST in row.get("labels", "").split(",") and row.get("landed_at", "") >= since and f"release:{pr}" not in desk.actions:
-                self.accept_release(pr, row)
+            if row.get("state") == "landed" and row.get("landed_at", "") >= since and f"release:{pr}" not in desk.actions:
+                incident = self.is_incident(pr, row)
+                if incident or MERGE_FAST in row.get("labels", "").split(","):
+                    self.accept_release(pr, row, incident)
         for action in self.book.actions(LANDING, kind="release"):
             if action.status in ("accepted", "completed"):
                 self.press_release(action)
+            elif action.status == "verified" and (action.verification_receipt or {}).get("builds") and not (action.verification_receipt or {}).get("live"):
+                self.publish_line(action)
 
-    def accept_release(self, pr: str, row: dict) -> None:
+    def accept_release(self, pr: str, row: dict, incident: bool) -> None:
+        """Owe a landing's release: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way."""
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
         if done.code != 0:
             return
         components = list(dict.fromkeys(name for line in RELEASE_WITH.findall(json.loads(done.out)["body"]) for name in line.split()))
         key = f"release:{pr}"
-        self.book.accept(LANDING, key, "release", json.dumps({"pr": pr, "sha": row["landed_sha"], "components": components, "landed_at": row["landed_at"]}), f"#{pr} {MERGE_FAST}", None)
-        if not components:
+        self.book.accept(LANDING, key, "release", json.dumps({"pr": pr, "sha": row["landed_sha"], "components": components, "landed_at": row["landed_at"], "incident": incident}), f"#{pr} {'incident' if incident else MERGE_FAST}", None)
+        if not components and not incident:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"at": self.book.stamp()}))
 
     def press_release(self, action: actions.Action) -> None:
-        """Post one record per `deadlines.release_start_minutes` step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed."""
+        """Post one record per step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed. A step is `deadlines.incident_release_minutes` while an incident clock runs and `deadlines.release_start_minutes` otherwise. An incident fix's landing settles only on a `release` record with a build, and a root record that holds it after it landed is answered once."""
         landed, key, posted = json.loads(action.target), action.action_id, (action.response or {}).get("posted", {})
-        if settled := self.release_started(landed) or (posted and self.acknowledged(set(posted.values()))):
-            self.book.attempt(LANDING, lambda incident: incident.verify(key, {"cci": settled["seq"], "at": self.book.stamp()}))
+        incident = landed.get("incident", False)
+        if settled := self.release_started(landed) or (posted and not incident and self.acknowledged(set(posted.values()))):
+            refs = settled.get("refs") or {}
+            receipt = {"cci": settled["seq"], "builds": refs.get("builds", []), "targets": refs.get("targets", []), "release": next(iter(RELEASE_ID.findall(settled["text"])), ""), "at": self.book.stamp()}
+            self.book.attempt(LANDING, lambda incident: incident.verify(key, receipt))
             return
-        pr, named, every = landed["pr"], " ".join(landed["components"]), self.runner.config.release_start_minutes
+        if incident:
+            self.held_after_landing(landed)
+        pr, every = landed["pr"], self.runner.config.incident_release_minutes if self.runner.live_clocks() else self.runner.config.release_start_minutes
+        named = " ".join(landed["components"])
+        how = ("as an incident fix" if incident else f"with {MERGE_FAST}") + (f" and Release-With: {named}" if named else "")
+        start = f"Start the {named} release now" if named else "Start the release its squash needs now"
+        targets = f"targets {named}" if named else "targets a component"
+        settles = "post `release --build <url> --target <component>`" if incident else f"post that record with --pr {pr} or --target <component>; a root reply to this record with --re also stops the blocker"
         minutes = int((self.runner.now() - actions.parse_stamp(landed["landed_at"])).total_seconds() // 60)
         step = str(max(0, minutes // every))
         if step in posted:
             return
         if posted:
-            kind, text = "blocker", f"#{pr} {landed['sha'][:10]}: landed {minutes} minutes ago with {MERGE_FAST} and Release-With: {named}, and no cci `release` record since targets {named} or names #{pr}. Start the {named} release now and post that record with --pr {pr} or --target <component>; a root reply to this record with --re also stops the blocker, which repeats every {every} minutes."
+            kind, text = "blocker", f"#{pr} {landed['sha'][:10]}: landed {minutes} minutes ago {how}, and no cci `release` record since {targets} or names #{pr}. {start} and {settles}, which repeats every {every} minutes."
         else:
-            kind, text = "release", f"#{pr} landed as {landed['sha'][:10]} with {MERGE_FAST} and Release-With: {named}. Start the {named} release now, then run `cci post --drive {self.runner.config.drive} --lane <lane> --kind release --pr {pr} --target <component> --text <build>`. With no such record {every} minutes after the landing, the landing desk posts a blocker to you and the root every {every} minutes."
+            build = " --build <url>" if incident else ""
+            kind, text = "release", f"#{pr} landed as {landed['sha'][:10]} {how}. {start}, then run `cci post --drive {self.runner.config.drive} --lane <lane> --kind release --pr {pr} --target <component>{build} --text <build>`. With no such record {every} minutes after the landing, the landing desk posts a blocker to you and the root every {every} minutes."
         seq = self.post_release(f"{key}:{step}", kind, pr, text)
         if seq is not None:
             self.book.attempt(LANDING, lambda incident: release_posted(incident, key, step, seq, self.runner.now()))
+
+    def held_after_landing(self, landed: dict) -> None:
+        """Answer each root `hold`, `decide`, `decision`, or `go` posted after an incident fix landed that names its PR, or that tells the release owner to wait, with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now."""
+        drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
+        owner = self.release_owner.removeprefix("peer:")
+        for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, *(f"--kind={kind}" for kind in HOLD_KINDS)):
+            if (record["lane"], record["drive"]) != (ROOT, drive) or record["kind"] not in HOLD_KINDS or actions.parse_stamp(record["at"]) < since:
+                continue
+            to_owner = any(owner in lane for lane in record.get("to") or []) and WAIT_ORDER.search(record["text"])
+            if names_pr(record, pr) or to_owner:
+                self.runner.record(
+                    f"escalation:release-held:{pr}:{record['seq']}",
+                    f"RELEASE-HELD-AFTER-LANDING #{pr}: landed {landed['sha'][:10]} at {pacific(since)}; its cut is owed now, the other PR gets its own cut when it lands (root #{record['seq']})",
+                )
+
+    def publish_line(self, action: actions.Action) -> None:
+        """Once a landing's release names its build, read `tools/ci release live` each pass and post one RELEASED fix-live record to the root and the comms lane when every component it ships is live."""
+        landed, receipt = json.loads(action.target), action.verification_receipt
+        components = landed["components"] or receipt["targets"]
+        release = receipt["release"] or BUILD_NUMBER.search(receipt["builds"][0])[1]
+        done = self.shell.run([str(self.checkout / "tools" / "ci"), "release", "live", release, "--json"])
+        if done.code != 0 or not components:
+            return
+        live = json.loads(done.out)
+        if any(live.get(component, {}).get("live", NOT_LIVE) == NOT_LIVE for component in components):
+            return
+        build = receipt["builds"][0]
+        versions = ", ".join(f"{component} {live[component]['live']}" for component in components)
+        key = f"release:{landed['pr']}:live"
+        to = ",".join([ROOT, *([self.comms] if self.comms else [])])
+        flags = [arg for component in components for arg in ("--target", component)] + ["--build", build]
+        done = self.runner.cci_post("fix-live", f"RELEASED {versions} ({build})", to, landed["pr"], key, pr=landed["pr"], record_id=key, flags=flags)
+        if done.code == 0 and POSTED.match(done.out):
+            self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": int(POSTED.match(done.out)[1])}))
 
     def post_release(self, key: str, kind: str, pr: str, text: str) -> int | None:
         """Post one record about a landing's release to the release owner and the root, with `key` as its cci id so a repost returns the stored record, and return its sequence. A record cci refuses, or a post that prints no sequence, is escalated to root once per `key`, and the next pass posts it again."""
@@ -3167,9 +3489,16 @@ class Landing:
         return None
 
     def release_started(self, landed: dict) -> dict | None:
-        """The drive's first cci `release` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR."""
+        """The drive's first cci `release` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a build on the record and a target: one of its components, or any when it names none."""
         drive, since, names = self.runner.config.drive, actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
         releases = cci.records(self.runner.cci_tail, drive, "--kind=release")
+
+        def names_landing(refs: dict) -> bool:
+            targets = set(refs.get("targets", []))
+            if landed.get("incident"):
+                return bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
+            return bool(targets & set(landed["components"]) or any(named in names for named in refs.get("prs", [])))
+
         return next(
             (
                 record
@@ -3177,7 +3506,7 @@ class Landing:
                 if (record["kind"], record["drive"]) == ("release", drive)
                 and record["lane"] != RUNNER
                 and actions.parse_stamp(record["at"]) >= since
-                and (set(record["refs"].get("targets", [])) & set(landed["components"]) or any(named in names for named in record["refs"].get("prs", [])))
+                and names_landing(record["refs"])
             ),
             None,
         )
@@ -3351,6 +3680,7 @@ class Landing:
         except CciTailFailed as failure:
             self.runner.tail_failed(failure)
         if advanced and not unread and (held := self.held(rows)) is not None:
+            self.squash_incidents(rows, held)
             self.gate(rows, held)
             self.enqueue()
         self.runner.overdue(LANDING, "landing")
@@ -3390,6 +3720,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.deadlines_orca()
             runner.incident_clock()
             runner.in_process()
+            runner.cut_clock()
         except OrcaUnreachable as down:
             runner.orca_down(down)
         else:

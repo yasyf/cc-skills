@@ -33,6 +33,10 @@ REFUSAL = (
     "Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the root's holds."
 )
+INCIDENT_REFUSAL = (
+    "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
+    "Post `ready`, and the landing runner merges it."
+)
 
 
 @dataclass(frozen=True)
@@ -219,7 +223,10 @@ def landing_verb(call: Call) -> str | None:
         Input(command=ENQUEUE, agent_id="asandsql-replica-desk-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command="ledger.py label --pr 36023 --expect-head abc", agent_id="amerge-train-release-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id="adesk-cleanup-lane-0123456789abcdef", state=ACTIVE): Block(),
-        Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"plain squash"),
+        Input(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Block(pattern=r"^Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
+        Input(command="stack-enqueue 36050 --check", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=ENQUEUE, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id=LANE): Allow(),
         Input(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
@@ -237,10 +244,13 @@ def landing_verb(call: Call) -> str | None:
     },
 )
 def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
-    if (lane := lane_name(evt)) is None or LANDERS.match(lane) or INCIDENT_NAME.match(lane):
+    if (lane := lane_name(evt)) is None or LANDERS.match(lane):
         return None
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and not outside_drive_repo(evt, call, entry)), None)
+    incident = bool(INCIDENT_NAME.match(lane))
+    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "stack-enqueue" or not incident) and not outside_drive_repo(evt, call, entry)), None)
+    if verb and incident:
+        return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None

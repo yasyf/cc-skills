@@ -24,7 +24,7 @@ runner_module = importlib.util.module_from_spec(spec)
 sys.modules["desk_runner"] = runner_module
 spec.loader.exec_module(runner_module)
 
-LANE = "incident-fix"
+LANE = "api-fix"
 FORBIDDEN = {"worker-release", "kill", "pkill", "close", "stop", "terminate", "worker-stop"}
 IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
 PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
@@ -136,6 +136,10 @@ class FakeShell(runner_module.Shell):
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
+        self.reviews: dict[str, dict] = {}
+        self.checks: dict[str, list[dict]] = {}
+        self.merge_commits: dict[str, str] = {}
+        self.live: dict[str, dict] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -238,6 +242,22 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.workflow_error)
             self.workflow_runs.append(argv[3:])
             return runner_module.Done(0, "", "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
+            assert argv[4:6] == ["--repo", "Forge-AI/monorepo"]
+            return runner_module.Done(0, json.dumps(self.reviews[argv[3]]), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
+            return runner_module.Done(0, json.dumps({"mergeCommit": {"oid": self.merge_commits[argv[3]]}}), "")
+        if argv[:3] == ["gh", "pr", "checks"]:
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--required", "--json", "name,bucket"]
+            checks = self.checks[argv[3]]
+            return runner_module.Done(8 if any(check["bucket"] == "pending" for check in checks) else 0, json.dumps(checks), "")
+        if argv[:3] == ["gh", "pr", "merge"]:
+            assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
+            self.reviews[argv[3]]["state"] = "MERGED"
+            return runner_module.Done(0, "", "")
+        if argv[:3] == [str(self.root / "checkout/tools/ci"), "release", "live"]:
+            assert argv[4:] == ["--json"]
+            return runner_module.Done(0, json.dumps(self.live.get(argv[3], {})), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "labels":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "labels"]
             if self.pr_label_error:
@@ -2984,17 +3004,17 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
 
 
-def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged") -> dict:
-    return {"pr": "36642", "lane": LANE, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
+def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
+    return {"pr": "36642", "lane": lane, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
 
 
-def land_fast(shell: FakeShell, config: Path, body: str = FAST_BODY, labels: str = "merge-fast,externally-merged") -> None:
+def land_fast(shell: FakeShell, config: Path, body: str = FAST_BODY, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> None:
     shell.bodies["36642"] = body
-    shell.rows = [fast_row(shell, labels) | {"state": "open"}]
+    shell.rows = [fast_row(shell, labels, lane) | {"state": "open", "base": "f/0"}]
     shell.gates["36642"] = [gate("#36642 QUEUED eeee555555 graphite QUEUED_TO_MERGE")]
     landing_pass(shell, config)
     shell.sleep(180)
-    shell.rows = [fast_row(shell, labels)]
+    shell.rows = [fast_row(shell, labels, lane)]
 
 
 def body_reads(shell: FakeShell) -> list[list[str]]:
@@ -3003,6 +3023,122 @@ def body_reads(shell: FakeShell) -> list[list[str]]:
 
 def release_action(tmp_path: Path) -> actions.Action:
     return incident(tmp_path, "desk-landing").actions["release:36642"]
+
+
+INCIDENT_LANE = "incident-sand-fix"
+INCIDENT_HEAD = "ffff666666aaaabbbbccccddddeeee0000111122"
+INCIDENT_SQUASH = "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
+WALKER = "release-walker-4"
+
+
+def incident_pr(shell: FakeShell, buckets: tuple[str, ...] = ("pass", "pass")) -> None:
+    shell.rows = [{"pr": "36650", "lane": INCIDENT_LANE, "branch": "i/1", "base": "dev", "head": INCIDENT_HEAD, "state": "open", "reported_head": INCIDENT_HEAD}]
+    shell.reviews["36650"] = {"reviewDecision": "APPROVED", "headRefOid": INCIDENT_HEAD, "state": "OPEN"}
+    shell.checks["36650"] = [{"name": name, "bucket": bucket} for name, bucket in zip(("test", "landing-gates"), buckets, strict=True)]
+    shell.merge_commits["36650"] = INCIDENT_SQUASH
+
+
+def merges(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["gh", "pr", "merge"]]
+
+
+def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never_enqueued(shell, config, tmp_path):
+    incident_pr(shell)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", INCIDENT_HEAD]]
+    assert shell.enqueues() == [] and not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    [landed] = [post for post in shell.posts if post["kind"] == "landed"]
+    assert (landed["to"], landed["pr"], landed["id"]) == (f"{INCIDENT_LANE},root", "36650", f"land:36650@{INCIDENT_HEAD}")
+    assert landed["text"].startswith("#36650 landed by plain squash as 9a8b7c6d5e: an incident fix, approved and green at ffff666666")
+    squash = incident(tmp_path, "desk-landing").actions[f"land:36650@{INCIDENT_HEAD}"]
+    assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
+
+
+@pytest.mark.parametrize(("buckets", "decision"), [(("pass", "pending"), "APPROVED"), (("pass", "fail"), "APPROVED"), (("pass", "pass"), "REVIEW_REQUIRED")], ids=["a-pending-check", "a-red-check", "no-approval"])
+def test_an_incident_fix_short_of_approved_and_green_is_neither_merged_nor_enqueued(shell, config, tmp_path, buckets, decision):
+    incident_pr(shell, buckets)
+    shell.reviews["36650"]["reviewDecision"] = decision
+    landing_pass(shell, config)
+    assert merges(shell) == [] and shell.enqueues() == [] and shell.posts == []
+
+
+def test_a_held_incident_fix_is_not_merged(shell, config, tmp_path):
+    incident_pr(shell)
+    (tmp_path / "holds.md").write_text("#36650 root holds the sand fix\n")
+    landing_pass(shell, config)
+    assert merges(shell) == []
+
+
+def live_clock(tmp_path: Path, shell: FakeShell, lane: str = "sand-fix") -> None:
+    clock = {"key": "R1", "launched": actions.stamp(shell.clock), "reached": {}, "ended": ""}
+    actions.Store(tmp_path / "store").create(actions.Incident(f"desk-lane-{lane}", "ctx_sand", 0, actions.stamp(shell.clock), {"incident-clock": clock}))
+
+
+def land_incident(shell: FakeShell, config: Path, body: str = "Fixes the sand migrate check.\n") -> None:
+    land_fast(shell, config, body=body, labels="externally-merged", lane=INCIDENT_LANE)
+
+
+def test_an_incident_fix_landing_owes_its_release_with_no_label_or_release_with_line_and_presses_every_three_minutes_while_a_clock_runs(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config)
+    landing_pass(shell, config)
+    [release] = shell.posts
+    assert (release["kind"], release["to"], release["id"]) == ("release", "peer:sole-51,root", "release:36642:0")
+    assert release["text"].startswith("#36642 landed as 5e11a9d0c2 as an incident fix. Start the release its squash needs now, then run `cci post --drive d1 ")
+    assert "--target <component> --build <url> --text <build>" in release["text"]
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    [late] = blockers(shell)
+    assert late["text"].startswith("#36642 5e11a9d0c2: landed 3 minutes ago as an incident fix, and no cci `release` record since targets a component or names #36642. Start the release its squash needs now and post `release --build <url> --target <component>`") and "repeats every 3 minutes" in late["text"]
+
+
+def test_an_incident_fix_landing_settles_only_on_a_release_record_with_a_build(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    cci_record(shell, kind="answer", re=1, at=actions.stamp(shell.now()), text="the root starts the sand release")
+    cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"]}, at=actions.stamp(shell.now()), text="sand release starting")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert len(blockers(shell)) == 1 and release_action(tmp_path).status == "completed"
+    seq = cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8748"]}, at=actions.stamp(shell.now()), text="CUT build 8748 (releases/2026-10-20/33)")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    released = release_action(tmp_path)
+    assert len(blockers(shell)) == 1 and (released.status, released.verification_receipt["cci"], released.verification_receipt["release"]) == ("verified", seq, "2026-10-20/33")
+
+
+def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_holds(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    seq = cci_record(shell, kind="hold", status="open", refs={"prs": [36642]}, at=actions.stamp(shell.now()), text="hold #36642: one cut with #41071 when that lands")
+    for _ in range(2):
+        shell.sleep(3 * 60)
+        landing_pass(shell, config)
+    held = [line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]
+    assert held == [f"RELEASE-HELD-AFTER-LANDING #36642: landed 5e11a9d0c2 at 11:03; its cut is owed now, the other PR gets its own cut when it lands (root #{seq})"]
+    assert [post["text"].split(": ", 1)[1].split(" as ")[0] for post in blockers(shell)] == ["landed 3 minutes ago", "landed 6 minutes ago"]
+
+
+def test_a_released_build_posts_one_released_line_to_the_root_and_comms_once_every_component_is_live(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["comms_lane"] = "comms-desk"
+    config.write_text(json.dumps(raw))
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    build = "https://buildkite.com/forge/release/builds/8743"
+    cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"], "builds": [build]}, at=actions.stamp(shell.now()), text="CUT build 8743 (releases/2026-10-20/31)")
+    shell.live["2026-10-20/31"] = {"sand": {"live": "not live"}}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post for post in shell.posts if post["kind"] == "fix-live"] == []
+    shell.live["2026-10-20/31"] = {"sand": {"live": "0.162.1437", "since": "2026-10-20T18:02:18Z"}}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = [post for post in shell.posts if post["kind"] == "fix-live"]
+    assert (line["to"], line["text"], line["target"], line["build"], line["id"]) == ("root,comms-desk", f"RELEASED sand 0.162.1437 ({build})", "sand", build, "release:36642:live")
 
 
 def test_a_landed_merge_fast_pr_with_release_with_tells_the_release_owner_and_root_once(shell, config, tmp_path):
@@ -3232,7 +3368,7 @@ def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_de
         orca_pass(shell, config)
         shell.sleep(60)
     assert sorted(line for line in escalations(shell) if not line.startswith("RECLAIM")) == [
-        "RELAY-FAILED R633 incident-fix: no live dispatch (ctx_a is completed); nothing was relayed",
+        "RELAY-FAILED R633 api-fix: no live dispatch (ctx_a is completed); nothing was relayed",
         "RELAY-FAILED R634 ghost: no live dispatch; nothing was relayed",
     ]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "failed"
@@ -4865,6 +5001,109 @@ def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell,
         f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
     ]
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no PR" in fallback.read_text()
+
+
+def test_a_mechanism_a_case_sibling_posted_stops_the_mechanism_fallback_but_not_the_pr_threshold(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    clocked_lane(shell, config, tmp_path, lane=f"{LANE}-case1")
+    shell.sleep(8 * 60)
+    lane_record(shell, f"{LANE}-case1", "mechanism")
+    shell.sleep(4 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and f"{LANE}-opus" not in [call[1] for call in launches(shell)]
+    shell.sleep(3 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = clock_lines(shell)
+    assert line.startswith(f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 8 min, mechanism to now 7 min")
+    assert f"{LANE}-opus" in [call[1] for call in launches(shell)]
+
+
+def test_a_withdrawn_lane_clock_ends_as_withdrawn_and_posts_nothing(shell, config, tmp_path, capsys):
+    clocked_lane(shell, config, tmp_path)
+    desk_inbox(tmp_path, f"R30 orca-desk: withdraw {LANE}")
+    orca_pass(shell, config)
+    shell.sleep(21 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    assert incident(tmp_path, f"desk-lane-{LANE}").facts["incident-clock"]["ended"] == "withdrawn by R30"
+
+
+def test_a_root_stand_down_ends_the_clock_as_withdrawn(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(60)
+    cci_record(shell, kind="stand-down", to=[LANE], at=actions.stamp(shell.now()), text="stand down; the opus lane has it")
+    orca_pass(shell, config)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and incident(tmp_path, f"desk-lane-{LANE}").facts["incident-clock"]["ended"].startswith("withdrawn by #")
+
+
+def test_escalations_outside_the_incident_wait_for_the_last_clock_and_reach_root_as_one_deferred_record(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.launch("docs-lane", "ctx_docs")
+    cli(shell, config, "relay", "--key", "R700", "--lane", "docs-lane", "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.sleep(11 * 60)
+    lane_record(shell, LANE, "mechanism")
+    lane_record(shell, LANE, "opened", prs=[4242])
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith(("DEADLINE", "DEFERRED"))] == []
+    view = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).render()
+    assert "deferred during api-fix: 1\n- DEADLINE deadline:desk-lane-docs-lane/R700:accepted docs-lane: " in view
+    lane_record(shell, LANE, "ready")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    held = [line for line in escalations(shell) if line.startswith(("DEADLINE", "DEFERRED"))]
+    assert len(held) == 1 and held[0].startswith("DEFERRED 1 escalations held during api-fix: DEADLINE deadline:desk-lane-docs-lane/R700:accepted docs-lane: R700 relay: delivered to ")
+
+
+def go_to_walker(shell: FakeShell, config: Path, text: str = "cut sand now at 94d61b91951") -> int:
+    orca_pass(shell, config)
+    return cci_record(shell, kind="go", to=[WALKER], at=actions.stamp(shell.now()), text=text)
+
+
+def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_the_manual_release_lane(shell, config, tmp_path):
+    seq = go_to_walker(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(3 * 60)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("CUT-SILENT")] == []
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
+    hand = "tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
+    assert line.startswith(f"CUT-SILENT {WALKER} sand: no CUT or refusal 4 min after GO #{seq}; hand path: {hand} | manual-release-sand launching on opus xhigh, brief ")
+    [launch] = [call for call in launches(shell) if call[1] == "manual-release-sand"]
+    assert launch[2:4] == ["opus", "xhigh"]
+    brief = Path(launch[4]).read_text()
+    assert brief.startswith("ccx: lane=manual-release-sand role=release incident=none effort=xhigh\n") and hand in brief and f"after GO #{seq}" in brief
+
+
+@pytest.mark.parametrize(("kind", "refs"), [("release", {"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8748"]}), ("refuse", {"targets": ["sand"]})], ids=["cut", "refused"])
+def test_a_cut_or_a_refusal_from_the_release_lane_stops_the_cut_clock(shell, config, tmp_path, kind, refs):
+    go_to_walker(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(2 * 60)
+    cci_record(shell, lane=WALKER, kind=kind, refs=refs, at=actions.stamp(shell.now()), text="CUT build 8748" if kind == "release" else "tools/ci refused the start: InWatch")
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("CUT-SILENT")] == [] and not [call for call in launches(shell) if call[1] == "manual-release-sand"]
+
+
+def test_a_refusal_that_says_a_release_already_ships_the_commit_reaches_the_manual_release_lane(shell, config, tmp_path):
+    go_to_walker(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(4 * 60)
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane=WALKER, kind="refuse", refs={"targets": ["sand"]}, at=actions.stamp(shell.now()), text="start refused: release 2026-10-20/33 already ships sand at `6de9540` or later")
+    orca_pass(shell, config)
+    relay = incident(tmp_path, "desk-lane-manual-release-sand").actions[f"cut-refuse:{seq}"]
+    assert json.loads(relay.target)["text"] == f"{WALKER} posted on cci #{seq}: start refused: release 2026-10-20/33 already ships sand at `6de9540` or later"
 
 
 @pytest.mark.parametrize("mechanism", [True, False], ids=["after-a-mechanism", "with-no-mechanism-record"])
