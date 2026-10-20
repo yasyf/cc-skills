@@ -108,10 +108,13 @@ lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends it
 nothing. While any clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
-`release` record this runner posted, opens a cut clock; with no `release` record carrying a build and no `refuse` from
-that lane within `deadlines.cut_minutes` (default 4), the runner logs one `CUT-SILENT <lane> <component>` with the hand
-command and launches `manual-release-<component>` on opus xhigh from `reference/manual-release-brief.md`, and relays to it
-each later `refuse` that says a release already ships the commit or later.
+`release` record this runner posted, opens a cut clock. Its components are the order's `--target` refs, or the landing's
+`Release-With:` components, never a word of the order's text, and one that names none launches no manual lane. With no
+`release` record carrying a build and no `refuse` from that lane within `deadlines.cut_minutes` (default 4), the runner logs
+one `CUT-SILENT <lane> <component>` with the hand command and launches `manual-release-<component>` on opus xhigh from
+`reference/manual-release-brief.md`, and relays to it each later `refuse` that says a release already ships the commit or
+later. The clock closes silently once the landing it holds settles, the root posts `--resolves` on the order, or another
+lane's `release` or `fix-live` record since it opened names one of its PRs.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -199,7 +202,8 @@ decides whether the PR's own head failed or a batch-mate did. A drop for downsta
 batch's failure: it routes no blocker, logs one `AWAITS-GO` line to root, and the same head re-enqueues once a root
 `go` record naming the PR is posted after the drop, with no new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane. A gate's `BLOCKED` verdict goes to the lane at most once per head, and only for red CI,
+when `cci who` lists no live session for that lane. A conflict blocker for a lane with no dispatch Orca shows active and no session
+`cci who` lists routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
@@ -257,15 +261,19 @@ label, and whose body has a `Release-With:` line, or an incident fix's PR whatev
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
 `release` record on the drive from another lane, stamped after the landing, names one of those components with `--target` or the
 PR with `--pr`, the runner posts one `blocker` to both each `deadlines.release_start_minutes` (default 10) after the landing, with
-the minutes elapsed, or each `deadlines.incident_release_minutes` (default 3) while an incident clock runs. An incident fix's
-landing settles only on a `release` record that carries `--build` and a `--target`, one of its components when it names any, and
+the minutes elapsed, or each `deadlines.incident_release_minutes` (default 3) while an incident clock runs. A `fix-live` record
+from another lane that names the PR or a component settles a landing too. An incident fix's landing settles only on such a
+`fix-live` record, a `release` record that carries `--build` and a `--target`, one of its components when it names any, or a
+root `--resolves` on one of the runner's records about it, its RELEASE-HELD-AFTER-LANDING lines included, and
 each root `hold`, `decide`, `decision`, or `go` after its landing that names the PR or tells the release owner to wait logs one
 `RELEASE-HELD-AFTER-LANDING`. Once the record that settles a landing carries a build, each pass reads
 `tools/ci release live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
 `RELEASED <component> <version> (<build>)` to the root and `landing.comms_lane` once every component reads live, keyed
 `release:<pr>:live`. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
 drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. A landing older
-than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. Each record carries
+than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. A landing from before the
+runner process started, first read after it, closes with no record when `tools/ci release live --json` shows its squash or a
+later commit running, for one of its components when it names any. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
 `deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
@@ -373,8 +381,10 @@ BUILD_NUMBER = re.compile(r"(\d+)/?$")
 NOT_LIVE = "not live"
 RELEASE_LANE = re.compile(r"(?:^|-)release(?:-|$)")
 CUT_ORDER = re.compile(r"\b(?:cut|release start)\b", re.IGNORECASE)
-CUT_COMPONENT = re.compile(r"\b(?:cut|release start)(?:\s+--[\w-]+)*\s+(?:a\s+|the\s+)?([a-z][\w-]*)", re.IGNORECASE)
 CUT_KINDS = ("go", "decision")
+SETTLING_KINDS = ("release", "fix-live")
+PARKED = "parked"
+CONFLICT_BLOCKER = re.compile(r"graphite MERGE_CONFLICTS|conflicts with origin/|GitHub reads CONFLICTING")
 ALREADY_SHIPS = re.compile(r"already ships .* or later")
 CUT_CLOCKS = "cut-clocks"
 CUT_CURSOR = "cut-cursor"
@@ -2458,7 +2468,7 @@ class Runner:
             )
 
     def cut_clock(self) -> None:
-        """Hold every ordered cut to `deadlines.cut_minutes`: a root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's release record the landing runner posted with no build yet, opens a clock, and a `release` record with a build or a `refuse` from that lane stops it. Past the limit the runner logs one CUT-SILENT with the hand command and launches `manual-release-<component>`; a later `refuse` that says a release already ships the commit or later goes to that lane."""
+        """Hold every ordered cut to `deadlines.cut_minutes`: a root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's release record the landing runner posted with no build yet, opens a clock for the order's `--target` refs or the landing's components, and a `release` record with a build or a `refuse` from that lane stops it, as does anything `cut_closed` names. Past the limit the runner logs one CUT-SILENT with the hand command and launches `manual-release-<component>`; a later `refuse` that says a release already ships the commit or later goes to that lane."""
         try:
             self.open_cut_clocks()
             for key, clock in (self.book.load(RUNNER).facts.get(CUT_CLOCKS) or {}).items():
@@ -2480,15 +2490,14 @@ class Runner:
             if (record["lane"], record["drive"]) != (ROOT, self.config.drive) or record["kind"] not in CUT_KINDS or not lanes or not CUT_ORDER.search(record["text"]):
                 continue
             refs = record.get("refs") or {}
-            named = refs.get("targets") or [match[1].lower() for match in CUT_COMPONENT.finditer(record["text"])][:1]
             commit = refs.get("commit") or next(iter(SHORT_SHA.findall(record["text"])), "<sha>")
-            clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": named or ["<component>"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "ended": ""}
+            clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": refs.get("targets") or ["<component>"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "prs": [str(pr).rsplit("#", 1)[-1] for pr in refs.get("prs", [])], "ended": ""}
         if self.config.landing:
             self.book.ensure(LANDING, LANDING)
             for action in self.book.actions(LANDING, kind="release"):
                 landed = json.loads(action.target)
                 if action.status == "completed":
-                    clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"] or ["<component>"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "ended": ""})
+                    clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"] or ["<component>"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
 
         def keep(incident: actions.Incident) -> None:
             held = incident.facts.setdefault(CUT_CLOCKS, {})
@@ -2522,6 +2531,9 @@ class Runner:
             return
         if clock["ended"]:
             return
+        if closed := self.cut_closed(key, clock):
+            self.end_cut(key, closed)
+            return
         if answered := next((record for record in self.cut_records(clock, "release", "refuse") if record["kind"] == "refuse" or (record.get("refs") or {}).get("builds")), None):
             self.end_cut(key, f"#{answered['seq']} {answered['kind']}")
             return
@@ -2533,6 +2545,33 @@ class Runner:
         launched = self.manual_release(key, manual, component, clock, hand) if not component.startswith("<") else "no manual release lane launched: the order names no component"
         self.end_cut(key, "silent")
         self.record(f"escalation:cut:{key}", f"{line} | {launched}")
+
+    def cut_closed(self, key: str, clock: dict) -> str:
+        """What closed a cut clock before its limit: the landing it holds settled, the root posted `--resolves` on the order that opened it, or another lane's `release` or `fix-live` record since it opened names one of its PRs; empty while none did."""
+        if clock["pr"] and self.config.landing and (landing := self.book.load(LANDING).actions.get(f"release:{clock['pr']}")) and landing.status == "verified":
+            return f"#{clock['pr']} settled"
+        since, prs = actions.parse_stamp(clock["since"]), set(clock.get("prs", []))
+        if key.startswith("go:"):
+            seq = int(key.removeprefix("go:"))
+            replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
+            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
+                return f"#{resolved['seq']} resolves"
+        if not prs:
+            return ""
+        posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
+        named = next(
+            (
+                record
+                for record in posted
+                if record["drive"] == self.config.drive
+                and record["kind"] in SETTLING_KINDS
+                and record["lane"] != RUNNER
+                and actions.parse_stamp(record["at"]) >= since
+                and any(names_pr(record, pr) for pr in prs)
+            ),
+            None,
+        )
+        return f"#{named['seq']} {named['kind']}" if named else ""
 
     def end_cut(self, key: str, ended: str) -> None:
         self.book.edit(RUNNER, lambda incident: incident.facts[CUT_CLOCKS][key].update({"ended": ended}))
@@ -2749,6 +2788,7 @@ class Landing:
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.reading = threading.Lock()
         self.opened_seen = 0
+        self.started = self.book.stamp()
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -3404,15 +3444,15 @@ class Landing:
             if row.get("state") == "landed" and row.get("landed_at", "") >= since and f"release:{pr}" not in desk.actions:
                 incident = self.is_incident(pr, row)
                 if incident or MERGE_FAST in row.get("labels", "").split(","):
-                    self.accept_release(pr, row, incident)
+                    self.accept_release(pr, row, incident, row["landed_at"] < self.started)
         for action in self.book.actions(LANDING, kind="release"):
             if action.status in ("accepted", "completed"):
                 self.press_release(action)
             elif action.status == "verified" and (action.verification_receipt or {}).get("builds") and not (action.verification_receipt or {}).get("live"):
                 self.publish_line(action)
 
-    def accept_release(self, pr: str, row: dict, incident: bool) -> None:
-        """Owe a landing's release: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way."""
+    def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> None:
+        """Owe a landing's release: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `tools/ci release live` shows its squash or a later commit running, and closes without a record."""
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
         if done.code != 0:
             return
@@ -3421,14 +3461,34 @@ class Landing:
         self.book.accept(LANDING, key, "release", json.dumps({"pr": pr, "sha": row["landed_sha"], "components": components, "landed_at": row["landed_at"], "incident": incident}), f"#{pr} {'incident' if incident else MERGE_FAST}", None)
         if not components and not incident:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"at": self.book.stamp()}))
+        elif before_start and (running := self.shipped(row["landed_sha"], components)):
+            self.book.attempt(LANDING, lambda incident: incident.verify(key, {"shipped": running, "at": self.book.stamp()}))
+
+    def shipped(self, sha: str, components: list[str]) -> str:
+        """The deploy `tools/ci release live` shows running `sha` or a later commit, of one of `components` when it names any, or empty when none does or the read fails."""
+        done = self.shell.run([str(self.checkout / "tools" / "ci"), "release", "live", "--json"])
+        if done.code != 0:
+            return ""
+        contains: dict[str, bool] = {}
+        for running in json.loads(done.out):
+            if components and running["target"] not in components:
+                continue
+            if running["commit"] not in contains:
+                contains[running["commit"]] = self.shell.run(["git", "-C", str(self.checkout), "merge-base", "--is-ancestor", sha, running["commit"]]).code == 0
+            if contains[running["commit"]]:
+                return f"{running['target']} on {running['env']} runs {running['commit'][:10]} ({running.get('release') or 'outside a release'})"
+        return ""
 
     def press_release(self, action: actions.Action) -> None:
-        """Post one record per step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed. A step is `deadlines.incident_release_minutes` while an incident clock runs and `deadlines.release_start_minutes` otherwise. An incident fix's landing settles only on a `release` record with a build, and a root record that holds it after it landed is answered once."""
+        """Post one record per step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed. A step is `deadlines.incident_release_minutes` while an incident clock runs and `deadlines.release_start_minutes` otherwise. An incident fix's landing settles only on a `release` record with a build, a `fix-live` record, or a root `--resolves` on one of the runner's records about it, and a root record that holds it after it landed is answered once."""
         landed, key, posted = json.loads(action.target), action.action_id, (action.response or {}).get("posted", {})
         incident = landed.get("incident", False)
-        if settled := self.release_started(landed) or (posted and not incident and self.acknowledged(set(posted.values()))):
+        closing = set(posted.values()) | self.held_lines(landed["pr"])
+        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, ("resolves",) if incident else ("re", "resolves"))):
             refs = settled.get("refs") or {}
             receipt = {"cci": settled["seq"], "builds": refs.get("builds", []), "targets": refs.get("targets", []), "release": next(iter(RELEASE_ID.findall(settled["text"])), ""), "at": self.book.stamp()}
+            if settled["kind"] == "fix-live":
+                receipt["live"] = settled["seq"]
             self.book.attempt(LANDING, lambda incident: incident.verify(key, receipt))
             return
         if incident:
@@ -3498,13 +3558,13 @@ class Landing:
         return None
 
     def release_started(self, landed: dict) -> dict | None:
-        """The drive's first cci `release` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a build on the record and a target: one of its components, or any when it names none."""
+        """The drive's first cci `release` or `fix-live` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a `fix-live` record, or a build on the record and a target: one of its components, or any when it names none."""
         drive, since, names = self.runner.config.drive, actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
-        releases = cci.records(self.runner.cci_tail, drive, "--kind=release")
+        releases = cci.records(self.runner.cci_tail, drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
 
-        def names_landing(refs: dict) -> bool:
+        def names_landing(kind: str, refs: dict) -> bool:
             targets = set(refs.get("targets", []))
-            if landed.get("incident"):
+            if landed.get("incident") and kind == "release":
                 return bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
             return bool(targets & set(landed["components"]) or any(named in names for named in refs.get("prs", [])))
 
@@ -3512,19 +3572,25 @@ class Landing:
             (
                 record
                 for record in releases
-                if (record["kind"], record["drive"]) == ("release", drive)
+                if record["kind"] in SETTLING_KINDS
+                and record["drive"] == drive
                 and record["lane"] != RUNNER
                 and actions.parse_stamp(record["at"]) >= since
-                and names_landing(record["refs"])
+                and names_landing(record["kind"], record["refs"])
             ),
             None,
         )
 
-    def acknowledged(self, seqs: set[int]) -> dict | None:
-        """The drive root's first cci record that carries `--re` or `--resolves` for one of the records the runner posted about a landing's release."""
+    def acknowledged(self, seqs: set[int], links: tuple[str, ...]) -> dict | None:
+        """The drive root's first cci record that carries one of `links`, `--re` or `--resolves`, for one of the records the runner posted about a landing's release."""
         drive = self.runner.config.drive
         replies = cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(seqs))
-        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get("re"), record.get("resolves")}), None)
+        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get(link) for link in links}), None)
+
+    def held_lines(self, pr: str) -> set[int]:
+        """The sequences of the RELEASE-HELD-AFTER-LANDING lines the runner posted for `pr`."""
+        prefix = f"escalation:release-held:{pr}:"
+        return {int(seq[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := POSTED.search((action.response or {}).get("posted", "")))}
 
     def believed_queued(self, rows: dict[str, dict]) -> dict[str, list[str]]:
         return {
@@ -3574,15 +3640,27 @@ class Landing:
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
     def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tips: list[str], stack: set[str], gated_red: bool) -> None:
-        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
+        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = f"blocker:{pr}:{sha}"
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr):
             return
+        parked = bool(owner and CONFLICT_BLOCKER.search(blocker) and not self.lane_live(owner))
+        if parked and self.book.known(RUNNER, f"escalation:{PARKED}:{pr}"):
+            return
         fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.enqueue_run(tips, check=True).out)}
         current = fresh.get(pr)
-        if current and current["verdict"] == "BLOCKED" and routed_blocker(current["detail"], stack, gated_red) == blocker:
+        if not current or current["verdict"] != "BLOCKED" or routed_blocker(current["detail"], stack, gated_red) != blocker:
+            return
+        if parked:
+            self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker}")
+        else:
             self.route(key, owner, f"#{pr} {sha}: {blocker}", pr)
+
+    def lane_live(self, lane: str) -> bool:
+        """The lane has a dispatch Orca shows active, or a session `cci who` lists."""
+        dispatch = self.runner.orca.show(lane) if self.runner.orca.receipt(lane) else None
+        return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
 
     def owner(self, pr: str, row: dict) -> str:
         """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, else the lane that registered its ledger row."""
@@ -3593,10 +3671,13 @@ class Landing:
 
     def reach(self, lane: str) -> list[str]:
         """Who a blocker for `lane` goes to: the lane, and the root too when `cci who` lists no live session for it."""
+        return [lane] if self.session_live(lane) else [lane, ROOT]
+
+    def session_live(self, lane: str) -> bool:
         done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
         if done.code != 0:
             raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-        return [lane] if done.out.strip() else [lane, ROOT]
+        return bool(done.out.strip())
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""

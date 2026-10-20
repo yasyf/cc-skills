@@ -1457,7 +1457,9 @@ its own head. A queue drop
 that blames a PR outside the stack re-enqueues the same head after the root's
 next `go` record naming the PR.
 It re-runs the gate immediately before creating the route and suppresses a
-blocker that already cleared.
+blocker that already cleared. A merge conflict whose lane has no dispatch Orca
+shows active and no session `cci who` lists is parked instead: the root gets one
+`PARKED parked:<pr>` line per PR, and the conflict routes once the lane is back.
 
 Orca delivery can follow later; this is not a recheck at
 that later send. Orca lanes receive a relay; other lanes receive
@@ -1558,8 +1560,10 @@ incident names as its repair, owes a release in the pass that reads the landing:
 components from its `Release-With:` lines, or, with none, the release its squash
 needs. While an incident clock runs, the step is `deadlines.incident_release_minutes`,
 3 by default, instead of `deadlines.release_start_minutes`. An incident landing settles
-only on a `release` record carrying `--build` and `--target <component>`; a root
-`--re` or `--resolves` reply no longer settles it. A root `hold`, `decide`,
+on a `release` record carrying `--build` and `--target <component>`, or on a root
+`--resolves` naming the release record, a blocker, or a RELEASE-HELD-AFTER-LANDING
+line; a root `--re` reply does not settle it. A `fix-live` record from another lane
+that names the PR or a component settles any landing. A root `hold`, `decide`,
 `decision`, or `go` record that names a landed incident PR, or tells the release
 owner to wait for another PR, is answered by the runner with one
 `RELEASE-HELD-AFTER-LANDING #<pr>: landed <sha> at <time>; its cut is owed now, the other PR gets its own cut when it lands`
@@ -1574,7 +1578,12 @@ reads live. It is the only publish line the root forwards to the owner.
 
 A cut has a clock too. A root `go` or `decision` addressed to a release lane whose
 text orders a cut or `release start`, or a D20 `release` record with no build yet,
-opens one. With no `release --build` or `refuse` record from that lane within
+opens one. The clock's component comes from the order's `--target` refs or the
+landing's `Release-With:` line, never from a word of the order's text, so an order
+that names no `--target` launches no manual release lane. The clock closes with no
+line once the landing it holds settles, once the root posts `--resolves <seq>` on the
+order, or once another lane's `release` or `fix-live` record since it opened names
+one of its PRs. With no `release --build` or `refuse` record from that lane within
 `deadlines.cut_minutes`, 4 by default, the orca runner posts
 `CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
 to the root once, and launches `manual-release-<component>` on opus xhigh from
@@ -1584,7 +1593,10 @@ it arrives.
 
 The runner reads the label from the ledger row's `labels` and the body with one
 `gh pr view <pr> --json body` per landing. A landing older than the landing runner's
-first pass sends nothing, and neither does a landed row with no `landed_at`.
+first pass sends nothing, and neither does a landed row with no `landed_at`. A landing
+from before the runner process started, first read after a restart, closes with no
+record when `tools/ci release live --json` shows its squash or a later commit running,
+for one of its `Release-With:` components when it names any.
 
 *Prevents the Oct 20 sand holds. Incident fix #41063 landed by plain squash at 10:52
 with no `merge-fast` label, so D20 owed nothing; the root held its cut for unlanded

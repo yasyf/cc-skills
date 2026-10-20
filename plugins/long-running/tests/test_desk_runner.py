@@ -140,6 +140,8 @@ class FakeShell(runner_module.Shell):
         self.checks: dict[str, list[dict]] = {}
         self.merge_commits: dict[str, str] = {}
         self.live: dict[str, dict] = {}
+        self.running: list[dict] = []
+        self.ancestors: set[tuple[str, str]] = set()
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -201,6 +203,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
+        if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "--is-ancestor"]:
+            return runner_module.Done(0 if tuple(argv[5:]) in self.ancestors else 1, "", "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
@@ -255,6 +259,8 @@ class FakeShell(runner_module.Shell):
             assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
             self.reviews[argv[3]]["state"] = "MERGED"
             return runner_module.Done(0, "", "")
+        if argv == [str(self.root / "checkout/tools/ci"), "release", "live", "--json"]:
+            return runner_module.Done(0, json.dumps(self.running), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "release", "live"]:
             assert argv[4:] == ["--json"]
             return runner_module.Done(0, json.dumps(self.live.get(argv[3], {})), "")
@@ -1373,6 +1379,39 @@ def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_
     shell.gone = gone
     landing_pass(shell, config)
     assert [post["to"] for post in shell.posts if post["kind"] == "blocker"] == [to]
+
+
+CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
+
+
+def parked(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("PARKED")]
+
+
+@pytest.mark.parametrize("dispatch", [None, "completed"], ids=["no-dispatch", "settled-dispatch"])
+def test_a_conflict_for_a_lane_with_no_live_dispatch_or_session_is_parked_once(shell, config, tmp_path, dispatch):
+    if dispatch:
+        shell.launch(LANE, "ctx_a", status=dispatch)
+    shell.gone = {LANE}
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.rows = [ONE_ROW | {"head": "dddd444444", "reported_head": "dddd444444"}]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED dddd444444 {CONFLICT}")]
+    landing_pass(shell, config)
+    assert parked(shell) == [f"PARKED parked:29020 #29020: cccc333333: {LANE} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {CONFLICT}"]
+    assert blockers(shell) == [] and shell.sends() == []
+
+
+def test_a_parked_conflict_routes_once_its_lane_is_back(shell, config, tmp_path):
+    shell.gone = {LANE}
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
+    landing_pass(shell, config)
+    shell.gone = set()
+    landing_pass(shell, config)
+    assert len(parked(shell)) == 1 and [post["text"] for post in blockers(shell)] == [f"#29020 cccc333333: {CONFLICT}"]
 
 
 def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_path):
@@ -3282,6 +3321,97 @@ def test_a_landing_first_read_late_posts_the_release_record_then_a_blocker_at_th
     assert [post["kind"] for post in shell.posts] == ["release", "blocker"] and ": landed 30 minutes ago with " in shell.posts[1]["text"]
 
 
+LIVE_COMMIT = "7d9d9602f9d1c0ffee0000000000000000000000"
+
+
+@pytest.mark.parametrize(
+    ("running", "ancestor", "owed"),
+    [
+        ([{"target": "sand", "env": "plat-usw2-prod", "release": "releases/2026-10-20/51", "commit": LIVE_COMMIT}], True, False),
+        ([{"target": "sand", "env": "plat-usw2-prod", "release": "releases/2026-10-20/49", "commit": LIVE_COMMIT}], False, True),
+        ([{"target": "api", "env": "plat-usw2-prod", "release": "releases/2026-10-20/51", "commit": LIVE_COMMIT}], True, True),
+        ([], False, True),
+    ],
+    ids=["released-since", "live-before-the-squash", "another-component-released", "nothing-live"],
+)
+def test_a_landing_from_before_a_restart_is_owed_only_while_no_live_deploy_carries_its_squash(shell, config, tmp_path, running, ancestor, owed):
+    land_fast(shell, config)
+    shell.sleep(6 * 60 * 60)
+    shell.running = running
+    if ancestor:
+        shell.ancestors.add((FAST_SQUASH, LIVE_COMMIT))
+    landing_pass(shell, config)
+    shell.sleep(20 * 60)
+    landing_pass(shell, config)
+    released = release_action(tmp_path)
+    if owed:
+        assert [post["kind"] for post in shell.posts] == ["release", "blocker"] and released.status == "completed"
+    else:
+        assert shell.posts == [] and released.status == "verified"
+        assert released.verification_receipt["shipped"] == "sand on plat-usw2-prod runs 7d9d9602f9 (releases/2026-10-20/51)"
+
+
+def test_a_landing_read_in_the_pass_it_lands_never_reads_what_is_live(shell, config, tmp_path):
+    land_fast(shell, config)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release"]
+    assert not [call for call in shell.calls if call[1:] == ["release", "live", "--json"]]
+
+
+@pytest.mark.parametrize(("link", "stops"), [("resolves", True), ("re", False)])
+def test_a_root_resolves_on_an_incident_landings_record_settles_it_and_a_re_does_not(shell, config, tmp_path, link, stops):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    cci_record(shell, kind="note", at=actions.stamp(shell.now()), text="answered by the sand cut already running", **{link: 1})
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert (blockers(shell) == []) is stops and (release_action(tmp_path).status == "verified") is stops
+
+
+def test_a_root_resolves_on_a_release_held_line_settles_the_incident_landing(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    cci_record(shell, kind="hold", status="open", refs={"prs": [36642]}, at=actions.stamp(shell.now()), text="hold #36642: one cut with #41071 when that lands")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    [held] = [post for post in shell.posts if post["text"].startswith("RELEASE-HELD-AFTER-LANDING")]
+    cci_record(shell, kind="note", resolves=shell.posts.index(held) + 1, at=actions.stamp(shell.now()), text="answered by GO CUT 104939")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert len(blockers(shell)) == 1 and release_action(tmp_path).status == "verified"
+
+
+def test_a_fix_live_record_from_another_lane_settles_a_landing(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    seq = cci_record(shell, lane="alerts-desk", kind="fix-live", refs={"prs": [36642], "targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8815"]}, at=actions.stamp(shell.now()), text="RELEASED sand 0.162.1467")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    released = release_action(tmp_path)
+    assert blockers(shell) == [] and (released.status, released.verification_receipt["live"]) == ("verified", seq)
+    assert not [post for post in shell.posts if post["kind"] == "fix-live"]
+
+
+def test_a_root_resolves_on_the_release_record_closes_the_landings_cut_clock(shell, config, tmp_path):
+    land_fast(shell, config)
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    cci_record(shell, kind="note", resolves=1, at=actions.stamp(shell.now()), text="#36642 was released by another drive's 8668; no release is owed")
+    shell.sleep(60)
+    landing_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert cut_silent(shell) == [] and incident(tmp_path, "desk-runner").facts["cut-clocks"]["release:36642"]["ended"] == "#36642 settled"
+
+
 def test_a_release_record_posted_just_before_a_crash_is_never_posted_twice(shell, config, tmp_path, monkeypatch):
     land_fast(shell, config)
     save = runner_module.release_posted
@@ -5070,9 +5200,60 @@ def test_escalations_outside_the_incident_wait_for_the_last_clock_and_reach_root
     assert len(held) == 1 and held[0].startswith("DEFERRED 1 escalations held during api-fix: DEADLINE deadline:desk-lane-docs-lane/R700:accepted docs-lane: R700 relay: delivered to ")
 
 
-def go_to_walker(shell: FakeShell, config: Path, text: str = "cut sand now at 94d61b91951") -> int:
+def go_to_walker(shell: FakeShell, config: Path, text: str = "cut sand now at 94d61b91951", refs: dict | None = None) -> int:
     orca_pass(shell, config)
-    return cci_record(shell, kind="go", to=[WALKER], at=actions.stamp(shell.now()), text=text)
+    return cci_record(shell, kind="go", to=[WALKER], at=actions.stamp(shell.now()), text=text, refs={"targets": ["sand"]} if refs is None else refs)
+
+
+def cut_silent(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "GO CUT (01:47 PM): sand-only --emergency cut NOW at f05ddf0dbbc (carries 41176 and 41178)",
+        "cut at dev head once #41178 lands",
+        "release start after the head lands, at 7d9d9602f9d",
+    ],
+    ids=["now", "at", "after"],
+)
+def test_a_cut_order_names_its_target_only_by_a_target_ref_never_by_a_word_of_its_text(shell, config, tmp_path, text):
+    seq = go_to_walker(shell, config, text=text, refs={"prs": [41176]})
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = cut_silent(shell)
+    assert line.startswith(f"CUT-SILENT {WALKER} <component>: no CUT or refusal 5 min after GO #{seq}; ") and line.endswith("| no manual release lane launched: the order names no component")
+    assert [call for call in launches(shell) if call[1].startswith("manual-release-")] == []
+
+
+@pytest.mark.parametrize(
+    ("record", "closed"),
+    [
+        ({"kind": "note", "resolves": "order", "text": "RESOLVED: answered by the cut already running"}, "resolves"),
+        ({"kind": "note", "re": "order", "text": "noted; the walker cuts"}, None),
+        ({"lane": "manual-release-at", "kind": "release", "refs": {"prs": [41176]}, "text": "CUT for #41176 started"}, "release"),
+        ({"lane": "alerts-desk", "kind": "fix-live", "refs": {"prs": [41176]}, "text": "RELEASED sand 0.162.1467"}, "fix-live"),
+        ({"lane": "manual-release-at", "kind": "release", "refs": {"prs": [41177]}, "text": "CUT for #41177 started"}, None),
+    ],
+    ids=["root-resolves", "root-re", "release-naming-its-pr", "fix-live-naming-its-pr", "release-for-another-pr"],
+)
+def test_a_root_resolution_or_a_release_naming_its_pr_closes_the_cut_clock(shell, config, tmp_path, record, closed):
+    seq = go_to_walker(shell, config, refs={"targets": ["sand"], "prs": [41176]})
+    orca_pass(shell, config)
+    shell.sleep(60)
+    links = {link: seq for link in ("resolves", "re") if record.get(link) == "order"}
+    cci_record(shell, at=actions.stamp(shell.now()), **(record | links))
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    ended = incident(tmp_path, "desk-runner").facts["cut-clocks"][f"go:{seq}"]["ended"]
+    if closed:
+        assert cut_silent(shell) == [] and ended.endswith(closed) and not [call for call in launches(shell) if call[1] == "manual-release-sand"]
+    else:
+        assert len(cut_silent(shell)) == 1 and ended == "silent"
 
 
 def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_the_manual_release_lane(shell, config, tmp_path):
