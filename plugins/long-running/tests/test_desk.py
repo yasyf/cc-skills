@@ -2186,6 +2186,25 @@ def test_unregister_refuses_an_unknown_lane_or_a_mismatched_prefix():
     assert shell.keys() == [f"lane/{LANE}"]
 
 
+def test_unregister_pr_removes_the_named_rows_whole_and_leaves_the_rest(capsys):
+    shell = FakeShell(rows=[{"key": "41141", "fields": {"author": "anubhav94", "state": "open"}}, {"key": "24070", "fields": {"lane": LANE, "registered": LANE}}, {"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "lightning/"}}])
+
+    assert run(shell, "unregister", "--ledger", LEDGER, "--pr", "41141") == 0
+
+    assert capsys.readouterr().out.strip() == "unregistered #41141"
+    assert sorted(shell.keys()) == ["24070", f"lane/{LANE}"]
+
+
+def test_unregister_pr_refuses_a_row_the_ledger_lacks_or_a_branch_prefix():
+    shell = FakeShell(rows=[{"key": "24070", "fields": {"lane": LANE}}])
+
+    with pytest.raises(SystemExit, match="has no row for #41141"):
+        run(shell, "unregister", "--ledger", LEDGER, "--pr", "24070", "--pr", "41141")
+    with pytest.raises(SystemExit, match="pass it with --lane"):
+        run(shell, "unregister", "--ledger", LEDGER, "--pr", "24070", "--branch-prefix", "lightning/")
+    assert shell.keys() == ["24070"]
+
+
 def test_a_registered_row_before_its_first_refresh_is_neither_routed_nor_crashes(capsys):
     shell = FakeShell()
     run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--pr", "24071")
