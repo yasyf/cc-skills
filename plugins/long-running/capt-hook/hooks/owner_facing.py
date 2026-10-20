@@ -90,6 +90,7 @@ PLAN_MODE_IN_INCIDENT = (
     "plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
     " replan after fix-live"
 )
+RECORD_SEQ = re.compile(r"#\d")
 OFF_INCIDENT_ASK = "the alert is active: no owner question on other work; the incident's own ask names {names}"
 ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
@@ -175,7 +176,7 @@ def open_incidents(evt: BaseHookEvent) -> list[tuple[str, ...]]:
         if record["status"] not in SETTLED_INCIDENT and datetime.fromisoformat(record["opened_at"]) >= since
     ]
     posted = [
-        (f"#{record['seq']}", record.get("topic"), record.get("id"), *record.get("refs", {}).get("targets", []))
+        (f"#{record['seq']}", record.get("topic"), record.get("id"), *((record.get("refs") or {}).get("targets") or []))
         for record in json.loads(incident_source(evt, INCIDENT_DIGEST) or "{}").get("open_incidents") or []
     ]
     return [tuple(name for name in names if name) for names in stored + posted]
@@ -293,7 +294,7 @@ def ask(
 
 
 def incident_label(incidents: list[tuple[str, ...]]) -> str:
-    readable = [next((name for name in names if not name.startswith("#")), "") for names in incidents]
+    readable = [next((name for name in names if not RECORD_SEQ.search(name)), "") for names in incidents]
     return ", ".join(name for name in readable if name) or "its target, topic, or record number"
 
 

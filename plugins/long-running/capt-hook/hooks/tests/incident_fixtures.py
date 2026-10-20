@@ -17,4 +17,4 @@ CLOSED_0820 = OUTAGE_0820 | {"status": "closed"}
 RECOVERED_0820 = OUTAGE_0820 | {"status": "recovered"}
 STALE_0820 = stored("0820", "open", hours_ago=7, target="executor")
 OUTAGE_TWO = {"seq": 102819, "kind": "incident", "lane": "root", "topic": "outage-two", "refs": {"targets": ["executor"]}}
-BARE_INCIDENT = {"seq": 103958, "kind": "incident", "lane": "alerts-desk", "refs": {}}
+BARE_INCIDENT = {"seq": 103958, "kind": "incident", "lane": "alerts-desk", "topic": "re #103827", "refs": {"targets": None}}
