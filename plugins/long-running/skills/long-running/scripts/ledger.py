@@ -9,7 +9,7 @@
     ledger.py live    --ledger ID --at ISO [--text ...]
     ledger.py report  --ledger ID --drive D [--repo owner/name] --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
     ledger.py register --ledger ID --lane NAME [--repo owner/name] [--branch-prefix PREFIX] [--pr N]... [--head SHA]
-    ledger.py unregister --ledger ID --lane NAME [--branch-prefix PREFIX]
+    ledger.py unregister --ledger ID (--lane NAME [--branch-prefix PREFIX] | [--repo owner/name] --pr N...)
     ledger.py enqueue --ledger ID --drive D [--repo owner/name] --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
     ledger.py ruling  --ledger ID --drive D [--repo owner/name] --lane NAME --text ... --options "A|B|C" [--pr N]
     ledger.py inbox   --ledger ID --drive D [--take] [--all] [--json] [--shard LANES]
@@ -1465,7 +1465,24 @@ def cmd_reassign(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def unregister_prs(args: argparse.Namespace, shell: Shell) -> int:
+    """Remove each named PR row whole, so the desk neither mirrors a grade onto it nor gates it; a lane prefix covering it or a drive lane's `opened` or `head` record rows it again."""
+    if args.branch_prefix:
+        raise SystemExit("--branch-prefix names a lane's prefix; pass it with --lane, not --pr")
+    notes = Notes(shell, args.ledger, args.scope)
+    with locked(default_lock(args.ledger)):
+        rows = notes.pr_rows()
+        if missing := [pr for pr in args.pr if pr not in rows]:
+            raise SystemExit(f"{args.ledger} has no row for {' '.join(f'#{pr}' for pr in missing)}")
+        for pr in args.pr:
+            notes.remove(pr)
+    print("unregistered " + " ".join(f"#{pr}" for pr in args.pr))
+    return 0
+
+
 def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
+    if args.pr:
+        return unregister_prs(args, shell)
     notes = Notes(shell, args.ledger)
     key = f"{LANE_PREFIX}{args.lane}"
     with locked(default_lock(args.ledger)):
@@ -2384,9 +2401,11 @@ def build_parser() -> argparse.ArgumentParser:
     reassign.add_argument("--lane", required=True)
     reassign.set_defaults(handler=cmd_reassign)
 
-    unregister = subparsers.add_parser("unregister", help="remove a lane's branch prefix and drop the untouched rows only that prefix pulled in")
-    add_ledger(unregister)
-    unregister.add_argument("--lane", required=True)
+    unregister = subparsers.add_parser("unregister", help="remove a lane's branch prefix and drop the untouched rows only that prefix pulled in, or remove the named PR rows whole")
+    add_ledger(unregister, repo=True)
+    named = unregister.add_mutually_exclusive_group(required=True)
+    named.add_argument("--lane")
+    named.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     unregister.add_argument("--branch-prefix", type=branch_prefix, help="refuse unless the lane is registered on exactly this prefix")
     unregister.set_defaults(handler=cmd_unregister)
 
