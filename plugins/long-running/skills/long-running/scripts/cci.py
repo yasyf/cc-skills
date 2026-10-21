@@ -9,6 +9,7 @@ from collections.abc import Callable
 PAGE_BYTES = 16000
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
+FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
 MECHANISM_TEXT = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
 SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS)\b")
 TEXT_KINDS = ("report", "incident", "state")

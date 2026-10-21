@@ -127,10 +127,14 @@ either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed 
 root `--re` or `--resolves` naming one of its PR-SILENT records. At
 `deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
 `deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
-`PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; worktree <path>: <branch>, <n> dirty files: <files>, last commit <n> min ago <sha> <subject> | <lane>: …`,
-reading the worktree from the lane's `<lane>.worktree` launch receipt or `orca.worktrees/<lane>`,
-which defaults to `~/.claude/worktrees/<landing.repo name>`, or says `no worktree at <path>`. It is
-a blocker and never deferred.
+`PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; <lane status> | <lane>: …`,
+A lane with no worktree that is neither a fix lane the runner launched nor named `-fix`, `-fix-<n>`,
+`-opus`, or `-case<n>`, such as an evidence or closeout lane, gets no PR-SILENT. Otherwise the lane
+status is `lanes.lane_status`'s line for each worktree the lane owns, found from the
+runner's launch receipts, the lane's cci records of the last day, the briefs checkout's worktrees, and
+its PRs' head branches: path, branch, dirty files, commits ahead of `origin/dev`, last commit, push
+state, and PR, or `no worktree found for lane <lane>`. It is a blocker and never deferred.
+`show` lists each lane whose mechanism waits as `pr-silent <lane>: …` with its `drive.py lane-status` command.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -338,6 +342,7 @@ import actions
 import cci
 import holds
 import inboxes
+import lanes
 import prompt_screen
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -504,7 +509,7 @@ CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 PR_SILENT_HORIZON = timedelta(hours=1)
 EVIDENCE_LANE = re.compile(r"-evidence$")
-DIRTY_NAMED = 5
+LANE_RECORDS = timedelta(days=1)
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
 # {backup}: Opus fallback for {lane}
@@ -754,7 +759,6 @@ class Config:
     incident_ready_minutes: int
     pr_silent_minutes: int
     pr_silent_every_minutes: int
-    worktrees: Path
     case_lanes: int
     landing: dict | None
     alert_facts: Path | None
@@ -791,7 +795,6 @@ class Config:
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
             pr_silent_minutes=deadlines.get("pr_silent_minutes", 10),
             pr_silent_every_minutes=deadlines.get("pr_silent_every_minutes", 5),
-            worktrees=Path(orca["worktrees"]).expanduser() if orca.get("worktrees") else Path.home() / ".claude" / "worktrees" / ((raw.get("landing") or {}).get("repo", "").rpartition("/")[2] or Path(orca["briefs"]["repo"]).name),
             case_lanes=raw.get("incident", {}).get("case_lanes", 2),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
@@ -996,6 +999,7 @@ class Runner:
         self.sprites: set[str] = set()
         self.pass_binding: dict | None = None
         self.unreachable_passes = 0
+        self.pr_silent_skipped: set[str] = set()
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -2513,20 +2517,25 @@ class Runner:
     def pr_silent(self) -> None:
         """Hold each incident fix lane's mechanism to `deadlines.pr_silent_minutes`: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since logs one PR-SILENT naming the lane's worktree state, and again every `deadlines.pr_silent_every_minutes` until one lands, the lane ends, or the root answers it."""
         try:
-            pending = self.pr_silent_scan()
+            self.pr_silent_escalate(self.pr_silent_scan())
         except CciTailFailed as failure:
             self.tail_failed(failure)
-            return
+
+    def pr_silent_escalate(self, pending: dict[str, dict]) -> None:
         after, every = timedelta(minutes=self.config.pr_silent_minutes), timedelta(minutes=self.config.pr_silent_every_minutes)
         for lane, mechanism in pending.items():
             at = actions.parse_stamp(mechanism["at"])
             elapsed = self.now() - at
             log = f"escalation:{PR_SILENT}:{lane}:{mechanism['seq']}:{(elapsed - after) // every}"
-            if elapsed < after or self.withdrawn_by(lane) or self.book.known(RUNNER, log):
+            if elapsed < after or log in self.pr_silent_skipped or self.withdrawn_by(lane) or self.book.known(RUNNER, log):
+                continue
+            worktrees = self.lane_worktrees(lane)
+            if not worktrees and not self.owns_fix(lane):
+                self.pr_silent_skipped.add(log)
                 continue
             self.record(
                 log,
-                f"PR-SILENT {lane} #{mechanism['seq']}: {mechanism['mark']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no OPENED or BLOCKER record; {self.worktree_state(lane)} | {lane}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER",
+                f"PR-SILENT {lane} #{mechanism['seq']}: {mechanism['mark']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no OPENED or BLOCKER record; {lanes.summary(lane, worktrees)} | {lane}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER",
             )
 
     def pr_silent_scan(self) -> dict[str, dict]:
@@ -2573,23 +2582,22 @@ class Runner:
         prefix = f"escalation:{PR_SILENT}:{lane}:{seq}:"
         return {int(found[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (found := POSTED.search((action.response or {}).get("posted", "")))}
 
-    def worktree_state(self, lane: str) -> str:
-        """The lane's worktree, from its launch receipt or the drive's worktree root: branch, dirty files, and the age of its last commit."""
-        receipt = self.config.receipts / f"{lane}.worktree"
-        path = Path(receipt.read_text().strip()) if receipt.is_file() else self.config.worktrees / lane
-        if not path.is_dir():
-            return f"no worktree at {path}"
-        status = self.shell.run(["git", "-C", str(path), "status", "--short", "--branch"])
-        if status.code:
-            return f"worktree {path}: git status exited {status.code}: {(status.err or status.out).strip()[:200]}"
-        branch, *dirty = status.out.splitlines()
-        files = [line[3:] for line in dirty]
-        more = f" and {len(files) - DIRTY_NAMED} more" if len(files) > DIRTY_NAMED else ""
-        named = f": {', '.join(files[:DIRTY_NAMED])}{more}" if files else ""
-        last = self.shell.run(["git", "-C", str(path), "log", "-1", "--format=%ct %h %s"])
-        stamp, _, subject = last.out.strip().partition(" ")
-        commit = f"last commit {whole_minutes(datetime.fromtimestamp(int(stamp), timezone.utc), self.now())} min ago {subject}" if last.code == 0 and stamp else "no commit"
-        return f"worktree {path}: {branch.removeprefix('## ')}, {len(files)} dirty file{'' if len(files) == 1 else 's'}{named}, {commit}"
+    def lane_worktrees(self, lane: str) -> list[lanes.Worktree]:
+        """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the briefs checkout's worktrees."""
+        records = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", lane, since=actions.stamp(self.now() - LANE_RECORDS)) if record["drive"] == self.config.drive and record["lane"] == lane]
+        repo = (self.config.landing or {}).get("repo", "")
+        return lanes.lane_status(lane, records, [self.config.receipts], Path(self.config.briefs_repo), repo, TRUNK, self.now(), self.checked)
+
+    def owns_fix(self, lane: str) -> bool:
+        """Whether the lane owes a PR without having made a worktree yet: a fix lane the runner launched, or one named as a fix, fallback, or case lane."""
+        container = lane_container(lane)
+        return bool(cci.FIX_LANE.search(lane)) or (container in self.book.store.ids() and fix_launch(self.book.load(container)) is not None)
+
+    def checked(self, argv: list[str]) -> str:
+        done = self.shell.run(argv)
+        if done.code:
+            raise subprocess.CalledProcessError(done.code, argv, done.out, done.err)
+        return done.out
 
     def in_process(self) -> None:
         """While a fix lane's clock runs, launch its Opus fallback once more after a failed Orca launch, and after a second failure tell the root to start it in-process."""
@@ -2767,6 +2775,8 @@ class Runner:
         if held := self.book.load(RUNNER).facts.get(DEFERRED):
             lines.append(f"deferred during {held['incident']}: {len(held['ids'])}")
             lines += [f"- {self.book.load(RUNNER).actions[key].target}" for key in held["ids"]]
+        for lane, mechanism in ((self.book.load(RUNNER).facts.get(PR_SILENT) or {}).get("lanes") or {}).items():
+            lines.append(f"pr-silent {lane}: {mechanism['mark']} #{mechanism['seq']} {whole_minutes(actions.parse_stamp(mechanism['at']), self.now())} min ago, no OPENED or BLOCKER; code state: `drive.py lane-status {lane}`")
         if policy := self.landing_policy():
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")

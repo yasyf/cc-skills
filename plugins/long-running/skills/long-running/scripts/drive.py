@@ -12,6 +12,8 @@
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
     drive.py watch   --session ID --lane NAME [--drive ID] --channel ID [--message TS] [--thread-ts TS]
+    drive.py lane-status LANE [--drive ID]
+    drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
@@ -52,6 +54,16 @@ the thread is the message's own unless ``--thread-ts`` names its root. ``--messa
 permalink's ``p…`` token; without one the row names the channel alone, from now. It prints one line per
 row it appends and nothing when the thread is already open and the channel already linked. A session in
 no drive exits 1.
+
+``lane-status`` answers what code a lane holds. It prints one line per worktree the lane owns, found by
+``lanes.lane_worktrees`` from the drive's launch receipts, the lane's cci records of the last day, the
+checkout's ``git worktree list``, and its PRs' head branches. Each line names the branch, dirty files,
+commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch is pushed, and its open PR
+with CI state. With none found it prints ``no worktree found for lane <lane>`` and exits 1.
+
+``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
+``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
+``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
 """
 
 from __future__ import annotations
@@ -62,9 +74,11 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import cci
+import lanes
 import ledger
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
@@ -77,6 +91,9 @@ DASHBOARD_SERVER = Path("dashboard") / "server.json"
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
+LANE_RECORDS = timedelta(days=1)
+OUTSIDE_REPO = 3
+LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
 SLACK_TS = re.compile(r"p?(?P<seconds>\d{10})\.?(?P<micros>\d{6})")
 
 
@@ -367,6 +384,51 @@ def cmd_watch(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def resolve(args: argparse.Namespace) -> dict | None:
+    entry = find(args.drive or current_drive(), getattr(args, "session", None) or session_id())
+    if entry is None:
+        print("this session belongs to no drive", file=sys.stderr)
+    return entry
+
+
+def receipt_dirs(entry: dict) -> list[Path]:
+    dirs = [Path.home() / LAUNCH_RECEIPTS / entry["orca_run"]] if entry.get("orca_run") else []
+    return dirs + sorted(Path(entry["state_dir"]).glob("receipts*")) if entry.get("state_dir") else dirs
+
+
+def trunk_of(shell: ledger.Shell, checkout: str) -> str:
+    ref = lanes.output(shell.run, ["git", "-C", checkout, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) or "origin/main"
+    return ref.strip().removeprefix("origin/")
+
+
+def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    since = (datetime.now(timezone.utc) - LANE_RECORDS).strftime("%Y-%m-%dT%H:%M:%SZ")
+    drive = cci_drive(entry)
+    records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
+    worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), datetime.now(timezone.utc), shell.run)
+    if not worktrees:
+        print(f"no worktree found for lane {args.lane}")
+        return 1
+    print("\n".join(worktree.line() for worktree in worktrees))
+    return 0
+
+
+def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    top = lanes.output(shell.run, ["git", "-C", str(args.path), "rev-parse", "--show-toplevel"])
+    if top is None or not in_repo(Path(top.strip()), entry):
+        return OUTSIDE_REPO
+    top = top.strip()
+    branch = (lanes.output(shell.run, ["git", "-C", top, "branch", "--show-current"]) or "").strip() or "detached"
+    shell.run(
+        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "state", "--to", "root", "--id", f"worktree:{args.lane}:{top}", "--attr", f"worktree={top}", "--attr", f"branch={branch}", "--text", f"WORKTREE {args.lane} {top} {branch}"]
+    )
+    return 0
+
+
 def slack_ts(value: str) -> str:
     if not (match := SLACK_TS.fullmatch(value)):
         raise argparse.ArgumentTypeError(f"{value!r} is not a Slack ts or a permalink's p-token")
@@ -451,6 +513,18 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--message", type=slack_ts, metavar="TS", help="the linked message: its ts, or the p-token of its permalink")
     watch.add_argument("--thread-ts", type=slack_ts, metavar="TS", help="the thread root, when the link carries thread_ts")
     watch.set_defaults(handler=cmd_watch)
+
+    lane_status = subparsers.add_parser("lane-status", help="every worktree a lane owns with its branch, dirty files, push state, and open PR; exit 1 when none")
+    lane_status.add_argument("lane")
+    lane_status.add_argument("--drive")
+    lane_status.set_defaults(handler=cmd_lane_status)
+
+    worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
+    worktree.add_argument("--lane", required=True)
+    worktree.add_argument("--path", required=True, type=Path)
+    worktree.add_argument("--session")
+    worktree.add_argument("--drive")
+    worktree.set_defaults(handler=cmd_worktree)
 
     return parser
 
