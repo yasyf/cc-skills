@@ -2758,7 +2758,7 @@ def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_h
 @pytest.mark.parametrize(
     ("record", "held"),
     [
-        ({"kind": "hold", "status": "open", "to": ["sole-51"], "text": "apply nothing more on plat until root lifts this"}, True),
+        ({"kind": "hold", "status": "open", "to": ["sole-51"], "refs": {}, "text": "apply nothing more on plat until root lifts this"}, True),
         ({"kind": "hold", "status": "closed", "refs": {"prs": [36642]}, "text": "hold #36642: one cut with #41071"}, False),
         ({"kind": "decide", "status": "open", "refs": {"prs": [36642]}, "text": "no holds: cut #36642 the moment it lands"}, False),
         ({"kind": "go", "to": ["sole-51"], "text": "wait for #41071, then cut both"}, False),
