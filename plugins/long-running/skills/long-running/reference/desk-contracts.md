@@ -285,9 +285,8 @@ One desk ran on a 20-minute pacer, put the label on one report at a time, and se
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
 **Lanes never enqueue under D1; the desk and its runner enqueue and reconcile every three minutes.** A hold
-is GitHub's `hold` label. The runner writes it from the root's holds file and from every PR an open cci `hold`
-record names, and a human may add it by hand. The required `landing-gates` check keeps a labelled PR and the PRs
-above it out of the queue, so `stack-enqueue` takes no hold flag. A clean report's largest ready, unheld,
+is a holds-file line, an open cci `hold` record, or GitHub's `hold` label, and the runner never enqueues a held PR
+or the PRs above it. `stack-enqueue` takes no hold flag and reads no holds. A clean report's largest ready, unheld,
 unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
 `stack-enqueue <prefix top>` per ready prefix together
 in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
@@ -484,8 +483,8 @@ still absent from the trunk.
 the prefix as one entry with one `merge` label on its top. The desk re-reads every PR
 in the prefix and runs every guard before adding the label. A repository that carries
 `.agents/skills/submit-pr/scripts/stack-enqueue` uses
-`stack-enqueue <prefix top>` instead, with no hold flag: the `hold` label and the
-required `landing-gates` check keep a held PR out. Its gate can refuse the prefix too.
+`stack-enqueue <prefix top>` instead. It takes no hold flag and reads no holds, so
+the caller checks them first. Its gate can refuse the prefix too.
 
 An open child above it does not block the label when a lane tracks its ledger row
 and its head carries `Graphite / mergeability_check`. Graphite's stack record

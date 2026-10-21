@@ -31,10 +31,9 @@ wins. The desk mirrors no hold
 for a `release` line. Deleting the `hold:all` line ends the mode.
 
 Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. A hold is
-GitHub's `hold` label: the runner writes it on every pass from the holds file and
-from every PR an open cci `hold` record names, and a human may add it by hand. The
-required `landing-gates` check fails a labelled PR, so nothing enqueues a held PR or
-a PR above it, and `stack-enqueue` takes no hold flag. The desk never
+a holds-file line, an open cci `hold` record, or GitHub's `hold` label. The runner
+never enqueues a held PR or a PR above it, and `stack-enqueue` takes no hold flag
+and reads no holds. The desk never
 enqueues above a held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
 PR, and leaves release to the root. The desk mirrors the holds file's entries with
 `ledger.py hold` and lifts them when the root removes them.
@@ -68,23 +67,6 @@ finding. No review, no base, and errored reviews fail open. Clean and overridden
 heads pass. The sweep mirrors each verdict into the head's `rules-review` commit
 status, so stack-enqueue refuses a pending or failing head even when a lane runs
 it directly.
-
-The landing runner does the same for fidelity grades. It sets commit status
-`fidelity` on each open PR's head the fidelity lane graded, `success` for
-`fidelity: ok` and `failure` for `fidelity: missing`, and the required
-`landing-gates` check holds a head whose `fidelity` is not `success`. A head with no grade reads `pending`
-until the fidelity lane grades it. A `failure` is a red check on the PR by design: it means the head was
-graded missing, not that CI failed, so read the status description, which
-quotes the grade and its cci seq, before routing a red build to the lane.
-
-The runner also watches the open Graphite queue drafts. A draft whose head has no
-`landing-gates` status five minutes after it opened gets its grade dispatched
-again once (`gh workflow run landing-gates.yaml -f pr=<draft> -f head=<sha>`),
-with one `state` line to the root. The Landing Gates run that fires on the draft
-reads success when it only dispatches, so a grade that died on a GitHub fault
-leaves every run green and the draft blocked. A head still without the status
-five minutes after that dispatch posts one `defect`; read the dispatched run's
-log, and never post the status by hand.
 
 Only the root writes override lines in the root inbox, relaying the owner or
 deciding itself:
@@ -310,9 +292,8 @@ Do, in this order, forever:
      grades stacks in one sequential call; use it only as this fallback sweep.
      Where stack-enqueue exists, skip this whole step: the runner gates tips and
      enqueues prefixes in parallel, verifies squash landings, and routes blockers
-     and restacks. It runs `stack-enqueue <prefix top>...` with no hold flags:
-     it mirrors the holds file and open cci holds onto GitHub's `hold` label, and
-     the required `landing-gates` check keeps a labelled PR out of the queue.
+     and restacks. It runs `stack-enqueue <prefix top>...` with no hold flags,
+     and only for prefixes no hold names.
      A ready stack is enqueued as one batch from any of its PRs; the call lands
      the largest green bottom prefix at once. Never enqueue the first PR alone and
      the rest later, and never through the `merge` label or `gt merge` on one PR
