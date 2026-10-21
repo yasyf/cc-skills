@@ -78,7 +78,8 @@ runner checks at intake and again before the launch starts, fails a pending laun
 Every incident fix lane the runner launched is on a clock from its verified launch: a
 launch on the incident alias, or on a brief whose `ccx:` line says `role=incident` or names
 an `incident=`, unless the launch's own role or that brief names a role other than `fix` or
-`incident`; `desk-launch.py incident` launches its evidence lane with `role=evidence`. Each pass
+`incident`, or the lane's name has an `evidence`, `proof`, `closeout`, `desk`, or `audit` part;
+`desk-launch.py incident` launches its evidence lane with `role=evidence`. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
 `not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `MECHANISM`
 or `READY`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses. A lane's records
@@ -102,7 +103,8 @@ executor adopted gets none from the clock while that executor's own Opus backup 
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
 stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
 settles, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
-incident reached, a clocked fix lane sharing the lane's `<first>` name or `incident=` slug or the executor's Opus backup
+incident reached, a clocked fix lane sharing the lane's incident name, its name less `-opus`, `-case<n>`, and its last
+`-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
 lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
 nothing. While any clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
@@ -511,6 +513,7 @@ TEXT_MARK_KINDS = ("report", "incident")
 FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
+INCIDENT_PART = re.compile(r"-[^-]+(?:-\d+)?$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 PR_SILENT_HORIZON = timedelta(hours=1)
@@ -618,10 +621,10 @@ def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
-def incident_fix(model: str, brief: Path, role: str) -> bool:
-    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident."""
+def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
+    """Whether a launch is an incident fix lane's: the incident alias, or a brief whose `ccx:` line says `role=incident` or names an `incident=`, and in either case a launch and brief naming no role but fix or incident, for a lane whose name names no evidence, proof, closeout, desk, or audit role."""
     roles = (set(ROLE.findall(brief.read_text())) if brief.is_file() else set()) | ({role} if role else set())
-    return roles <= FIX_ROLES and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
+    return roles <= FIX_ROLES and not lanes.NOT_FIX_ROLES & set(lane.split("-")) and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
 
 
 def fix_launch(incident: actions.Incident) -> actions.Action | None:
@@ -630,12 +633,19 @@ def fix_launch(incident: actions.Incident) -> actions.Action | None:
     if not launch:
         return None
     spec = json.loads(launch.target)
-    return launch if incident_fix(spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
+    return launch if incident_fix(incident.incident_id.removeprefix(LANE_PREFIX), spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
 
 
 def first_lane(lane: str) -> str:
     """The lane an incident's fallback and case lanes descend from: the name without its trailing `-opus` and `-case<n>` parts."""
     return LINEAGE.sub("", lane)
+
+
+def incident_name(lane: str) -> str:
+    """The incident a lane named `<incident>-<part>` works, so `inc-laptop-fix`, `inc-laptop-cred`, and `inc-laptop-fix-2-opus` share `inc-laptop`; a two-part name such as `api-fix` names its own."""
+    first = first_lane(lane)
+    head = INCIDENT_PART.sub("", first)
+    return head if "-" in head else first
 
 
 def is_case_lane(lane: str) -> bool:
@@ -2444,14 +2454,14 @@ class Runner:
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def incident_keys(self, lane: str, launch: actions.Action) -> set[str]:
-        """What names the incident a fix lane works: its `<first>` lane, the incident slug its launch carries, and its brief's `incident=` annotations."""
+        """What names the incident a fix lane works: its `incident_name`, the incident slug its launch carries, and its brief's `incident=` annotations."""
         spec = json.loads(launch.target)
-        return {first_lane(lane), *(brief_incidents(Path(spec["brief"])) - {NAMES_NOTHING}), *([spec["incident"]] if spec.get("incident") else [])}
+        return {incident_name(lane), *(brief_incidents(Path(spec["brief"])) - {NAMES_NOTHING}), *([spec["incident"]] if spec.get("incident") else [])}
 
     def siblings(self, lane: str) -> set[str]:
         """Every other lane on the incident `lane` works: the fix lanes the runner launched that share one of its `incident_keys`, and the Opus backup an incident executor launched for any of them."""
         own = fix_launch(self.book.load(lane_container(lane)))
-        keys = self.incident_keys(lane, own) if own else {first_lane(lane)}
+        keys = self.incident_keys(lane, own) if own else {incident_name(lane)}
         family = {lane}
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)

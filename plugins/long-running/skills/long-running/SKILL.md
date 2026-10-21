@@ -581,8 +581,11 @@ brief, and never retries Orca a third time.
 stops the clock. Three rules keep the clock to the incident, not the lane:
 
 - Milestones count across the incident. A clocked fix lane sharing the lane's
-  `<first>` name or `incident=` slug, such as a `-case<n>` sibling or the `-opus`
-  fallback, and the incident executor's Opus backup for one of them are siblings.
+  incident name or `incident=` slug, such as `inc-disk-cred` beside `inc-disk-fix`,
+  a `-case<n>` sibling, or the `-opus` fallback, and the incident executor's Opus
+  backup for one of them are siblings. The incident name is the lane's name less
+  `-opus`, `-case<n>`, and its last `-<part>`; a two-part name such as `api-fix`
+  is its own.
   One mechanism, PR, or ready anywhere among them counts as the lane's mechanism,
   so no mechanism fallback launches; the PR threshold still clocks the lane that
   has no PR.
