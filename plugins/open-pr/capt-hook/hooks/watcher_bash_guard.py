@@ -65,7 +65,7 @@ hook(
     only_if=[Tool("Bash"), InWatcher(), RunsPollScript()],
     skip_if=[ShortForegroundPoll()],
     message=(
-        "`pr-poll.sh` runs under Monitor on the `poll:` command, or alone as foreground Bash when Monitor is refused. "
+        "`pr-poll.sh` runs alone as foreground Bash on the `poll:` command, since no Monitor or background call wakes a subagent. "
         "Run `PR_POLL_WINDOW=40 <poll:>` with `timeout: 60000` and rerun it on `DONE window-elapsed`."
     ),
     block=True,
