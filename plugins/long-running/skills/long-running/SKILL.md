@@ -607,7 +607,11 @@ PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER re
 The root reads the worktree state in the line instead of checking by hand. It
 orders the lane to push and open the PR, or starts `<lane>-opus` when the line
 shows no code. A root `--resolves` on the line, or a `stand-down` or `stopped` to
-the lane, ends the repeats.
+the lane, ends the repeats. The lane side holds the same line: the pack's
+`incident_lane_ships_its_mechanism` gate refuses an in-process incident lane's
+stop while its newest mechanism has no `opened` or `blocker` after it and its
+worktree has no pushed branch, and it prints the commit, push, and submit
+commands to run.
 
 `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
