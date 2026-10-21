@@ -593,6 +593,26 @@ stops the clock. Three rules keep the clock to the incident, not the lane:
   the runner's view only. When the last clock ends they reach the root as one
   `DEFERRED <n> escalations held during <incident>` record naming each.
 
+A second clock runs from each incident fix lane's mechanism, for in-process lanes
+too: any lane named `inc-`, `incident-`, or `outage-`, other than an `-evidence`
+lane, and every fix lane the runner launched. Ten minutes after a `MECHANISM` or
+`CANDIDATE` record with no `OPENED` or `BLOCKER` from the lane or its `-opus` pair,
+the runner posts a blocker the incident never defers, and posts it again every five
+minutes:
+
+```text
+PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; worktree <path>: HEAD (no branch), 0 dirty files, last commit 130 min ago <sha> <subject> | <lane>: ...
+```
+
+The root reads the worktree state in the line instead of checking by hand. It
+orders the lane to push and open the PR, or starts `<lane>-opus` when the line
+shows no code. A root `--resolves` on the line, or a `stand-down` or `stopped` to
+the lane, ends the repeats. The lane side holds the same line: the pack's
+`incident_lane_ships_its_mechanism` gate refuses an in-process incident lane's
+stop while its newest mechanism has no `opened` or `blocker` after it and its
+worktree has no pushed branch, and it prints the commit, push, and submit
+commands to run.
+
 `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
 limits; [the runner brief](reference/orca-desk-brief.md) has the rules.
@@ -3244,12 +3264,19 @@ suffix. They share a limit of ten entries, monitors first, then newest lanes, wi
 descriptions clipped to 120 characters. A final `- N more running lanes` line
 counts the rest.
 
+`Incident lanes` lists every `inc-`, `incident-`, or `outage-` lane that posted on the
+drive's cci in the last six hours, one line each as
+``- `<lane>`: last <kind> <n> min ago: <text>``. A lane whose newest `MECHANISM` or
+`CANDIDATE` has no `OPENED` or `BLOCKER` after it adds
+`| MECHANISM <n> min ago, no OPENED or BLOCKER since` and sorts first, so the root
+sees a lane that wrote no code without checking by hand.
+
 For at most ten `~/.claude/scratch/<slug>/inbox/*.md` files, the record carries one
 line each: `- <file>: head <id>, cursor <id>: <last ruling line>`. The cursor comes
 from `<file>.cursor`; the last ruling line is clipped to 120 characters and omitted
 when absent. A final `- N more inboxes` line counts the rest. Sections run in this order:
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
-monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
+monitors`, `Incident lanes`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
 `cci digest --drive <drive>`, then `cci tail --drive <drive>`,
 and the instruction never to tail, sed, or grep a whole inbox.

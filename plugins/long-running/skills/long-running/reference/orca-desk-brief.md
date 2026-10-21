@@ -215,6 +215,28 @@ the executor launches none while the clock's `<lane>-opus` is launching or live.
 hours. Lanes went more than 15 minutes with no mechanism and nobody was told, and
 the Opus fallback was started by hand an hour late.*
 
+A mechanism-to-PR clock also covers lanes the root started in-process. Any lane
+named `inc-`, `incident-`, or `outage-` that is not an `-evidence` lane counts, as
+does every fix lane the runner launched. A `mechanism` record, or a `report`,
+`incident`, or `state` that starts `MECHANISM` or `CANDIDATE`, starts it. With no
+`opened`, `head`, `ready`, `blocker`, `blocked`, or closing record, and no text
+record starting `OPENED`, `BLOCKER`, `READY`, or `NOT-OURS`, from the lane or its
+`-opus` pair within `deadlines.pr_silent_minutes` (default 10), the runner logs a
+`PR-SILENT` blocker, then again every `deadlines.pr_silent_every_minutes` (default 5).
+
+The line carries the lane's worktree state from `git status --short --branch` and
+its last commit. The worktree path comes from the `<lane>.worktree` launch receipt,
+or else `orca.worktrees/<lane>`, which defaults to
+`~/.claude/worktrees/<landing.repo name>`. Incident clocks never defer it. A root
+`stand-down` or `stopped` to the lane, or a root `--re` or `--resolves` on one of
+its lines, ends the repeats.
+
+```text
+PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; worktree <path>: HEAD (no branch), 0 dirty files, last commit 130 min ago <sha> <subject> | <lane>: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER
+```
+
+*Prevents the Oct 20 stall in which `inc-liam-load-opus` posted its mechanism at 9:11 PM and its worktree was still clean on a detached HEAD at 9:16 PM, which the root found only by checking by hand.*
+
 A case a fix does not cover is an incident lane, never backlog. The alert fix brief
 and the executor's fix brief make every incident fix lane reproduce the reporter's
 own case before it reports ready. The lane closes its `ready:` and `fix-live:` Run
@@ -318,7 +340,7 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
+`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `PR-SILENT`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
 `defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
@@ -791,6 +813,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
 | `RELEASE-HELD-AFTER-LANDING` | Lift the hold or wait order the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
+| `PR-SILENT` | Read the worktree state in the line. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
 | `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
 | `PARKED` | None while the PR stays parked; its lane has no live dispatch or session, so its conflict routes to no one. Relaunch or reassign the lane to have the conflict routed. |
 | `DEFERRED` | Work each held escalation the line names, now that the incident clock has ended. |

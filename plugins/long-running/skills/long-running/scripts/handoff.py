@@ -15,7 +15,9 @@ where the source is ``ccn <answer id>`` or ``cci #<seq>``. Retired rules follow.
 With no register doc, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
-drive registry. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
+drive registry. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
+posted on the drive in the last six hours with its newest record's kind and age, waiting
+mechanisms first: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
 and blocked counts over the drive's cc-notes tasks and each step still open. Generation
 writes a progress doc under ``progress:<program>`` and the same markdown at
 ``<plan-stem>-progress/<UTC>-generated.md``.
@@ -67,9 +69,10 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import cci
 import drive
 import inboxes
 import ledger
@@ -98,6 +101,7 @@ STAMP = re.compile(rf"^{GENERATED_LINE}(\S+?)\.", re.MULTILINE)
 PROVENANCE = re.compile(r"^_From (.+?)(?:, carried forward)?\._\n\n")
 CLOSED_ASKS = (ledger.ASK_DROPPED, ledger.ASK_ANSWERED, ledger.ASK_LIVE)
 LANE_TYPES = ("subagent", "teammate", "workflow", "cloud session")
+INCIDENT_WINDOW = timedelta(hours=6)
 
 
 @dataclass
@@ -132,6 +136,7 @@ class Handoff:
     tasks: list[dict] = field(default_factory=list)
     plan_progress: list[str] = field(default_factory=list)
     lanes: list[dict] = field(default_factory=list)
+    incident_lanes: list[str] = field(default_factory=list)
     monitors: list[dict] = field(default_factory=list)
     inboxes: list[Inbox] = field(default_factory=list)
     inbox_dir: Path | None = None
@@ -189,6 +194,36 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
         cursor = path.with_name(f"{path.name}.cursor")
         head, last = rulings[-1] if rulings else (None, None)
         handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last))
+
+
+def minutes_ago(at: str, now: datetime) -> int:
+    return int((now - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() // 60)
+
+
+def incident_lines(records: list[dict], now: datetime) -> list[str]:
+    """One line per incident lane that posted on the drive: its newest record's kind, age, and text, and any mechanism still waiting on a PR or blocker; waiting lanes first, then newest first."""
+    last: dict[str, dict] = {}
+    waiting: dict[str, dict] = {}
+    for record in records:
+        if not cci.INCIDENT_LANE.match(lane := record["lane"]):
+            continue
+        last[lane] = record
+        if mark := cci.mechanism_mark(record):
+            waiting.setdefault(lane, record | {"mark": mark})
+        elif cci.settles_mechanism(record):
+            waiting.pop(lane, None)
+    order = sorted(last, key=lambda lane: (lane not in waiting, minutes_ago(last[lane]["at"], now)))
+    return [
+        f"- `{lane}`: last {last[lane]['kind']} {minutes_ago(last[lane]['at'], now)} min ago: {clip(last[lane].get('text') or '', TASK_CHARS)}"
+        + (f" | {waiting[lane]['mark']} {minutes_ago(waiting[lane]['at'], now)} min ago, no OPENED or BLOCKER since" if lane in waiting else "")
+        for lane in order
+    ]
+
+
+def read_incident_lanes(handoff: Handoff, shell: ledger.Shell) -> None:
+    since = (handoff.at - INCIDENT_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
+    records = [record for record in cci.records(shell.run, handoff.program, since=since) if record["drive"] == handoff.program]
+    handoff.incident_lanes = incident_lines(records, handoff.at)
 
 
 def read_standing(handoff: Handoff, shell: ledger.Shell) -> None:
@@ -346,6 +381,7 @@ def render(handoff: Handoff) -> str:
     out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)}" for task in running], "running lanes")
     if not running:
         out.append("- none running at the last stop")
+    out += ["", "## Incident lanes"] + (handoff.incident_lanes or [f"- none posted in the last {int(INCIDENT_WINDOW.total_seconds() // 3600)} h"])
     out += ["", "## Inboxes", ""]
     if handoff.inbox_dir:
         out += [CATCH_UP.format(drive=handoff.inbox_dir.parent.name), ""]
@@ -457,6 +493,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
         check(handoff, previous, set())
         return handoff, previous
     read_standing(handoff, shell)
+    read_incident_lanes(handoff, shell)
     handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
