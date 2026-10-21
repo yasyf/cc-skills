@@ -50,8 +50,6 @@ class FakeShell(rules_review.Shell):
         self.reviews: list[tuple[str, dict]] = []
         self.on_pr: dict[str, list[dict]] = {}
         self.post_errors = 0
-        self.status_errors = 0
-        self.statuses: dict[str, list[dict]] = {}
         self.calls: list[list[str]] = []
 
     def dispatch(self, run_dir, question):
@@ -84,12 +82,6 @@ class FakeShell(rules_review.Shell):
         if argv[:4] == ["gh", "api", "--paginate", "--slurp"]:
             pr = argv[4].split("/")[4]
             return json.dumps([self.on_pr.get(pr, [])])
-        if argv[:2] == ["gh", "api"] and "/statuses/" in argv[2]:
-            if self.status_errors:
-                self.status_errors -= 1
-                raise subprocess.CalledProcessError(1, argv, "", "HTTP 502: bad gateway")
-            self.statuses.setdefault(argv[2].rsplit("/", 1)[1], []).append(json.loads(stdin))
-            return "{}"
         if argv[:2] == ["gh", "api"] and argv[2].endswith("/reviews"):
             if self.post_errors:
                 self.post_errors -= 1
@@ -284,20 +276,13 @@ def test_a_reply_whose_verdict_contradicts_its_findings_is_an_error(shell):
     assert f"30312-{HEAD[:12]}-2" in shell.questions
 
 
-def status_states(shell: FakeShell, head: str) -> list[str]:
-    return [status["state"] for status in shell.statuses.get(head, []) if status["context"] == rules_review.STATUS_CONTEXT]
-
-
 def test_a_pending_review_blocks_the_head_until_its_verdict_lands(shell):
     sweep(shell)
     assert blocked(shell) == {"30312": True, "30313": True}
-    assert status_states(shell, HEAD) == ["pending"]
 
     shell.finish("30313", OTHER_HEAD, reply={"verdict": "clean", "findings": []})
     sweep(shell)
     assert blocked(shell) == {"30312": True, "30313": False}
-    assert status_states(shell, HEAD) == ["pending"]
-    assert status_states(shell, OTHER_HEAD) == ["pending", "success"]
 
     shell.finish("30312", HEAD, reply={"verdict": "findings", "findings": [LEDGER_FINDING]})
     sweep(shell)
@@ -366,39 +351,12 @@ def test_paths_gitattributes_marks_generated_leave_the_reviewed_diff_and_its_bou
     ]
 
 
-def test_the_commit_status_mirrors_each_verdict_once_and_an_override_turns_it_green(shell, tmp_path):
-    inbox = tmp_path / "root-inbox.md"
-    inbox.write_text("")
-    sweep(shell, "--inbox", str(inbox))
-    shell.finish("30312", HEAD, reply={"verdict": "findings", "findings": [LEDGER_FINDING]})
-    sweep(shell, "--inbox", str(inbox))
-    sweep(shell, "--inbox", str(inbox))
-    assert status_states(shell, HEAD) == ["pending", "failure"]
-    assert shell.statuses[HEAD][-1]["description"].startswith("rulings violated: ec2881e")
-
-    inbox.write_text("R901 rules-override #30312 ec2881e :: owner accepts the ledger read for this PR\n")
-    sweep(shell, "--inbox", str(inbox))
-    assert status_states(shell, HEAD) == ["pending", "failure", "success"]
-    assert shell.statuses[HEAD][-1]["description"] == "findings on ec2881e waived by R901"
-
-
-def test_an_errored_review_posts_a_green_status_naming_the_error(shell):
+def test_an_errored_review_never_blocks_its_head(shell):
     shell.diff_errors.add(HEAD)
     sweep(shell)
 
-    assert status_states(shell, HEAD) == ["success"]
-    assert shell.statuses[HEAD][-1]["description"] == "not reviewed, so not held: HTTP 406: diff too large"
-
-
-def test_a_failed_status_post_is_recorded_and_retried(shell):
-    shell.status_errors = 1
-    sweep(shell)
-    review = shell.rows[ledger.review_key("30312", HEAD)]
-    assert "status" not in review and review["status_error"] == "HTTP 502: bad gateway"
-
-    sweep(shell)
-    assert status_states(shell, HEAD) == ["pending"]
-    assert shell.rows[ledger.review_key("30312", HEAD)]["status"] == "pending"
+    assert shell.rows[ledger.review_key("30312", HEAD)]["error"] == "HTTP 406: diff too large"
+    assert not blocked(shell)["30312"]
 
 
 def test_a_pure_deletion_passes_clean_without_a_codex_run(shell, capsys):
@@ -409,7 +367,6 @@ def test_a_pure_deletion_passes_clean_without_a_codex_run(shell, capsys):
     review = shell.rows[ledger.review_key("30312", HEAD)]
     assert review["verdict"] == "clean" and review["note"] == "deletion only"
     assert not blocked(shell)["30312"]
-    assert shell.statuses[HEAD][-1] == {"state": "success", "context": rules_review.STATUS_CONTEXT, "description": "deletion only: no added line to review"}
     assert capsys.readouterr().out.splitlines()[:2] == [
         f"DELETED #30312 {HEAD[:9]} 2 deleted files left out of the review: api/src/legacy.ts go/ci/old.go",
         f"CLEAN #30312 {HEAD[:9]} deletion only",

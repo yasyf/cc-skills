@@ -64,9 +64,8 @@ while an incident clock runs, and settles only on a `release` record with `--bui
 
 Hold a PR while its current head's review is pending or records an unwaived
 finding. No review, no base, and errored reviews fail open. Clean and overridden
-heads pass. The sweep mirrors each verdict into the head's `rules-review` commit
-status, so stack-enqueue refuses a pending or failing head even when a lane runs
-it directly.
+heads pass. Only the runner's gate reads the verdict, so a hand `stack-enqueue`
+checks `ledger.py list` for `rules_blocked` first.
 
 Only the root writes override lines in the root inbox, relaying the owner or
 deciding itself:
@@ -269,8 +268,8 @@ Do, in this order, forever:
      reviews at once by default; use --parallel <n> to change the cap.
      Hold a PR while its current head's review is pending or records an unwaived
      finding. No review, no base, and errored reviews fail open. Clean and
-     overridden heads pass. The head's `rules-review` commit status makes
-     stack-enqueue refuse a pending or failing head on every call.
+     overridden heads pass. Only the runner's gate reads the verdict;
+     stack-enqueue does not.
      The green prefix below a blocked PR can still land.
      Send each RULES line to the root at once as RULING NEEDED. The root has the
      lane fix it on a new head or writes an override. Post the RULES line to the

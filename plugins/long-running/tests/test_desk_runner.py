@@ -1317,7 +1317,6 @@ ONE_ROW = {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": 
     "detail",
     [
         "graphite FAILING_REQUIRED",
-        "rules-review failure: R1 names a missing monitor",
         "fidelity failure: cci #61407 fidelity: missing F307 at cccc333",
         "graphite MERGE_CONFLICTS; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit",
         "conflicts with origin/dev in go/a.go; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit",
