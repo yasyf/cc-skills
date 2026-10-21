@@ -284,13 +284,15 @@ the minutes elapsed, or each `deadlines.incident_release_minutes` (default 3) wh
 from another lane that names the PR or a component settles a landing too. An incident fix's landing settles only on such a
 `fix-live` record, a `release` record that carries `--build` and a `--target`, one of its components when it names any, or a
 root `--resolves` on one of the runner's records about it, its RELEASE-HELD-AFTER-LANDING lines included, and
-each root `hold`, `decide`, `decision`, or `go` after its landing that names the PR or tells the release owner to wait logs one
-`RELEASE-HELD-AFTER-LANDING`. Once the record that settles a landing carries a build, each pass reads
+each open root `hold` record after its landing that names the PR or is addressed to the release owner logs one
+`RELEASE-HELD-AFTER-LANDING`; no other kind is a hold, and a root `--resolves` on the hold closes it. Once the record that settles a landing carries a build, each pass reads
 `tools/ci release live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
 `RELEASED <component> <version> (<build>)` to the root and `landing.comms_lane` once every component reads live, keyed
 `release:<pr>:live`. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
-drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. A landing older
-than the landing runner's first pass, or a landed row with no `landed_at`, is history and sends nothing. A landing from before the
+drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. Each landing is
+judged once, by the first pass that reads it, and the set read persists in the landing desk's store: the desk's first pass
+records every landing it reads as history and sends nothing, so a restart or an upgrade never judges an old landing again,
+and a landed row with no `landed_at` is not read until it has one. A landing from before the
 runner process started, first read after it, closes with no record when `tools/ci release live --json` shows its squash or a
 later commit running, for one of its components when it names any. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
@@ -387,13 +389,11 @@ DROP_BLOCKER = re.compile(r"merge conflicts?")
 DOWNSTACK_FAILURE = re.compile(r"downstack failures on PR #\[?(\d+)")
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
-RELEASE_SINCE = "release-since"
+RELEASE_READ = "release-read"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
 LANDED_BY_SQUASH = "landed by plain squash"
-HOLD_KINDS = ("hold", "decide", "decision", "go")
-WAIT_ORDER = re.compile(r"\b(?:wait|hold)\b", re.IGNORECASE)
 RELEASE_ID = re.compile(r"\breleases/(\d{4}-\d{2}-\d{2}/\d+)\b")
 BUILD_NUMBER = re.compile(r"(\d+)/?$")
 NOT_LIVE = "not live"
@@ -3459,28 +3459,32 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": int(seq[1])}))
 
     def releases(self, rows: dict[str, dict]) -> None:
-        """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. A landing older than the first pass is history."""
-        desk = self.book.load(LANDING)
-        since = desk.facts.get(RELEASE_SINCE)
-        if since is None:
-            self.book.edit(LANDING, lambda incident: incident.facts.update({RELEASE_SINCE: self.book.stamp()}))
+        """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. Each landing is judged once, by the first pass that reads it, and the landings read persist across restarts: a desk's first pass records every landing it reads as history, so a restart or an upgrade never judges an old landing again."""
+        read = self.book.load(LANDING).facts.get(RELEASE_READ)
+        landed = {pr for pr, row in rows.items() if row.get("state") == "landed" and row.get("landed_at")}
+        if read is None:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({RELEASE_READ: sorted(landed, key=int)}))
             return
-        for pr, row in rows.items():
-            if row.get("state") == "landed" and row.get("landed_at", "") >= since and f"release:{pr}" not in desk.actions:
-                incident = self.is_incident(pr, row)
-                if incident or MERGE_FAST in row.get("labels", "").split(","):
-                    self.accept_release(pr, row, incident, row["landed_at"] < self.started)
+        judged = []
+        for pr in sorted(landed - set(read), key=int):
+            row = rows[pr]
+            incident = self.is_incident(pr, row)
+            if (incident or MERGE_FAST in row.get("labels", "").split(",")) and not self.accept_release(pr, row, incident, row["landed_at"] < self.started):
+                continue
+            judged.append(pr)
+        if judged:
+            self.book.edit(LANDING, lambda incident: incident.facts[RELEASE_READ].extend(judged))
         for action in self.book.actions(LANDING, kind="release"):
             if action.status in ("accepted", "completed"):
                 self.press_release(action)
             elif action.status == "verified" and (action.verification_receipt or {}).get("builds") and not (action.verification_receipt or {}).get("live"):
                 self.publish_line(action)
 
-    def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> None:
-        """Owe a landing's release: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `tools/ci release live` shows its squash or a later commit running, and closes without a record."""
+    def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
+        """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `tools/ci release live` shows its squash or a later commit running, and closes without a record."""
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
         if done.code != 0:
-            return
+            return False
         components = list(dict.fromkeys(name for line in RELEASE_WITH.findall(json.loads(done.out)["body"]) for name in line.split()))
         key = f"release:{pr}"
         self.book.accept(LANDING, key, "release", json.dumps({"pr": pr, "sha": row["landed_sha"], "components": components, "landed_at": row["landed_at"], "incident": incident}), f"#{pr} {'incident' if incident else MERGE_FAST}", None)
@@ -3488,6 +3492,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"at": self.book.stamp()}))
         elif before_start and (running := self.shipped(row["landed_sha"], components)):
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"shipped": running, "at": self.book.stamp()}))
+        return True
 
     def shipped(self, sha: str, components: list[str]) -> str:
         """The deploy `tools/ci release live` shows running `sha` or a later commit, of one of `components` when it names any, or empty when none does or the read fails."""
@@ -3538,14 +3543,13 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: release_posted(incident, key, step, seq, self.runner.now()))
 
     def held_after_landing(self, landed: dict) -> None:
-        """Answer each root `hold`, `decide`, `decision`, or `go` posted after an incident fix landed that names its PR, or that tells the release owner to wait, with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now."""
+        """Answer each open root `hold` posted after an incident fix landed that names its PR or is addressed to the release owner with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now. Only a `hold` record is a hold, and the root's `--resolves` on it ends it."""
         drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
         owner = self.release_owner.removeprefix("peer:")
-        for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, *(f"--kind={kind}" for kind in HOLD_KINDS)):
-            if (record["lane"], record["drive"]) != (ROOT, drive) or record["kind"] not in HOLD_KINDS or actions.parse_stamp(record["at"]) < since:
+        for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
+            if (record["lane"], record["drive"], record["kind"]) != (ROOT, drive, "hold") or record["status"] != "open" or actions.parse_stamp(record["at"]) < since:
                 continue
-            to_owner = any(owner in lane for lane in record.get("to") or []) and WAIT_ORDER.search(record["text"])
-            if names_pr(record, pr) or to_owner:
+            if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):
                 self.runner.record(
                     f"escalation:release-held:{pr}:{record['seq']}",
                     f"RELEASE-HELD-AFTER-LANDING #{pr}: landed {landed['sha'][:10]} at {pacific(since)}; its cut is owed now, the other PR gets its own cut when it lands (root #{record['seq']})",

@@ -733,8 +733,10 @@ first blocker at the next step. Each record's `--id` names its step, so a runner
 stops between the post and its own save reposts under the same id, cci returns the
 stored record, and no step is posted twice.
 
-A landing older than the landing runner's first pass sends nothing, and neither does
-a landed row with no `landed_at`. A `merge-fast` landing whose body has no
+Each landing is judged once, by the first pass that reads it, and the landing desk's
+store keeps the set it has read across restarts and upgrades. The desk's first pass
+records every landing it reads as history and sends nothing, and a landed row with no
+`landed_at` is not read until it has one. A `merge-fast` landing whose body has no
 `Release-With:` line is read once and sends nothing.
 
 An incident fix PR, one from an `incident-` or `outage-` lane, a fix lane on the
@@ -803,7 +805,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `QUOTA-READ-FAILED` | Read why `ccx vcs gh -- api rate_limit` failed; until it reads again the desk runs without its back-off. |
 | `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
-| `RELEASE-HELD-AFTER-LANDING` | Lift the hold or wait order the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
+| `RELEASE-HELD-AFTER-LANDING` | Lift the hold the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
 | `PR-SILENT` | Read the code state in the line, or run `drive.py lane-status <lane>` for it now. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
 | `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
 | `PARKED` | None while the PR stays parked; its lane has no live dispatch or session, so its conflict routes to no one. Relaunch or reassign the lane to have the conflict routed. |
