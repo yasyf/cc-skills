@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Polls one pull request over the REST API and prints one line per new event,
-# the Monitor command behind open-pr's background watcher.
+# the watch behind open-pr's background watcher and pr-loop's Monitor.
 #
 #   pr-poll.sh <owner/repo> <pr-number> <state-file>
 #
@@ -214,7 +214,7 @@ fi
 case $locked in
 0) ;;
 1)
-  echo "pr-poll.sh: another poller holds $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
+  echo "pr-poll.sh: another poller holds $STATE_FILE; run one poller per state file" >&2
   exit 3
   ;;
 *) exit 1 ;;
