@@ -2755,6 +2755,26 @@ def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_h
     assert [post["text"].split(": ", 1)[1].split(" as ")[0] for post in blockers(shell) if post["text"].startswith("#36642 ")] == ["landed 3 minutes ago", "landed 6 minutes ago"]
 
 
+@pytest.mark.parametrize(
+    ("record", "held"),
+    [
+        ({"kind": "hold", "status": "open", "to": ["sole-51"], "refs": {}, "text": "apply nothing more on plat until root lifts this"}, True),
+        ({"kind": "hold", "status": "closed", "refs": {"prs": [36642]}, "text": "hold #36642: one cut with #41071"}, False),
+        ({"kind": "decide", "status": "open", "refs": {"prs": [36642]}, "text": "no holds: cut #36642 the moment it lands"}, False),
+        ({"kind": "go", "to": ["sole-51"], "text": "wait for #41071, then cut both"}, False),
+    ],
+    ids=["an-open-hold-to-the-release-owner", "a-resolved-hold", "a-decide-naming-the-pr", "a-go-telling-the-owner-to-wait"],
+)
+def test_only_an_open_root_hold_record_holds_a_landed_incident_fix(shell, config, tmp_path, record, held):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    cci_record(shell, at=actions.stamp(shell.now()), **record)
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert len([line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]) == held
+
+
 def test_a_released_build_posts_one_released_line_to_the_root_and_comms_once_every_component_is_live(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["comms_lane"] = "comms-desk"
@@ -2805,6 +2825,27 @@ def test_a_merge_fast_landing_older_than_the_runners_first_pass_is_history(shell
     for _ in range(3):
         landing_pass(shell, config)
         shell.sleep(11 * 60)
+    assert shell.posts == [] and body_reads(shell) == []
+
+
+def test_an_incident_landing_older_than_the_runners_first_pass_is_history(shell, config, tmp_path):
+    live_clock(tmp_path, shell)
+    shell.bodies["36642"] = FAST_BODY
+    shell.rows = [fast_row(shell, "externally-merged", INCIDENT_LANE)]
+    shell.sleep(60)
+    for _ in range(3):
+        landing_pass(shell, config)
+        shell.sleep(3 * 60)
+    assert shell.posts == [] and body_reads(shell) == []
+
+
+def test_a_landing_a_pass_read_is_never_judged_again_once_it_reads_as_an_incident_fix(shell, config, tmp_path):
+    land_fast(shell, config, labels="externally-merged")
+    landing_pass(shell, config)
+    shell.rows[0]["lane"] = INCIDENT_LANE
+    for _ in range(2):
+        shell.sleep(3 * 60)
+        landing_pass(shell, config)
     assert shell.posts == [] and body_reads(shell) == []
 
 

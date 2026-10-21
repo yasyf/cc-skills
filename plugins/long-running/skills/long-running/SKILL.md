@@ -1586,11 +1586,13 @@ needs. While an incident clock runs, the step is `deadlines.incident_release_min
 on a `release` record carrying `--build` and `--target <component>`, or on a root
 `--resolves` naming the release record, a blocker, or a RELEASE-HELD-AFTER-LANDING
 line; a root `--re` reply does not settle it. A `fix-live` record from another lane
-that names the PR or a component settles any landing. A root `hold`, `decide`,
-`decision`, or `go` record that names a landed incident PR, or tells the release
-owner to wait for another PR, is answered by the runner with one
+that names the PR or a component settles any landing. An open root `hold` record
+that names a landed incident PR, or is addressed to the release owner, is answered
+by the runner with one
 `RELEASE-HELD-AFTER-LANDING #<pr>: landed <sha> at <time>; its cut is owed now, the other PR gets its own cut when it lands`
-line, and the blockers keep their cadence.
+line, and the blockers keep their cadence. Only a `hold` record is a hold: a `decide`,
+`decision`, or `go` that mentions a PR or says "wait" is not, and a root `--resolves`
+on the hold ends it.
 
 Once the record that settles a landing names `--build`, the runner reads
 `tools/ci release live <id> --json` each pass, for the release id `releases/<id>`
@@ -1622,8 +1624,11 @@ nothing was launched`. A later `refuse` record saying a release
 it arrives.
 
 The runner reads the label from the ledger row's `labels` and the body with one
-`gh pr view <pr> --json body` per landing. A landing older than the landing runner's
-first pass sends nothing, and neither does a landed row with no `landed_at`. A landing
+`gh pr view <pr> --json body` per landing. Each landing is judged once, by the first
+pass that reads it, and the landing desk's store keeps the set it has read across
+restarts. The desk's first pass records every landing it reads as history and sends
+nothing, so a restart or a plugin upgrade never judges an old landing again; a landed
+row with no `landed_at` is not read until it has one. A landing
 from before the runner process started, first read after a restart, closes with no
 record when `tools/ci release live --json` shows its squash or a later commit running,
 for one of its `Release-With:` components when it names any.
