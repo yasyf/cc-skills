@@ -10,10 +10,15 @@ PAGE_BYTES = 16000
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
 FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
+INCIDENT_TAG = re.compile(r"\b([A-Z]{2,})(?:-([0-9A-Z]*\d[0-9A-Z]*)|(\d[0-9A-Z]*))\b")
+ANSWER_TEXT = re.compile(r"^(?:OPENED|READY)\b")
+ANSWER_KINDS = frozenset({*CLAIM_KINDS, "ready", "fix-live"})
+ROOT_ANSWER_KINDS = frozenset({"go", "decide", "decision"})
+ROOT_RULINGS = frozenset({"decide", "decision"})
 MECHANISM_TEXT = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
-SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS)\b")
+SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\b")
 TEXT_KINDS = ("report", "incident", "state")
-SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down"})
+SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down", "done"})
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
@@ -45,5 +50,22 @@ def mechanism_mark(record: dict) -> str:
 
 
 def settles_mechanism(record: dict) -> bool:
-    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end, by kind or by a text record starting OPENED, BLOCKER, READY, or NOT-OURS."""
+    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end or DONE, by kind or by a text record starting OPENED, BLOCKER, READY, NOT-OURS, DONE, or STOPPED."""
     return record["kind"] in SETTLING_KINDS or (record["kind"] in TEXT_KINDS and bool(SETTLING_TEXT.match(record.get("text") or "")))
+
+
+def incident_keys(record: dict) -> set[str]:
+    """What names the incident a record is about: its topic, and each incident tag in its topic or text, such as `SAND-5A`, `[SAND-5A]`, or `SAND5A`, all read as `tag:SAND5A`."""
+    text = f"{record.get('topic') or ''} {record.get('text') or ''}"
+    tags = {f"tag:{found[1]}{found[2] or found[3]}" for found in INCIDENT_TAG.finditer(text)}
+    return tags | ({f"topic:{record['topic']}"} if record.get("topic") else set())
+
+
+def answers_mechanism(record: dict) -> set[str]:
+    """The mechanisms a record answers, as keys `incident_keys` gives a mechanism, `seq:<n>` for one it names with `--re`, or `lane:<name>` for each lane a root ruling is addressed to: a lane's PR, ready, or fix-live, or the root's go, decide, or decision; empty for any other record."""
+    root = record["lane"] == "root"
+    kind = record["kind"]
+    if not (kind in ROOT_ANSWER_KINDS if root else kind in ANSWER_KINDS or (kind in TEXT_KINDS and ANSWER_TEXT.match(record.get("text") or ""))):
+        return set()
+    addressed = {f"lane:{lane}" for lane in record.get("to") or []} if root and kind in ROOT_RULINGS else set()
+    return incident_keys(record) | addressed | ({f"seq:{record['re']}"} if record.get("re") else set())

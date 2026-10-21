@@ -13,6 +13,7 @@
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
     drive.py watch   --session ID --lane NAME [--drive ID] --channel ID [--message TS] [--thread-ts TS]
     drive.py lane-status LANE [--drive ID]
+    drive.py pr-owed LANE [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
@@ -61,6 +62,11 @@ checkout's ``git worktree list``, and its PRs' head branches. Each line names th
 commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch is pushed, and its open PR
 with CI state. With none found it prints ``no worktree found for lane <lane>`` and exits 1.
 
+``pr-owed`` answers whether a lane still owes a PR for its mechanism, from the drive's records of the last 12 hours.
+It prints ``owed: <mark> #<seq>`` and exits 0 when the lane's newest MECHANISM or CANDIDATE has no settling record of its own
+and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, topic, or incident tag such as ``SAND-5A``.
+Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
+
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
@@ -92,6 +98,7 @@ DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 LANE_RECORDS = timedelta(days=1)
+PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
 LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
 SLACK_TS = re.compile(r"p?(?P<seconds>\d{10})\.?(?P<micros>\d{6})")
@@ -415,6 +422,25 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_pr_owed(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    if lanes.owes_no_pr(Path(entry["state_dir"]), args.lane):
+        print(f"not owed: {args.lane} is an evidence, proof, closeout, desk, or audit lane")
+        return 1
+    since = (datetime.now(timezone.utc) - PR_OWED_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
+    drive = cci_drive(entry)
+    kinds = sorted({*cci.ANSWER_KINDS, *cci.ROOT_ANSWER_KINDS, *cci.TEXT_KINDS})
+    others = cci.records(shell.run, drive, *(f"--kind={kind}" for kind in kinds), since=since)
+    own = cci.records(shell.run, drive, "--lane", args.lane, since=since)
+    records = list({record["seq"]: record for record in [*others, *own] if record["drive"] == drive}.values())
+    if (owed := lanes.owed_mechanism(args.lane, records)) is None:
+        print(f"not owed: no mechanism of {args.lane} waits on a PR")
+        return 1
+    print(f"owed: {cci.mechanism_mark(owed)} #{owed['seq']}")
+    return 0
+
+
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
@@ -518,6 +544,11 @@ def build_parser() -> argparse.ArgumentParser:
     lane_status.add_argument("lane")
     lane_status.add_argument("--drive")
     lane_status.set_defaults(handler=cmd_lane_status)
+
+    pr_owed = subparsers.add_parser("pr-owed", help="whether a lane's mechanism still waits on a PR; exit 1 when not")
+    pr_owed.add_argument("lane")
+    pr_owed.add_argument("--drive")
+    pr_owed.set_defaults(handler=cmd_pr_owed)
 
     worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
     worktree.add_argument("--lane", required=True)

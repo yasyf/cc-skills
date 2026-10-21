@@ -6604,3 +6604,107 @@ def test_an_incident_lane_named_for_no_fix_starts_its_clock_once_it_owns_a_workt
     orca_pass(shell, config)
     [line] = silent_lines(shell, "inc-mac-cpu-spin")
     assert f"; {worktree} (git worktree list): HEAD (no branch)," in line
+
+
+def silent_posts(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("PR-SILENT ")]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"lane": "inc-sand3k-fix", "kind": "opened", "text": "SAND-3K fix PR #41471 at 40cc7d1d277: blank-dir check moved below the local restore"},
+        {"lane": "inc-malformed-row-5a", "kind": "opened", "text": "OPENED pr#41468 [SAND-3K]: prepareLocalThread passes ErrMalformed", "topic": "SAND-3K"},
+        {"lane": "inc-other-fix", "kind": "head", "text": "HEAD pr#41471 at 40cc7d1", "re": "MECHANISM"},
+        {"lane": "inc-other-fix", "kind": "report", "text": "OPENED pr#41471 sand3k: the attach path keeps the typed refusal", "topic": "SAND3K"},
+        {"lane": "root", "kind": "go", "text": "GO inc-sand3k-fix: SAND-3K fix ships from inc-sand3k-fix", "to": ["inc-sand3k-fix"]},
+    ],
+)
+def test_a_pr_another_lane_opens_for_the_same_incident_settles_the_mechanism(shell, config, tmp_path, answer):
+    orca_pass(shell, config)
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo/inc-chats-load-fix-2")
+    mechanism = cci_record(shell, lane="inc-chats-load-fix-2", kind="mechanism", text="SAND-3K partial mechanism: live 500 open loop on 1546", at=actions.stamp(shell.clock))
+    shell.sleep(3 * 60)
+    cci_record(shell, at=actions.stamp(shell.clock), **{**answer, **({"re": mechanism} if answer.get("re") == "MECHANISM" else {})})
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_posts(shell) == []
+
+
+def test_a_pr_opened_for_the_incident_before_the_mechanism_settles_it_and_one_for_another_incident_does_not(shell, config, tmp_path):
+    orca_pass(shell, config)
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo/inc-malformed-open-fix")
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo/inc-sync-fix")
+    cci_record(shell, lane="inc-malformed-row-5a", kind="opened", text="OPENED pr#41468 head 85937a4 [SAND-5A]: prepareLocalThread", topic="SAND-5A", at=actions.stamp(shell.clock))
+    shell.sleep(60)
+    cci_record(shell, lane="inc-malformed-open-fix", kind="mechanism", text="SAND5A exact 50566ea9 at 21:25: malformed_row", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="inc-sync-fix", kind="mechanism", text="SAND-3Y the sync toast reads a stale cursor", at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == ["PR-SILENT inc-sync-fix"]
+
+
+@pytest.mark.parametrize("brief", ["briefs/{lane}.md", "{lane}/brief.md"])
+@pytest.mark.parametrize("role", ["ccx: lane={lane} role=proof\n\n# {lane}\n", "# {lane} (codex sol xhigh, read-only audit): prove every incident class is done\n"])
+def test_a_lane_whose_brief_is_evidence_proof_closeout_desk_or_audit_is_never_pr_silent(shell, config, tmp_path, brief, role):
+    lane = "inc-chats-load-fix-2"
+    path = tmp_path / brief.format(lane=lane)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(role.format(lane=lane) + "Prove the fix on the live version.\n")
+    orca_pass(shell, config)
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo" / lane)
+    cci_record(shell, lane=lane, kind="mechanism", text="SAND-3K partial mechanism", at=actions.stamp(shell.clock))
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_posts(shell) == []
+
+
+@pytest.mark.parametrize("lane", ["inc-sand3k-proof", "inc-mount-fault-closeout", "inc-alerts-desk-2"])
+def test_a_lane_named_for_evidence_proof_closeout_or_desk_is_never_pr_silent(shell, config, tmp_path, lane):
+    orca_pass(shell, config)
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo" / lane)
+    cci_record(shell, lane=lane, kind="mechanism", text="SAND-3K partial mechanism", at=actions.stamp(shell.clock))
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_posts(shell) == []
+
+
+def test_a_fix_brief_whose_title_mentions_a_desk_still_clocks_its_lane(shell, config, tmp_path):
+    lane = "inc-landing-crash-fix"
+    (tmp_path / "briefs").mkdir(exist_ok=True)
+    (tmp_path / "briefs" / f"{lane}.md").write_text(f"# {lane}: fix the landing desk crash on a held PR\n")
+    orca_pass(shell, config)
+    lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo" / lane)
+    cci_record(shell, lane=lane, kind="mechanism", text="the landing desk reads a stale hold", at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == [f"PR-SILENT {lane}"]
+
+
+@pytest.mark.parametrize(
+    "ruling",
+    [
+        {"lane": "root", "kind": "decide", "text": "CLEAR 333417098, NOT counted: a 13 s burst of OpenAI 499 client-disconnects", "to": ["inc-llmgw-fix", "alerts-desk"], "re": "MECHANISM"},
+        {"lane": "root", "kind": "decision", "text": "CLEAR, no code for this alert", "to": ["inc-llmgw-fix"]},
+        {"lane": "inc-llmgw-fix", "kind": "done", "text": "CLEAR / NOT counted per the root's ruling; git diff clean"},
+        {"lane": "inc-llmgw-fix", "kind": "state", "text": "STOPPED: root ruled no code"},
+    ],
+)
+def test_a_root_ruling_to_the_lane_or_its_own_done_answers_its_mechanism(shell, config, tmp_path, ruling):
+    orca_pass(shell, config)
+    mechanism = cci_record(shell, lane="inc-llmgw-fix", kind="mechanism", text="333417098 fired on 14 OpenAI 499 client-disconnects", at=actions.stamp(shell.clock))
+    shell.sleep(3 * 60)
+    cci_record(shell, at=actions.stamp(shell.clock), **{**ruling, **({"re": mechanism} if ruling.get("re") == "MECHANISM" else {})})
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_posts(shell) == []
+
+
+def test_a_root_go_ordering_the_lane_to_work_leaves_its_mechanism_owed(shell, config, tmp_path):
+    orca_pass(shell, config)
+    cci_record(shell, lane="inc-llmgw-fix", kind="mechanism", text="333417098 fired on a gateway 5xx run", at=actions.stamp(shell.clock))
+    shell.sleep(3 * 60)
+    cci_record(shell, lane="root", kind="go", text="GO open the PR now", to=["inc-llmgw-fix"], at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == ["PR-SILENT inc-llmgw-fix"]

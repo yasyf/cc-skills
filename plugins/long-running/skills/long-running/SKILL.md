@@ -597,7 +597,14 @@ A second clock runs from each incident fix lane's mechanism, for in-process lane
 too: any lane named `inc-`, `incident-`, or `outage-`, other than an `-evidence`
 lane, and every fix lane the runner launched. It fires only for a lane that owns a
 worktree or owes a PR, by its launch or by a `-fix`, `-fix-<n>`, `-opus`, or
-`-case<n>` name, so an evidence or closeout lane never fires it. Ten minutes after a `MECHANISM` or
+`-case<n>` name, so an evidence or closeout lane never fires it. A lane whose name or
+brief names an evidence, proof, closeout, desk, or audit role never fires it either.
+A PR from any lane for the same incident answers the mechanism. That PR names the
+mechanism's seq with `--re`, shares its topic, or carries one of its incident tags,
+such as `SAND-5A`. A root `go` that does the same answers it too, and so do a root
+`decide` or `decision` addressed to the lane and the lane's own `done`.
+
+Ten minutes after a `MECHANISM` or
 `CANDIDATE` record with no `OPENED` or `BLOCKER` from the lane or its `-opus` pair,
 the runner posts a blocker the incident never defers, and posts it again every five
 minutes:
