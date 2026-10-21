@@ -179,7 +179,7 @@ def owes_no_pr(state: Path, lane: str) -> bool:
 
 
 def owed_mechanism(lane: str, records: list[dict]) -> dict | None:
-    """The lane's mechanism still owed a PR: its newest MECHANISM or CANDIDATE that no settling record of its own, and no PR, ready, fix-live, or root go from any lane for the same incident, has answered since or before."""
+    """The lane's mechanism still owed a PR: its newest MECHANISM or CANDIDATE that no settling record of its own, and no PR, ready, fix-live, or root go from any lane for the same incident, and no root ruling addressed to the lane since, has answered."""
     answered: set[str] = set()
     owed: dict | None = None
     for record in sorted(records, key=lambda record: record["seq"]):
@@ -197,4 +197,4 @@ def owed_mechanism(lane: str, records: list[dict]) -> dict | None:
 
 
 def owed_keys(record: dict) -> set[str]:
-    return cci.incident_keys(record) | {f"seq:{record['seq']}"}
+    return cci.incident_keys(record) | {f"seq:{record['seq']}", f"lane:{record['lane']}"}

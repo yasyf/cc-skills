@@ -601,7 +601,8 @@ worktree or owes a PR, by its launch or by a `-fix`, `-fix-<n>`, `-opus`, or
 brief names an evidence, proof, closeout, desk, or audit role never fires it either.
 A PR from any lane for the same incident answers the mechanism. That PR names the
 mechanism's seq with `--re`, shares its topic, or carries one of its incident tags,
-such as `SAND-5A`. A root `go` that does the same answers it too.
+such as `SAND-5A`. A root `go` that does the same answers it too, and so do a root
+`decide` or `decision` addressed to the lane and the lane's own `done`.
 
 Ten minutes after a `MECHANISM` or
 `CANDIDATE` record with no `OPENED` or `BLOCKER` from the lane or its `-opus` pair,

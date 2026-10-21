@@ -128,7 +128,9 @@ either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed 
 root `--re` or `--resolves` naming one of its PR-SILENT records. So does any lane's `opened`, `head`,
 `ready`, or `fix-live`, or a root `go` or `decision`, that answers the mechanism: one that names its
 seq with `--re`, shares its topic, or names one of its incident tags, where `SAND-5A`, `[SAND-5A]`, and
-`SAND5A` are one tag. An answer posted before the mechanism counts, so that mechanism starts no clock. At
+`SAND5A` are one tag. An answer posted before the mechanism counts, so that mechanism starts no clock.
+A root `decide` or `decision` addressed to the lane, and the lane's own `done`, or a text record
+starting `DONE` or `STOPPED`, settle it too. At
 `deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
 `deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
 `PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; <lane status> | <lane>: …`,
@@ -2577,7 +2579,7 @@ class Runner:
         if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
             keys = cci.incident_keys(record)
             if lane not in pending and not keys & set(answered):
-                pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}"})}
+                pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}", *(f"lane:{alias}" for alias in lane_aliases(lane))})}
         elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
                 pending.pop(silent)

@@ -230,7 +230,8 @@ role never fires it. Any lane's `opened`, `head`, `ready`, or `fix-live` answers
 mechanism when it names the seq with `--re`, shares the topic, or names one of its
 incident tags. A root `go` or `decision` answers it the same way. `SAND-5A`,
 `[SAND-5A]`, and `SAND5A` read as one tag, and an answer posted before the
-mechanism counts too.
+mechanism counts too. A root `decide` or `decision` addressed to the lane, and the
+lane's own `done` or a text record starting `DONE` or `STOPPED`, settle it as well.
 
 The line carries `lanes.lane_status`, the code behind `drive.py lane-status <lane>`.
 It names every worktree the lane owns, found from the runner's launch receipts, the

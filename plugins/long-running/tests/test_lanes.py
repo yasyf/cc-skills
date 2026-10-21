@@ -180,3 +180,10 @@ def test_pr_owed_never_holds_a_closeout_or_proof_lane(home, capsys):
     shell.records = [posted(5, "incident-closeout", "mechanism", "SAND5A exact 50566ea9")]
 
     assert pr_owed(shell, "incident-closeout", capsys) == (1, "not owed: incident-closeout is an evidence, proof, closeout, desk, or audit lane")
+
+
+def test_pr_owed_reads_a_root_ruling_addressed_to_the_lane_as_the_answer(home, capsys):
+    shell = LaneShell()
+    shell.records = [posted(5, "inc-llmgw-fix", "mechanism", "333417098 fired on OpenAI 499s"), posted(6, "root", "decide", "CLEAR, NOT counted", to=["inc-llmgw-fix", "alerts-desk"], re=5)]
+
+    assert pr_owed(shell, "inc-llmgw-fix", capsys) == (1, "not owed: no mechanism of inc-llmgw-fix waits on a PR")

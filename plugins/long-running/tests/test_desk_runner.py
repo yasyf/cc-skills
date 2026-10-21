@@ -6679,3 +6679,32 @@ def test_a_fix_brief_whose_title_mentions_a_desk_still_clocks_its_lane(shell, co
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == [f"PR-SILENT {lane}"]
+
+
+@pytest.mark.parametrize(
+    "ruling",
+    [
+        {"lane": "root", "kind": "decide", "text": "CLEAR 333417098, NOT counted: a 13 s burst of OpenAI 499 client-disconnects", "to": ["inc-llmgw-fix", "alerts-desk"], "re": "MECHANISM"},
+        {"lane": "root", "kind": "decision", "text": "CLEAR, no code for this alert", "to": ["inc-llmgw-fix"]},
+        {"lane": "inc-llmgw-fix", "kind": "done", "text": "CLEAR / NOT counted per the root's ruling; git diff clean"},
+        {"lane": "inc-llmgw-fix", "kind": "state", "text": "STOPPED: root ruled no code"},
+    ],
+)
+def test_a_root_ruling_to_the_lane_or_its_own_done_answers_its_mechanism(shell, config, tmp_path, ruling):
+    orca_pass(shell, config)
+    mechanism = cci_record(shell, lane="inc-llmgw-fix", kind="mechanism", text="333417098 fired on 14 OpenAI 499 client-disconnects", at=actions.stamp(shell.clock))
+    shell.sleep(3 * 60)
+    cci_record(shell, at=actions.stamp(shell.clock), **{**ruling, **({"re": mechanism} if ruling.get("re") == "MECHANISM" else {})})
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_posts(shell) == []
+
+
+def test_a_root_go_ordering_the_lane_to_work_leaves_its_mechanism_owed(shell, config, tmp_path):
+    orca_pass(shell, config)
+    cci_record(shell, lane="inc-llmgw-fix", kind="mechanism", text="333417098 fired on a gateway 5xx run", at=actions.stamp(shell.clock))
+    shell.sleep(3 * 60)
+    cci_record(shell, lane="root", kind="go", text="GO open the PR now", to=["inc-llmgw-fix"], at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == ["PR-SILENT inc-llmgw-fix"]
