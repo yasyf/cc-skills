@@ -104,10 +104,8 @@ Do, in this order, every iteration:
      - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
        enqueue under D1; never enqueue above a held PR or any PR of a held lane.
        Lanes report `held` on the tip, name the held PR, and leave release to the root.
-       A hold is GitHub's `hold` label: the landing runner writes it from the root's
-       holds file and from every PR an open cci `hold` record names, and a human may
-       add it by hand. The required `landing-gates` check keeps a labelled PR and the
-       PRs above it out of the queue, so `stack-enqueue` takes no hold flag.
+       `stack-enqueue` takes no hold flag and reads no holds, so the hold check
+       below is the only thing keeping a held PR out of a hand enqueue.
        Before every enqueue, re-read the root's holds file. Each line names one
        held PR as a leading #<n>, or whole lanes as lane:<name>, `<lane> HOLD`, or
        `HOLD <lane>`, then the reason. Add the PRs `ledger.py held --drive <drive>`

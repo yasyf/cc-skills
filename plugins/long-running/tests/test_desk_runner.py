@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import actions
-import holds
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/desk-runner.py"
@@ -86,7 +85,6 @@ class FakeShell(runner_module.Shell):
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
-        self.head_statuses: list[dict] = []
         self.combined_statuses: dict[str, list[dict]] = {}
         self.status_read_error = ""
         self.advance_error = ""
@@ -95,13 +93,6 @@ class FakeShell(runner_module.Shell):
         self.pulls: dict[str, dict] = {}
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
         self.quota_error = ""
-        self.drafts: list[dict] = []
-        self.draft_list_error = ""
-        self.workflow_runs: list[list[str]] = []
-        self.workflow_error = ""
-        self.status_error = ""
-        self.label_calls: list[tuple[str, str]] = []
-        self.label_error = ""
         self.pr_labels: dict[str, list[str]] = {}
         self.pr_label_error = ""
         self.dequeue_code = 0
@@ -227,8 +218,6 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "api", "graphql"]:
             assert argv[3] == "-f" and len(argv) == 5
             return self.graphql(argv[4].removeprefix("query="))
-        if argv[:2] == ["gh", "api"] and "/issues/" in argv[2]:
-            return self.label(argv[2:], stdin)
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/compare/") and argv[3:] == ["-H", "Accept: application/vnd.github.diff"]
             head = argv[2].rsplit("...", 1)[1]
@@ -241,22 +230,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(pull), "") if pull else runner_module.Done(1, "", "gh: Not Found (HTTP 404)")
         if argv == ["git", "patch-id", "--stable"]:
             return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
-        if argv[:2] == ["gh", "api"]:
-            assert argv[2].startswith("repos/Forge-AI/monorepo/statuses/") and argv[3:] == ["--method", "POST", "--input", "-"]
-            if self.status_error:
-                return runner_module.Done(1, "", self.status_error)
-            self.head_statuses.append({"sha": argv[2].rsplit("/", 1)[1], **json.loads(stdin)})
-            return runner_module.Done(0, "{}\n", "")
-        if argv[:3] == ["gh", "pr", "list"]:
-            assert argv[3:5] == ["--repo", "Forge-AI/monorepo"] and "--state" in argv
-            if self.draft_list_error:
-                return runner_module.Done(1, "", self.draft_list_error)
-            return runner_module.Done(0, json.dumps(self.drafts), "")
-        if argv[:3] == ["gh", "workflow", "run"]:
-            if self.workflow_error:
-                return runner_module.Done(1, "", self.workflow_error)
-            self.workflow_runs.append(argv[3:])
-            return runner_module.Done(0, "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
             assert argv[4:6] == ["--repo", "Forge-AI/monorepo"]
             return runner_module.Done(0, json.dumps(self.reviews[argv[3]]), "")
@@ -317,19 +290,6 @@ class FakeShell(runner_module.Shell):
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state \} \} \} \}', query)
         commits = {alias: {"status": {"contexts": [{**status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
-
-    def label(self, argv: list[str], stdin: str | None) -> runner_module.Done:
-        number = argv[0].split("/")[4]
-        if argv[1:] == ["--method", "DELETE"]:
-            assert argv[0] == f"repos/Forge-AI/monorepo/issues/{number}/labels/hold"
-            verb = "remove"
-        else:
-            assert argv == [f"repos/Forge-AI/monorepo/issues/{number}/labels", "--method", "POST", "--input", "-"] and json.loads(stdin) == {"labels": ["hold"]}
-            verb = "add"
-        if self.label_error:
-            return runner_module.Done(1, "", self.label_error)
-        self.label_calls.append((verb, number))
-        return runner_module.Done(0, "[]\n", "")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
         if self.tail_failures:
@@ -1325,7 +1285,6 @@ def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config
     assert "--whole" in shell.enqueues()[-1]
 
 
-
 def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
@@ -1504,7 +1463,6 @@ def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, con
         "#37102 aaaa111111: graphite FAILING_REQUIRED",
         "#37103 bbbb222222: conflicts with origin/dev in go/a.go",
     ]
-    assert shell.label_calls == [("add", "37102"), ("remove", "37102")]
 
 
 def test_a_pr_carrying_the_hold_label_and_the_stack_above_it_get_no_blocker(shell, config, tmp_path):
@@ -1515,14 +1473,14 @@ def test_a_pr_carrying_the_hold_label_and_the_stack_above_it_get_no_blocker(shel
     shell.gates["39050"] = [gate("#39007 BLOCKED aaaa111111 graphite FAILING_REQUIRED", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert blockers(shell) == [] and escalations(shell) == [] and shell.label_calls == []
+    assert blockers(shell) == [] and escalations(shell) == []
 
 
 @pytest.mark.parametrize(
     "statuses",
     [
         [],
-        [{"context": "landing-gates", "state": "failure"}, {"context": "release-pr-check", "state": "failure"}, {"context": "buildkite/test", "state": "success"}],
+        [{"context": "release-pr-check", "state": "failure"}, {"context": "buildkite/test", "state": "success"}],
         [{"context": "emergency-head", "state": "error"}, {"context": "buildkite/test", "state": "pending"}],
     ],
 )
@@ -1539,7 +1497,7 @@ def test_a_pr_on_another_open_prs_branch_gets_no_failing_required_blocker_while_
 
 
 def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_per_head(shell, config, tmp_path):
-    shell.combined_statuses["bbbb222222"] = [{"context": "landing-gates", "state": "failure"}, {"context": "buildkite/test", "state": "failure"}]
+    shell.combined_statuses["bbbb222222"] = [{"context": "release-pr-check", "state": "failure"}, {"context": "buildkite/test", "state": "failure"}]
     shell.rows = [
         {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
         {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
@@ -1550,7 +1508,7 @@ def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [("hj-rows-fixture", "#39050 bbbb222222: graphite FAILING_REQUIRED")]
 
 
-def test_a_held_prefix_is_never_routed_and_its_holds_reach_github_as_the_hold_label(shell, config, tmp_path):
+def test_a_held_prefix_is_never_routed_and_stack_enqueue_gets_no_hold_flag(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\nlane:d4 ships whole\n")
     shell.rows = [
@@ -1561,7 +1519,6 @@ def test_a_held_prefix_is_never_routed_and_its_holds_reach_github_as_the_hold_la
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 changes requested by poetic-svc on dddd444444; held")]
     landing_pass(shell, config)
     assert stack_enqueue_calls(shell) and all("--hold" not in call for call in stack_enqueue_calls(shell))
-    assert shell.label_calls == [("add", "28349"), ("add", "29020")]
     assert shell.sends() == [] and escalations(shell) == []
 
 
@@ -1577,26 +1534,10 @@ def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.enqueue_out["35413"] = (0, "enqueue #35413\n")
     landing_pass(shell, config)
-    assert shell.label_calls == [("add", "36525")]
     assert [call[1] for call in shell.enqueues()] == ["35413"]
 
 
-def test_holds_py_entries_label_the_prs_they_hold(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    holds_file = str(tmp_path / "holds.md")
-    assert holds.main(["--file", holds_file, "add", "--pr", "29020", "--reason", "owner hold until the parity waves land"]) == 0
-    assert holds.main(["--file", holds_file, "add", "--lane", "d4", "--reason", "ships whole"]) == 0
-    shell.rows = [
-        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
-        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
-    ]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "28349"), ("add", "29020")]
-
-
-def test_an_open_cci_hold_labels_its_pr_until_a_lift_closes_it(shell, config, tmp_path):
+def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, config, tmp_path):
     shell.records = [
         {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
         {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349", "at": "2026-10-01T09:00:00Z"},
@@ -1612,34 +1553,7 @@ def test_an_open_cci_hold_labels_its_pr_until_a_lift_closes_it(shell, config, tm
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["28349"]]
-    assert shell.label_calls == [("add", "29020")] and shell.sends() == []
-    shell.records[0]["status"] = "closed"
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020"), ("remove", "29020")]
-
-
-def test_a_failed_cci_read_skips_the_label_mirror_for_that_pass(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    shell.tail_failures = 2
-    landing_pass(shell, config)
-    assert shell.label_calls == []
-    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail"]
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")]
-
-
-def test_a_rules_blocked_pr_gets_no_hold_label(shell, config, tmp_path):
-    shell.rows = [
-        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "rules_blocked": True},
-        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "rules_blocked": False},
-    ]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.gates["28349"] = [gate("#28349 GREEN dddd444444 graphite READY", would="#28349")]
-    grade_gated_heads_ok(shell)
-    shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
-    landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["28349"]]
-    assert shell.label_calls == []
+    assert shell.sends() == []
 
 
 def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, config, tmp_path):
@@ -1657,104 +1571,8 @@ def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, 
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
     landing_pass(shell, config)
-    assert shell.label_calls == [("add", "28349")]
     assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
     assert shell.sends() == [] and escalations(shell) == []
-
-
-def label_rows(shell: FakeShell) -> None:
-    shell.rows = [
-        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
-        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
-        {"pr": "28350", "lane": "d4", "branch": "d/2", "base": "d/1", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
-        {"pr": "28300", "lane": "d4", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"},
-    ]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.gates["28350"] = [gate("#28349 BLOCKED dddd444444 held", "#28350 BLOCKED eeee555555 held")]
-
-
-@pytest.mark.parametrize(
-    ("lines", "labelled"),
-    [
-        ("#29020 owner review\n", ["29020"]),
-        ("lane:d4 ships whole\n", ["28349", "28350"]),
-        ("hold:all every PR waits for owner review\nrelease #28349 owner reviewed\n", ["28350", "29020"]),
-    ],
-)
-def test_each_hold_form_labels_the_open_rows_it_holds_and_never_a_landed_row(shell, config, tmp_path, lines, labelled):
-    (tmp_path / "holds.md").write_text(lines)
-    label_rows(shell)
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", pr) for pr in labelled]
-    assert escalations(shell) == []
-
-
-def test_lifting_a_hold_removes_the_runners_label_and_a_new_hold_adds_it_again(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    (tmp_path / "holds.md").write_text("")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020"), ("remove", "29020"), ("add", "29020")]
-    labels = {key: action.status for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "label"}
-    assert labels == {"hold:29020:1:add": "completed", "hold:29020:1:lift": "completed", "hold:29020:2:add": "completed"}
-
-
-def test_a_hold_label_a_human_added_is_never_removed(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    shell.rows[0]["labels"] = "merge,hold"
-    landing_pass(shell, config)
-    (tmp_path / "holds.md").write_text("")
-    landing_pass(shell, config)
-    assert shell.label_calls == [] and escalations(shell) == []
-
-
-def test_a_labelled_row_that_lands_keeps_its_label(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    shell.rows[0]["state"] = "landed"
-    (tmp_path / "holds.md").write_text("")
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")]
-
-
-def test_a_refused_label_write_escalates_once_and_is_retried_on_the_next_pass(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    shell.label_error = "gh: API rate limit exceeded (HTTP 403)"
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.label_calls == []
-    assert escalations(shell) == [
-        "LABEL-FAILED hold:29020:1:add #29020: GitHub refused to add the `hold` label: gh: API rate limit exceeded (HTTP 403); the runner tries again on the next pass"
-    ]
-    shell.label_error = ""
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")] and len(escalations(shell)) == 1
-
-
-def test_a_label_already_gone_when_its_hold_lifts_counts_as_removed(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    (tmp_path / "holds.md").write_text("")
-    shell.label_error = "gh: Label does not exist (HTTP 404)"
-    landing_pass(shell, config)
-    shell.label_error = ""
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020"), ("add", "29020")] and escalations(shell) == []
-
-
-def test_a_restarted_runner_does_not_post_a_label_again(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")]
-    action = incident(tmp_path, "desk-landing").actions["hold:29020:1:add"]
-    assert (action.kind, action.status, action.target) == ("label", "completed", "29020")
 
 
 def fork_rows() -> list[dict]:
@@ -1791,7 +1609,6 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
     assert [call[1:] for call in shell.enqueues()] == [["36487", "36501"]]
-    assert shell.label_calls == [("add", "36510")]
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
@@ -1978,7 +1795,6 @@ def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
     landing_pass(shell, config)
-    assert shell.label_calls == []
     assert len(shell.enqueues()) == 1
 
 
@@ -2010,7 +1826,6 @@ def test_each_lane_form_holds_the_open_rows_of_the_lane_it_names(shell, config, 
     grade_gated_heads_ok(shell)
     shell.enqueue_out["36934"] = (0, "enqueue #36934\n")
     landing_pass(shell, config)
-    assert shell.label_calls == [("add", "36935")]
     assert [call[1] for call in shell.enqueues()] == ["36934"]
     assert shell.sends() == [] and escalations(shell) == []
 
@@ -2021,7 +1836,7 @@ def test_the_two_lane_lines_the_reader_dropped_hold_both_lanes(shell, config, tm
     shell.gates["36934"] = [gate("#36934 BLOCKED dddd444444 held")]
     shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and shell.label_calls == [("add", "36934"), ("add", "36935")]
+    assert stack_enqueue_calls(shell)
     assert shell.enqueues() == [] and escalations(shell) == []
 
 
@@ -2035,7 +1850,7 @@ def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escala
     shell.enqueue_out["36935"] = (0, "enqueue #36935\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {} and shell.label_calls == []
+    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
     assert escalations(shell) == [
         f"HOLDS-UNREAD holds:{hashlib.sha1(line.encode()).hexdigest()[:8]} landing: the holds-file line `{line}` names lane {PUBLISH_LANE}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
         f" | in {holds_file} hold each PR as `#<pr> <why>`, or delete the line"
@@ -2044,7 +1859,7 @@ def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escala
     holds_file.write_text("#36935 HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'\n")
     shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and shell.label_calls == [("add", "36935")]
+    assert stack_enqueue_calls(shell)
     assert shell.enqueues() == [] and len(escalations(shell)) == 1
 
 
@@ -2054,7 +1869,6 @@ def test_a_lane_line_whose_rows_have_all_landed_holds_nothing_and_stops_nothing(
     shell.rows.append({"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"})
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    assert shell.label_calls == []
     assert len(shell.enqueues()) == 1 and escalations(shell) == []
 
 
@@ -2273,7 +2087,7 @@ def test_a_blank_holds_line_is_no_error(shell, config, tmp_path):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    assert shell.label_calls == [("add", "29020")] and [line for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == []
+    assert [line for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == []
     assert shell.enqueues() == []
 
 
@@ -2372,7 +2186,7 @@ def test_the_landing_desk_refuses_to_start_without_a_fidelity_lane(shell, config
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
-    assert shell.enqueues() == [] and shell.head_statuses == []
+    assert shell.enqueues() == []
     [line] = escalations(shell)
     assert line.startswith("FIDELITY-LANE-UNSET ") and "names no landing.fidelity_lane" in line
 
@@ -2427,7 +2241,7 @@ def test_a_success_fidelity_status_on_an_ungraded_head_is_a_grade(shell, config,
     shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "failure"}, {"context": "fidelity", "state": "success"}]
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
-    assert blockers(shell) == [] and shell.head_statuses == []
+    assert blockers(shell) == []
 
 
 @pytest.mark.parametrize("statuses", [[], [{"context": "fidelity", "state": "pending"}], [{"context": "fidelity", "state": "failure"}], [{"context": "ci", "state": "success"}]])
@@ -2444,38 +2258,6 @@ def test_a_cci_grade_outranks_a_stale_success_status(shell, config, tmp_path):
     grade(shell, "29020", "missing F335 at cccc333.")
     landing_pass(shell, config)
     assert shell.enqueues() == [] and len(blockers(shell)) == 1
-
-
-def test_the_mirror_does_not_overwrite_a_success_status_with_pending(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "success"}]
-    landing_pass(shell, config)
-    assert shell.head_statuses == []
-
-
-@pytest.mark.parametrize("graded", [True, False])
-def test_the_mirror_posts_no_fidelity_status_on_a_row_no_drive_lane_registered(shell, config, tmp_path, graded):
-    held_pr(shell, tmp_path)
-    shell.rows[0]["ours"] = False
-    if graded:
-        grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == []
-
-
-@pytest.mark.parametrize("state", ["success", "failure"])
-def test_a_fidelity_status_the_lane_sets_during_a_pass_is_never_overwritten_with_pending(shell, config, tmp_path, state):
-    prs = five_held_rows(shell, tmp_path)
-    run = shell.run
-
-    def lane_grades_the_second_head_mid_pass(argv, stdin=None, env=None):
-        if argv[:3] == ["gh", "api", f"repos/Forge-AI/monorepo/statuses/{prs[0]}abcd"]:
-            shell.combined_statuses[f"{prs[1]}abcd"] = [{"context": "fidelity", "state": state}]
-        return run(argv, stdin, env)
-
-    shell.run = lane_grades_the_second_head_mid_pass
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [(f"{pr}abcd", "pending") for pr in (prs[0], prs[2], prs[3])]
 
 
 def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shell, config, tmp_path):
@@ -2520,16 +2302,14 @@ def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, c
 def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
-    queue_draft(shell, 30)
-    shell.combined_statuses[DRAFT_HEAD] = [{"context": "landing-gates", "state": "success"}]
     landing_pass(shell, config)
     [read] = graphql_reads(shell)
-    assert "cccc333333" in read[4] and DRAFT_HEAD in read[4]
+    assert "cccc333333" in read[4]
     assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
-    assert shell.workflow_runs == [] and len(shell.enqueues()) == 1
+    assert len(shell.enqueues()) == 1
 
 
-def test_a_head_is_read_again_only_after_a_minute_or_once_the_runner_writes_to_it(shell, config, tmp_path):
+def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):
     landing = landing_of(shell, config, tmp_path)
     shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "success"}]
     assert landing.head_statuses("29020", "cccc333333") == [{"context": "ci", "state": "success"}]
@@ -2537,11 +2317,9 @@ def test_a_head_is_read_again_only_after_a_minute_or_once_the_runner_writes_to_i
     assert landing.head_statuses("29020", "cccc333") == [{"context": "ci", "state": "success"}]
     assert len(graphql_reads(shell)) == 1
     shell.clock += timedelta(seconds=1)
-    landing.head_statuses("29020", "cccc333333")
-    landing.forget("cccc333")
     shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "failure"}]
     assert landing.head_statuses("29020", "cccc333333") == [{"context": "fidelity", "state": "failure"}]
-    assert len(graphql_reads(shell)) == 3
+    assert len(graphql_reads(shell)) == 2
 
 
 @pytest.mark.parametrize("bucket", ["core", "graphql"])
@@ -2589,57 +2367,6 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     assert action.response["outcome"] == "blocked" and "no fidelity: ok from fidelity-desk at the head of #29020" in action.response["out"]
 
 
-def held_pr(shell: FakeShell, tmp_path: Path, head: str = "cccc333333") -> None:
-    (tmp_path / "holds.md").write_text("#29020 owner review\n")
-    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": head, "state": "open", "reported_head": head}]
-    shell.gates["29020"] = [gate(f"#29020 BLOCKED {head} held")]
-
-
-def fidelity_statuses(shell: FakeShell) -> list[tuple[str, str]]:
-    return [(status["sha"], status["state"]) for status in shell.head_statuses]
-
-
-@pytest.mark.parametrize(("text", "state"), [("ok F307 at cccc333.", "success"), ("missing F307 at cccc333 (View fix).", "failure")])
-def test_a_fidelity_grade_sets_the_fidelity_commit_status_on_the_graded_head(shell, config, tmp_path, text, state):
-    held_pr(shell, tmp_path)
-    seq = grade(shell, "29020", text)
-    landing_pass(shell, config)
-    assert shell.head_statuses == [{"sha": "cccc333333", "state": state, "context": "fidelity", "description": f"cci #{seq} fidelity: {text}"}]
-    assert escalations(shell) == []
-
-
-def test_the_status_describes_the_grade_by_its_first_line_clipped_to_the_github_limit(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    first_line = "missing F328 at cccc333 (#29020). " + "The sandbox build of this head is still owed. " * 4
-    seq = grade(shell, "29020", f"{first_line}\nNote for root: a second line.")
-    landing_pass(shell, config)
-    [status] = shell.head_statuses
-    assert (status["sha"], status["state"]) == ("cccc333333", "failure")
-    assert len(status["description"]) == 140 and status["description"] == f"cci #{seq} fidelity: {first_line}"[:139] + "…"
-
-
-def test_the_status_is_on_the_head_before_the_gate_reads_it(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    calls = [call for call in shell.calls if (call[:2] == ["gh", "api"] and call[2] != "graphql") or Path(call[0]).name == "stack-enqueue"]
-    assert calls[0] == ["gh", "api", "repos/Forge-AI/monorepo/statuses/cccc333333", "--method", "POST", "--input", "-"]
-    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
-
-
-def test_a_new_head_reads_pending_until_the_fidelity_lane_grades_it(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    held_pr(shell, tmp_path, head="dddd444444")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "pending")]
-    grade(shell, "29020", "missing F307 at dddd444 (View fix).")
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("dddd444444", "pending"), ("dddd444444", "failure")]
-
-
 def compare_calls(shell: FakeShell) -> list[str]:
     return [call[2].rsplit("/", 1)[1] for call in shell.calls if call[:2] == ["gh", "api"] and "/compare/" in call[2]]
 
@@ -2648,8 +2375,10 @@ def test_a_restack_with_the_graded_heads_patch_carries_its_ok_and_cites_that_hea
     lone_green_pr(shell)
     seq = grade(shell, "29020", "ok F307 at bbbb222.")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333", "dev")
+    assert (carried["seq"], carried["text"]) == (seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
+    shell.calls.clear()
     landing_pass(shell, config)
-    assert shell.head_statuses == [{"sha": "cccc333333", "state": "success", "context": "fidelity", "description": f"cci #{seq} fidelity: ok at cccc333333, patch-identical to bbbb222"}]
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
     assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
 
@@ -2660,7 +2389,7 @@ def test_a_restack_whose_patch_differs_waits_for_its_own_grade(shell, config, tm
     shell.diffs["bbbb222"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
     shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+Connection::open_with_flags\n"
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "pending")] and shell.enqueues() == []
+    assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert "no review from fidelity-desk starting `fidelity: ok` names this head" in blocker["text"]
 
@@ -2671,7 +2400,7 @@ def test_a_grade_naming_the_new_head_beats_a_carried_ok(shell, config, tmp_path)
     seq = grade(shell, "29020", "missing F335 at cccc333: the restack dropped the fixture.")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "failure")] and shell.enqueues() == [] and compare_calls(shell) == []
+    assert shell.enqueues() == [] and compare_calls(shell) == []
     [blocker] = blockers(shell)
     assert f"cci #{seq}: fidelity: missing F335" in blocker["text"]
 
@@ -2682,7 +2411,7 @@ def test_no_ok_carries_from_a_head_whose_newest_grade_is_missing(shell, config, 
     grade(shell, "29020", "missing F335 at bbbb222.")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "pending")] and shell.enqueues() == [] and compare_calls(shell) == []
+    assert shell.enqueues() == [] and compare_calls(shell) == []
 
 
 def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(shell, config, tmp_path):
@@ -2691,7 +2420,7 @@ def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(she
     shell.compare_errors["9057dda"] = "gh: Not Found (HTTP 404)"
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")] and escalations(shell) == []
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
     assert compare_calls(shell)[:3] == ["dev...cccc333333", "dev...9057dda", "dev...bbbb222"]
 
 
@@ -2701,149 +2430,10 @@ def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, confi
     shell.compare_errors["cccc333333"] = "gh: API rate limit exceeded (HTTP 403)"
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and fidelity_statuses(shell) == [("cccc333333", "pending")]
+    assert shell.enqueues() == []
     assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [
         "PATCH-READ-FAILED patch:29020:cccc333333 #29020: GitHub refused the diff of dev...cccc333333: gh: API rate limit exceeded (HTTP 403); no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass"
     ]
-
-
-def test_a_regrade_of_the_same_head_flips_its_status(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    grade(shell, "29020", "missing F307 at cccc333 (View fix).")
-    landing_pass(shell, config)
-    grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "failure"), ("cccc333333", "success")]
-
-
-def five_held_rows(shell: FakeShell, tmp_path: Path) -> list[str]:
-    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\n")
-    prs = [str(29100 + n) for n in range(5)]
-    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
-    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd held")] for pr in prs}
-    return prs
-
-
-def test_a_pass_writes_at_most_mirror_writes_statuses_and_labels_and_the_next_pass_writes_the_rest(shell, config, tmp_path):
-    prs = five_held_rows(shell, tmp_path)
-    landing_pass(shell, config)
-    assert len(shell.head_statuses) == runner_module.MIRROR_WRITES and len(shell.label_calls) == runner_module.MIRROR_WRITES
-    landing_pass(shell, config)
-    assert sorted(status["sha"] for status in shell.head_statuses) == [f"{pr}abcd" for pr in prs]
-    assert shell.label_calls == [("add", pr) for pr in prs]
-
-
-def test_the_head_of_a_pr_a_release_line_names_is_mirrored_before_lower_numbered_heads(shell, config, tmp_path):
-    five_held_rows(shell, tmp_path)
-    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\nrelease #29104 sandbox proof landed\n")
-    landing_pass(shell, config)
-    assert [status["sha"] for status in shell.head_statuses] == ["29104abcd", "29100abcd", "29101abcd"]
-
-
-def test_a_pr_in_a_believed_queued_prefix_gets_no_status_and_a_fresh_grade_goes_before_pending(shell, config, tmp_path):
-    prs = [str(29100 + n) for n in range(7)]
-    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
-    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd buildkite/test pending")] for pr in prs}
-    shell.gates["29106"] = [gate("#29106 GREEN 29106abcd graphite READY", would="#29106")]
-    shell.enqueue_out["29106"] = (0, "enqueue #29106: {}\n")
-    grade(shell, "29106", "ok F307 at 29106ab")
-    landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29106"]]
-    assert [status["sha"] for status in shell.head_statuses] == ["29106abcd", "29100abcd", "29101abcd"]
-    grade(shell, "29106", "missing F307 at 29106ab (View fix).")
-    landing_pass(shell, config)
-    assert [status["sha"] for status in shell.head_statuses[3:]] == ["29102abcd", "29103abcd", "29104abcd"]
-
-
-def test_a_fresh_grade_on_an_open_head_is_mirrored_before_released_heads_that_already_carry_a_status(shell, config, tmp_path):
-    prs = [str(29100 + n) for n in range(4)]
-    (tmp_path / "holds.md").write_text("".join(f"release #{pr} sandbox proof landed\n" for pr in prs[:3]))
-    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
-    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd buildkite/test pending")] for pr in prs}
-    for pr in prs[:3]:
-        grade(shell, pr, f"missing F307 at {pr}ab (View fix).")
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [(f"{pr}abcd", "failure") for pr in prs[:3]]
-    for pr in prs:
-        grade(shell, pr, f"ok F307 at {pr}ab")
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell)[3:] == [("29103abcd", "success"), ("29100abcd", "success"), ("29101abcd", "success")]
-
-
-def test_a_held_pr_whose_label_waits_for_a_later_pass_is_not_gated_until_it_is_written(shell, config, tmp_path):
-    prs = five_held_rows(shell, tmp_path)
-    landing_pass(shell, config)
-    checked = {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call}
-    assert checked == set(prs[: runner_module.MIRROR_WRITES])
-
-
-def test_labels_github_keeps_refusing_never_starve_the_rows_after_them(shell, config, tmp_path):
-    prs = five_held_rows(shell, tmp_path)
-    label = shell.label
-
-    def refusing(argv, stdin):
-        if argv[0].split("/")[4] in prs[:3]:
-            return runner_module.Done(1, "", "gh: Validation Failed (HTTP 422)")
-        return label(argv, stdin)
-
-    shell.label = refusing
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.label_calls == [("add", prs[3]), ("add", prs[4])]
-
-
-def test_a_head_graded_ok_then_missing_then_ok_within_one_second_ends_on_success(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    for text in ("ok F307 at cccc333.", "missing F307 at cccc333 (View fix).", "ok F307 at cccc333 after the fix."):
-        grade(shell, "29020", text)
-        landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success"), ("cccc333333", "failure"), ("cccc333333", "success")]
-
-
-def test_a_new_grade_with_the_state_the_head_already_carries_posts_nothing(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    grade(shell, "29020", "ok F307 F446 at cccc333, re-posted in fidelity-desk-5's name.")
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")]
-
-
-def test_a_restarted_runner_does_not_post_a_status_again(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    seq = grade(shell, "29020", "ok F307 at cccc333.")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")]
-    action = incident(tmp_path, "desk-landing").actions[f"status:29020:cccc333333:{seq}"]
-    assert (action.kind, action.status, action.response["state"]) == ("status", "completed", "success")
-
-
-def test_a_head_with_no_grade_reads_pending_and_a_landed_row_gets_no_status(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    shell.rows.append({"pr": "28300", "lane": "d6", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"})
-    grade(shell, "29020", "ok F307 at bbbb222.")
-    grade(shell, "28349", "ok F307 at cccc333.")
-    grade(shell, "28300", "ok F307 at ffff666.")
-    grade(shell, "29020", "ok F307 at cccc333.", lane="rules-desk")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.head_statuses == [{"sha": "cccc333333", "state": "pending", "context": "fidelity", "description": "awaiting fidelity-desk's grade of this head"}]
-    assert escalations(shell) == []
-    assert [key for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "status"] == ["status:29020:cccc333333:ungraded"]
-
-
-def test_one_failed_cci_read_skips_the_mirror_for_that_pass_and_the_gate_still_runs(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok F307 at cccc333.")
-    shell.tail_failures = 1
-    landing_pass(shell, config)
-    assert shell.head_statuses == [] and len(shell.enqueues()) == 1
-    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["CCI-TAIL-FAILED cci-tail"]
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")]
 
 
 def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, config, tmp_path):
@@ -2852,27 +2442,11 @@ def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, co
     shell.tail_error = "cci: daemon unavailable"
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert shell.head_statuses == [] and stack_enqueue_calls(shell) == []
+    assert stack_enqueue_calls(shell) == []
     assert escalations(shell) == ["CCI-TAIL-FAILED cci-tail:2026-10-01T18:0 runner: cci tail exited 1: cci: daemon unavailable"]
     shell.tail_error = ""
     landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(shell.enqueues()) == 1
-
-
-def test_a_status_github_refuses_is_escalated_once_and_posted_on_a_later_pass(shell, config, tmp_path):
-    held_pr(shell, tmp_path)
-    seq = grade(shell, "29020", "ok F307 at cccc333.")
-    shell.status_error = "gh: API rate limit exceeded (HTTP 403)"
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.head_statuses == []
-    assert escalations(shell) == [
-        f"STATUS-FAILED status:29020:cccc333333:{seq} #29020: GitHub refused the `fidelity` commit status on cccc333333: gh: API rate limit exceeded (HTTP 403); the runner posts it again on the next pass"
-    ]
-    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["defect"]
-    shell.status_error = ""
-    landing_pass(shell, config)
-    assert fidelity_statuses(shell) == [("cccc333333", "success")] and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 1
 
 
 def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, config, tmp_path):
@@ -3094,7 +2668,7 @@ WALKER = "release-walker-4"
 def incident_pr(shell: FakeShell, buckets: tuple[str, ...] = ("pass", "pass")) -> None:
     shell.rows = [{"pr": "36650", "lane": INCIDENT_LANE, "branch": "i/1", "base": "dev", "head": INCIDENT_HEAD, "state": "open", "reported_head": INCIDENT_HEAD}]
     shell.reviews["36650"] = {"reviewDecision": "APPROVED", "headRefOid": INCIDENT_HEAD, "state": "OPEN"}
-    shell.checks["36650"] = [{"name": name, "bucket": bucket} for name, bucket in zip(("test", "landing-gates"), buckets, strict=True)]
+    shell.checks["36650"] = [{"name": name, "bucket": bucket} for name, bucket in zip(("test", "build"), buckets, strict=True)]
     shell.merge_commits["36650"] = INCIDENT_SQUASH
 
 
@@ -6410,78 +5984,6 @@ def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config
     orca_pass(shell, config)
     assert launches(shell) == [] and sprite_launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-
-
-DRAFT_HEAD = "d2fcb6390d6a29d373a91d8043882244d50b1d9f"
-
-
-def queue_draft(shell: FakeShell, opened_minutes_ago: int, title: str = "[Graphite MQ] Draft PR GROUP:batch_3fbecc (PRs 38868, 38876)") -> None:
-    opened = shell.clock - timedelta(minutes=opened_minutes_ago)
-    shell.drafts = [{"number": 38889, "title": title, "headRefOid": DRAFT_HEAD, "createdAt": opened.strftime("%Y-%m-%dT%H:%M:%SZ")}]
-
-
-def gates_posts(shell: FakeShell) -> list[dict]:
-    return [post for post in shell.posts if post["topic"].startswith(("gates-", "gates:"))]
-
-
-def test_a_queue_draft_inside_the_grace_is_left_to_its_own_grade(shell, config):
-    queue_draft(shell, 4)
-    landing_pass(shell, config)
-    assert shell.workflow_runs == [] and shell.posts == []
-
-
-def test_a_queue_draft_with_its_landing_gates_status_is_never_redispatched(shell, config):
-    queue_draft(shell, 30)
-    shell.combined_statuses[DRAFT_HEAD] = [{"context": "buildkite/test", "state": "success"}, {"context": "landing-gates", "state": "success"}]
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.workflow_runs == [] and shell.posts == []
-
-
-def test_a_pull_request_that_is_no_queue_draft_is_ignored(shell, config):
-    queue_draft(shell, 30, title="ci-infra: a change")
-    landing_pass(shell, config)
-    assert shell.workflow_runs == [] and shell.posts == []
-
-
-def test_a_queue_draft_without_landing_gates_past_the_grace_is_redispatched_once_with_one_state_line(shell, config):
-    queue_draft(shell, 6)
-    shell.combined_statuses[DRAFT_HEAD] = [{"context": "buildkite/test", "state": "success"}]
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.workflow_runs == [["landing-gates.yaml", "--repo", "Forge-AI/monorepo", "-f", "pr=38889", "-f", f"head={DRAFT_HEAD}"]]
-    assert [(post["kind"], post["to"]) for post in gates_posts(shell)] == [("state", "root")]
-
-
-def test_a_queue_draft_still_without_landing_gates_after_the_redispatch_reports_one_defect(shell, config):
-    queue_draft(shell, 6)
-    landing_pass(shell, config)
-    shell.clock += timedelta(minutes=4)
-    landing_pass(shell, config)
-    assert [post["kind"] for post in gates_posts(shell)] == ["state"]
-    shell.clock += timedelta(minutes=2)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert len(shell.workflow_runs) == 1
-    assert [post["kind"] for post in gates_posts(shell)] == ["state", "defect"]
-
-
-def test_a_dispatch_github_refuses_is_reported_once_and_dispatched_again_on_the_next_pass(shell, config):
-    queue_draft(shell, 6)
-    shell.workflow_error = "HTTP 503: Service Unavailable"
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.workflow_runs == [] and [post["kind"] for post in gates_posts(shell)] == ["defect"]
-    shell.workflow_error = ""
-    landing_pass(shell, config)
-    assert len(shell.workflow_runs) == 1 and [post["kind"] for post in gates_posts(shell)] == ["defect", "state"]
-
-
-def test_a_queue_draft_listing_github_refuses_is_reported_once_per_hour(shell, config):
-    shell.draft_list_error = "HTTP 502: Bad Gateway"
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert [post["kind"] for post in shell.posts] == ["defect"] and shell.workflow_runs == []
 
 
 SILENT_LANE = "inc-liam-load-opus"
