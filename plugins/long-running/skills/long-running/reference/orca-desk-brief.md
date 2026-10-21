@@ -171,7 +171,8 @@ A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
 Every incident fix lane the runner launched is on a clock from its verified launch.
 A lane is one when it launched on the `incident` alias, or when its brief's `ccx:`
 line says `role=incident` or names an `incident=`. A launch whose line or brief names
-another role, such as `role=evidence`, is never clocked, and neither is `incident=none`.
+another role, such as `role=evidence`, is never clocked, and neither is `incident=none`
+or a lane whose name has an `evidence`, `proof`, `closeout`, `desk`, or `audit` part.
 `desk-launch.py incident` launches `<name>-evidence` with `role=evidence`, so an
 evidence lane gets no mechanism, PR, or ready threshold and no Opus fallback. On each
 pass the runner reads the lane's own cci records, posted as `<name>` or `<name>-fix`,

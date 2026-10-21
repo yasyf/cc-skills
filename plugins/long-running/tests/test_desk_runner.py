@@ -5193,6 +5193,27 @@ def test_a_mechanism_a_case_sibling_posted_stops_the_mechanism_fallback_but_not_
     assert f"{LANE}-opus" in [call[1] for call in launches(shell)]
 
 
+def test_a_mechanism_another_fix_lane_on_the_incident_posted_stops_the_mechanism_fallback(shell, config, tmp_path):
+    for lane in ("inc-disk-fix", "inc-disk-cred", "inc-dusk-fix"):
+        clocked_lane(shell, config, tmp_path, lane=lane)
+    shell.sleep(6 * 60)
+    lane_record(shell, "inc-disk-fix", "mechanism")
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell, "inc-disk-cred") == [] and clock_lines(shell, "inc-disk-fix") == []
+    assert [line.split(":", 1)[0] for line in clock_lines(shell, "inc-dusk-fix")] == ["INCIDENT-CLOCK inc-dusk-fix mechanism"]
+    assert [call[1] for call in launches(shell)][3:] == ["inc-dusk-fix-opus"]
+
+
+def test_a_lane_named_for_evidence_on_the_incident_alias_is_never_clocked(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path, lane="inc-disk-evidence")
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell, "inc-disk-evidence") == [] and len(launches(shell)) == 1
+
+
 def test_a_withdrawn_lane_clock_ends_as_withdrawn_and_posts_nothing(shell, config, tmp_path, capsys):
     clocked_lane(shell, config, tmp_path)
     desk_inbox(tmp_path, f"R30 orca-desk: withdraw {LANE}")
