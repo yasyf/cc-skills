@@ -488,10 +488,12 @@ runner start, so one process reads the Run at every moment.
 
 Only the terminal bound to the Run may call `worker-start`. Every pass the orca desk
 reads the Run's coordinator from Orca and calls Orca, and starts each launcher, as that
-terminal, whatever terminal the desk itself was started from. It refuses to start,
-printing the rebind command, when the Run has no coordinator or Orca finds that terminal
-gone. When the coordinator disappears while it runs, it holds every launch and writes one
-`UNBOUND` line. After the root moves to a new terminal, run
+terminal, whatever terminal the desk itself was started from. When the Run has no
+coordinator or Orca finds that terminal gone, a desk started inside an Orca terminal rebinds
+the Run to that terminal; one started outside any refuses to start and prints the rebind
+command. When the coordinator disappears while it runs, it writes one `UNBOUND` line and
+fails every launch at once with `LAUNCH-FAILED`, which no incident clock defers, so the
+root launches it by hand with `orca-launch.sh`. After the root moves to a new terminal, run
 `desk-runner.py rebind --config "$CONFIG"` there; the running desk follows on its next
 pass and needs no restart. `show` prints the binding first.
 

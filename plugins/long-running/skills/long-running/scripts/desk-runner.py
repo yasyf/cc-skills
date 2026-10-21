@@ -169,8 +169,10 @@ terminal: each orca call and each launcher it starts carries ORCA_TERMINAL_HANDL
 coordinator and an empty ORCA_PANE_KEY, so a root that rotates to a new terminal needs no
 runner restart. It records the coordinator, the Run's generation, and how the binding was
 obtained, at start and before each pass that launches. When the Run has no coordinator, or
-Orca finds that terminal gone, it refuses to start and prints the rebind command; a binding
-lost mid-run holds every launch and escalates UNBOUND once. `rebind` runs
+Orca finds that terminal gone, a runner started inside an Orca terminal rebinds the Run to
+that terminal, and one started outside any refuses to start and prints the rebind command; a
+binding lost mid-run escalates UNBOUND once and fails every launch at once with
+`LAUNCH-FAILED`, which no incident clock defers. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
 binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
@@ -1155,15 +1157,16 @@ class Runner:
         return f"binding: terminal {state['terminal']} coordinates {state['run']} at generation {state['generation']}, via {state['via']}; checked {checked}"
 
     def bound_for_launch(self) -> bool:
-        """Check the binding once per delivery pass that launches; an unbound runner holds its launches and escalates once per binding state."""
+        """Check the binding once per delivery pass that launches; an unbound runner fails its launches and escalates once per binding state."""
         if self.pass_binding is None:
             self.pass_binding = self.binding()
             state = self.pass_binding
             if not state["bound"]:
-                self.escalate(f"unbound:{state['terminal']}:{state['generation']}", "UNBOUND", "runner", f"{self.unbound(state)}; launches wait until it is bound")
+                self.escalate(f"unbound:{state['terminal']}:{state['generation']}", "UNBOUND", "runner", f"{self.unbound(state)}; each launch fails with LAUNCH-FAILED until it is bound")
         return self.pass_binding["bound"]
 
     def rebind(self) -> int:
+        self.orca.sender = {}
         if not self.shell.env("ORCA_TERMINAL_HANDLE"):
             print(f"desk-runner rebind: no ORCA_TERMINAL_HANDLE; run `{self.rebind_command()}` from the coordinator's Orca terminal", file=sys.stderr)
             return 3
@@ -1936,12 +1939,13 @@ class Runner:
         """Start orca-launch.sh, or worker-launch.sh for a Sprite, detached, so a readiness wait never holds a relay; `reap` records its printed line."""
         spec = json.loads(action.target)
         if not self.bound_for_launch():
+            self.refuse_launch(container, lane, action, f"an unbound runner: {self.pass_binding['why']}", f"the root launches it by hand with orca-launch.sh, or runs `{self.rebind_command()}` from its own terminal and submits it again under a new key")
             return
         refusal = self.sprite_refusal(lane, spec)
         if refusal is not None and (held := self.load_refusal()):
             self.move_load(held)
             if spec["urgent"]:
-                self.refuse_launch(container, lane, action, held)
+                self.refuse_launch(container, lane, action, held, "the root launches it in-process or once the load is moved")
             elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                 self.expire_launch(container, lane, action, held)
             return
@@ -1990,10 +1994,10 @@ class Runner:
         """Tell the root, once per ten minutes, that launches are refused on load and that the load has to move."""
         self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
 
-    def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
-        """Fail an incident or owner-directed launch at once on load, since it cannot wait out the hold."""
+    def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
+        """Fail a launch at once that cannot wait: an incident or owner-directed one on load, or any on an unbound runner."""
         key = action.action_id
-        text = f"{key} refused on {held}; nothing was launched, and the root launches it in-process or once the load is moved"
+        text = f"{key} refused on {held}; nothing was launched, and {remedy}"
         if self.book.attempt(container, lambda incident: incident.fail(key, text)):
             self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, text)
 
@@ -3824,6 +3828,8 @@ def seed_policy(runner: Runner) -> None:
 
 def run_orca(runner: Runner, once: bool) -> int:
     state = runner.binding()
+    if not state["bound"] and runner.shell.env("ORCA_TERMINAL_HANDLE") and runner.rebind() == 0:
+        state = runner.binding()
     if not state["bound"]:
         runner.escalate(f"unbound:{state['terminal']}:{state['generation']}", "UNBOUND", "runner", f"{runner.unbound(state)}; the runner refused to start")
         runner.flush()

@@ -3980,7 +3980,8 @@ def accept_launch(shell: FakeShell, config: Path, tmp_path: Path) -> Path:
         ("", "Orca binds run_1 to no terminal"),
     ],
 )
-def test_a_run_with_no_live_coordinator_refuses_to_start_and_prints_the_rebind(shell, config, tmp_path, capsys, coordinator, why):
+def test_a_runner_outside_orca_with_no_live_coordinator_refuses_to_start_and_prints_the_rebind(shell, config, tmp_path, capsys, coordinator, why):
+    shell.environ = {}
     shell.coordinator = coordinator
     shell.dead = {"term_dead"}
     accept_launch(shell, config, tmp_path)
@@ -3995,6 +3996,21 @@ def test_a_run_with_no_live_coordinator_refuses_to_start_and_prints_the_rebind(s
     assert binding["bound"] is False and binding["why"] == why
     assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
     assert len(escalations(shell)) == 1
+
+
+@pytest.mark.parametrize("coordinator", ["term_dead", ""])
+def test_a_runner_restarted_inside_orca_with_no_live_coordinator_rebinds_the_run_to_its_own_terminal(shell, config, tmp_path, capsys, coordinator):
+    shell.coordinator = coordinator
+    shell.dead = {"term_dead"}
+    brief = accept_launch(shell, config, tmp_path)
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 0
+    assert orca_calls(shell, "run-use") == [["orca", "orchestration", "run-use", "--id", "run_1", "--json"]]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert shell.spawned_env["orca-launch.sh"]["ORCA_TERMINAL_HANDLE"] == "term_root"
+    assert escalations(shell) == []
+    binding = incident(tmp_path, "desk-runner").facts["binding"]
+    assert (binding["terminal"], binding["generation"], binding["bound"]) == ("term_root", 4, True)
+    assert binding["via"] == f"orca orchestration run-use by desk-runner rebind at 11:00, replacing {coordinator or 'no terminal'} at generation 3"
 
 
 def test_a_runner_whose_own_terminal_is_gone_acts_as_the_coordinator_the_run_names(shell, config, tmp_path):
@@ -4024,24 +4040,46 @@ def test_a_running_runner_follows_the_coordinator_to_a_new_terminal(shell, confi
     assert escalations(shell) == []
 
 
-def test_a_coordinator_that_dies_mid_run_holds_launches_and_escalates_once_until_rebind(shell, config, tmp_path):
+@pytest.mark.parametrize(("model", "flags"), [("sol", ()), ("incident", ()), ("opus", ("--owner-directed",))])
+def test_a_coordinator_that_dies_mid_run_fails_each_launch_at_once_and_escalates_unbound_once(shell, config, tmp_path, model, flags):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     assert runner.binding()["bound"]
-    brief = accept_launch(shell, config, tmp_path)
     shell.coordinator = "term_dead"
     shell.dead = {"term_dead"}
     shell.generation = 4
-    for _ in range(3):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    for key in ("R638", "R639"):
+        cli(shell, config, "launch", "--key", key, "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
         runner.deliver()
         runner.flush()
     assert launches(shell) == []
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-    [line] = escalations(shell)
-    assert "UNBOUND unbound:term_dead:4 runner: desk-runner cannot start workers on run_1: orca orchestration run-current as coordinator term_dead failed" in line
-    assert line.endswith("; launches wait until it is bound")
+    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
+    assert action.status == "failed"
+    assert action.reason.startswith("R638 refused on an unbound runner: orca orchestration run-current as coordinator term_dead failed")
+    assert action.reason.endswith(f"nothing was launched, and the root launches it by hand with orca-launch.sh, or runs `desk-runner.py rebind --config {config}` from its own terminal and submits it again under a new key")
+    lines = escalations(shell)
+    assert [line.split()[0] for line in lines] == ["UNBOUND", "LAUNCH-FAILED", "LAUNCH-FAILED"]
+    assert lines[0].endswith("; each launch fails with LAUNCH-FAILED until it is bound")
+    assert [post["kind"] for post in shell.posts] == ["blocker", "defect", "defect"]
     assert cli(shell, config, "rebind") == 0
+    cli(shell, config, "launch", "--key", "R640", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
     runner.deliver()
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert [call[1] for call in launches(shell)] == [LANE]
+
+
+def test_an_unbound_launch_fails_on_the_binding_before_the_load_is_read(shell, config, tmp_path):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    shell.cpu_load = 40
+    shell.coordinator = "term_dead"
+    shell.dead = {"term_dead"}
+    runner.deliver()
+    runner.flush()
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].reason.startswith("R638 refused on an unbound runner:")
+    assert [line.split()[0] for line in escalations(shell)] == ["UNBOUND", "LAUNCH-FAILED"]
 
 
 def test_rebind_moves_the_run_to_this_terminal_and_records_how(shell, config, tmp_path, capsys):
@@ -4093,22 +4131,6 @@ def test_launch_failed_carries_the_launchs_own_failure_line(shell, config, tmp_p
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].reason == reason
     [line] = escalations(shell)
     assert line == f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
-
-
-def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(shell, config, tmp_path):
-    brief = tmp_path / "fix.md"
-    brief.write_text("brief")
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
-    shell.cpu_load = 40
-    shell.coordinator = "term_dead"
-    shell.dead = {"term_dead"}
-    for _ in range(8):
-        runner.deliver()
-        runner.flush()
-        shell.sleep(60)
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-    assert [line.split()[0] for line in escalations(shell)] == ["UNBOUND"] and [post["kind"] for post in shell.posts] == ["blocker"]
 
 
 def desk_inbox(tmp_path: Path, *lines: str) -> None:
