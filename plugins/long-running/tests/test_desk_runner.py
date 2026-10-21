@@ -5366,6 +5366,8 @@ def test_a_refusal_that_says_a_release_already_ships_the_commit_reaches_the_manu
     orca_pass(shell, config)
     shell.sleep(4 * 60)
     orca_pass(shell, config)
+    shell.sleep(60)
+    orca_pass(shell, config)
     seq = cci_record(shell, lane=WALKER, kind="refuse", refs={"targets": ["sand"]}, at=actions.stamp(shell.now()), text="start refused: release 2026-10-20/33 already ships sand at `6de9540` or later")
     orca_pass(shell, config)
     relay = incident(tmp_path, "desk-lane-manual-release-sand").actions[f"cut-refuse:{seq}"]
