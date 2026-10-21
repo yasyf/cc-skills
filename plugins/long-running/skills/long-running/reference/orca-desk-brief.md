@@ -224,7 +224,13 @@ record starting `OPENED`, `BLOCKER`, `READY`, or `NOT-OURS`, from the lane or it
 `-opus` pair within `deadlines.pr_silent_minutes` (default 10), the runner logs a
 `PR-SILENT` blocker, then again every `deadlines.pr_silent_every_minutes` (default 5).
 It fires only for a lane that owns a worktree or owes a PR, as a fix lane the
-runner launched or one named `-fix`, `-fix-<n>`, `-opus`, or `-case<n>` does.
+runner launched or one named `-fix`, `-fix-<n>`, `-opus`, or `-case<n>` does. A lane whose name or brief, `<state>/briefs/<lane>.md`
+or `<state>/<lane>/brief.md`, names an evidence, proof, closeout, desk, or audit
+role never fires it. Any lane's `opened`, `head`, `ready`, or `fix-live` answers the
+mechanism when it names the seq with `--re`, shares the topic, or names one of its
+incident tags. A root `go` or `decision` answers it the same way. `SAND-5A`,
+`[SAND-5A]`, and `SAND5A` read as one tag, and an answer posted before the
+mechanism counts too.
 
 The line carries `lanes.lane_status`, the code behind `drive.py lane-status <lane>`.
 It names every worktree the lane owns, found from the runner's launch receipts, the

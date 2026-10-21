@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import cci
+
 Run = Callable[[list[str]], str]
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
 DIRTY_NAMED = 5
@@ -27,6 +29,9 @@ SHORT = 10
 PR_REF = re.compile(r"(?:^|#)(\d+)$")
 CHECK_FAILED = frozenset({"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"})
 CHECK_PASSED = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
+ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
+TITLE_ROLES = frozenset({"evidence", "proof", "closeout", "audit"})
+NOT_FIX_ROLES = frozenset({"evidence", "proof", "closeout", "desk", "audit"})
 
 
 @dataclass
@@ -156,3 +161,40 @@ def summary(lane: str, worktrees: list[Worktree]) -> str:
     if not worktrees:
         return f"no worktree found for lane {lane}"
     return " | ".join(worktree.line().removeprefix("- ") for worktree in worktrees)
+
+
+def brief_roles(state: Path, lane: str) -> set[str]:
+    """The roles an in-process lane's brief names, from `<state>/briefs/<lane>.md` or `<state>/<lane>/brief.md`: its `ccx:` line's `role=`, and an evidence, proof, closeout, or audit word in its title line."""
+    brief = next((path for path in (state / "briefs" / f"{lane}.md", state / lane / "brief.md") if path.is_file()), None)
+    if brief is None:
+        return set()
+    text = brief.read_text()
+    title = next((line for line in text.splitlines() if line.startswith("# ")), "")
+    return set(ROLE.findall(text)) | (TITLE_ROLES & set(re.findall(r"[a-z]+", title.lower())))
+
+
+def owes_no_pr(state: Path, lane: str) -> bool:
+    """Whether the lane's name or brief makes it an evidence, proof, closeout, desk, or audit lane, which never owes a PR."""
+    return bool(NOT_FIX_ROLES & {*lane.split("-"), *brief_roles(state, lane)})
+
+
+def owed_mechanism(lane: str, records: list[dict]) -> dict | None:
+    """The lane's mechanism still owed a PR: its newest MECHANISM or CANDIDATE that no settling record of its own, and no PR, ready, fix-live, or root go from any lane for the same incident, has answered since or before."""
+    answered: set[str] = set()
+    owed: dict | None = None
+    for record in sorted(records, key=lambda record: record["seq"]):
+        if answers := cci.answers_mechanism(record):
+            answered |= answers
+            if owed and answers & owed_keys(owed):
+                owed = None
+        if record["lane"] != lane:
+            continue
+        if cci.mechanism_mark(record):
+            owed = None if cci.incident_keys(record) & answered else record
+        elif cci.settles_mechanism(record):
+            owed = None
+    return owed
+
+
+def owed_keys(record: dict) -> set[str]:
+    return cci.incident_keys(record) | {f"seq:{record['seq']}"}

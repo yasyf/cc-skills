@@ -118,13 +118,17 @@ The clock closes silently once the landing it holds settles, the root posts `--r
 `release` or `fix-live` record since it opened names one of its PRs, or the order resolves the lane's answering record.
 A mechanism-to-PR clock covers every incident fix lane, the runner's and those the root
 started in-process: a lane the runner launched as a fix lane, or, launched elsewhere, one named
-`inc-`, `incident-`, or `outage-` and not `-evidence`. Each pass reads the drive's records past a
+`inc-`, `incident-`, or `outage-` whose name or brief, `<state>/briefs/<lane>.md` or
+`<state>/<lane>/brief.md`, names no evidence, proof, closeout, desk, or audit role. Each pass reads the drive's records past a
 saved cursor, the last hour on a first read. A `mechanism` record, or a `report`, `incident`, or
 `state` whose text starts `MECHANISM` or `CANDIDATE`, starts the lane's clock. An `opened`, `head`,
 `ready`, `blocker`, `blocked`, or closing record, or such a text record starting `OPENED`, `BLOCKER`,
 `READY`, or `NOT-OURS`, from the lane or the other of its `<name>` and `<name>-opus` pair, under
 either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed to the lane and a
-root `--re` or `--resolves` naming one of its PR-SILENT records. At
+root `--re` or `--resolves` naming one of its PR-SILENT records. So does any lane's `opened`, `head`,
+`ready`, or `fix-live`, or a root `go` or `decision`, that answers the mechanism: one that names its
+seq with `--re`, shares its topic, or names one of its incident tags, where `SAND-5A`, `[SAND-5A]`, and
+`SAND5A` are one tag. An answer posted before the mechanism counts, so that mechanism starts no clock. At
 `deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
 `deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
 `PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; <lane status> | <lane>: …`,
@@ -508,7 +512,7 @@ LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 PR_SILENT_HORIZON = timedelta(hours=1)
-EVIDENCE_LANE = re.compile(r"-evidence$")
+ANSWERS_KEPT = 2000
 LANE_RECORDS = timedelta(days=1)
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
@@ -2542,21 +2546,28 @@ class Runner:
         """Read the drive's records since the saved cursor, or the last `PR_SILENT_HORIZON` on a first read, into the incident lanes whose mechanism waits on a PR."""
         kept = self.book.load(RUNNER).facts.get(PR_SILENT) or {}
         pending = {lane: dict(mechanism) for lane, mechanism in (kept.get("lanes") or {}).items()}
+        answered = dict(kept.get("answered") or {})
         state = {key: value for key, value in kept.items() if key == "cursor"}
         for record in cci.records(self.cci_tail, self.config.drive, since=kept.get("cursor") or actions.stamp(self.now() - PR_SILENT_HORIZON)):
             if record["drive"] != self.config.drive:
                 continue
             state["cursor"] = max(state.get("cursor", 0), record["seq"])
-            self.pr_silent_read(record, pending)
+            self.pr_silent_read(record, pending, answered)
         state["lanes"] = pending
+        state["answered"] = dict(sorted(answered.items(), key=lambda item: item[1])[-ANSWERS_KEPT:])
         if state != kept:
             self.book.edit(RUNNER, lambda incident: incident.facts.update({PR_SILENT: state}))
         return pending
 
-    def pr_silent_read(self, record: dict, pending: dict[str, dict]) -> None:
+    def pr_silent_read(self, record: dict, pending: dict[str, dict], answered: dict[str, int]) -> None:
         lane = record["lane"]
         if lane == RUNNER:
             return
+        if answers := cci.answers_mechanism(record):
+            answered.update(dict.fromkeys(answers, record["seq"]))
+            for silent, mechanism in list(pending.items()):
+                if answers & set(mechanism.get("keys") or [f"seq:{mechanism['seq']}"]):
+                    pending.pop(silent)
         if lane == ROOT:
             names, answered = set(record.get("to") or []), {record.get("resolves"), record.get("re")} - {None}
             for silent, mechanism in list(pending.items()):
@@ -2564,18 +2575,20 @@ class Runner:
                     pending.pop(silent)
             return
         if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
-            pending.setdefault(lane, {"seq": record["seq"], "at": record["at"], "mark": mark})
+            keys = cci.incident_keys(record)
+            if lane not in pending and not keys & set(answered):
+                pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}"})}
         elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
                 pending.pop(silent)
 
     def pr_silent_lane(self, lane: str) -> bool:
-        """Whether a lane is an incident fix lane: one the runner launched as a fix lane, or, launched elsewhere, one named `inc-`, `incident-`, or `outage-` that is no `-evidence` lane."""
+        """Whether a lane is an incident fix lane: one the runner launched as a fix lane, or, launched elsewhere, one named `inc-`, `incident-`, or `outage-` whose name and brief name no evidence, proof, closeout, desk, or audit role."""
         container = lane_container(lane)
         incident = self.book.load(container) if container in self.book.store.ids() else None
         if incident and any(action.kind == "launch" and action.status == "verified" for action in incident.actions.values()):
             return fix_launch(incident) is not None
-        return bool(cci.INCIDENT_LANE.match(lane)) and not EVIDENCE_LANE.search(lane)
+        return bool(cci.INCIDENT_LANE.match(lane)) and not lanes.owes_no_pr(self.config.desk_inbox.parent.parent, lane)
 
     def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
         """The cci seqs of every PR-SILENT the runner posted for this mechanism."""

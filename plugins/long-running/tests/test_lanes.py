@@ -29,7 +29,13 @@ class LaneShell(ledger.Shell):
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         if argv[:2] == ["cci", "tail"]:
             since = argv[argv.index("--since") + 1]
-            return "".join(json.dumps(record) + "\n" for record in self.records if not since.isdigit() or record["seq"] > int(since))
+            kinds = {arg.removeprefix("--kind=") for arg in argv if arg.startswith("--kind=")}
+            lanes = {argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"}
+            return "".join(
+                json.dumps(record) + "\n"
+                for record in self.records
+                if (not since.isdigit() or record["seq"] > int(since)) and (not kinds or record["kind"] in kinds) and (not lanes or record["lane"] in lanes)
+            )
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return f"#{len(self.posts)}\n"
@@ -135,3 +141,42 @@ def test_worktree_posts_one_record_naming_the_lanes_worktree_and_branch(home, tm
     assert flags["--id"] == f"worktree:{LANE}:{path}" and flags["--kind"] == "state" and flags["--drive"] == "d1"
     assert flags["--text"] == f"WORKTREE {LANE} {path} inc-liam-fork-parent-grant"
     assert [post[index + 1] for index, arg in enumerate(post) if arg == "--attr"] == [f"worktree={path}", "branch=inc-liam-fork-parent-grant"]
+
+
+def pr_owed(shell: LaneShell, lane: str, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    code = drive.main(["pr-owed", lane], shell)
+    return code, capsys.readouterr().out.strip()
+
+
+def posted(seq: int, lane: str, kind: str, text: str, **fields) -> dict:
+    return {"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "text": text, **fields}
+
+
+def test_pr_owed_names_a_mechanism_no_lane_has_answered(home, capsys):
+    shell = LaneShell()
+    shell.records = [posted(5, "inc-chats-load-fix-2", "mechanism", "SAND-3K partial mechanism: live 500 open loop"), posted(6, "inc-sync-fix", "opened", "OPENED pr#41470 [SAND-3Y] the sync toast")]
+
+    assert pr_owed(shell, "inc-chats-load-fix-2", capsys) == (0, "owed: MECHANISM #5")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        posted(7, "inc-sand3k-fix", "opened", "SAND-3K fix PR #41471 at 40cc7d1d277"),
+        posted(7, "inc-other-fix", "head", "HEAD pr#41471", re=5),
+        posted(7, "root", "go", "GO inc-sand3k-fix: ship the SAND3K fix"),
+        posted(4, "inc-malformed-row-5a", "opened", "OPENED pr#41468", topic="SAND-3K"),
+    ],
+)
+def test_pr_owed_reads_a_pr_from_any_lane_for_the_same_incident_as_the_answer(home, capsys, answer):
+    shell = LaneShell()
+    shell.records = [posted(5, "inc-chats-load-fix-2", "mechanism", "SAND-3K partial mechanism"), answer]
+
+    assert pr_owed(shell, "inc-chats-load-fix-2", capsys) == (1, "not owed: no mechanism of inc-chats-load-fix-2 waits on a PR")
+
+
+def test_pr_owed_never_holds_a_closeout_or_proof_lane(home, capsys):
+    shell = LaneShell()
+    shell.records = [posted(5, "incident-closeout", "mechanism", "SAND5A exact 50566ea9")]
+
+    assert pr_owed(shell, "incident-closeout", capsys) == (1, "not owed: incident-closeout is an evidence, proof, closeout, desk, or audit lane")
