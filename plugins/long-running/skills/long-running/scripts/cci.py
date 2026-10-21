@@ -9,8 +9,8 @@ PAGE_BYTES = 16000
 CLAIM_KINDS = ("opened", "head")
 
 
-def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int = 0) -> list[dict]:
-    """Every record on `drive` after sequence `since` that matches the `cci tail` filters, paged by sequence; touches no cursor."""
+def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor."""
     found: list[dict] = []
     while True:
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])

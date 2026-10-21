@@ -116,6 +116,21 @@ relays to it each later `refuse` that says a release already ships the commit or
 the CUT-SILENT posts and fails as WITHDRAWN when the root resolves the CUT-SILENT or the order is answered or closed first.
 The clock closes silently once the landing it holds settles, the root posts `--resolves` on the order, another lane's
 `release` or `fix-live` record since it opened names one of its PRs, or the order resolves the lane's answering record.
+A mechanism-to-PR clock covers every incident fix lane, the runner's and those the root
+started in-process: a lane the runner launched as a fix lane, or, launched elsewhere, one named
+`inc-`, `incident-`, or `outage-` and not `-evidence`. Each pass reads the drive's records past a
+saved cursor, the last hour on a first read. A `mechanism` record, or a `report`, `incident`, or
+`state` whose text starts `MECHANISM` or `CANDIDATE`, starts the lane's clock. An `opened`, `head`,
+`ready`, `blocker`, `blocked`, or closing record, or such a text record starting `OPENED`, `BLOCKER`,
+`READY`, or `NOT-OURS`, from the lane or the other of its `<name>` and `<name>-opus` pair, under
+either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed to the lane and a
+root `--re` or `--resolves` naming one of its PR-SILENT records. At
+`deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
+`deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
+`PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; worktree <path>: <branch>, <n> dirty files: <files>, last commit <n> min ago <sha> <subject> | <lane>: …`,
+reading the worktree from the lane's `<lane>.worktree` launch receipt or `orca.worktrees/<lane>`,
+which defaults to `~/.claude/worktrees/<landing.repo name>`, or says `no worktree at <path>`. It is
+a blocker and never deferred.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -284,7 +299,7 @@ inbox append or an exiting launch, and its sweep shows only dispatches it has no
 named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -332,7 +347,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "GATES-REDISPATCH": "state", "CUT-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "GATES-REDISPATCH": "state", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -484,6 +499,15 @@ FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
+PR_SILENT = "pr-silent"
+PR_SILENT_HORIZON = timedelta(hours=1)
+PR_SILENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
+EVIDENCE_LANE = re.compile(r"-evidence$")
+PR_SILENT_MARK = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
+PR_SILENT_CLEAR = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS)\b")
+PR_SILENT_TEXT_KINDS = ("report", "incident", "state")
+PR_SILENT_CLEARS = frozenset({"opened", "head", "ready", "blocker", "blocked", *CLOCK_ENDS})
+DIRTY_NAMED = 5
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
 # {backup}: Opus fallback for {lane}
@@ -637,6 +661,16 @@ def lane_aliases(lane: str) -> tuple[str, str]:
     return base, f"{base}{FIX_ALIAS}"
 
 
+def pr_family(lane: str) -> str:
+    """The name one incident's fix lane and its Opus fallback share, so the first PR either opens settles both."""
+    return lane.removesuffix(CLOCK_FALLBACK).removesuffix(FIX_ALIAS)
+
+
+def pr_silent_clears(record: dict) -> bool:
+    """Whether a lane's record says it opened a PR, hit a blocker, or ended: its kind, or a `report`, `incident`, or `state` whose text starts OPENED, BLOCKER, READY, or NOT-OURS."""
+    return record["kind"] in PR_SILENT_CLEARS or (record["kind"] in PR_SILENT_TEXT_KINDS and bool(PR_SILENT_CLEAR.match(record.get("text") or "")))
+
+
 def whole_minutes(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds() // 60)
 
@@ -726,6 +760,9 @@ class Config:
     incident_mechanism_minutes: int
     incident_pr_minutes: int
     incident_ready_minutes: int
+    pr_silent_minutes: int
+    pr_silent_every_minutes: int
+    worktrees: Path
     case_lanes: int
     landing: dict | None
     alert_facts: Path | None
@@ -760,6 +797,9 @@ class Config:
             incident_mechanism_minutes=deadlines.get("incident_mechanism_minutes", 10),
             incident_pr_minutes=deadlines.get("incident_pr_minutes", 15),
             incident_ready_minutes=deadlines.get("incident_ready_minutes", 20),
+            pr_silent_minutes=deadlines.get("pr_silent_minutes", 10),
+            pr_silent_every_minutes=deadlines.get("pr_silent_every_minutes", 5),
+            worktrees=Path(orca["worktrees"]).expanduser() if orca.get("worktrees") else Path.home() / ".claude" / "worktrees" / ((raw.get("landing") or {}).get("repo", "").rpartition("/")[2] or Path(orca["briefs"]["repo"]).name),
             case_lanes=raw.get("incident", {}).get("case_lanes", 2),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
@@ -2476,6 +2516,93 @@ class Runner:
         self.accept_launch(key, backup, "opus", "xhigh", str(attached), True, fast=True)
         return f"the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {attached}"
 
+    def pr_silent(self) -> None:
+        """Hold each incident fix lane's mechanism to `deadlines.pr_silent_minutes`: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since logs one PR-SILENT naming the lane's worktree state, and again every `deadlines.pr_silent_every_minutes` until one lands, the lane ends, or the root answers it."""
+        try:
+            pending = self.pr_silent_scan()
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
+        after, every = timedelta(minutes=self.config.pr_silent_minutes), timedelta(minutes=self.config.pr_silent_every_minutes)
+        for lane, mechanism in pending.items():
+            at = actions.parse_stamp(mechanism["at"])
+            elapsed = self.now() - at
+            log = f"escalation:{PR_SILENT}:{lane}:{mechanism['seq']}:{(elapsed - after) // every}"
+            if elapsed < after or self.withdrawn_by(lane) or self.book.known(RUNNER, log):
+                continue
+            self.record(
+                log,
+                f"PR-SILENT {lane} #{mechanism['seq']}: {mechanism['mark']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no OPENED or BLOCKER record; {self.worktree_state(lane)} | {lane}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER",
+            )
+
+    def pr_silent_scan(self) -> dict[str, dict]:
+        """Read the drive's records since the saved cursor, or the last `PR_SILENT_HORIZON` on a first read, into the incident lanes whose mechanism waits on a PR."""
+        kept = self.book.load(RUNNER).facts.get(PR_SILENT) or {}
+        pending = {lane: dict(mechanism) for lane, mechanism in (kept.get("lanes") or {}).items()}
+        state = {key: value for key, value in kept.items() if key == "cursor"}
+        for record in cci.records(self.cci_tail, self.config.drive, since=kept.get("cursor") or actions.stamp(self.now() - PR_SILENT_HORIZON)):
+            if record["drive"] != self.config.drive:
+                continue
+            state["cursor"] = max(state.get("cursor", 0), record["seq"])
+            self.pr_silent_read(record, pending)
+        state["lanes"] = pending
+        if state != kept:
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({PR_SILENT: state}))
+        return pending
+
+    def pr_silent_read(self, record: dict, pending: dict[str, dict]) -> None:
+        lane = record["lane"]
+        if lane == RUNNER:
+            return
+        if lane == ROOT:
+            names, answered = set(record.get("to") or []), {record.get("resolves"), record.get("re")} - {None}
+            for silent, mechanism in list(pending.items()):
+                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(lane_aliases(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
+                    pending.pop(silent)
+            return
+        if mark := self.pr_silent_mark(record):
+            pending.setdefault(lane, {"seq": record["seq"], "at": record["at"], "mark": mark})
+        elif pr_silent_clears(record):
+            for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
+                pending.pop(silent)
+
+    def pr_silent_mark(self, record: dict) -> str:
+        """MECHANISM or CANDIDATE when an incident fix lane's record names one, else empty."""
+        text = PR_SILENT_MARK.match(record.get("text") or "") if record["kind"] in PR_SILENT_TEXT_KINDS else None
+        mark = "MECHANISM" if record["kind"] == "mechanism" else text["mark"] if text else ""
+        return mark if mark and self.pr_silent_lane(record["lane"]) else ""
+
+    def pr_silent_lane(self, lane: str) -> bool:
+        """Whether a lane is an incident fix lane: one the runner launched as a fix lane, or, launched elsewhere, one named `inc-`, `incident-`, or `outage-` that is no `-evidence` lane."""
+        container = lane_container(lane)
+        incident = self.book.load(container) if container in self.book.store.ids() else None
+        if incident and any(action.kind == "launch" and action.status == "verified" for action in incident.actions.values()):
+            return fix_launch(incident) is not None
+        return bool(PR_SILENT_LANE.match(lane)) and not EVIDENCE_LANE.search(lane)
+
+    def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
+        """The cci seqs of every PR-SILENT the runner posted for this mechanism."""
+        prefix = f"escalation:{PR_SILENT}:{lane}:{seq}:"
+        return {int(found[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (found := POSTED.search((action.response or {}).get("posted", "")))}
+
+    def worktree_state(self, lane: str) -> str:
+        """The lane's worktree, from its launch receipt or the drive's worktree root: branch, dirty files, and the age of its last commit."""
+        receipt = self.config.receipts / f"{lane}.worktree"
+        path = Path(receipt.read_text().strip()) if receipt.is_file() else self.config.worktrees / lane
+        if not path.is_dir():
+            return f"no worktree at {path}"
+        status = self.shell.run(["git", "-C", str(path), "status", "--short", "--branch"])
+        if status.code:
+            return f"worktree {path}: git status exited {status.code}: {(status.err or status.out).strip()[:200]}"
+        branch, *dirty = status.out.splitlines()
+        files = [line[3:] for line in dirty]
+        more = f" and {len(files) - DIRTY_NAMED} more" if len(files) > DIRTY_NAMED else ""
+        named = f": {', '.join(files[:DIRTY_NAMED])}{more}" if files else ""
+        last = self.shell.run(["git", "-C", str(path), "log", "-1", "--format=%ct %h %s"])
+        stamp, _, subject = last.out.strip().partition(" ")
+        commit = f"last commit {whole_minutes(datetime.fromtimestamp(int(stamp), timezone.utc), self.now())} min ago {subject}" if last.code == 0 and stamp else "no commit"
+        return f"worktree {path}: {branch.removeprefix('## ')}, {len(files)} dirty file{'' if len(files) == 1 else 's'}{named}, {commit}"
+
     def in_process(self) -> None:
         """While a fix lane's clock runs, launch its Opus fallback once more after a failed Orca launch, and after a second failure tell the root to start it in-process."""
         for container in self.book.containers(LANE_PREFIX):
@@ -3848,6 +3975,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                     swept = runner.now()
             runner.deadlines_orca()
             runner.incident_clock()
+            runner.pr_silent()
             runner.in_process()
             runner.cut_clock()
         except OrcaUnreachable as down:

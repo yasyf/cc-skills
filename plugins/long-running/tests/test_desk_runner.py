@@ -142,6 +142,7 @@ class FakeShell(runner_module.Shell):
         self.live: dict[str, dict] = {}
         self.running: list[dict] = []
         self.ancestors: set[tuple[str, str]] = set()
+        self.worktrees: dict[str, dict[str, str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -205,6 +206,9 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "--is-ancestor"]:
             return runner_module.Done(0 if tuple(argv[5:]) in self.ancestors else 1, "", "")
+        if argv[:2] == ["git", "-C"] and argv[2] in self.worktrees:
+            assert argv[3:] in (["status", "--short", "--branch"], ["log", "-1", "--format=%ct %h %s"])
+            return runner_module.Done(0, self.worktrees[argv[2]][argv[3]], "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
@@ -327,13 +331,13 @@ class FakeShell(runner_module.Shell):
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
         assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
-        since = int(argv[argv.index("--since") + 1])
+        since = argv[argv.index("--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
         found = [
             record
             for record in self.records
-            if record["seq"] > since
+            if (record["seq"] > int(since) if since.isdigit() else "at" in record and actions.parse_stamp(record["at"]) >= actions.parse_stamp(since))
             and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
             and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
@@ -6428,3 +6432,119 @@ def test_a_queue_draft_listing_github_refuses_is_reported_once_per_hour(shell, c
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [post["kind"] for post in shell.posts] == ["defect"] and shell.workflow_runs == []
+
+
+SILENT_LANE = "inc-liam-load-opus"
+
+
+def silent_lines(shell: FakeShell, lane: str = SILENT_LANE) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith(f"PR-SILENT {lane} ")]
+
+
+def lane_worktree(shell: FakeShell, path: Path, status: str = "## HEAD (no branch)\n", committed: timedelta = timedelta(hours=2)) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    shell.worktrees[str(path)] = {"status": status, "log": f"{int((shell.clock - committed).timestamp())} 1a2b3c4 dev: bump the sidecar\n"}
+    return path
+
+
+def test_an_incident_lanes_mechanism_with_no_pr_or_blocker_escalates_pr_silent_with_its_worktree_every_five_minutes(shell, config, tmp_path):
+    orca_pass(shell, config)
+    worktree = lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo" / SILENT_LANE)
+    mechanism = cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="liam-load NOT retention: SAND-59 is a fork", at=actions.stamp(shell.clock), to=["root"])
+    shell.sleep(9 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+    shell.sleep(60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == [
+        f"PR-SILENT {SILENT_LANE} #{mechanism}: MECHANISM at 11:00, 10 min with no OPENED or BLOCKER record; worktree {worktree}: HEAD (no branch), 0 dirty files, last commit 130 min ago 1a2b3c4 dev: bump the sidecar | {SILENT_LANE}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER"
+    ]
+    assert [(post["kind"], post["topic"]) for post in shell.posts if post["text"].startswith("PR-SILENT ")] == [("blocker", SILENT_LANE)]
+    shell.sleep(4 * 60)
+    orca_pass(shell, config)
+    assert len(silent_lines(shell)) == 1
+    shell.sleep(60)
+    orca_pass(shell, config)
+    assert [line.split(";", 1)[0] for line in silent_lines(shell)][1] == f"PR-SILENT {SILENT_LANE} #{mechanism}: MECHANISM at 11:00, 15 min with no OPENED or BLOCKER record"
+    lane_record(shell, SILENT_LANE, "opened", pr=["Forge-AI/monorepo#41461"])
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert len(silent_lines(shell)) == 2
+
+
+def test_a_dirty_worktree_names_its_branch_and_files_and_a_missing_one_says_so(shell, config, tmp_path):
+    orca_pass(shell, config)
+    worktree = lane_worktree(shell, tmp_path / ".claude/worktrees/monorepo" / SILENT_LANE, status="## inc-liam-load-opus\n M rust/crates/sandsql-server/src/chain.rs\n?? rust/crates/sandsql-server/src/grant.rs\n", committed=timedelta(minutes=3))
+    cci_record(shell, lane=SILENT_LANE, kind="report", text="CANDIDATE chain.rs copies through the parent grant", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="inc-ghost-fix", kind="mechanism", text="the ghost fails", at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    [line] = silent_lines(shell)
+    assert f"; worktree {worktree}: inc-liam-load-opus, 2 dirty files: rust/crates/sandsql-server/src/chain.rs, rust/crates/sandsql-server/src/grant.rs, last commit 13 min ago 1a2b3c4 dev: bump the sidecar |" in line
+    assert line.startswith(f"PR-SILENT {SILENT_LANE} #") and ": CANDIDATE at 11:00, 10 min" in line
+    [ghost] = silent_lines(shell, "inc-ghost-fix")
+    assert f"; no worktree at {tmp_path / '.claude/worktrees/monorepo/inc-ghost-fix'} |" in ghost
+
+
+@pytest.mark.parametrize(
+    "ending",
+    ["blocker", "blocked", "opened-by-sibling", "ready", "not-ours", "root-stand-down", "root-stopped", "text-blocker"],
+)
+def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(shell, config, tmp_path, ending):
+    orca_pass(shell, config)
+    cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="the fork reads the parent", at=actions.stamp(shell.clock))
+    shell.sleep(4 * 60)
+    if ending == "opened-by-sibling":
+        lane_record(shell, "inc-liam-load-fix", "opened")
+    elif ending.startswith("root-"):
+        cci_record(shell, lane="root", kind=ending.removeprefix("root-"), text="stand down", at=actions.stamp(shell.clock), to=[SILENT_LANE])
+    elif ending == "text-blocker":
+        lane_record(shell, SILENT_LANE, "state", text="BLOCKER the grant needs an owner ruling")
+    else:
+        lane_record(shell, SILENT_LANE, ending)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+
+
+def test_a_root_resolve_of_a_pr_silent_ends_its_repeats(shell, config, tmp_path):
+    orca_pass(shell, config)
+    cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="the fork reads the parent", at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    [post] = [post for post in shell.posts if post["text"].startswith("PR-SILENT ")]
+    cci_record(shell, lane="root", kind="answer", text="known; it is writing", at=actions.stamp(shell.clock), resolves=shell.posts.index(post) + 1)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert len(silent_lines(shell)) == 1
+
+
+@pytest.mark.parametrize("lane", ["enum-local-client", "diag-env-not-found", "inc-fleet-evidence"])
+def test_a_mechanism_from_a_lane_that_is_no_incident_fix_lane_starts_no_pr_silent_clock(shell, config, tmp_path, lane):
+    orca_pass(shell, config)
+    cci_record(shell, lane=lane, kind="mechanism", text="the set is proven", at=actions.stamp(shell.clock))
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("PR-SILENT ")] == []
+
+
+def test_a_clocked_orca_fix_lane_reports_the_worktree_its_launch_receipt_names_and_is_never_deferred(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    worktree = lane_worktree(shell, tmp_path / "orca" / f"v3-{LANE}")
+    (shell.receipts / f"{LANE}.worktree").write_text(f"{worktree}\n")
+    shell.sleep(2 * 60)
+    lane_record(shell, LANE, "mechanism")
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = silent_lines(shell, LANE)
+    assert f"; worktree {worktree}: HEAD (no branch), 0 dirty files," in line
+    assert not [post for post in shell.posts if post["text"].startswith("DEFERRED ")]
+
+
+def test_a_mechanism_older_than_the_runners_first_read_window_starts_no_clock(shell, config, tmp_path):
+    cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="the fork reads the parent", at=actions.stamp(shell.clock - timedelta(hours=3)))
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
