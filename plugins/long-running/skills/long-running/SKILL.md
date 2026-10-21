@@ -3264,12 +3264,19 @@ suffix. They share a limit of ten entries, monitors first, then newest lanes, wi
 descriptions clipped to 120 characters. A final `- N more running lanes` line
 counts the rest.
 
+`Incident lanes` lists every `inc-`, `incident-`, or `outage-` lane that posted on the
+drive's cci in the last six hours, one line each as
+``- `<lane>`: last <kind> <n> min ago: <text>``. A lane whose newest `MECHANISM` or
+`CANDIDATE` has no `OPENED` or `BLOCKER` after it adds
+`| MECHANISM <n> min ago, no OPENED or BLOCKER since` and sorts first, so the root
+sees a lane that wrote no code without checking by hand.
+
 For at most ten `~/.claude/scratch/<slug>/inbox/*.md` files, the record carries one
 line each: `- <file>: head <id>, cursor <id>: <last ruling line>`. The cursor comes
 from `<file>.cursor`; the last ruling line is clipped to 120 characters and omitted
 when absent. A final `- N more inboxes` line counts the rest. Sections run in this order:
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
-monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
+monitors`, `Incident lanes`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
 `cci digest --drive <drive>`, then `cci tail --drive <drive>`,
 and the instruction never to tail, sed, or grep a whole inbox.

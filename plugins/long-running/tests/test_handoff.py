@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import handoff
@@ -91,6 +91,7 @@ class FakeCcn(ledger.Shell):
         self.registers: list[str] = []
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
         self.notes = CcnPlans([])
+        self.lane_records: list[dict] = []
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
@@ -109,8 +110,10 @@ class FakeCcn(ledger.Shell):
         self.calls.append(argv)
         if argv[:2] == ["cci", "tail"]:
             assert argv[3] == "brook"
-            since = int(argv[argv.index("--since") + 1])
-            return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > since)
+            since = argv[argv.index("--since") + 1]
+            if "--topic=standing" not in argv:
+                return "".join(json.dumps({"drive": "brook", **record}) + "\n" for record in self.lane_records if (record["seq"] > int(since) if since.isdigit() else record["at"] >= since))
+            return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > int(since))
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps({"id": argv[3], "rows": self.rows})
         assert argv[1:3] == ["-R", REPO], argv
@@ -680,3 +683,39 @@ def test_open_tasks_end_with_the_drive_plans_done_and_open_steps(drive_home: Pat
 
     tasks = body.split("## Open tasks\n")[1].split("\n\n")[0].splitlines()
     assert tasks == ["- none in progress", "- 1 pending in `TaskList`", "- Plan `fc8714e` Migration: 1 of 2 tasks done, 0 blocked; steps open: 2 0/1"]
+
+
+def lane_record(seq: int, lane: str, kind: str, text: str, minutes_ago: int) -> dict:
+    at = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"seq": seq, "lane": lane, "kind": kind, "text": text, "at": at}
+
+
+def test_the_handoff_lists_each_incident_lane_with_its_last_record_and_age(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.lane_records = [
+        lane_record(9, "inc-old-fix", "mechanism", "older than the window", 60 * 7),
+        lane_record(10, "inc-liam-load-fix", "mechanism", "the fork reads the parent", 30),
+        lane_record(11, "inc-liam-load-fix", "opened", "opened #41461", 20),
+        lane_record(12, "inc-liam-load-opus", "mechanism", "SAND-59 is a fork", 14),
+        lane_record(13, "enum-local-client", "mechanism", "the set is proven", 12),
+        lane_record(14, "inc-chats-load-fix", "report", "CANDIDATE the sidecar drops the lease", 9),
+        lane_record(15, "inc-chats-load-fix", "state", "still reading the sidecar log", 3),
+    ]
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert (
+        "## Incident lanes\n"
+        "- `inc-chats-load-fix`: last state 3 min ago: still reading the sidecar log | CANDIDATE 9 min ago, no OPENED or BLOCKER since\n"
+        "- `inc-liam-load-opus`: last mechanism 14 min ago: SAND-59 is a fork | MECHANISM 14 min ago, no OPENED or BLOCKER since\n"
+        "- `inc-liam-load-fix`: last opened 20 min ago: opened #41461\n"
+    ) in body
+    assert "enum-local-client" not in body and "inc-old-fix" not in body
+
+
+def test_a_drive_with_no_incident_lane_says_so(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert "## Incident lanes\n- none posted in the last 6 h\n" in body

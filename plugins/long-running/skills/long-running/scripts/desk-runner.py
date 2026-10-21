@@ -501,12 +501,7 @@ LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 PR_SILENT_HORIZON = timedelta(hours=1)
-PR_SILENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
 EVIDENCE_LANE = re.compile(r"-evidence$")
-PR_SILENT_MARK = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
-PR_SILENT_CLEAR = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS)\b")
-PR_SILENT_TEXT_KINDS = ("report", "incident", "state")
-PR_SILENT_CLEARS = frozenset({"opened", "head", "ready", "blocker", "blocked", *CLOCK_ENDS})
 DIRTY_NAMED = 5
 FALLBACK_BRIEF = """ccx: lane={backup} role=incident effort=xhigh
 
@@ -664,11 +659,6 @@ def lane_aliases(lane: str) -> tuple[str, str]:
 def pr_family(lane: str) -> str:
     """The name one incident's fix lane and its Opus fallback share, so the first PR either opens settles both."""
     return lane.removesuffix(CLOCK_FALLBACK).removesuffix(FIX_ALIAS)
-
-
-def pr_silent_clears(record: dict) -> bool:
-    """Whether a lane's record says it opened a PR, hit a blocker, or ended: its kind, or a `report`, `incident`, or `state` whose text starts OPENED, BLOCKER, READY, or NOT-OURS."""
-    return record["kind"] in PR_SILENT_CLEARS or (record["kind"] in PR_SILENT_TEXT_KINDS and bool(PR_SILENT_CLEAR.match(record.get("text") or "")))
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -2560,17 +2550,11 @@ class Runner:
                 if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(lane_aliases(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
                     pending.pop(silent)
             return
-        if mark := self.pr_silent_mark(record):
+        if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
             pending.setdefault(lane, {"seq": record["seq"], "at": record["at"], "mark": mark})
-        elif pr_silent_clears(record):
+        elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
                 pending.pop(silent)
-
-    def pr_silent_mark(self, record: dict) -> str:
-        """MECHANISM or CANDIDATE when an incident fix lane's record names one, else empty."""
-        text = PR_SILENT_MARK.match(record.get("text") or "") if record["kind"] in PR_SILENT_TEXT_KINDS else None
-        mark = "MECHANISM" if record["kind"] == "mechanism" else text["mark"] if text else ""
-        return mark if mark and self.pr_silent_lane(record["lane"]) else ""
 
     def pr_silent_lane(self, lane: str) -> bool:
         """Whether a lane is an incident fix lane: one the runner launched as a fix lane, or, launched elsewhere, one named `inc-`, `incident-`, or `outage-` that is no `-evidence` lane."""
@@ -2578,7 +2562,7 @@ class Runner:
         incident = self.book.load(container) if container in self.book.store.ids() else None
         if incident and any(action.kind == "launch" and action.status == "verified" for action in incident.actions.values()):
             return fix_launch(incident) is not None
-        return bool(PR_SILENT_LANE.match(lane)) and not EVIDENCE_LANE.search(lane)
+        return bool(cci.INCIDENT_LANE.match(lane)) and not EVIDENCE_LANE.search(lane)
 
     def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
         """The cci seqs of every PR-SILENT the runner posted for this mechanism."""
