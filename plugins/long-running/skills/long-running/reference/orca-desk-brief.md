@@ -223,16 +223,20 @@ does every fix lane the runner launched. A `mechanism` record, or a `report`,
 record starting `OPENED`, `BLOCKER`, `READY`, or `NOT-OURS`, from the lane or its
 `-opus` pair within `deadlines.pr_silent_minutes` (default 10), the runner logs a
 `PR-SILENT` blocker, then again every `deadlines.pr_silent_every_minutes` (default 5).
+It fires only for a lane that owns a worktree or owes a PR, as a fix lane the
+runner launched or one named `-fix`, `-fix-<n>`, `-opus`, or `-case<n>` does.
 
-The line carries the lane's worktree state from `git status --short --branch` and
-its last commit. The worktree path comes from the `<lane>.worktree` launch receipt,
-or else `orca.worktrees/<lane>`, which defaults to
-`~/.claude/worktrees/<landing.repo name>`. Incident clocks never defer it. A root
+The line carries `lanes.lane_status`, the code behind `drive.py lane-status <lane>`.
+It names every worktree the lane owns, found from the runner's launch receipts, the
+lane's cci records of the last day, the briefs checkout's `git worktree list`, and
+its PRs' head branches. Each worktree reads as branch, dirty files, commits ahead of
+`origin/dev`, last commit, push state from `git ls-remote`, and PR with CI state, or
+`no worktree found for lane <lane>`. Incident clocks never defer it. A root
 `stand-down` or `stopped` to the lane, or a root `--re` or `--resolves` on one of
 its lines, ends the repeats.
 
 ```text
-PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; worktree <path>: HEAD (no branch), 0 dirty files, last commit 130 min ago <sha> <subject> | <lane>: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER
+PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; <path> (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago <sha> <subject>, not pushed, no PR | <lane>: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER
 ```
 
 *Prevents the Oct 20 stall in which `inc-liam-load-opus` posted its mechanism at 9:11 PM and its worktree was still clean on a detached HEAD at 9:16 PM, which the root found only by checking by hand.*
@@ -813,7 +817,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
 | `RELEASE-HELD-AFTER-LANDING` | Lift the hold or wait order the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
-| `PR-SILENT` | Read the worktree state in the line. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
+| `PR-SILENT` | Read the code state in the line, or run `drive.py lane-status <lane>` for it now. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
 | `CUT-SILENT` | Ratify the `manual-release-<component>` lane the line names, or run its hand command in a lane when none launched; never order the silent release lane again. |
 | `PARKED` | None while the PR stays parked; its lane has no live dispatch or session, so its conflict routes to no one. Relaunch or reassign the lane to have the conflict routed. |
 | `DEFERRED` | Work each held escalation the line names, now that the incident clock has ended. |

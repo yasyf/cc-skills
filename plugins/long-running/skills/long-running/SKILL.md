@@ -595,23 +595,43 @@ stops the clock. Three rules keep the clock to the incident, not the lane:
 
 A second clock runs from each incident fix lane's mechanism, for in-process lanes
 too: any lane named `inc-`, `incident-`, or `outage-`, other than an `-evidence`
-lane, and every fix lane the runner launched. Ten minutes after a `MECHANISM` or
+lane, and every fix lane the runner launched. It fires only for a lane that owns a
+worktree or owes a PR, by its launch or by a `-fix`, `-fix-<n>`, `-opus`, or
+`-case<n>` name, so an evidence or closeout lane never fires it. Ten minutes after a `MECHANISM` or
 `CANDIDATE` record with no `OPENED` or `BLOCKER` from the lane or its `-opus` pair,
 the runner posts a blocker the incident never defers, and posts it again every five
 minutes:
 
 ```text
-PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; worktree <path>: HEAD (no branch), 0 dirty files, last commit 130 min ago <sha> <subject> | <lane>: ...
+PR-SILENT <lane> #<seq>: MECHANISM at 21:11, 10 min with no OPENED or BLOCKER record; <path> (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago <sha> <subject>, not pushed, no PR | <lane>: ...
 ```
 
-The root reads the worktree state in the line instead of checking by hand. It
+The code state in the line is `drive.py lane-status <lane>`, the root's one verb for
+what code a lane holds:
+
+```bash
+drive.py lane-status <lane>
+```
+
+It finds every worktree the lane owns, by its launch receipt, its `WORKTREE` and other
+cci records, the checkout's `git worktree list`, and its PRs' head branches. Each line
+names the branch, dirty files, commits ahead of trunk, the last commit's age, whether
+the origin branch holds HEAD, and the PR with its CI state. With none it prints
+`no worktree found for lane <lane>` and exits 1. A worktree named after its branch
+still resolves, because the pack's `announce_lane_worktree` hook posts
+`WORKTREE <lane> <path> <branch>` the first time a lane runs a command inside a
+worktree of the drive's repository. `desk-runner.py show` lists each waiting lane as
+`pr-silent <lane>: ...` with the same command.
+
+The root reads the code state in the line instead of checking by hand. It
 orders the lane to push and open the PR, or starts `<lane>-opus` when the line
 shows no code. A root `--resolves` on the line, or a `stand-down` or `stopped` to
 the lane, ends the repeats. The lane side holds the same line: the pack's
 `incident_lane_ships_its_mechanism` gate refuses an in-process incident lane's
-stop while its newest mechanism has no `opened` or `blocker` after it and its
-worktree has no pushed branch, and it prints the commit, push, and submit
-commands to run.
+stop while its newest mechanism has no `opened` or `blocker` after it and
+`drive.py lane-status` shows no pushed branch. It prints that status and the
+commit, push, and submit commands to run, and passes a lane with no worktree
+that owes no PR by name.
 
 `deadlines.incident_mechanism_minutes`,
 `deadlines.incident_pr_minutes`, and `deadlines.incident_ready_minutes` set the
