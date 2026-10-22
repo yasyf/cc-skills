@@ -253,7 +253,7 @@ watching. After any other send, stop. Send
 when one of these holds and not before:
 
 - `ready-to-merge` — the script printed `DONE ready-to-merge`, with or
-  without a `downstack #<n>` suffix: every check green, `mergeable: true`, approved or no approval required, neither queued
+  without a `downstack #<n>` suffix: every check green, every GitHub Actions check suite completed, `mergeable: true`, approved or no approval required, neither queued
   nor evicted. Send it the moment the line arrives, as the first thing you
   do; name the PR, URL, and head SHA, and list any comment still unanswered
   rather than answering it first. The caller decides what to offer the user;

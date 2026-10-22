@@ -62,6 +62,18 @@ def check_run(
     }
 
 
+def check_suite(
+    *, status: str = "completed", check_runs: int = 1, app: str = "github-actions", suite_id: int = 1
+) -> dict:
+    return {
+        "id": suite_id,
+        "app": {"slug": app},
+        "status": status,
+        "conclusion": "success" if status == "completed" else None,
+        "latest_check_runs_count": check_runs,
+    }
+
+
 def event(event_id: int, kind: str, actor: str, *, label: str | None = None, at: str) -> dict:
     return {
         "id": event_id,
@@ -92,6 +104,7 @@ def surface(
     pr: dict,
     *,
     runs: list[dict] | None = None,
+    suites: list[dict] | None = None,
     events: list[dict] | None = None,
     comments: list[dict] | None = None,
     reviews: list[dict] | None = None,
@@ -104,6 +117,7 @@ def surface(
         f"pulls/{PR}": pr,
         f"commits/{head}/check-runs": {"total_count": len(runs), "check_runs": runs},
         f"commits/{head}/status": {"state": "success", "statuses": []},
+        f"commits/{head}/check-suites": {"total_count": len(suites or []), "check_suites": suites or []},
         f"issues/{PR}/events": events or [],
         f"issues/{PR}/comments": comments or [],
         f"pulls/{PR}/comments": [],
