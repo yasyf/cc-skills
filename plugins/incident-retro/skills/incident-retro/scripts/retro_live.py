@@ -216,8 +216,8 @@ def derived_rows(state: dict, messages: list, retro) -> list:
     for monitor in state.get("monitors") or []:
         if monitor.get("fired_at"):
             rows.append({"ts": monitor["fired_at"], "kind": "alert", "actor": "Datadog",
-                         "h": f"monitor {monitor.get('id')} fired",
-                         "text": f"Monitor {monitor.get('id')} fired.", "refs": [monitor["url"]], "key": True})
+                         "h": "the paging monitor fired",
+                         "text": "The paging monitor fired.", "refs": [monitor["url"]], "key": True})
     for deploy in state.get("deploys") or []:
         what = "rollback of" if deploy.get("rollback") else "deploy of"
         rows.append({"ts": deploy["at"], "kind": "deploy", "actor": "release",
@@ -357,8 +357,8 @@ def live_summary(state: dict, phase: str) -> dict:
     facts = [f"Severity: {state['severity']}." if state.get("severity") else "",
              f"L1: {state['commander']}." if state.get("commander") else "",
              f"Status: {state.get('status') or phase}."]
-    linked = [f"Monitor [{m['id']}]({m['url']}) fired." for m in monitors]
-    plain = [f"Monitor {m['id']} fired." for m in monitors]
+    linked = [f"The [paging monitor]({m['url']}) fired." for m in monitors]
+    plain = ["The paging monitor fired." for _ in monitors]
     return {"text": " ".join(part for part in [f"{title}." if title else "", *linked, *facts] if part),
             "p": " ".join(part for part in [f"{title}." if title else "", *plain, *facts] if part)}
 
@@ -377,7 +377,7 @@ def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime,
     if notebook.get("id"):
         evidence["notebooks"] = [{"id": notebook["id"], "url": notebook["url"], "file": notebook_file(notebook),
                                   "h": "the incident notebook"}]
-    evidence["monitors"] = [{"id": m["id"], "url": m["url"], "file": monitor_file(m), "h": f"monitor {m['id']}"}
+    evidence["monitors"] = [{"id": m["id"], "url": m["url"], "file": monitor_file(m), "h": "the paging monitor"}
                             for m in state.get("monitors") or [] if m.get("id")]
     R["detection"] = {"text": "", "p": "",
                       "monitors": [{"id": m["id"], "role": "caught", "fired": m["fired_at"]}
