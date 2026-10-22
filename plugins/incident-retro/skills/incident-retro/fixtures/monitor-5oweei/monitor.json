@@ -1,0 +1,43 @@
+{
+ "id": 335610263,
+ "name": "Auto-login failing for a secret",
+ "type": "query alert",
+ "query": "sum(last_2h):(clamp_max(clamp_min(sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox,outcome:failure} by {env,secretname}.as_count() - 3, 0), 1) + 0 * (sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox,outcome:failure} by {env,secretname}.as_count() - 3)) * (clamp_max(clamp_min(100 * sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox,outcome:failure} by {env,secretname}.as_count() - 80 * sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox} by {env,secretname}.as_count() + 1, 0), 1) + 0 * (100 * sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox,outcome:failure} by {env,secretname}.as_count() - 80 * sum:secrets.autologin.attempt{!forge_cluster:plat-sandbox} by {env,secretname}.as_count() + 1)) >= 1",
+ "overall_state": "Alert",
+ "overall_state_modified": "2026-10-22T20:32:23+00:00",
+ "options": {
+  "thresholds": {
+   "critical": 1.0
+  },
+  "evaluation_delay": 60,
+  "require_full_window": false
+ },
+ "state": {
+  "groups": {
+   "env:production,secretname:aws": {
+    "last_nodata_ts": null,
+    "last_notified_ts": 1792701083,
+    "last_resolved_ts": null,
+    "last_triggered_ts": 1792701083,
+    "name": "env:production,secretname:aws",
+    "status": "Alert"
+   },
+   "env:production,secretname:produser": {
+    "last_nodata_ts": null,
+    "last_notified_ts": null,
+    "last_resolved_ts": null,
+    "last_triggered_ts": null,
+    "name": "env:production,secretname:produser",
+    "status": "OK"
+   },
+   "env:production,secretname:qa_test_3": {
+    "last_nodata_ts": null,
+    "last_notified_ts": null,
+    "last_resolved_ts": null,
+    "last_triggered_ts": null,
+    "name": "env:production,secretname:qa_test_3",
+    "status": "OK"
+   }
+  }
+ }
+}

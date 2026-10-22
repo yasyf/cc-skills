@@ -14,8 +14,8 @@ actions and the `live` block, appends to `actions[].history` and
 `hypotheses[].history` when a state changed since the last sync, snapshots the
 incident's Datadog notebook
 with DD_API_KEY and DD_APP_KEY or takes the snapshot `--notebook-snapshot`
-names, snapshots each paging monitor's state and, for a metric monitor, its
-series since an hour before onset, runs `check`, and force-pushes retro.json and the Slack and Datadog
+names, snapshots each paging monitor's state and, for a metric monitor, the
+value it evaluates over its window since an hour before onset, runs `check`, and force-pushes retro.json and the Slack and Datadog
 snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
 Stdlib only.
@@ -39,7 +39,10 @@ PR_KIND_ENTRY = {"hotfix": "mitigation", "monitor": "action", "long_term": "acti
 KEY_KINDS = {"alert", "deploy", "mitigation", "resolution", "allclear"}
 ISSUE_NUMBER = re.compile(r"(\d+)$")
 CHARTED_TYPES = {"metric alert", "query alert"}
-MONITOR_EXPRESSION = re.compile(r"^\s*\w+\(last_\w+\):(?P<expression>.+?)\s*(?:>=|<=|==|!=|>|<)\s*-?[\d.]+\s*$", re.S)
+MONITOR_EXPRESSION = re.compile(r"^\s*(?P<aggregator>avg|sum|min|max)\(last_(?P<count>\d+)(?P<unit>[mhdw])\):"
+                                r"(?P<expression>.+?)\s*(?:>=|<=|==|!=|>|<)\s*-?[\d.]+\s*$", re.S)
+METRIC_QUERY = re.compile(r"\b(?:avg|sum|min|max):[\w.]+\{[^{}]*\}(?:\s*by\s*\{[^{}]*\})?(?:\.\w+\([^()]*\))*")
+WINDOW_SECONDS = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
 SERIES_LEAD = datetime.timedelta(hours=1)
 TEMPLATE_VAR = re.compile(r"\{\{\s*([\w.-]+?)\.name\s*\}\}")
 TEMPLATE_LEFT = re.compile(r"\s*[\u2014\u2013:-]?\s*\{\{[^}]*\}\}")
@@ -398,25 +401,52 @@ def monitor_file(monitor: dict) -> str:
     return f"{DATADOG_DIR}/monitor-{monitor['id']}.json"
 
 
-def monitor_series(dd, query: str, start: datetime.datetime, end: datetime.datetime):
-    found = MONITOR_EXPRESSION.match(query)
-    if found is None:
-        return None
-    window = {"from": int(start.timestamp()), "to": int(end.timestamp()), "query": found["expression"]}
-    rows = dd.get("/api/v1/query?" + urllib.parse.urlencode(window)).get("series") or []
-    times = sorted({int(point[0]) // 1000 for row in rows for point in row["pointlist"]})
+def window_seconds(found) -> int:
+    return int(found["count"]) * WINDOW_SECONDS[found["unit"]]
+
+
+def windowed(found) -> str:
+    """Datadog aggregates each as_count() query over the monitor's window before the arithmetic, and the
+    formula's result otherwise. default_zero keeps moving_rollup from ending a sparse count at its last point,
+    and a sum reads a missing point as zero anyway."""
+    aggregator, expression = found["aggregator"], found["expression"]
+
+    def roll(query: str) -> str:
+        inner = f"default_zero({query})" if aggregator == "sum" else query
+        return f"moving_rollup({inner}, {window_seconds(found)}, '{aggregator}')"
+
+    return METRIC_QUERY.sub(lambda q: roll(q[0]), expression) if ".as_count()" in expression else roll(expression)
+
+
+def triggered_groups(groups: dict, since: float) -> dict:
+    return {g["name"]: g for g in groups.values()
+            if g["status"] != "OK" or (g.get("last_triggered_ts") or 0) >= since}
+
+
+def group_of(scope: str, names):
+    tags = set(scope.split(","))
+    return next((name for name in names if set(name.split(",")) - {"*"} <= tags), None)
+
+
+def monitor_series(dd, found, hit: dict, start: datetime.datetime, end: datetime.datetime) -> dict:
+    """The value the monitor evaluates, for the groups alerting now or triggered since the series starts,
+    the alerting ones first."""
+    window = {"from": int(start.timestamp()), "to": int(end.timestamp()), "query": windowed(found)}
+    rows = [(row, group_of(row["scope"], hit))
+            for row in dd.get("/api/v1/query?" + urllib.parse.urlencode(window)).get("series") or []]
+    rows = sorted([pair for pair in rows if pair[1] is not None], key=lambda pair: hit[pair[1]]["status"] == "OK")
+    times = sorted({int(point[0]) // 1000 for row, _ in rows for point in row["pointlist"]})
     series = []
-    for row in rows:
+    for row, _ in rows:
         values = {int(point[0]) // 1000: point[1] for point in row["pointlist"]}
         series.append({"label": row.get("scope") or row.get("expression"), "v": [values.get(t) for t in times]})
     return {"t": times, "series": series}
 
 
-def monitor_name(name: str, groups: dict, since: float) -> str:
+def monitor_name(name: str, hit: dict) -> str:
     """Datadog titles a multi-alert monitor with template variables such as {{cluster.name}}. The page fills
-    them with the values of the groups alerting now or triggered since onset, and drops a variable no such
-    group fills."""
-    hit = [g["name"] for g in groups.values() if g["status"] != "OK" or (g.get("last_triggered_ts") or 0) >= since]
+    them with the values of the groups alerting now or triggered since the series starts, and drops a
+    variable no such group fills."""
     tags = [part.partition(":") for group in hit for part in group.split(",")]
 
     def fill(m):
@@ -426,19 +456,26 @@ def monitor_name(name: str, groups: dict, since: float) -> str:
 
 
 def monitor_snapshot(monitor: dict, onset, evidence, now: datetime.datetime) -> dict:
-    """What the live view previews: the monitor's state now and, for a metric monitor, the series it
-    alerts on."""
+    """What the live view previews: the monitor's state now, whether it alerted since the series starts,
+    the recovery state.json records and, for a metric monitor, the series it alerts on. Onset is often the
+    page, which lands a minute after the group triggered, so groups count from the series start."""
     site = evidence.MONITOR_URL.match(monitor["url"]).group(1)
     dd = evidence.Datadog(site, *evidence.datadog_keys(argparse.Namespace(from_ssm=False)))
     m = dd.get(f"/api/v1/monitor/{monitor['id']}?group_states=all")
     th = m["options"].get("thresholds") or {}
+    start = (onset or now) - SERIES_LEAD
+    hit = triggered_groups(m["state"]["groups"], start.timestamp())
     snapshot = {"schema": "ir.monitor/1", "id": monitor["id"], "url": monitor["url"], "site": site, "fetchedAt": stamp(now),
-                "name": monitor_name(m["name"], m["state"]["groups"], (onset or now).timestamp()), "type": m["type"],
+                "name": monitor_name(m["name"], hit), "type": m["type"],
                 "overallState": m["overall_state"],
+                "alerted": any((g.get("last_triggered_ts") or 0) >= start.timestamp() for g in hit.values()),
                 "thresholds": {"critical": th.get("critical"), "warning": th.get("warning")}}
-    series = monitor_series(dd, m["query"], (onset or now) - SERIES_LEAD, now) if m["type"] in CHARTED_TYPES else None
-    if series is not None:
-        snapshot["series"] = series
+    if monitor.get("recovered_at"):
+        snapshot["recoveredAt"] = monitor["recovered_at"]
+    found = MONITOR_EXPRESSION.match(m["query"]) if m["type"] in CHARTED_TYPES else None
+    if found is not None:
+        snapshot["windowSeconds"] = window_seconds(found)
+        snapshot["series"] = monitor_series(dd, found, hit, start, now)
     return snapshot
 
 

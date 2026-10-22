@@ -3,13 +3,13 @@
 
   python3 scripts/test_retro_live.py
 """
-import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.request
+import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.parse, urllib.request
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import retro, retro_live, retro_prose
+import retro, retro_evidence, retro_live, retro_prose
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "live"
 OLDER = "2026-06-29-older-incident"
@@ -30,6 +30,10 @@ NOTEBOOK_ID = 15440320
 NOTEBOOK_FILE = f"evidence/datadog/notebook-{NOTEBOOK_ID}.json"
 MONITOR_ID = 312516332
 MONITOR_FILE = f"evidence/datadog/monitor-{MONITOR_ID}.json"
+AUTOLOGIN = Path(__file__).resolve().parent.parent / "fixtures" / "monitor-5oweei"
+AUTOLOGIN_ID = 335610263
+AUTOLOGIN_ONSET = "2026-10-22T20:32:25Z"
+AUTOLOGIN_AWS = "env:production,outcome:failure,secretname:aws,!forge_cluster:plat-sandbox"
 DATADOG = {
     ("GET", f"/api/v1/monitor/{MONITOR_ID}"): {
         "name": "Browser pool exhausted \u2014 {{team.name}}", "type": "query alert", "overall_state": "Alert",
@@ -303,6 +307,82 @@ class MonitorSnapshot(unittest.TestCase):
         with mock.patch.dict(DATADOG, {("GET", f"/api/v1/monitor/{MONITOR_ID}"): monitor}):
             snapshot = self.sync()
         self.assertNotIn("series", snapshot)
+
+    def test_the_recovery_state_json_records_rides_in_the_snapshot(self):
+        state = json.loads((self.incident / "state.json").read_text())
+        state["monitors"][0]["recovered_at"] = "2026-09-02T15:58:00-07:00"
+        (self.incident / "state.json").write_text(json.dumps(state))
+        snapshot = self.sync()
+        self.assertEqual(snapshot["recoveredAt"], "2026-09-02T15:58:00-07:00")
+        self.assertEqual(snapshot["windowSeconds"], 300)
+
+    def test_a_snapshot_without_a_recorded_recovery_carries_none(self):
+        self.assertNotIn("recoveredAt", self.sync())
+
+
+
+class WindowedMonitorSeries(unittest.TestCase):
+    """Monitor 335610263 from the 5oweei auto-login incident, recorded from Datadog with the customer secrets
+    dropped. Its as_count() formula clamps each two-hour sum, so the formula at the per-point rollup is zero
+    everywhere and only the windowed one crosses the threshold."""
+
+    def setUp(self):
+        self.monitor = json.loads((AUTOLOGIN / "monitor.json").read_text())
+        self.answer = json.loads((AUTOLOGIN / "query.json").read_text())
+        self.sent = []
+        patch = mock.patch.object(urllib.request, "urlopen", self.datadog)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def datadog(self, request, timeout):
+        url = urllib.parse.urlsplit(request.full_url)
+        if url.path == "/api/v1/query":
+            self.sent.append(urllib.parse.parse_qs(url.query)["query"][0])
+            return io.BytesIO(json.dumps(self.answer).encode())
+        self.assertEqual(url.path, f"/api/v1/monitor/{AUTOLOGIN_ID}")
+        return io.BytesIO(json.dumps(self.monitor).encode())
+
+    def snapshot(self, **monitor) -> dict:
+        entry = {"id": AUTOLOGIN_ID, "url": f"https://app.datadoghq.com/monitors/{AUTOLOGIN_ID}",
+                 "fired_at": AUTOLOGIN_ONSET, **monitor}
+        return retro_live.monitor_snapshot(entry, retro.parse_ts(AUTOLOGIN_ONSET), retro_evidence,
+                                           retro.parse_ts("2026-10-22T21:41:33Z"))
+
+    def recovered(self):
+        self.monitor["overall_state"] = "OK"
+        for group in self.monitor["state"]["groups"].values():
+            group["status"] = "OK"
+
+    def test_each_count_is_summed_over_the_two_hour_window_before_the_formula(self):
+        self.snapshot()
+        query = self.sent[0]
+        self.assertEqual(query, self.answer["query"])
+        self.assertEqual(query.count("moving_rollup(default_zero(sum:secrets.autologin.attempt{"), 6)
+        self.assertEqual(query.count(".as_count()), 7200, 'sum')"), 6)
+        self.assertNotIn("last_2h", query)
+
+    def test_the_alerting_group_is_drawn_and_crosses_the_critical_threshold(self):
+        snapshot = self.snapshot()
+        self.assertEqual([row["label"] for row in snapshot["series"]["series"]], [AUTOLOGIN_AWS],
+                         "a group that never triggered was drawn, or the alerting one was not")
+        aws = [v for v in snapshot["series"]["series"][0]["v"] if v is not None]
+        self.assertGreaterEqual(max(aws), snapshot["thresholds"]["critical"])
+        self.assertEqual(snapshot["windowSeconds"], 7200)
+
+    def test_a_group_that_triggered_a_minute_before_onset_still_counts_once_it_is_ok(self):
+        self.recovered()
+        snapshot = self.snapshot()
+        self.assertEqual(snapshot["overallState"], "OK")
+        self.assertTrue(snapshot["alerted"], "the monitor that paged reads as never having alerted")
+        self.assertEqual([row["label"] for row in snapshot["series"]["series"]], [AUTOLOGIN_AWS])
+
+    def test_the_recovery_state_json_records_is_carried(self):
+        self.assertEqual(self.snapshot(recovered_at="2026-10-22T20:42:39Z")["recoveredAt"], "2026-10-22T20:42:39Z")
+
+    def test_a_formula_without_as_count_is_rolled_up_whole(self):
+        found = retro_live.MONITOR_EXPRESSION.match("avg(last_5m):sum:a.b{*} by {team} / sum:a.c{*} by {team} > 3")
+        self.assertEqual(retro_live.windowed(found),
+                         "moving_rollup(sum:a.b{*} by {team} / sum:a.c{*} by {team}, 300, 'avg')")
 
 
 class NotebookSnapshot(unittest.TestCase):
