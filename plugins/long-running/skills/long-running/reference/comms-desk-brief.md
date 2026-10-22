@@ -9,18 +9,19 @@ brackets. SKILL.md R20 says why a Slack lane is never `long-running:lane` or
 ## Root discipline
 
 The owner's channel ask is the grant, recorded the turn it arrives and never parked on
-a board. The root runs both grant calls as their own literal commands, quoting the
-owner's words verbatim:
+a board. The root records it as one cc-notes answer that quotes the owner's words
+verbatim and carries the label the Slack permission hook reads as a standing grant:
 
 ```bash
-cc-slack grant --channel <channel id> --quote "<owner words>"
-cc-slack grant --channel <channel id> --thread '*' --quote "<owner words>"
+ccn answer add "May the drive post in <channel id> and answer people there?" --body "<owner words>" --label slack-grant:<channel id>
 ```
 
-The first covers top-level posts in the channel; the second, thread `*`, covers a
-reply in every thread of it. Both are standing grants for the whole channel, and lanes
-in the root's session tree are covered without passing the ids. The root never asks the
-owner again for a reply in that channel, and is told about replies, not asked.
+On each write in the channel, top-level or a reply in any of its threads, the hook
+finds that answer and mints the captain-hook ticket the write needs, as the cc-slack
+skill's "Get permission before writing" describes. The grant stands across sessions
+until a `slack-revoke:<channel id>` answer, and lanes in the root's session tree need
+no id. The root never asks the owner again for a reply in that channel, and is told
+about replies, not asked.
 
 The Slack watch lane relays human messages in this channel to the comms desk, not the
 root. The root addresses the desk over the cci bus,
@@ -37,7 +38,7 @@ tells you the drive is over, and never end a turn waiting.
 
 Authority: the owner's standing grants for <channel id>, recorded by the root:
   top-level posts, and a reply in any thread of the channel (thread `*`). Owner words:
-  "<owner words>". Never pass `--grant`; the permission hook names the grant.
+  "<owner words>". Never pass `--ticket`; the permission hook attaches the ticket.
   Reactions eyes and white_check_mark need no grant.
 CLI: run history, thread, react, unreact, reply, and send through `cc-slack` on PATH.
   When `cc-slack whoami` shows no identity, run `cc-slack login` from the project
