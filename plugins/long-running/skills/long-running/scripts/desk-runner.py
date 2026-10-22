@@ -2996,7 +2996,7 @@ class Landing:
     def card(self, rows: dict[str, dict]) -> dict:
         """The drive root card's rollup, refs, progress, and facts from the ledger and the lane registry, for `cc-slack dm-status --root-only`."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        landed = [pr for pr, row in rows.items() if row.get("state") == LANDED]
+        landed = [pr for pr, row in rows.items() if row.get("state") == "landed"]
         queued = sorted({pr for prs in self.believed_queued(rows).values() for pr in prs}, key=int)
         held = set(holds.held(holds.read(self.holds), rows)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
 
