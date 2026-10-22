@@ -545,12 +545,17 @@ relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
    `long-running:lane` on opus, named `incident-<id>-retro`.
-3. Fence the target from further deploys and applies outside the fix lane.
-   A fence or release freeze covers only the target that is breaking. Never freeze a
-   target because a PR waits on review, a person's or a bot's, and never freeze
-   everyone over a dependency your own change created: a change that must ship with
-   another target waits in its own stack. On Oct 14 a `schema-add` freeze set while
-   a PR waited on review refused every release that pulled `schema-add` in.
+3. Claim the target for the fix lane:
+   `tools/ci release claim <component>/<env>... --purpose incident --reason <alert> --until <time>`.
+   Every other release then stops before its next apply there, and no
+   `--emergency` or hotfix goes through it. Whoever ships the fix holds the
+   claim; hand it to them with `tools/ci release transfer <id> --to <email>`,
+   and give it back with `tools/ci release lift <id>` once the alert clears. A
+   claim covers only the stacks that are breaking. Never claim a target because a
+   PR waits on review, a person's or a bot's, and never claim everyone over a
+   dependency your own change created: a change that must ship with another
+   target waits in its own stack. On Oct 14 a `schema-add` freeze set while a PR
+   waited on review refused every release that pulled `schema-add` in.
 4. Start comms in the affected account channels first, before the mechanism is
    known, under cc-notes answer `5ad4507`. A platform-wide incident also opens
    in `#outage` under `52f4863`.
@@ -1662,8 +1667,10 @@ root posts `--resolves <seq>` on the order, or once another lane's `release` or
 the release lane's own `release --build` or `refuse` record is answered by it.
 With no `release --build` or `refuse` record from that lane within
 `deadlines.cut_minutes`, 4 by default, the orca runner posts
-`CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
-to the root once, and queues `manual-release-<component>` on opus xhigh from
+`CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release claim <component>/<env> --purpose incident --reason '<trigger> cut by hand' --until <now+2h> && tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
+to the root once. The incident claim makes the manual release the stack's only
+writer and lets it into another release's Watch window; `--emergency` only skips
+red dev checks. The runner posts the line and queues `manual-release-<component>` on opus xhigh from
 `reference/manual-release-brief.md`. That launch waits one minute after the
 CUT-SILENT posts. A root record that `--resolves` the CUT-SILENT, or a release
 lane answer or closing record arriving in that minute, fails the launch before

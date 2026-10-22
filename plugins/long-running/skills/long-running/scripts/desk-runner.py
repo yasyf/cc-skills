@@ -431,6 +431,7 @@ CUT_CLOCKS = "cut-clocks"
 CUT_CURSOR = "cut-cursor"
 CUT_LAUNCH = "cut:"
 CUT_GRACE = timedelta(minutes=1)
+CUT_CLAIM = timedelta(hours=2)
 MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
 DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "HOLDS-UNREAD", "LIVENESS", "STALE-MAIL", "RECLAIM"})
@@ -2731,7 +2732,9 @@ class Runner:
         minutes = whole_minutes(actions.parse_stamp(clock["since"]), self.now())
         if minutes < self.config.cut_minutes:
             return
-        hand = f"tools/ci release start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
+        until = actions.stamp(self.now() + CUT_CLAIM)
+        stacks = " ".join(f"{component}/{env}" for env in clock["env"].split(","))
+        hand = f"tools/ci release claim {stacks} --purpose incident --reason '{clock['trigger']} cut by hand' --until {until} && tools/ci release start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
         line = f"CUT-SILENT {clock['lane']} {component}: no CUT or refusal {minutes} min after {clock['trigger']}; hand path: {hand}"
         launched = self.manual_release(key, manual, component, clock, hand) if not component.startswith("<") else "no manual release lane launched: the order names no component"
         self.end_cut(key, "silent")
