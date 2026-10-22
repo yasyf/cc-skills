@@ -23,8 +23,16 @@ ledger row carries in any state: it gates and enqueues nothing and posts `HOLDS-
 to the root, quoting the line, until the root rewrites it in one of these forms or holds
 the PR by its `#<n>`. A blank line is not an error.
 
-When the owner reviews every PR before it lands, the root writes one
-`hold:all <reason>` line. The landing runner then holds every open ledger row
+The owner's merge mode, `landing.merge_mode` in `runner.json`, decides which PRs
+wait for the owner before they enqueue: `every` PR, only `high-risk` ones, or none
+under `auto`. The root asks it once at execution start and records the answer. Each
+`MERGE-ASK` the runner logs goes to the owner as a `needs_you` card with `Merge` and
+`Hold` buttons, never as an `AskUserQuestion`. A `Merge` tap becomes a root `go`
+record naming the PR and its head, which the runner enqueues on; a `Hold` tap becomes
+a holds-file line. The desk never answers a `MERGE-ASK` and never enqueues a PR that
+waits on one.
+
+To stop all landing, the root writes one `hold:all <reason>` line. The landing runner then holds every open ledger row
 except the PRs named on `release #<n>` lines and the open PRs of lanes named on
 `release lane:<name>` lines; an explicit hold or a rules-review block still
 wins. The desk mirrors no hold

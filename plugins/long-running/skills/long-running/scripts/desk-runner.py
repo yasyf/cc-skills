@@ -311,7 +311,10 @@ the full line and then the whole message, subject and body, kept under
 `<receipts>/cci/messages/<id>.md` when the message arrives. Landing restack routes
 sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
 The config requires `drive` and `orca.desk_inbox`, and `run --desk landing` requires `landing.release_owner`,
-a cci `--to` address such as `peer:<session>`. A quiet pass writes nothing.
+a cci `--to` address such as `peer:<session>`, and `landing.merge_mode`, the owner's pick of `every`, `high-risk`, or `auto`,
+re-read on every use. Under `every`, and under `high-risk` for a PR whose changed files a `HIGH_RISK_PATHS` glob names, a prefix
+that would enqueue logs one `MERGE-ASK` per waiting PR and head instead, and enqueues once a root `go` record names each
+waiting PR and its head by a short sha. A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 """
@@ -332,6 +335,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -381,6 +385,27 @@ FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 HOLD_LABEL = "hold"
+MERGE_MODES = ("every", "high-risk", "auto")
+HIGH_RISK_PATHS = (
+    "*migrations/*",
+    "*.sql",
+    "*backfill*",
+    "api/src/db/*",
+    "*secret*",
+    "*credential*",
+    "*creds*",
+    "go/ci/*",
+    "infra/ci/*",
+    ".buildkite/*",
+    ".github/workflows/*",
+    ".agents/skills/release/*",
+    "rust/crates/sandsql-*",
+    "rust/sanddb_legacy/*",
+    "*journal*",
+    "*/sessiondb/*",
+    "infra/rows/*",
+    "infra/lib/*",
+)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 MERGE_ACTIVITY = "### Merge activity"
 DROP_BLOCKER = re.compile(r"merge conflicts?")
@@ -2947,6 +2972,7 @@ class Landing:
         self.comms = config.get("comms_lane", "")
         self.landed: set[str] = set()
         self.patch_ids: dict[tuple[str, str], str] = {}
+        self.risky: dict[tuple[str, str], list[str]] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.reading = threading.Lock()
         self.opened_seen = 0
@@ -3202,9 +3228,63 @@ class Landing:
         if ungraded := self.ungraded(heads, rows):
             self.refuse_ungraded(heads, ungraded, rows)
             return
+        if (asks := self.owner_asks(heads)) is None:
+            return
+        if waiting := self.unanswered(heads, asks):
+            self.ask_owner(heads, waiting)
+            return
         policy = self.runner.landing_policy()
         authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), authority, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+
+    @property
+    def merge_mode(self) -> str:
+        return json.loads(self.runner.config.source.read_text())["landing"]["merge_mode"]
+
+    def owner_asks(self, heads: dict[str, str]) -> dict[str, list[str]] | None:
+        """The PRs of `heads` the merge mode leaves for the owner to answer, each with the high-risk paths that put it there: none under `auto`, every one under `every`, and under `high-risk` each whose changed files a `HIGH_RISK_PATHS` glob names. None when a changed-files read failed, and then nothing in the prefix is enqueued that pass."""
+        mode = self.merge_mode
+        if mode == "auto":
+            return {}
+        if mode == "every":
+            return {pr: [] for pr in heads}
+        risky = {pr: self.risky_paths(pr, sha) for pr, sha in heads.items()}
+        if any(paths is None for paths in risky.values()):
+            return None
+        return {pr: paths for pr, paths in risky.items() if paths}
+
+    def risky_paths(self, pr: str, sha: str) -> list[str] | None:
+        """The changed files of `pr` at `sha` that a high-risk glob names, read once per head; None when GitHub refuses the read, which escalates once per head."""
+        if (pr, sha) not in self.risky:
+            done = self.shell.run(["gh", "api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"])
+            if done.code:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(f"files:{pr}:{sha}", "FILES-READ-FAILED", f"#{pr}", f"GitHub refused the changed files of #{pr}: {last[0]}; merge mode high-risk enqueues nothing in its prefix until they read")
+                return None
+            self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in HIGH_RISK_PATHS)]
+        return self.risky[(pr, sha)]
+
+    def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
+        """The PRs of `asks` with no owner Merge answer at their head: a root `go` record on this drive that names the PR and its head by a short sha."""
+        if not asks:
+            return {}
+        drive = self.runner.config.drive
+        gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+        return {pr: paths for pr, paths in asks.items() if not any(names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"])) for record in gos)}
+
+    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
+        """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head."""
+        mode = self.merge_mode
+        for pr, paths in waiting.items():
+            short = heads[pr][:7]
+            why = f"it touches {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}" if paths else "every PR waits for the owner"
+            self.runner.escalate(
+                f"merge-ask:{pr}@{heads[pr]}",
+                "MERGE-ASK",
+                f"#{pr}",
+                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers: {why}"
+                f" | send a needs_you card with options `Merge #{pr} {short}` and `Hold #{pr}`; Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`, Hold runs `holds.py add --pr {pr}`",
+            )
 
     def admit_opened(self, prs: list[str]) -> list[str]:
         """Register each PR in `prs` that an `opened` or `head` record on this drive names under the lane that posted it, so the next pass's refresh fills its row and gates it as ours; returns the PRs no such record names or the ledger refused."""
@@ -3846,6 +3926,12 @@ def run_landing(runner: Runner, once: bool) -> int:
     if "fidelity_lane" not in runner.config.landing:
         why = f"{runner.config.source} names no landing.fidelity_lane, so no fidelity grade would count; the runner refused to start"
         runner.escalate(f"fidelity-lane-unset:{runner.config.source}", "FIDELITY-LANE-UNSET", "runner", why)
+        runner.flush()
+        print(why, file=sys.stderr)
+        return 3
+    if runner.config.landing.get("merge_mode") not in MERGE_MODES:
+        why = f"{runner.config.source} names no landing.merge_mode of {', '.join(MERGE_MODES)}, so the owner's merge mode is unknown; the runner refused to start"
+        runner.escalate(f"merge-mode-unset:{runner.config.source}", "MERGE-MODE-UNSET", "runner", why)
         runner.flush()
         print(why, file=sys.stderr)
         return 3

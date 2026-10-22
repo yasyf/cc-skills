@@ -936,7 +936,8 @@ Every update the root sends to that DM is a status card, `slack_dm_status(card)`
 for an incident, `needs_you` for an owner ask with its choices as `options`, `done`
 for a landing or release, and `progress` otherwise. A tap on a card reaches the root
 as a directive on its next tool call. The root never parks waiting for a tap, and
-an ask the drive blocks on still goes through `AskUserQuestion`. The
+an ask the drive blocks on still goes through `AskUserQuestion`, except a per-PR
+merge ask, which is a card under D3. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
@@ -1317,6 +1318,40 @@ the minute it is asked with the same line, without a re-read.
 *Prevents the Oct 16 restack of monorepo #39264 to e41b99cc needing a fresh fidelity
 grade for a diff already graded ok at c9fce65; landing-gates held the incident fix
 for that grade at 2:31 PM.*
+
+**The owner's merge mode.** At execution start, before the landing runner starts,
+the root asks the owner once which merge mode the drive runs in:
+
+- `every`: every PR waits for the owner's answer before it enqueues.
+- `high-risk`: only a high-risk PR waits, one that changes data or migrations,
+  credentials, the release pipeline, delete fences, storage formats, or infra rows;
+  every other PR enqueues once it is green and approved.
+- `auto`: every PR enqueues once it is green and approved.
+
+The root records the pick as a cc-notes answer, `ccn answer add` with the question
+verbatim and the label `program:<drive>`, and writes it to `runner.json` as
+`landing.merge_mode`. The landing runner refuses to start without one of the three
+values and posts `MERGE-MODE-UNSET`. It re-reads the value on every use, so a later
+change is one edit plus an `answer supersede`, with no restart.
+
+Under `every`, and under `high-risk` for a PR whose changed files match a glob in the
+runner's `HIGH_RISK_PATHS`, a prefix that passes every other gate is not enqueued.
+The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
+owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`,
+with the options `Merge #<n> <short sha>` and `Hold #<n>`, never as an
+`AskUserQuestion`, so the drive keeps working while the card waits.
+
+A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
+`cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
+and the runner enqueues the prefix on its next pass once a root `go` names every
+waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`.
+An answer covers only the head it names, so a new head asks again. A changed-files
+read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
+until it reads. Incident fixes still land by plain squash under every mode.
+
+*Prevents a fixed landing policy the owner never chose. On 2026-10-21 the owner ruled
+(1fe20ee) that the drive asks at the start which of the three modes it runs in, and
+that each per-PR ask is a card with buttons, never a blocking `AskUserQuestion`.*
 
 The runner posts no commit status and adds or removes no label. Its landing pass
 alone enforces holds, rules-review, and fidelity: no required check carries them,
