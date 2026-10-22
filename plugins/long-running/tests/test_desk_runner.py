@@ -5278,6 +5278,27 @@ def test_escalations_outside_the_incident_wait_for_the_last_clock_and_reach_root
     assert len(held) == 1 and held[0].startswith("DEFERRED 1 escalations held during api-fix: DEADLINE deadline:desk-lane-docs-lane/R700:accepted docs-lane: R700 relay: delivered to ")
 
 
+def test_an_escalation_already_held_for_the_incident_leaves_the_store_unwritten_on_later_passes(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.launch("docs-lane", "ctx_docs")
+    cli(shell, config, "relay", "--key", "R700", "--lane", "docs-lane", "--text", "rebase onto dev")
+    orca_pass(shell, config)
+    shell.sleep(11 * 60)
+    lane_record(shell, LANE, "mechanism")
+    lane_record(shell, LANE, "opened", prs=[4242])
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    held = incident(tmp_path, runner_module.RUNNER).facts[runner_module.DEFERRED]
+    assert held["ids"] == ["escalation:deadline:desk-lane-docs-lane/R700:accepted"]
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    before = store.path(runner_module.RUNNER).stat()
+    assert runner.flush() and runner.flush()
+    after = store.path(runner_module.RUNNER).stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert incident(tmp_path, runner_module.RUNNER).facts[runner_module.DEFERRED] == held
+
+
 def go_to_walker(shell: FakeShell, config: Path, text: str = "cut sand now at 94d61b91951", refs: dict | None = None) -> int:
     orca_pass(shell, config)
     return cci_record(shell, kind="go", to=[WALKER], at=actions.stamp(shell.now()), text=text, refs={"targets": ["sand"]} if refs is None else refs)
