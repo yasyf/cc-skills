@@ -13,8 +13,8 @@ a board. The root runs both grant calls as their own literal commands, quoting t
 owner's words verbatim:
 
 ```bash
-~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack grant --channel <channel id> --quote "<owner words>"
-~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack grant --channel <channel id> --thread '*' --quote "<owner words>"
+cc-slack grant --channel <channel id> --quote "<owner words>"
+cc-slack grant --channel <channel id> --thread '*' --quote "<owner words>"
 ```
 
 The first covers top-level posts in the channel; the second, thread `*`, covers a
@@ -39,8 +39,9 @@ Authority: the owner's standing grants for <channel id>, recorded by the root:
   top-level posts, and a reply in any thread of the channel (thread `*`). Owner words:
   "<owner words>". Never pass `--grant`; the permission hook names the grant.
   Reactions eyes and white_check_mark need no grant.
-CLI: run history, thread, react, unreact, reply, and send by path:
-  ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
+CLI: run history, thread, react, unreact, reply, and send through `cc-slack` on PATH.
+  When `cc-slack whoami` shows no identity, run `cc-slack login` from the project
+  checkout and retry.
 Fallback: when cc-slack refuses a write (a hook that crashes, no Slack identity on
   this machine, the bot outside the conversation), post the same checked text through
   the user-level Slack MCP in that poll: load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction`

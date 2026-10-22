@@ -24,8 +24,9 @@ Surface: <channel | thread | DM> — the owner's word, literal: channel = top-le
 Doing lane: <doing lane name>; result: <named disk file or bus entry>.
 Tools: the cc-slack MCP tools on your allowlist come first: slack_thread, slack_react,
   slack_unreact, slack_reply, and slack_send, each taking the permalink as `url`.
-  Only when a tool call errors, run the same verb through the CLI by path:
-  ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
+  Only when a tool call errors, run the same verb through `cc-slack` on PATH.
+  When `cc-slack whoami` shows no identity, run `cc-slack login` from the project
+  checkout and retry.
   When the tool and the CLI both refuse (a hook that crashes, no Slack identity on
   this machine), post the same checked text through the user-level Slack MCP:
   load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction` with
@@ -124,8 +125,9 @@ After resolution, the retro lane completes Remediation and the owner's picks,
   report and the retro-link reply use that URL, never a PR URL.
 Executor: incident-<incident id>. Bus: cci drive <drive>; topic incident:<incident id>.
 Tools: the cc-slack MCP tools first (slack_thread, slack_reply, slack_send, slack_react,
-  slack_unreact); the CLI by path, ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack,
-  only when a tool call errors.
+  slack_unreact); `cc-slack` on PATH only when a tool call errors. When
+  `cc-slack whoami` shows no identity, run `cc-slack login` from the project
+  checkout and retry.
   When the tool and the CLI both refuse (a hook that crashes, no Slack identity on
   this machine), post the same checked text through the user-level Slack MCP:
   load `mcp__slack__slack_send_message` and `mcp__slack__slack_add_reaction` with
