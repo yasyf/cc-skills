@@ -2,9 +2,9 @@
 
 `desk-runner.py` owns Orca worker traffic and ready-prefix landing. Run two detached
 processes against one config and store: `run --desk orca` and `run --desk landing`.
-No model-operated orca-desk sits between the root and Orca. Where the checkout
-carries `stack-enqueue`, the landing runner runs D3, D14, D16, and D20; the
-landing-desk lane keeps the duties in [its brief](landing-desk-brief.md).
+No model-operated orca-desk sits between the root and Orca. The landing runner is
+the drive's merge queue and runs D3, D14, D16, and D20; the landing-desk lane keeps
+the duties in [its brief](landing-desk-brief.md).
 
 *Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 going to a
 superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3 and
@@ -399,7 +399,19 @@ without it. It is the cci `--to` address of the lane that starts releases, such 
 `landing.merge_mode` is required too: the owner's pick of `every`, `high-risk`, or
 `auto`, which the root asks once at execution start and records as a cc-notes answer.
 Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET`. It
-re-reads the value on every use, so a change needs no restart.
+re-reads the value on every use, so a change needs no restart. Under `high-risk`,
+`landing.high_risk_paths` lists the fnmatch globs of the repository's high-risk files.
+
+`landing.adapter` names the merge queue's repository adapter, and the root writes it at
+drive start along with `landing.high_risk_paths`. Use
+`{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
+when the checkout carries that script, and `{"kind": "label"}` otherwise, for a queue that
+takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
+check registry in order, from `hold`, `rules-review`, `fidelity`, `merge-mode`,
+`approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
+or a high-risk setting it cannot run, the landing runner exits and posts `MQ-CONFIG-INVALID`,
+ending with the exact `landing` members that fix every fault at once.
+
 `deadlines.release_start_minutes` is the step between the blockers D20 posts, 10 by default.
 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
@@ -483,6 +495,9 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "checkout": "/absolute/monorepo/worktree",
     "holds": "/absolute/drive/holds.md",
     "fidelity_lane": "fidelity-desk",
+    "merge_mode": "high-risk",
+    "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "infra/rows/*"],
+    "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
     "release_owner": "peer:<release session>",
     "interval_seconds": 180,
     "policy": {
@@ -676,16 +691,17 @@ launch to repeat. Leave Orca's runtime defaults unchanged.
 Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
 reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
 on the base, and routes restacks. It gates every tracked open stack tip in
-parallel with `stack-enqueue <tip> --check [--whole]`.
-A check or enqueue that exits 5 with no verdict and a transient network error (TLS handshake
+parallel through the adapter's check, `stack-enqueue <tip> --check [--whole]` under
+`graphite-stack-enqueue`, in `(priority, root PR)` order.
+Under `graphite-stack-enqueue`, a check or enqueue that exits 5 with no verdict and a transient network error (TLS handshake
 timeout, connection reset, DNS failure, HTTP 5xx) runs again, three attempts 20 seconds apart,
 and only the third failure posts its one `GATE-FAILED` or `ENQUEUE-FAILED`.
 
 Each exact set of prefix heads gets one enqueue action. Only attempts proven to
 have enqueued nothing permit another attempt for those heads. Accepted enqueues
-run in parallel as `stack-enqueue <prefix top>...`, each after a fresh read of
-the holds file, and none runs while the file carries a line the runner cannot
-read. The holds file stays the root's interface. A `hold` label on a PR holds it too,
+run in one parallel wave per priority, lowest first, each through the adapter's
+enqueue after the check registry's `hold` check reads the holds file fresh, and
+none runs while the file carries a line the runner cannot read. The holds file stays the root's interface. A `hold` label on a PR holds it too,
 and the runner never adds or removes that label.
 
 A prefix is accepted only when every PR in it has a fidelity ok at its current
@@ -710,15 +726,16 @@ GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
 patch-identical to <graded head>` under the graded record's seq. A compare GitHub
 refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 
-The runner posts no `fidelity` status. Its landing pass alone enforces holds,
-rules-review, and fidelity, so a hand `gt merge` or a web-UI enqueue bypasses all
-three. The fidelity lane keeps naming the head in each `review` record.
+The runner posts no `fidelity` status. Its check registry alone enforces holds,
+rules-review, and fidelity, so a hand `gt merge`, a web-UI enqueue, or a hand adapter
+call bypasses all three. `mq.py --config <runner config> why <n>` prints each check's
+state at the PR's head. The fidelity lane keeps naming the head in each `review` record.
 
 `landing.merge_mode` decides which ready prefixes wait for the owner. Under `auto`
 none waits. Under `every` each PR waits, and under `high-risk` each PR whose changed
 files, read once per head from `gh api --paginate repos/<repo>/pulls/<n>/files`, match a
-`HIGH_RISK_PATHS` glob: migrations and SQL, backfills, credentials and secrets, the
-release pipeline under `go/ci` and `infra/ci`, storage formats, and infra rows. A
+`landing.high_risk_paths` glob, such as migrations and SQL, backfills, credentials and
+secrets, the release pipeline, storage formats, and infra rows. A
 waiting PR's prefix enqueues nothing, and the runner logs one `MERGE-ASK` per PR and
 head, naming the card to send and the record that answers it. The prefix enqueues on
 the pass after a root `go` record names every waiting PR and its current head by a
@@ -798,6 +815,8 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `MERGE-ASK` | Send the line to the owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`, with the options `Merge #<n> <short sha>` and `Hold #<n>` the line names, never as an `AskUserQuestion`. On a `Merge` tap, post the `cci post --kind go` record the line names; on a `Hold` tap, run `holds.py add --pr <n>`. The key is the PR and head. |
 | `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
+| `MQ-CONFIG-INVALID` | Add the members the line ends with to the `landing` object of `runner.json`, replacing any of the same name, adjust the suggested `high_risk_paths` globs to the repository, and start the landing runner again. |
+| `FLAKE-RETRY-FAILED` | Read `mq.py why <n>`; when the head is still flaky, `mq.py requeue <n>` tries the same head again, and otherwise route the red to the lane. |
 | `FILES-READ-FAILED` | None while it is brief; the runner reads the PR's changed files again on its next pass. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |

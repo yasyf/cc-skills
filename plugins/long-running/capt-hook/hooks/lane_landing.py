@@ -19,6 +19,8 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
+QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
+MQ_VALUE_OPTIONS = frozenset({"--config"})
 GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
@@ -32,6 +34,10 @@ ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hol
 REFUSAL = (
     "Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the root's holds."
+)
+STEERING_REFUSAL = (
+    "Only the root steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
+    "Send the root a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
 )
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
@@ -160,6 +166,18 @@ def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(kept)
 
 
+def mq_verb(call: Call) -> str | None:
+    run = program((call.name, *call.args))
+    if not run or Path(run[0]).name != "mq.py":
+        return None
+    args = run[1:]
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        index += 2 if args[index] in MQ_VALUE_OPTIONS else 1
+    verb = args[index] if index < len(args) else ""
+    return verb if verb in QUEUE_STEERING else None
+
+
 def landing_verb(call: Call) -> str | None:
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else call.verb_argv
     run = program((call.name, *call.args))
@@ -254,3 +272,32 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Block(pattern=r"^Only the root steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
+        Input(command="python3 skills/long-running/scripts/mq.py --config=r.json requeue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`mq.py requeue`"),
+        Input(command="mq.py --config r.json priority 36023 0", agent_id=DESK, state=ACTIVE): Block(pattern=r"lane `landing-desk` may not run `mq.py priority`"),
+        Input(command="mq.py --config r.json recover 36023", agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Block(pattern=r"`mq.py recover`"),
+        Input(command="mq.py --config r.json hold 36023 --reason wait", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"`mq.py hold`"),
+        Input(command="git fetch -q && mq.py --config r.json lift 36023", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(pattern=r"lane `lane-b` may not run `mq.py lift`"),
+        Input(command="mq.py --config r.json why 36023", agent_id=DESK, state=ACTIVE): Allow(),
+        Input(command="mq.py --config r.json status", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="mq.py --config r.json checks", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="mq.py --help", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="cat skills/long-running/scripts/mq.py", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="echo 'mq.py --config r.json dequeue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="mq.py --config r.json dequeue 36023", state=ACTIVE): Allow(),
+        Input(command="mq.py --config r.json dequeue 36023", agent_id=LANE): Allow(),
+    },
+)
+def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
+    if (lane := lane_name(evt)) is None:
+        return None
+    if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
+        return None
+    verb = next((verb for call in evt.cmd.calls() if (verb := mq_verb(call))), None)
+    return evt.block(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None

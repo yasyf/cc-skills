@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import actions
+import mq as mq_module
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/desk-runner.py"
@@ -99,7 +100,6 @@ class FakeShell(runner_module.Shell):
         self.pr_label_error = ""
         self.dequeue_code = 0
         self.queue: dict[str, str] = {}
-        self.activity: dict[str, str] = {}
         self.bodies: dict[str, str] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
@@ -138,6 +138,9 @@ class FakeShell(runner_module.Shell):
         self.worktrees: dict[str, dict[str, str]] = {}
         self.listed: list[tuple[str, str]] = []
         self.pr_lists: dict[str, list[dict]] = {}
+        self.drives: list[str] = ["d1"]
+        self.flake_code = 0
+        self.ledger_outs: dict[str, tuple[int, str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -263,23 +266,24 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
-        if argv[:3] == ["gh", "pr", "view"]:
-            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
-            return runner_module.Done(0, json.dumps({"comments": [{"body": self.activity[argv[3]]}] if argv[3] in self.activity else []}), "")
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
+            if (out := self.ledger_outs.get(verb + (" --dry-run" if "--dry-run" in argv else ""))) is not None:
+                return runner_module.Done(*out, "")
             if verb != "list":
                 return runner_module.Done(0, f"{verb} ok\n", "")
             return runner_module.Done(self.ledger_code, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]), "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
+        if argv == ["cci", "drive", "ls", "--json"]:
+            return runner_module.Done(0, json.dumps([{"drive": drive} for drive in self.drives]), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True}) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
-            assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
             if stored := self.post_ids.get(flags.get("--id", "")):
@@ -304,7 +308,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", "cci: daemon restarting")
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
-        assert argv[argv.index("--drive") + 1] == "d1" and "--json" in argv and "--cursor" not in argv
+        drive = argv[argv.index("--drive") + 1]
+        assert drive in self.drives and "--json" in argv and "--cursor" not in argv
         since = argv[argv.index("--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
@@ -316,6 +321,7 @@ class FakeShell(runner_module.Shell):
             and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
             and (not kinds or record.get("kind") in kinds)
+            and (drive == "d1" or record.get("drive") == drive)
         ]
         if "--limit" in argv:
             found = found[-int(argv[argv.index("--limit") + 1]) :]
@@ -491,6 +497,14 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, self.statuses, "")
         if "--dequeue" in argv:
             return runner_module.Done(self.dequeue_code, "", "queue still holds the PR" if self.dequeue_code else "")
+        if "--flake" in argv:
+            pr = argv[0]
+            flaked = {
+                0: (f"enqueue #{pr}: {{}}; #{pr} at the same head as a flake retry\n#{pr} commented the flake retry\n", ""),
+                1: (f"#{pr} BLOCKED cccc333333 the queue refused the same-head retry because it had merge conflicts\n", ""),
+                3: ("", f"#{pr} STRANDED the queue draft never settled\n"),
+            }
+            return runner_module.Done(self.flake_code, *flaked[self.flake_code])
         tip = " ".join(itertools.takewhile(str.isdigit, argv))
         if "--check" in argv:
             outs = self.gates[tip]
@@ -502,7 +516,7 @@ class FakeShell(runner_module.Shell):
         return [call for call in self.calls if call[:3] == ["orca", "orchestration", "send"]]
 
     def enqueues(self) -> list[list[str]]:
-        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and not {"--check", "--status", "--dequeue"} & set(call)]
+        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and not {"--check", "--status", "--dequeue", "--flake"} & set(call)]
 
     def launch(self, lane: str, dispatch: str, status: str = "dispatched") -> None:
         self.receipts.mkdir(parents=True, exist_ok=True)
@@ -552,6 +566,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "holds": str(tmp_path / "holds.md"),
                     "fidelity_lane": "fidelity-desk",
                     "merge_mode": "auto",
+                    "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
                     "release_owner": "peer:sole-51",
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
@@ -1121,7 +1136,7 @@ def grade(shell: FakeShell, pr: str, text: str, lane: str = "fidelity-desk") -> 
 def grade_gated_heads_ok(shell: FakeShell) -> None:
     for outs in shell.gates.values():
         for out in outs:
-            for verdict in runner_module.VERDICT_LINE.finditer(out[1] if isinstance(out, tuple) else out):
+            for verdict in runner_module.merge_queue.VERDICT_LINE.finditer(out[1] if isinstance(out, tuple) else out):
                 grade(shell, verdict["pr"], f"ok F307 at {verdict['sha'][:7]}")
 
 
@@ -1732,14 +1747,14 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     landing_pass(shell, config)
     assert escalations(shell) == []
     assert len(checks(shell)) >= 2 and len(shell.enqueues()) == 1
-    assert shell.clock - started >= timedelta(seconds=runner_module.TRANSIENT_PAUSE_SECONDS)
+    assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
 def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
     shell.rows = single_row()
     shell.gates["29020"] = [(5, HANDSHAKE, "")]
     landing_pass(shell, config)
-    assert len(checks(shell)) == runner_module.TRANSIENT_ATTEMPTS
+    assert len(checks(shell)) == runner_module.merge_queue.TRANSIENT_ATTEMPTS
     landing_pass(shell, config)
     lines = escalations(shell)
     assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "handshake operation timed out" in lines[0]
@@ -1764,11 +1779,11 @@ def test_a_check_failing_for_any_other_reason_is_never_retried(shell, config, tm
     ],
 )
 def test_a_git_network_failure_reads_as_transient(error):
-    assert runner_module.TRANSIENT_FAILURE.search(error)
+    assert runner_module.merge_queue.TRANSIENT_FAILURE.search(error)
 
 
 def test_a_git_failure_that_is_not_the_network_reads_as_permanent():
-    assert not runner_module.TRANSIENT_FAILURE.search("fatal: couldn't find remote ref refs/heads/a/3\n")
+    assert not runner_module.merge_queue.TRANSIENT_FAILURE.search("fatal: couldn't find remote ref refs/heads/a/3\n")
 
 
 def test_an_enqueue_that_hits_a_transient_network_failure_is_retried(shell, config, tmp_path):
@@ -1966,7 +1981,7 @@ def is_check(argv: list[str]) -> bool:
 
 
 def is_enqueue(argv: list[str]) -> bool:
-    return not {"--check", "--status", "--dequeue"} & set(argv)
+    return not {"--check", "--status", "--dequeue", "--flake"} & set(argv)
 
 
 @pytest.mark.parametrize(
@@ -2215,9 +2230,14 @@ def test_the_landing_desk_refuses_to_start_without_a_fidelity_lane(shell, config
     assert line.startswith("FIDELITY-LANE-UNSET ") and "names no landing.fidelity_lane" in line
 
 
+HIGH_RISK_PATHS = ["*migrations/*", "*.sql", "api/src/db/*", "infra/rows/*"]
+
+
 def merge_mode(config: Path, mode: str) -> None:
     raw = json.loads(config.read_text())
     raw["landing"]["merge_mode"] = mode
+    if mode == "high-risk":
+        raw["landing"]["high_risk_paths"] = HIGH_RISK_PATHS
     config.write_text(json.dumps(raw))
 
 
@@ -2442,7 +2462,7 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     [blocker] = blockers(shell)
     assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
     [action] = enqueues_of(tmp_path).values()
-    assert action.response["outcome"] == "blocked" and "no fidelity: ok from fidelity-desk at the head of #29020" in action.response["out"]
+    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the fidelity check refuses #29020: fidelity-desk graded this head on cci #")
 
 
 def compare_calls(shell: FakeShell) -> list[str]:
@@ -2547,9 +2567,6 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     assert shell.enqueues() == []
 
 
-QUEUE_ADDED = "### Merge activity\n\n* **Oct 13, 12:45 AM UTC**: `yasyf` added this pull request to the [Graphite merge queue](https://app.graphite.com/merges).\n"
-
-
 def enqueues_of(tmp_path: Path) -> dict[str, actions.Action]:
     return {key: action for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "enqueue"}
 
@@ -2563,7 +2580,6 @@ def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
     shell.queue["29020"] = "not queued"
-    shell.activity["29020"] = QUEUE_ADDED
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
     shell.queue["29020"] = "queued"
@@ -2571,7 +2587,7 @@ def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell
     assert len(shell.enqueues()) == 2
     first, second = (action for _, action in sorted(enqueues_of(tmp_path).items()))
     assert (first.response["outcome"], second.response["outcome"]) == ("dropped", "enqueued")
-    assert first.response["drop"] == {"29020": QUEUE_ADDED.strip().splitlines()[-1]}
+    assert first.response["drop"] == {"29020": {"kind": "", "detail": "graphite READY"}}
     assert escalations(shell) == [] and [post for post in shell.posts if post["kind"] == "blocker"] == []
 
 
@@ -2582,7 +2598,7 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     shell.queue["29020"] = "evicted"
-    shell.activity["29020"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request because it had merge conflicts.\n"
+    shell.gates["29020"] = [gate(CONFLICT_DROP)]
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
@@ -2592,6 +2608,10 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"]
 
 
+CONFLICT_DROP = (
+    "#29020 BLOCKED cccc333333 ejected from the merge queue Oct 13, 1:06 AM UTC because it had merge conflicts, and no head was pushed since; "
+    "run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
+)
 OWN_RED = (
     "#29016 BLOCKED bbbb222222 ejected from the merge queue Oct 13, 1:06 AM UTC because Failed CI (test-unit), and no head was pushed since; "
     "test-unit reads failure on this head, so the red check is its own; "
@@ -2607,7 +2627,6 @@ def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tm
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
     shell.queue["29016"] = "not queued"
-    shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to Failed CI (test-unit).\n"
     shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", OWN_RED)]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -2621,10 +2640,9 @@ def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tm
     assert len(shell.enqueues()) == 2
 
 
-FOREIGN_DROP = (
-    QUEUE_ADDED
-    + "* **Oct 16, 8:04 PM UTC**: The [Graphite merge queue](https://app.graphite.com/merges?org=Forge-AI&repo=monorepo) removed this pull request"
-    + " due to **downstack failures on PR #[39016](https://app.graphite.com/github/pr/Forge-AI/monorepo/39016)**.\n"
+FOREIGN_RETRY = (
+    "#29020 GREEN cccc333333 graphite READY; retries the same head after its ejection Oct 16, 8:04 PM UTC because downstack failures on PR "
+    "#[39016](https://app.graphite.com/github/pr/Forge-AI/monorepo/39016), with no queue draft"
 )
 
 
@@ -2640,7 +2658,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     root_go(shell, "GO #29020 at cccc3333 standard", shell.now() - timedelta(minutes=5))
     landing_pass(shell, config)
     shell.queue["29020"] = "not queued"
-    shell.activity["29020"] = FOREIGN_DROP
+    shell.gates["29020"] = [gate(FOREIGN_RETRY, would="#29020")]
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and blockers(shell) == []
@@ -2679,8 +2697,6 @@ def test_a_drop_blaming_a_pr_inside_the_stack_is_gated_again_and_re_enqueues_the
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
     shell.queue["28997"] = shell.queue["29016"] = "not queued"
-    shell.activity["28997"] = QUEUE_ADDED
-    shell.activity["29016"] = QUEUE_ADDED + "* **Oct 13, 1:06 AM UTC**: The Graphite merge queue removed this pull request due to **downstack failures on PR #[28997](https://app.graphite.com/github/pr/Forge-AI/monorepo/28997)**.\n"
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
     assert sorted(action.response["outcome"] for action in enqueues_of(tmp_path).values()) == ["dropped", "enqueued"]
@@ -2698,7 +2714,6 @@ def test_a_red_check_drop_its_gate_reads_as_a_batch_mates_failure_re_enqueues_th
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     shell.queue["29020"] = "not queued"
-    shell.activity["29020"] = QUEUE_ADDED + "* **Oct 16, 9:47 PM UTC**: The Graphite merge queue couldn't merge this PR because **it was not satisfying all requirements** (Failed CI (buildkite/test)).\n"
     shell.gates["29020"] = [gate(retry, would="#29020")]
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
@@ -2714,6 +2729,271 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     landing_pass(shell, config)
     assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+
+
+def mq(shell: FakeShell, config: Path, *argv: str) -> int:
+    return mq_module.main(["--config", str(config), *argv], shell)
+
+
+QUIET_WHY = ["hold pass", "rules-review pass", "fidelity pass", "merge-mode pass", "approvals pass", "required-ci pass"]
+
+
+@pytest.mark.parametrize(
+    ("blocked", "line"),
+    [
+        ("hold", "hold fail the holds-file line `#29020 owner review`"),
+        ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
+        ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
+    ],
+)
+def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
+    lone_green_pr(shell)
+    if blocked != "fidelity":
+        grade_gated_heads_ok(shell)
+    if blocked == "hold":
+        (tmp_path / "holds.md").write_text("#29020 owner review\n")
+    if blocked == "rules-review":
+        shell.rows[0]["rules_blocked"] = True
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    capsys.readouterr()
+    posts = len(shell.posts)
+    assert mq(shell, config, "why", "29020") == 0
+    name = line.split(" ", 1)[0]
+    assert capsys.readouterr().out.splitlines() == ["#29020 cccc333333 graphite-stack-enqueue: GREEN graphite READY", *(line if quiet.startswith(f"{name} ") else quiet for quiet in QUIET_WHY)]
+    assert len(shell.posts) == posts
+
+
+def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED; not approved by forge-pr-reviewer[bot]")]
+    assert mq(shell, config, "why", "29020") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
+
+
+def other_drive_opened(shell: FakeShell, pr: str) -> None:
+    shell.drives = ["d1", "d2"]
+    shell.records.append({"seq": 9100 + len(shell.records), "drive": "d2", "lane": "billing-fix", "kind": "opened", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"opened #{pr}", "at": "2026-10-01T17:00:00Z"})
+
+
+def stopped(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(post["drive"], post["to"]) for post in shell.posts if post["kind"] == "stopped"]
+
+
+def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):
+    shell.rows = [dict(ONE_ROW, ours=False)]
+    other_drive_opened(shell, "29020")
+    assert mq(shell, config, "dequeue", "29020") == 1
+    err = capsys.readouterr().err
+    assert "#29020 is not this drive's" in err and "ask root@d2 to dequeue it" in err
+    assert dequeues(shell) == [] and stopped(shell) == []
+
+
+def test_mq_dequeue_of_our_pr_tells_every_naming_drive_and_keeps_the_head_out_until_requeue(shell, config, tmp_path, capsys):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    other_drive_opened(shell, "29020")
+    assert mq(shell, config, "dequeue", "29020", "--reason", "owner pulled it") == 0
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    assert stopped(shell) == [("d1", LANE), ("d2", "root")]
+    assert all(post["text"].startswith("DEQUEUED #29020 by d1: owner pulled it") for post in shell.posts if post["kind"] == "stopped")
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "pulled"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert mq(shell, config, "requeue", "29020") == 0
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+FLAKY = (
+    "#29020 BLOCKED cccc333333 ejected from the merge queue Oct 16, 9:47 PM UTC because Failed CI (buildkite/test), and no head was pushed since; "
+    "draft #39356 held only this stack, so the red check is its own; read the failure on draft #39356 and push the fix as a new head before enqueueing again"
+)
+
+
+def flakes(shell: FakeShell) -> list[list[str]]:
+    return [call[1:] for call in stack_enqueue_calls(shell) if "--flake" in call]
+
+
+def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_for_a_root_go(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    shell.queue["29020"] = "not queued"
+    shell.gates["29020"] = [gate(FLAKY)]
+    landing_pass(shell, config)
+    assert flakes(shell) == [["29020", "--flake"]] and len(shell.enqueues()) == 1
+    assert blockers(shell) == [] and escalations(shell) == []
+    shell.queue["29020"] = "queued"
+    landing_pass(shell, config)
+    assert len(flakes(shell)) == 1 and blockers(shell) == []
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(flakes(shell)) == 1
+    [line] = escalations(shell)
+    assert line.startswith("AWAITS-GO awaits-go:29020:cccc333333 #29020: cccc333333: a flaky check ejected it again at the same head after the desk's one automatic retry")
+    [blocker] = blockers(shell)
+    assert "held only this stack" in blocker["text"]
+    shell.sleep(60)
+    root_go(shell, "GO #29020 at cccc3333: a known flake", shell.now())
+    landing_pass(shell, config)
+    assert len(flakes(shell)) == 2 and len(shell.enqueues()) == 1
+    retries = [action.response[runner_module.FLAKE_RETRY] for action in enqueues_of(tmp_path).values() if runner_module.FLAKE_RETRY in action.response]
+    assert [retry["head"] for retry in retries] == ["cccc333333", "cccc333333"]
+    assert "one automatic same-head retry" in retries[0]["why"] and "the root's go #" in retries[1]["why"]
+
+
+def test_a_flaky_retry_the_queue_refuses_is_a_defect(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    shell.queue["29020"] = "not queued"
+    shell.gates["29020"] = [gate(FLAKY)]
+    shell.flake_code = 1
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("FLAKE-RETRY-FAILED flake:29020:cccc333333 #29020: cccc333333: the graphite-stack-enqueue queue refused the same-head retry")
+    assert "because it had merge conflicts" in line
+
+
+def test_a_flaky_retry_the_queue_strands_escalates_like_any_enqueue_and_asks_the_lane_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    shell.queue["29020"] = "not queued"
+    shell.gates["29020"] = [gate(FLAKY)]
+    shell.flake_code = 3
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("ENQUEUE-STRANDED ") and "#29020 STRANDED the queue draft never settled" in line
+    [retry] = [action for action in enqueues_of(tmp_path).values() if runner_module.FLAKE_RETRY in action.response]
+    assert retry.response["outcome"] == "stranded"
+    landing_pass(shell, config)
+    assert len(flakes(shell)) == 1 and blockers(shell) == []
+
+
+def test_a_lower_priority_value_gates_and_enqueues_first(shell, config, tmp_path, capsys):
+    shell.rows = [ONE_ROW, {"pr": "29100", "lane": LANE, "branch": "p/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "priority": 0}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.gates["29100"] = [gate("#29100 GREEN dddd444444 graphite READY", would="#29100")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    shell.enqueue_out["29100"] = (0, "enqueue #29100: {}\n")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29100"], ["29020"]]
+    assert mq(shell, config, "status") == 0
+    trees = [line for line in capsys.readouterr().out.splitlines() if line.startswith("tree ")]
+    assert trees == ["tree #29100 priority 0: #29100", "tree #29020 priority 100: #29020"]
+    assert mq(shell, config, "priority", "29020", "5") == 0
+    assert [call[4:] for call in shell.calls if len(call) > 4 and Path(call[1]).name == "ledger.py" and call[4] == "priority"] == [["priority", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--pr", "29020", "--priority", "5"]]
+
+
+def label_adapter(shell: FakeShell, config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "label"}
+    config.write_text(json.dumps(raw))
+    shell.rows = [ONE_ROW]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.ledger_outs["label --dry-run"] = (0, "would label #29020 cccc333333\n")
+    shell.ledger_outs["label"] = (0, "labelled #29020 cccc333333 at 2026-10-01T18:00:00Z; the queue takes #29020 as one entry\n")
+
+
+def ledger_calls(shell: FakeShell, verb: str) -> list[list[str]]:
+    return [call[4:] for call in shell.calls if len(call) > 4 and Path(call[1]).name == "ledger.py" and call[4] == verb and "--dry-run" not in call]
+
+
+def test_a_label_adapter_gates_and_enqueues_through_ledger_label(shell, config, tmp_path):
+    label_adapter(shell, config)
+    landing_pass(shell, config)
+    assert ledger_calls(shell, "label")[-1] == ["label", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--pr", "29020", "--expect-head", "cccc333333", "--checkout", str(tmp_path / "checkout")]
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "enqueued" and stack_enqueue_calls(shell) == []
+
+
+def test_mq_requeue_under_the_label_adapter_clears_the_ledger_latch_before_the_pulled_head_goes_back(shell, config, tmp_path, capsys):
+    label_adapter(shell, config)
+    landing_pass(shell, config)
+    assert mq(shell, config, "dequeue", "29020", "--reason", "owner pulled it") == 0
+    assert len(ledger_calls(shell, "unlabel")) == 1
+    shell.ledger_outs["requeue"] = (1, "ledger unreachable\n")
+    capsys.readouterr()
+    assert mq(shell, config, "requeue", "29020") == 1
+    assert "the label queue still refuses this head, so nothing was cleared: ledger unreachable" in capsys.readouterr().err
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "pulled"
+    shell.ledger_outs["requeue"] = (0, "cleared the label latch on #29020 cccc33333 at 2026-10-01T18:00:00Z; label may queue the same head once more\n")
+    assert mq(shell, config, "requeue", "29020") == 0
+    assert ledger_calls(shell, "requeue")[-1] == ["requeue", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--pr", "29020", "--expect-head", "cccc333333"]
+    landing_pass(shell, config)
+    assert len(ledger_calls(shell, "label")) == 2
+
+
+def test_a_label_refusal_its_lane_must_fix_routes_as_the_adapters_blocker_and_a_missing_approval_routes_nothing(shell, config, tmp_path):
+    label_adapter(shell, config)
+    whole = "REFUSED the stack #29020 enqueues as one entry, so #29020 refuses all of it; nothing was labelled\n"
+    shell.ledger_outs["label --dry-run"] = (1, "REFUSED #29020 has no approval in force: a reviewer's latest decision must be APPROVED (#29020)\n" + whole)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and ledger_calls(shell, "label") == []
+    shell.ledger_outs["label --dry-run"] = (1, "REFUSED failed check runs on cccc33333: buildkite/test (#29020)\n" + whole)
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert "#29020 cccc333333: failed check runs on cccc33333: buildkite/test" in blocker["text"]
+    assert ledger_calls(shell, "label") == [] and ledger_calls(shell, "route") == []
+
+
+@pytest.mark.parametrize(
+    ("change", "named", "member"),
+    [
+        (lambda landing: landing.pop("adapter"), "names no landing.adapter.kind", '"adapter": {"kind": "label"}'),
+        (lambda landing: landing.update(adapter={"kind": "graphite-stack-enqueue"}), "names no landing.adapter.script", '"adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
+        (lambda landing: landing.update(checks=["hold", "lint"]), "lists lint under landing.checks", '"checks": ["hold"]'),
+        (lambda landing: landing.update(merge_mode="high-risk"), "runs merge mode high-risk with no landing.high_risk_paths globs", '"high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]'),
+    ],
+)
+def test_the_landing_desk_refuses_to_start_on_a_merge_queue_config_it_cannot_run_and_names_the_members_that_fix_it(shell, config, tmp_path, change, named, member):
+    raw = json.loads(config.read_text())
+    change(raw["landing"])
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    [line] = escalations(shell)
+    assert line.startswith("MQ-CONFIG-INVALID ") and named in line and shell.enqueues() == []
+    assert line.endswith(f'add to the "landing" object of runner.json, replacing any member of the same name: {member}')
+    fixed = json.loads("{" + member + "}")
+    raw["landing"].update(fixed)
+    if "high_risk_paths" in fixed:
+        raw["landing"]["merge_mode"] = "high-risk"
+    assert runner_module.mq_config_fault(raw["landing"]) == ""
+
+
+def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_to_name_it_and_every_fault_at_once(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    del raw["landing"]["adapter"]
+    raw["landing"]["merge_mode"] = "high-risk"
+    script = tmp_path / "checkout" / ".agents/skills/submit-pr/scripts/stack-enqueue"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("")
+    fault = runner_module.mq_config_fault(raw["landing"])
+    assert "names no landing.adapter.kind" in fault and "no landing.high_risk_paths globs" in fault
+    assert fault.endswith(': "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}, "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]')
+
+
+def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config, tmp_path, capsys):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = ["hold", "rules-review", "merge-mode", "approvals", "required-ci"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and blockers(shell) == []
+    assert mq(shell, config, "checks") == 0
+    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept", "approvals adapter check", "required-ci adapter check"]
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:

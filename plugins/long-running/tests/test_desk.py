@@ -403,6 +403,30 @@ def test_unlabel_records_the_pull_and_blocks_a_relabel_of_the_same_head(capsys):
     assert "the same head is never re-queued" in capsys.readouterr().out
 
 
+def test_requeue_clears_the_latch_on_a_pulled_head_so_it_may_be_labelled_once_more(capsys):
+    shell = desk_shell()
+    label(shell)
+    run(shell, "unlabel", "--repo", REPO, "--ledger", LEDGER, "--pr", PR, "--reason", "mq dequeue")
+    capsys.readouterr()
+
+    assert run(shell, "requeue", "--ledger", LEDGER, "--pr", PR, "--expect-head", HEAD[:10]) == 0
+    assert "cleared the label latch" in capsys.readouterr().out
+    row = shell.fields(PR)
+    assert (row["labelled_at"], row["label_pulled_at"], row["label_pull_reason"]) == ("", "", "")
+
+    assert label(shell) == 0
+    assert shell.labelled == [f"{PR}:merge", f"{PR}:merge"]
+
+
+def test_requeue_of_a_head_the_latch_does_not_name_changes_nothing(capsys):
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
+
+    assert run(shell, "requeue", "--ledger", LEDGER, "--pr", PR, "--expect-head", HEAD[:10]) == 0
+    assert "carries no label latch" in capsys.readouterr().out
+    assert shell.fields(PR)["label_pulled_at"] == "y"
+
+
 def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     shell = desk_shell()
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
@@ -1869,6 +1893,21 @@ def test_list_blocks_a_head_on_a_pending_review_or_an_unwaived_finding(review, b
     run(shell, "list", "--ledger", LEDGER, "--json")
     assert json.loads(capsys.readouterr().out)[0]["rules_blocked"] is blocked
 
+
+def test_list_gives_each_row_its_queue_priority_with_an_open_owner_ask_on_top(capsys):
+    shell = FakeShell(
+        rows=[
+            {"key": "24070", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "24071", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "24072", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "ask/000001", "fields": {"lane": LANE, "text": "ship the bake policy", "prs": "24071,24072"}},
+            {"key": "ask/000002", "fields": {"lane": LANE, "text": "an older ask", "prs": "24070", "dropped_at": "2026-01-02T00:00:00Z"}},
+        ]
+    )
+    assert run(shell, "priority", "--ledger", LEDGER, "--pr", "24072", "--priority", "7") == 0
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert {row["pr"]: row["priority"] for row in json.loads(capsys.readouterr().out)} == {"24070": 100, "24071": 0, "24072": 7}
 
 def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lock):
     shell = FakeShell()
