@@ -17,11 +17,13 @@
     ledger.py refresh [--repo owner/name] --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
     ledger.py hold    --ledger ID [--repo owner/name] --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID [--repo owner/name] --pr N
+    ledger.py priority --ledger ID [--repo owner/name] --pr N --priority N
     ledger.py held    --drive D
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
     ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
+    ledger.py requeue --ledger ID [--repo owner/name] --pr N --expect-head SHA
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]... [--shard LANES]
     ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
     ledger.py watch   --repo owner/name --ledger ID --drive D --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
@@ -132,6 +134,8 @@ LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+OWNER_PRIORITY = 0
+DEFAULT_PRIORITY = 100
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PR_KEY = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)")
@@ -1576,6 +1580,19 @@ def cmd_lift(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_priority(args: argparse.Namespace, shell: Shell) -> int:
+    Notes(shell, args.ledger, args.scope).set_fields(args.pr, {"priority": str(args.priority)})
+    print(f"#{args.pr} priority {args.priority}: the merge queue gates and enqueues lower values first")
+    return 0
+
+
+def queue_priority(fields: dict[str, str], asked: set[str], pr: str) -> int:
+    """A row's merge-queue priority: its own `priority` field, else top priority while an open owner ask links it, else the default."""
+    if fields.get("priority"):
+        return int(fields["priority"])
+    return OWNER_PRIORITY if pr in asked else DEFAULT_PRIORITY
+
+
 def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool) -> bool:
     head = current_head(fields)
     lane = lane or fields["lane"]
@@ -1936,6 +1953,18 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_requeue(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger, args.scope)
+    head = notes.rows().get(args.pr, {}).get("label_head", "")
+    if not head or not head.startswith(args.expect_head):
+        print(f"#{args.pr} {args.expect_head[:9]} carries no label latch; label may queue it")
+        return 0
+    requeued = utc_stamp()
+    notes.set_fields(args.pr, {"labelled_at": "", "label_pulled_at": "", "label_pull_reason": "", "label_requeued_at": requeued})
+    print(f"cleared the label latch on #{args.pr} {head[:9]} at {requeued}; label may queue the same head once more")
+    return 0
+
+
 def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> None:
     if is_shallow(shell, checkout):
         raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
@@ -2285,7 +2314,15 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
     }
     ordered = sorted(rows.items(), key=lambda item: int(item[0]))
     if args.json:
-        print(json.dumps([{"pr": key, "repo": args.repo, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, args.repo, fields, key)} for key, fields in ordered]))
+        asked = {pr for key, fields in every.items() if key.startswith(ASK_PREFIX) and not fields.get("dropped_at") and not fields.get("answered_at") for pr in linked_prs(fields)}
+        print(
+            json.dumps(
+                [
+                    {"pr": key, "repo": args.repo, **fields, "priority": queue_priority(fields, asked, key), "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, args.repo, fields, key)}
+                    for key, fields in ordered
+                ]
+            )
+        )
         return 0
     for key, fields in ordered:
         rules = " rules-blocked" if rules_blocked(every, key) else ""
@@ -2463,6 +2500,12 @@ def build_parser() -> argparse.ArgumentParser:
     lift.add_argument("--pr", required=True, type=pr_number)
     lift.set_defaults(handler=cmd_lift)
 
+    priority = subparsers.add_parser("priority", help="set the merge-queue priority of a PR; lower values gate and enqueue first")
+    add_ledger(priority, repo=True)
+    priority.add_argument("--pr", required=True, type=pr_number)
+    priority.add_argument("--priority", required=True, type=int)
+    priority.set_defaults(handler=cmd_priority)
+
     route = subparsers.add_parser("route", help="print the message that sends a red or conflicting head to its lane, once per PR, head, and job")
     add_ledger(route, repo=True)
     route.add_argument("--pr", type=pr_number)
@@ -2507,6 +2550,12 @@ def build_parser() -> argparse.ArgumentParser:
     unlabel.add_argument("--pr", required=True, type=pr_number)
     unlabel.add_argument("--reason", required=True)
     unlabel.set_defaults(handler=cmd_unlabel)
+
+    requeue = subparsers.add_parser("requeue", help="clear the label latch on a PR's labelled or pulled head, so label may queue that same head once more")
+    add_ledger(requeue, repo=True)
+    requeue.add_argument("--pr", required=True, type=pr_number)
+    requeue.add_argument("--expect-head", required=True, metavar="SHA")
+    requeue.set_defaults(handler=cmd_requeue)
 
     landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the trunk")
     add_ledger(landed, repo=True)
