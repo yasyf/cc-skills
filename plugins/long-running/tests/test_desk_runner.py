@@ -2367,6 +2367,17 @@ def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shel
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["STATUS-READ-FAILED"]
 
 
+def test_one_github_blip_across_many_heads_logs_one_status_read_record_with_the_count(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\n")
+    prs = [str(29100 + n) for n in range(5)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd held")] for pr in prs}
+    shell.status_read_error = 'Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("STATUS-READ-FAILED status-read:") and "TLS handshake timeout, for 5 head(s): " + " ".join(f"#{pr} {pr}abcd" for pr in prs) in line
+
 def graphql_reads(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if call[:3] == ["gh", "api", "graphql"]]
 

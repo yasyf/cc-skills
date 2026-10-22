@@ -273,8 +273,8 @@ a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
-head's statuses for 60 s; a head read that fails logs
-`STATUS-READ-FAILED` once and counts as unread for that pass. Each pass starts with one free `rate_limit` read of the GitHub App
+head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
+`STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Each pass starts with one free `rate_limit` read of the GitHub App
 installation's quotas through `ccx vcs gh`. With the REST or GraphQL quota under 5% of its limit, the pass reads nothing from GitHub and
 logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; accepted enqueues stay accepted and root `go` records
 stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails in a landing pass
@@ -2953,6 +2953,7 @@ class Landing:
         self.patch_ids: dict[tuple[str, str], str] = {}
         self.risky: dict[tuple[str, str], list[str]] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
+        self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
         self.opened_seen = 0
         self.row_heads: dict[str, str] = {}
@@ -3139,7 +3140,7 @@ class Landing:
             return next((statuses for head, (at, statuses) in self.read.items() if same_head(head, sha) and now - at < HEAD_FLOOR), None)
 
     def read_heads(self, heads: dict[str, str]) -> dict[str, list[dict] | None]:
-        """The commit statuses of each head in `heads`, a sha to the PR it heads: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and logs one `STATUS-READ-FAILED` per PR and head."""
+        """The commit statuses of each head in `heads`, a sha to the PR it heads: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass."""
         found = {sha: statuses for sha in heads if (statuses := self.cached(sha)) is not None}
         due = sorted(set(heads) - set(found))
         for start in range(0, len(due), HEADS_PER_QUERY):
@@ -3150,14 +3151,23 @@ class Landing:
             now = self.runner.now()
             for index, sha in enumerate(batch):
                 if (commit := commits.get(f"h{index}")) is None:
-                    why = f"GitHub refused the statuses of {sha}: {last[0]}" if done.code else f"GitHub knows no commit {sha} in {self.repo}"
-                    self.runner.escalate(f"status-read:{heads[sha]}:{sha}", "STATUS-READ-FAILED", f"#{heads[sha]}", f"{why}; the runner reads it again on the next pass")
+                    why = f"GitHub refused the statuses: {last[0]}" if done.code else f"GitHub knows no such commit in {self.repo}"
+                    with self.reading:
+                        self.unread.setdefault(why, {})[heads[sha]] = sha
                     continue
                 statuses = [{"context": context["context"], "state": context["state"].lower()} for context in (commit["status"] or {"contexts": []})["contexts"]]
                 with self.reading:
                     self.read[sha] = (now, statuses)
                 found[sha] = statuses
         return found
+
+    def report_unread(self) -> None:
+        """Log one `STATUS-READ-FAILED` per cause for the heads this pass could not read, with their count and each PR and head, once per cause and set of heads, so one GitHub blip across many PRs reads as one event."""
+        for why, prs in sorted(self.unread.items()):
+            named = " ".join(f"#{pr} {prs[pr][:10]}" for pr in sorted(prs, key=int))
+            key = f"status-read:{hashlib.sha1(f'{why} {named}'.encode()).hexdigest()[:12]}"
+            self.runner.escalate(key, "STATUS-READ-FAILED", "landing", f"{why}, for {len(prs)} head(s): {named}; the runner reads them again on the next pass")
+        self.unread = {}
 
     def quota_low(self) -> bool:
         """Whether the REST or GraphQL quota of the installation this desk reads GitHub through is under `QUOTA_FLOOR` of its limit, from one `rate_limit` read GitHub does not count. Each quota under the floor logs one `GITHUB-BACKOFF` per reset; a read that fails logs one `QUOTA-READ-FAILED` per hour and reads as not low."""
@@ -4040,6 +4050,12 @@ class Landing:
         return not done.code
 
     def run(self) -> None:
+        try:
+            self.gate_pass()
+        finally:
+            self.report_unread()
+
+    def gate_pass(self) -> None:
         if self.quota_low():
             return
         advanced = self.advance()
