@@ -396,6 +396,10 @@ carries. Set the accepted prefix policy's revision to #28601's revision.
 `landing.release_owner` is required by `run --desk landing`, which exits on a config
 without it. It is the cci `--to` address of the lane that starts releases, such as
 `peer:<session name>` for a session bound to another drive.
+`landing.merge_mode` is required too: the owner's pick of `every`, `high-risk`, or
+`auto`, which the root asks once at execution start and records as a cc-notes answer.
+Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET`. It
+re-reads the value on every use, so a change needs no restart.
 `deadlines.release_start_minutes` is the step between the blockers D20 posts, 10 by default.
 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
@@ -708,6 +712,17 @@ The runner posts no `fidelity` status. Its landing pass alone enforces holds,
 rules-review, and fidelity, so a hand `gt merge` or a web-UI enqueue bypasses all
 three. The fidelity lane keeps naming the head in each `review` record.
 
+`landing.merge_mode` decides which ready prefixes wait for the owner. Under `auto`
+none waits. Under `every` each PR waits, and under `high-risk` each PR whose changed
+files, read once per head from `gh api --paginate repos/<repo>/pulls/<n>/files`, match a
+`HIGH_RISK_PATHS` glob: migrations and SQL, backfills, credentials and secrets, the
+release pipeline under `go/ci` and `infra/ci`, storage formats, and infra rows. A
+waiting PR's prefix enqueues nothing, and the runner logs one `MERGE-ASK` per PR and
+head, naming the card to send and the record that answers it. The prefix enqueues on
+the pass after a root `go` record names every waiting PR and its current head by a
+short sha. A changed-files read that fails logs `FILES-READ-FAILED` once per head and
+enqueues nothing from that prefix until it reads.
+
 After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
 first PR above it. Orca lanes receive a relay; other lanes receive
 `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"`.
@@ -779,6 +794,9 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
 | `INCIDENT-OWNED` | None. Another owner holds the incident the line names, so the runner launched nothing; check the named record agrees. |
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
+| `MERGE-ASK` | Send the line to the owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`, with the options `Merge #<n> <short sha>` and `Hold #<n>` the line names, never as an `AskUserQuestion`. On a `Merge` tap, post the `cci post --kind go` record the line names; on a `Hold` tap, run `holds.py add --pr <n>`. The key is the PR and head. |
+| `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
+| `FILES-READ-FAILED` | None while it is brief; the runner reads the PR's changed files again on its next pass. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |

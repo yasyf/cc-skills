@@ -91,6 +91,8 @@ class FakeShell(runner_module.Shell):
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
         self.pulls: dict[str, dict] = {}
+        self.files: dict[str, list[str]] = {}
+        self.files_error = ""
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
         self.quota_error = ""
         self.pr_labels: dict[str, list[str]] = {}
@@ -224,6 +226,11 @@ class FakeShell(runner_module.Shell):
             if head in self.compare_errors:
                 return runner_module.Done(1, "", self.compare_errors[head])
             return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+        if argv[:3] == ["gh", "api", "--paginate"]:
+            assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[].filename"]
+            if self.files_error:
+                return runner_module.Done(1, "", self.files_error)
+            return runner_module.Done(0, "".join(f"{name}\n" for name in self.files[argv[3].split("/")[4]]), "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/"):
             assert len(argv) == 3
             pull = self.pulls.get(argv[2].rsplit("/", 1)[1])
@@ -544,6 +551,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "checkout": str(tmp_path / "checkout"),
                     "holds": str(tmp_path / "holds.md"),
                     "fidelity_lane": "fidelity-desk",
+                    "merge_mode": "auto",
                     "release_owner": "peer:sole-51",
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
@@ -2188,6 +2196,84 @@ def test_the_landing_desk_refuses_to_start_without_a_fidelity_lane(shell, config
     assert shell.enqueues() == []
     [line] = escalations(shell)
     assert line.startswith("FIDELITY-LANE-UNSET ") and "names no landing.fidelity_lane" in line
+
+
+def merge_mode(config: Path, mode: str) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["merge_mode"] = mode
+    config.write_text(json.dumps(raw))
+
+
+def merge_go(shell: FakeShell, pr: str, text: str) -> None:
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text})
+
+
+def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue")
+    assert "`Merge #29020 cccc333` and `Hold #29020`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
+    merge_go(shell, "29020", "merge #29020 at bbbb222")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
+def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(shell, config, tmp_path):
+    merge_mode(config, "high-risk")
+    lone_green_pr(shell)
+    shell.files["29020"] = ["dashboard/src/iris/Thread.tsx", "docs/object-hierarchy.md"]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and escalations(shell) == []
+
+
+def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, config, tmp_path):
+    merge_mode(config, "high-risk")
+    lone_green_pr(shell)
+    shell.files["29020"] = ["api/src/routes/runs.ts", "api/migrations/0399_run_owner.sql"]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK ") and "merge mode high-risk" in line and "it touches api/migrations/0399_run_owner.sql |" in line
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_merge_mode_high_risk_enqueues_nothing_while_the_changed_files_do_not_read(shell, config, tmp_path):
+    merge_mode(config, "high-risk")
+    lone_green_pr(shell)
+    shell.files_error = "gh: Server Error (HTTP 502)"
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("FILES-READ-FAILED files:29020:cccc333333 #29020: GitHub refused the changed files of #29020: gh: Server Error (HTTP 502)")
+    shell.files_error = ""
+    shell.files["29020"] = ["README.md"]
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    del raw["landing"]["merge_mode"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-MODE-UNSET ") and "names no landing.merge_mode of every, high-risk, auto" in line
 
 
 def test_a_fidelity_lane_added_to_runner_json_counts_without_a_restart(shell, config, tmp_path):
