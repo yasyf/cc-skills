@@ -262,6 +262,8 @@ The `ccx:` line also places the lane. `place=remote` sends it to a Sprite and
 `place=local` keeps it on the Mac; with neither, `cpu=high` sends it to a Sprite and
 any other lane stays local (SKILL.md O16). A lane placed remote gets a brief it can
 run from the Sprite's checkout alone, with no Mac path or Mac-only credential. A
+Sprite has no `cci`, so a remote lane's brief never tells it to read or post the drive's
+bus: it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A
 standing desk launches locally whatever the line says.
 
 ## A standing desk's brief

@@ -14,11 +14,15 @@ from captain_hook import (
     Annotated,
     BaseHookEvent,
     Block,
+    CommandSchema,
     Confirm,
     Event,
     FromSubagent,
     HookResult,
     Input,
+    Operand,
+    Option,
+    T,
     TaskCall,
     Tool,
     on,
@@ -91,6 +95,35 @@ OFF_INCIDENT_ASK = "the alert is active: no owner question on other work; the in
 ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
 RELEASE_PROBES = (("release", "start"), ("release", "status"), ("release", "watch"))
+INBOX_FILE = re.compile(r"/inbox/[\w.-]+\.md\b")
+AUTHORIZING_LINE = re.compile(r"\b(?:GO|LIFT|UNBLOCK) root \(.*")
+AUTHORIZING_KINDS = {"go", "lift", "unblock"}
+PR_REF = re.compile(r"#\d{3,}")
+PR_TAIL = re.compile(r"\d{3,}$")
+ROUTING = re.compile(r"(?i)\brout(?:e|es|ed|ing)\b|\bcluster (?:assignment|move)\b|\bcutover\b")
+BOARD_VERBS = ("push", "start", "update-block")
+AUTHORIZED_BESIDE_A_QUESTION = (
+    "A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
+    " Wait for the answer, then write it in a later turn."
+)
+SAME_SUBJECT = Confirm(
+    rule="Block only when the GO, LIFT, or UNBLOCK acts on the same pull request or routing change that an unanswered"
+    " owner question or a board posted this turn asks about."
+)
+CCI_POST = CommandSchema(
+    "cci",
+    operands=(Operand("words", count="*"),),
+    options=(
+        *(
+            Option(name, (f"--{name}",))
+            for name in (
+                "attr", "board", "body-file", "build", "ccn", "census", "commit", "count", "drive", "env", "id", "kind", "lane",
+                "lane-ref", "mode", "outcome", "path", "pr", "re", "resolves", "stack", "target", "text", "to", "topic", "ttl", "url",
+            )
+        ),
+        Option("json", ("--json",), bool),
+    ),
+)
 
 
 def prose(call: TaskCall) -> list[str]:
@@ -397,3 +430,126 @@ def root_only_routes_during_an_incident(evt: BaseHookEvent) -> HookResult | None
     if root_probe(evt) and CompactionState.load(evt).active and open_incidents(evt):
         return evt.block(ROOT_PROBE)
     return None
+
+
+def subjects(text: str) -> set[str]:
+    return set(PR_REF.findall(text)) | ({"routing"} if ROUTING.search(text) else set())
+
+
+def appends_to_inbox(evt: BaseHookEvent) -> bool:
+    return any(
+        INBOX_FILE.search(target)
+        for call in evt.command.calls()
+        for target in [*(redirect.target for redirect in call.redirects), *(call.args if call.name == "tee" else ())]
+    )
+
+
+def inbox_text(evt: BaseHookEvent) -> str:
+    if evt.tool_name == "Bash":
+        return str(evt.command) if appends_to_inbox(evt) else ""
+    return (evt.content or "") if evt.file is not None and INBOX_FILE.search(str(evt.file.path)) else ""
+
+
+def record_text(values: dict[str, tuple]) -> str:
+    prs = [f"#{tail[0]}" for value in values.get("pr", ()) if value for part in value.split(",") if (tail := PR_TAIL.search(part))]
+    words = [*values.get("text", ()), *values.get("words", ())[1:], *values.get("topic", ())]
+    return " ".join([*(str(word) for word in words if word), *prs])
+
+
+def authorizing_lines(evt: BaseHookEvent) -> list[str]:
+    records = [
+        record_text(values)
+        for call in evt.command.calls("cci")
+        if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)
+        and AUTHORIZING_KINDS & set(values.get("kind", ()))
+    ]
+    return AUTHORIZING_LINE.findall(inbox_text(evt)) + records
+
+
+def posts_board(use) -> bool:
+    return any(cmd.runs("cc-present", verb) for cmd in use.call.command_line for verb in BOARD_VERBS)
+
+
+def board_text(evt: BaseHookEvent, use) -> str:
+    command = use.call.command
+    written = evt.ctx.turn.tool_calls.named("Write").where(lambda write: write.call.file_path in command)
+    return "\n".join([command, *(write.call.content for write in written.items)])
+
+
+def asked_subjects(evt: BaseHookEvent) -> set[str]:
+    open_questions = evt.ctx.t.tool_calls.named("AskUserQuestion").where(lambda use: use.result is None)
+    boards = evt.ctx.turn.tool_calls.named("Bash").where(posts_board)
+    texts = [json.dumps(use.call.raw, ensure_ascii=False) for use in open_questions.items]
+    texts += [board_text(evt, use) for use in boards.items]
+    return set().union(*map(subjects, texts))
+
+
+DRIVE_INBOX = "/home/u/.claude/scratch/drive/inbox/deploy-go.md"
+ROUTING_QUESTION = T.assistant(
+    T.tool("AskUserQuestion", questions=[{"question": "Switch acme routing to cluster-b now?", "options": [{"label": "Switch"}, {"label": "Hold"}]}])
+)
+MERGE_QUESTION = T.assistant(
+    T.tool("AskUserQuestion", questions=[{"question": "Merge #30502 now?", "options": [{"label": "Merge"}, {"label": "Hold"}]}])
+)
+ROUTING_GO = f'echo "GO root (11:02 PM) acme-routing: switch acme routing to cluster-b now" >> {DRIVE_INBOX}'
+
+
+def authorize(*transcript: object, decide: dict[str, object] | None = None, **call: object) -> Input:
+    return Input(transcript=[T.user("keep going"), *transcript], state=ACTIVE, decide=decide or CONFIRMED, **call)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Edit", "Write")],
+    skip_if=[FromSubagent()],
+    tests={
+        authorize(ROUTING_QUESTION, command=ROUTING_GO): Block(pattern="later turn"),
+        authorize(
+            T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"blocks\": [{\"title\": \"Should acme routing switch?\"}]}\nEOF")),
+            command=f"cat >> {DRIVE_INBOX} <<'EOF'\nLIFT root (11:02 PM) acme routing fence lifted.\nEOF",
+        ): Block(),
+        authorize(MERGE_QUESTION, tool="Write", file=DRIVE_INBOX, content="UNBLOCK root (11:02 PM) #30502 may merge now.\n"): Block(),
+        authorize(
+            T.assistant(T.tool("Write", file_path="/tmp/board.json", content='{"title": "Switch acme routing?"}')),
+            T.assistant(T.tool("Bash", command="cc-present push /tmp/board.json")),
+            tool="Write",
+            file=DRIVE_INBOX,
+            content="GO root (11:02 PM) acme routing switch applied.\n",
+        ): Block(),
+        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30502 --text 'land it'"): Block(
+            pattern="cci post"
+        ),
+        authorize(ROUTING_QUESTION, command="cci post --lane root --kind lift --to deploy-desk 'acme routing fence lifted'"): Block(),
+        authorize(MERGE_QUESTION, command="cci post --lane root --kind note --to landing-desk --pr 30502 --text 'question is open'"): Allow(),
+        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30409 --text 'land it'"): Allow(),
+        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30502 --text 'land it'", decide=UNCONFIRMED): Allow(),
+        authorize(command="cc-present start --session s1 --doc /tmp/board.json"): Allow(),
+        authorize(command=ROUTING_GO): Allow(),
+        authorize(ROUTING_QUESTION, command=f'echo "STATE census (11:02 PM) acme routing question is open" >> {DRIVE_INBOX}'): Allow(),
+        authorize(ROUTING_QUESTION, command=f'echo "GO root (11:02 PM) release-simplify-2: take over #30409" >> {DRIVE_INBOX}'): Allow(),
+        authorize(
+            T.tool_turn(
+                "AskUserQuestion",
+                result="Switch",
+                questions=[{"question": "Switch acme routing to cluster-b now?", "options": [{"label": "Switch"}, {"label": "Hold"}]}],
+            ),
+            command=ROUTING_GO,
+        ): Allow(),
+        Input(
+            transcript=[
+                T.user("ask the owner"),
+                T.assistant(T.tool("Bash", command="cc-present push /tmp/board.json")),
+                T.user("the owner answered: switch"),
+            ],
+            command=ROUTING_GO,
+            state=ACTIVE,
+        ): Allow(),
+        Input(transcript=[T.user("keep going"), ROUTING_QUESTION], command=ROUTING_GO): Allow(),
+    },
+)
+def authorizing_lines_wait_for_the_owner_question(evt: BaseHookEvent) -> HookResult | None:
+    lines = authorizing_lines(evt)
+    if not lines or not CompactionState.load(evt).active:
+        return None
+    asked = asked_subjects(evt)
+    return evt.block(AUTHORIZED_BESIDE_A_QUESTION, confirm=SAME_SUBJECT) if any(subjects(line) & asked for line in lines) else None
