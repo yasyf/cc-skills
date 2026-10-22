@@ -3899,7 +3899,7 @@ def test_a_refused_cci_post_keeps_the_desk_relaying_and_posts_on_a_later_pass(sh
 
 def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
     orca_pass(shell, config)
-    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEAT).read_text())
+    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).read_text())
     assert beat == {
         "pid": os.getpid(),
         "at": shell.clock.isoformat(),
@@ -3913,7 +3913,7 @@ def test_the_orca_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, con
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.stop_marker().write_text(f"{os.getpid()}\n")
     assert runner_module.run_orca(runner, False) == 0
-    assert (tmp_path / "inbox" / runner_module.HEARTBEAT).is_file()
+    assert (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).is_file()
     assert not runner.stop_marker().exists()
 
 
@@ -3927,12 +3927,47 @@ def test_handoff_waits_for_the_runner_to_remove_the_stop_marker(shell, config, t
     orca_pass(shell, config)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
-    assert cli(shell, config, "handoff") == 0
+    assert cli(shell, config, "handoff", "--desk", "orca") == 0
     assert not runner.stop_marker().exists()
 
 
-def test_handoff_with_no_heartbeat_has_no_runner_to_stop(shell, config):
-    assert cli(shell, config, "handoff") == 0
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_handoff_with_no_heartbeat_has_no_runner_to_stop(shell, config, tmp_path, desk):
+    assert cli(shell, config, "handoff", "--desk", desk) == 0
+    assert not runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).stop_marker().exists()
+
+
+def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
+    landing_pass(shell, config)
+    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())
+    assert beat["pid"] == os.getpid()
+    assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing > {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
+    assert not (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).exists()
+
+
+def test_the_landing_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.stop_marker().write_text(f"{os.getpid()}\n")
+    assert runner_module.run_landing(runner, False) == 0
+    assert (tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).is_file()
+    assert not runner.stop_marker().exists()
+
+
+def test_handoff_of_the_landing_desk_names_the_landing_runner_and_not_the_orca_runner(shell, config, tmp_path, monkeypatch):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir(exist_ok=True)
+    (inbox / runner_module.HEARTBEATS["orca"]).write_text(json.dumps({"pid": os.getppid()}) + "\n")
+    landing_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    named = []
+
+    def exit_mark(seconds):
+        named.append(runner.stop_marker().read_text().strip())
+        runner.stop_marker().unlink()
+
+    monkeypatch.setattr(shell, "sleep", exit_mark)
+    assert cli(shell, config, "handoff", "--desk", "landing") == 0
+    assert named == [str(os.getpid())]
 
 
 def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config, tmp_path):
