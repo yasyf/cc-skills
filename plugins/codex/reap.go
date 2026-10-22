@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -55,7 +57,7 @@ func liveSessions() map[int][]member {
 		if err != nil {
 			continue
 		}
-		if sid, err := syscall.Getsid(pid); err == nil {
+		if sid, err := unix.Getsid(pid); err == nil {
 			sessions[sid] = append(sessions[sid], member{pid, started})
 		}
 	}
@@ -93,7 +95,7 @@ func terminate(targets map[int][]member) {
 func stillIn(sid int, ms []member) []member {
 	var left []member
 	for _, m := range ms {
-		if s, err := syscall.Getsid(m.pid); err == nil && s == sid {
+		if s, err := unix.Getsid(m.pid); err == nil && s == sid {
 			left = append(left, m)
 		}
 	}
