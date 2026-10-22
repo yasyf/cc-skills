@@ -181,7 +181,7 @@ class RecordedSync(unittest.TestCase):
     def test_the_summary_carries_title_monitor_severity_l1_and_status(self):
         self.assertEqual(self.R["summary"]["p"],
                          f"{json.loads((self.incident / 'state.json').read_text())['title']}. "
-                         "Monitor 312516332 fired. Severity: Urgent. L1: Ada. Status: Fix in review.")
+                         "The paging monitor fired. Severity: Urgent. L1: Ada. Status: Fix in review.")
 
     def test_the_timeline_is_the_recorded_one_entry_per_event(self):
         self.assertEqual([(t["ts"], t["kind"], t["text"]) for t in self.R["timeline"]],
