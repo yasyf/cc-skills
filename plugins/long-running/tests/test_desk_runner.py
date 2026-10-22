@@ -5412,7 +5412,8 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
-    hand = "tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
+    until = actions.stamp(shell.now() + timedelta(hours=2))
+    hand = f"tools/ci release claim sand/<env> --purpose incident --reason 'GO #{seq} cut by hand' --until {until} && tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
     assert line.startswith(f"CUT-SILENT {WALKER} sand: no CUT or refusal 4 min after GO #{seq}; hand path: {hand} | manual-release-sand launching on opus xhigh, brief ")
     shell.sleep(60)
     orca_pass(shell, config)
