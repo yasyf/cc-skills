@@ -141,6 +141,8 @@ class FakeShell(runner_module.Shell):
         self.drives: list[str] = ["d1"]
         self.flake_code = 0
         self.ledger_outs: dict[str, tuple[int, str]] = {}
+        self.cards: list[dict] = []
+        self.card_error = ""
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -187,6 +189,9 @@ class FakeShell(runner_module.Shell):
     def run(self, argv, stdin=None, env=None):
         self.calls.append(list(argv))
         name = Path(argv[0]).name
+        if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
+            self.cards.append(json.loads(argv[argv.index("--card") + 1]))
+            return runner_module.Done(1 if self.card_error else 0, "", self.card_error)
         if argv[0] == "orca":
             self.sender = (env or {}).get("ORCA_TERMINAL_HANDLE") or self.environ.get("ORCA_TERMINAL_HANDLE", "")
             if self.orca_down and argv[2] not in ("run-current", "run-show"):
@@ -6670,3 +6675,31 @@ def test_a_root_go_ordering_the_lane_to_work_leaves_its_mechanism_owed(shell, co
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     assert [line.split(" #", 1)[0] for line in silent_posts(shell)] == ["PR-SILENT inc-llmgw-fix"]
+
+
+def test_the_landing_desk_redraws_the_drive_root_card_from_the_ledger_only_when_it_changes(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["status_card"] = True
+    config.write_text(json.dumps(raw))
+    shell.rows = stack_rows(**{"28997": "landed"})
+    shell.rows[2]["hold_reason"] = "waiting on the owner"
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")] * 4
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.cards) == 1
+    card = shell.cards[0]
+    assert card["drive"] == "d1" and card["refs"] == []
+    assert card["progress"] == {"step": 1, "total": 3, "label": "PRs landed"}
+    assert card["rollup"]["prs"] == [
+        {"url": "https://github.com/Forge-AI/monorepo/pull/29016", "label": "#29016 artifact-retry", "status": "open"},
+        {"url": "https://github.com/Forge-AI/monorepo/pull/29020", "label": f"#29020 {LANE}", "status": "held"},
+    ]
+    assert {lane["name"]: (lane["status"], lane.get("detail")) for lane in card["rollup"]["lanes"]} == {"artifact-retry": ("1 open PR", "#29016"), LANE: ("1 open PR", "#29020")}
+    assert {fact["label"]: fact["value"] for fact in card["facts"]} == {"Open PRs": "2", "Queued": "0", "Held": "1", "Landed": "1"}
+    shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
+    shell.card_error = "cc-slack: dm-status root_only needs this session's status thread; post a card first"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [card["progress"]["step"] for card in shell.cards] == [1, 2, 2]
+    failed = [line for line in escalations(shell) if "CARD-FAILED" in line]
+    assert len(failed) == 1 and "post a card first" in failed[0]

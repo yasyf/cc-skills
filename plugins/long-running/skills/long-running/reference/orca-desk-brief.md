@@ -402,6 +402,10 @@ Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET
 re-reads the value on every use, so a change needs no restart. Under `high-risk`,
 `landing.high_risk_paths` lists the fnmatch globs of the repository's high-risk files.
 
+`landing.status_card`, optional, makes the landing desk redraw the root's status card
+from the ledger each pass the picture changes, as SKILL.md's status-card section
+describes. Start the landing desk from the root's shell after its first status card.
+
 `landing.adapter` names the merge queue's repository adapter, and the root writes it at
 drive start along with `landing.high_risk_paths`. Use
 `{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
@@ -500,6 +504,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
     "release_owner": "peer:<release session>",
     "interval_seconds": 180,
+    "status_card": true,
     "policy": {
       "rule": "prefix",
       "revision": "<#28601 revision>",
