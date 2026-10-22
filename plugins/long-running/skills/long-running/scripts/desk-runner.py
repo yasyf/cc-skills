@@ -214,12 +214,12 @@ runner counts no Sprites and sets no limit: the provider admits or refuses each 
 fallback, and a `role=desk` or `role=watch` brief stay local whatever the line says. A lane name a Sprite refuses,
 or a Sprite launch whose receipts prove worker-start never ran, a provider refusal
 among them, starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
-The proof is read from the brief's `.worker` directory: no `<lane>.json`,
-and a nonzero exit in `prepare.status` or `attach.status`,
+The proof is read from the brief's `.worker` directory: no `worker-start.json`,
+and a nonzero exit in `prepare.status`,
 or no `prepare.status` when the runner itself saw the launcher exit. A runner that
 restarted mid-launch saw no exit. Any other Sprite launch that prints no ready line
 may have left a remote worker: it becomes `unverifiable` and logs
-`SPRITE-UNVERIFIABLE` with that directory and the Task and Dispatch its `<lane>.json`
+`SPRITE-UNVERIFIABLE` with that directory and the Task and Dispatch its `worker-start.json`
 names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
@@ -237,7 +237,7 @@ when `cci who` lists no live session for that lane. A conflict blocker for a lan
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no `graphite FAILING_REQUIRED` blocker
-unless a commit status other than `release-pr-check`, `emergency-head`, or `fidelity` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
+unless a commit status other than `release-pr-check` or `emergency-head` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
 holding a PR that no drive lane registered or named in an `opened` or `head` record on cci. A PR of this repo that has no registered ledger row but
 such a record on the drive is registered under the record's lane each pass, whether or not a refresh already gave it a row, and the next pass gates it as ours: an `owner/repo#N` ref
 names its repo, and a bare number counts once GitHub shows that PR open here and opened no later than the record. It logs one `NOT-OURS`
@@ -258,8 +258,7 @@ top first, with a `DEQUEUED` line; a dequeue that fails logs `DEQUEUE-FAILED`. B
 on a PR holds it too, and the runner never adds or removes that label. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head: the newest cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without) about that PR whose text starts
-`fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`; a head no fidelity lane has graded
-also passes when its `fidelity` commit status reads `success`. A head no
+`fidelity: ok` or `fidelity: missing` and names that head by a short sha, and it reads `fidelity: ok`. A head no
 grade names carries the ok of an older head an ok names, whose own newest grade is ok, when `git patch-id --stable` of both heads'
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
@@ -380,7 +379,6 @@ OWNER_KINDS = ("head", "opened", "ready", "claim")
 CLAIM_FILTERS = tuple(f"--kind={kind}" for kind in cci.CLAIM_KINDS)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
-FIDELITY_STATUS = "fidelity"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 HOLD_LABEL = "hold"
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -422,7 +420,7 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 4
-GATE_STATUSES = frozenset({FIDELITY_STATUS, "release-pr-check", "emergency-head"})
+GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 FAILING_REQUIRED = re.compile(r"^graphite FAILING\w*$")
 HEAD_FLOOR = timedelta(seconds=60)
@@ -524,10 +522,10 @@ STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
 SPRITE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
-SPRITE_EXITS = ("prepare.status", "attach.status")
+SPRITE_PREPARED = "prepare.status"
+SPRITE_RECEIPT = "worker-start.json"
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
 SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
-SPRITE_ATTACH = SCRIPTS.parents[2] / "bin" / "orca-remote-attach.sh"
 LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
@@ -703,12 +701,12 @@ def exit_status(path: Path) -> str:
     return path.read_text().strip() if path.is_file() else ""
 
 
-def sprite_never_started(attempt: Path, lane: str, exited: bool) -> bool:
-    """Whether a Sprite attempt's receipts prove worker-start never ran: no `<lane>.json` was claimed, and prepare or attach exited nonzero or the launcher exited with no prepare exit recorded."""
-    if (attempt / f"{lane}.json").exists():
+def sprite_never_started(attempt: Path, exited: bool) -> bool:
+    """Whether a Sprite attempt's receipts prove worker-start never ran: no `worker-start.json` was opened, and prepare exited nonzero or the launcher exited with no prepare exit recorded."""
+    if (attempt / SPRITE_RECEIPT).exists():
         return False
-    prepared, attached = (exit_status(attempt / step) for step in SPRITE_EXITS)
-    return prepared not in ("", "0") or attached not in ("", "0") or (exited and not prepared)
+    prepared = exit_status(attempt / SPRITE_PREPARED)
+    return prepared not in ("", "0") or (exited and not prepared)
 
 
 def sprite_started_as(receipt: Path) -> str:
@@ -2002,7 +2000,7 @@ class Runner:
         spec = json.loads(action.target)
         sprite = self.config.sprite or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, "WORKER_REMOTE_ATTACH": str(SPRITE_ATTACH), **sprite.get("env", {})}
+        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {})}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)
@@ -2067,15 +2065,15 @@ class Runner:
         try:
             ready = json.loads(out.splitlines()[-1])
             line = f"{lane} ready task={ready['task']} dispatch={ready['dispatch']} terminal={ready['terminal']} worktree={ready['worktree']}"
-            receipt = (attempt / f"{lane}.json").read_text()
+            receipt = (attempt / SPRITE_RECEIPT).read_text()
         except (json.JSONDecodeError, KeyError, TypeError, FileNotFoundError):
             reason = " ".join(out.split())[:300]
-            if sprite_never_started(attempt, lane, exited):
+            if sprite_never_started(attempt, exited):
                 self.escalate(f"{container}/{key}:sprite", "SPRITE-FALLBACK", lane, f"{key} launches locally: {reason}")
                 self.launch_local(container, lane, action)
                 return
             self.book.attempt(container, lambda incident: incident.lose(key))
-            started = sprite_started_as(attempt / f"{lane}.json")
+            started = sprite_started_as(attempt / SPRITE_RECEIPT)
             self.escalate(
                 f"{container}/{key}:sprite",
                 "SPRITE-UNVERIFIABLE",
@@ -3170,23 +3168,16 @@ class Landing:
             )
         return bool(low)
 
-    def status_success(self, pr: str, sha: str) -> bool:
-        return any(status["context"] == FIDELITY_STATUS and status["state"] == "success" for status in self.head_statuses(pr, sha) or [])
-
     def ungraded(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, dict | None]:
         grades = {pr: self.fidelity(pr, sha, rows[pr].get("base") or "") for pr, sha in heads.items()}
-        return {
-            pr: grade
-            for pr, grade in grades.items()
-            if not (grade and grade["text"].startswith(FIDELITY_OK)) and not (grade is None and self.status_success(pr, heads[pr]))
-        }
+        return {pr: grade for pr, grade in grades.items() if not (grade and grade["text"].startswith(FIDELITY_OK))}
 
     def refuse_ungraded(self, heads: dict[str, str], ungraded: dict[str, dict | None], rows: dict[str, dict]) -> None:
         for pr, grade in ungraded.items():
             key = f"fidelity:{pr}:{heads[pr]}:{grade['seq'] if grade else 'ungraded'}"
             if self.book.known(LANDING, key):
                 continue
-            why = f"{grade['lane']} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head, and its `{FIDELITY_STATUS}` status is not success"
+            why = f"{grade['lane']} graded this head on cci #{grade['seq']}: {grade['text']}" if grade else f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head"
             owner = self.owner(pr, rows[pr])
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)

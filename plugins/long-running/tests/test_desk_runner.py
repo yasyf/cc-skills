@@ -2139,7 +2139,7 @@ def test_an_ok_at_an_older_head_only_is_blocked(shell, config, tmp_path):
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
-    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; no review from fidelity-desk starting `fidelity: ok` names this head, and its `fidelity` status is not success"
+    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; no review from fidelity-desk starting `fidelity: ok` names this head"
 
 
 def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, config, tmp_path):
@@ -2235,30 +2235,6 @@ def test_the_newest_grade_across_a_fidelity_list_decides_the_head(shell, config,
     assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing F335 at cccc333."
 
 
-def test_a_success_fidelity_status_on_an_ungraded_head_is_a_grade(shell, config, tmp_path):
-    lone_green_pr(shell)
-    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "failure"}, {"context": "fidelity", "state": "success"}]
-    landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
-    assert blockers(shell) == []
-
-
-@pytest.mark.parametrize("statuses", [[], [{"context": "fidelity", "state": "pending"}], [{"context": "fidelity", "state": "failure"}], [{"context": "ci", "state": "success"}]])
-def test_a_fidelity_status_not_reading_success_is_no_grade(shell, config, tmp_path, statuses):
-    lone_green_pr(shell)
-    shell.combined_statuses["cccc333333"] = statuses
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and len(blockers(shell)) == 1
-
-
-def test_a_cci_grade_outranks_a_stale_success_status(shell, config, tmp_path):
-    lone_green_pr(shell)
-    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "success"}]
-    grade(shell, "29020", "missing F335 at cccc333.")
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and len(blockers(shell)) == 1
-
-
 def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shell, config, tmp_path):
     lone_green_pr(shell)
     shell.status_read_error = "gh: API rate limit exceeded (HTTP 403)"
@@ -2316,8 +2292,8 @@ def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):
     assert landing.head_statuses("29020", "cccc333") == [{"context": "ci", "state": "success"}]
     assert len(graphql_reads(shell)) == 1
     shell.clock += timedelta(seconds=1)
-    shell.combined_statuses["cccc333333"] = [{"context": "fidelity", "state": "failure"}]
-    assert landing.head_statuses("29020", "cccc333333") == [{"context": "fidelity", "state": "failure"}]
+    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "failure"}]
+    assert landing.head_statuses("29020", "cccc333333") == [{"context": "ci", "state": "failure"}]
     assert len(graphql_reads(shell)) == 2
 
 
@@ -5818,8 +5794,8 @@ def lane_brief(tmp_path: Path, header: str) -> Path:
 SPRITE_READY = json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s", "terminal": "term_s", "worktree": "/home/sprite/repo", "lane": LANE, "workspace": LANE, "allocation": "created"}) + "\n"
 SPRITE_STARTED = json.dumps({"ok": True, "result": {"state": "ready", "taskId": "task_s", "dispatchId": "ctx_s"}})
 SPRITE_UNKNOWN = json.dumps({"ok": True, "result": {"state": "outcome_unknown", "stage": "turn_start_unobserved", "taskId": "task_s", "dispatchId": "ctx_s"}})
-SPRITE_KEPT = f"kept {LANE}.json and {LANE}.worker.err, sent nothing more, and cleaned up nothing"
-PREPARED, ATTACHED, ATTACH_FAILED = {"prepare.status": "0\n"}, {"attach.status": "0\n"}, {"attach.status": "1\n"}
+SPRITE_KEPT = "kept terminal term_s, worktree /home/sprite/repo, and the receipt in /x.worker"
+PREPARED, STARTED, START_FAILED = {"prepare.status": "0\n"}, {"worker-start.status": "0\n"}, {"worker-start.status": "1\n"}
 
 
 @pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote", "ccx: place=remote role=build cpu=high"])
@@ -5828,7 +5804,7 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
     brief = lane_brief(tmp_path, header)
     shell.cpu_load = 140
     shell.sprite_line = SPRITE_READY
-    shell.sprite_receipts = {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}
+    shell.sprite_receipts = {**PREPARED, **STARTED, "worker-start.json": SPRITE_STARTED}
     shell.dispatches["ctx_s"] = {"status": "dispatched", "terminal": "term_s"}
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
@@ -5837,8 +5813,7 @@ def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, 
     assert launches(shell) == []
     assert not [call for call in shell.calls if call[0] == "sprite"]
     env = shell.spawned_env["worker-launch.sh"]
-    assert (env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_REMOTE_ATTACH"]) == ("run_1", "dev", str(runner_module.SPRITE_ATTACH))
-    assert runner_module.SPRITE_ATTACH.is_file()
+    assert (env["WORKER_RUN"], env["WORKER_REF"]) == ("run_1", "dev")
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert json.loads((shell.receipts / f"{LANE}.json").read_text())["result"]["dispatchId"] == "ctx_s"
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
@@ -5863,13 +5838,9 @@ PROVIDER_REFUSED = (
         "prepare.err": f"Error: sprite {LANE}: whether the create allocated it is unknown: max sprites per org exceeded; {LANE} was allocated as {LANE} but not provisioned, so its record is kept: run destroy {LANE} once the provider answers\n",
     },
 )
-ATTACH_REFUSED = (
-    f"orca-remote-attach.sh exited 1: {LANE} failed status: environment sprite-a exited 1 with an error, not reachable runtime rt-1 with orchestration.contract.v1 and orchestration.federation.v1",
-    {**PREPARED, **ATTACH_FAILED},
-)
 OUTCOME_UNKNOWN = (
-    f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 1 state=outcome_unknown task=task_s dispatch=ctx_s; {SPRITE_KEPT}",
-    {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": SPRITE_UNKNOWN},
+    f"orca orchestration worker-start exited 1; {SPRITE_KEPT}",
+    {**PREPARED, **START_FAILED, "worker-start.json": SPRITE_UNKNOWN},
 )
 
 
@@ -5887,10 +5858,8 @@ def test_a_sprite_attempt_is_the_directory_worker_launch_names(tmp_path, name, e
         (*PREPARE_FAILED, True),
         (*PROVIDER_REFUSED, False),
         (*PROVIDER_REFUSED, True),
-        (*ATTACH_REFUSED, False),
-        (*ATTACH_REFUSED, True),
     ],
-    ids=["nothing-prepared", "prepare-unrecorded", "prepare-failed", "prepare-failed-restarted", "provider-refused", "provider-refused-restarted", "attach-refused", "attach-refused-restarted"],
+    ids=["nothing-prepared", "prepare-unrecorded", "prepare-failed", "prepare-failed-restarted", "provider-refused", "provider-refused-restarted"],
 )
 def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch_locally(shell, config, tmp_path, printed, receipts, restarted):
     with_sprites(config)
@@ -5911,20 +5880,20 @@ def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch
     [
         (*OUTCOME_UNKNOWN, " as task=task_s dispatch=ctx_s", False),
         (*OUTCOME_UNKNOWN, " as task=task_s dispatch=ctx_s", True),
-        (f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 143; {SPRITE_KEPT}", {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": '{"ok": true, "result": {"taskId": "task_s"'}, "", False),
+        (f"orca orchestration worker-start exited 143; {SPRITE_KEPT}", {**PREPARED, "worker-start.status": "143\n", "worker-start.json": '{"ok": true, "result": {"taskId": "task_s"'}, "", False),
         (
-            f"orca-remote-attach.sh exited 1: {LANE} failed worker-start exited 1 code=invalid_argument; {SPRITE_KEPT}",
-            {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "sk-synthetic-credential-0000"}})},
+            f"orca orchestration worker-start exited 1: invalid_argument: sk-synthetic-credential-0000; {SPRITE_KEPT}",
+            {**PREPARED, **START_FAILED, "worker-start.json": json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "sk-synthetic-credential-0000"}})},
             "",
             False,
         ),
         (
-            f"orca-remote-attach.sh exited 1: {LANE} failed worker-start returned no printable task and dispatch IDs, not a matching ready receipt; {SPRITE_KEPT}",
-            {**PREPARED, **ATTACH_FAILED, f"{LANE}.json": json.dumps({"ok": True, "result": {"state": "ready", "taskId": "task s\nUNOWNED", "dispatchId": "ctx_s"}})},
+            f"orca orchestration worker-start exited 0 without a ready receipt for Run run_1; {SPRITE_KEPT}",
+            {**PREPARED, **STARTED, "worker-start.json": json.dumps({"ok": True, "result": {"state": "ready", "taskId": "task s\nUNOWNED", "dispatchId": "ctx_s"}})},
             " as dispatch=ctx_s",
             False,
         ),
-        (json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s"}), {**PREPARED, **ATTACHED, f"{LANE}.json": SPRITE_STARTED}, " as task=task_s dispatch=ctx_s", False),
+        (json.dumps({"state": "ready", "task": "task_s", "dispatch": "ctx_s"}), {**PREPARED, **STARTED, "worker-start.json": SPRITE_STARTED}, " as task=task_s dispatch=ctx_s", False),
         ("/x.worker/allocation.json holds prepared is not true, so the prepared worker stays idle and unattached", PREPARED, "", False),
         (*NOTHING_PREPARED, "", True),
         (*PREPARE_UNRECORDED, "", True),

@@ -401,7 +401,7 @@ without it. It is the cci `--to` address of the lane that starts releases, such 
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
 `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
 repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
-and `WORKER_REMOTE_ATTACH` set by the runner. The runner sets no Sprite limit: the
+set by the runner. The runner sets no Sprite limit: the
 provider admits or refuses each one. `place=local` keeps a `cpu=high` launch on the Mac.
 Fable, incident, an incident clock fallback, and a `role=desk` or `role=watch` brief
 launch locally whatever the line says, and so does every launch when `orca.sprite` is
@@ -696,17 +696,17 @@ refuses to start without it and posts `FIDELITY-LANE-UNSET`. The
 runner re-reads it from `runner.json` on every use, so an edit needs no restart. It
 also takes a list of lane names, `"fidelity_lane": ["fidelity-desk-6", "fidelity-desk-7"]`,
 for a drive that shards grading: a grade from any listed lane counts, the newest
-across them decides, and a blocker goes to the PR's lane and every listed lane. A
-head no listed lane has graded also passes when its `fidelity` commit status reads
-`success`. A head no grade names takes
+across them decides, and a blocker goes to the PR's lane and every listed lane.
+A head no grade names takes
 an ok carried from an older head an ok names, whose own newest grade is ok, when
 `git patch-id --stable` of both heads' diffs against the PR's base, read from
 GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
 patch-identical to <graded head>` under the graded record's seq. A compare GitHub
 refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 
-The runner posts no `fidelity` status, so a grade binds only the runner's own
-gate. The fidelity lane keeps naming the head in each `review` record.
+The runner posts no `fidelity` status. Its landing pass alone enforces holds,
+rules-review, and fidelity, so a hand `gt merge` or a web-UI enqueue bypasses all
+three. The fidelity lane keeps naming the head in each `review` record.
 
 After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
 first PR above it. Orca lanes receive a relay; other lanes receive

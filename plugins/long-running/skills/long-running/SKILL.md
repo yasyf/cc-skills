@@ -1297,8 +1297,7 @@ lane, and nothing in its prefix is enqueued. The check runs again just before
 the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
 name or a list of lane names when grading is sharded: a grade from any
 listed lane counts and the newest decides. The runner re-reads the lane from
-`runner.json` on every use, so adding a desk needs no restart. A head no listed lane has graded also
-passes when its `fidelity` commit status reads `success`. The landing desk refuses
+`runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
 
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
@@ -1319,9 +1318,11 @@ the minute it is asked with the same line, without a re-read.
 grade for a diff already graded ok at c9fce65; landing-gates held the incident fix
 for that grade at 2:31 PM.*
 
-The runner posts no commit status and adds or removes no label. Holds and
-grades bind only the runner's own gate, so the root re-reads the holds file and
-the fidelity grades before any hand `stack-enqueue`.
+The runner posts no commit status and adds or removes no label. Its landing pass
+alone enforces holds, rules-review, and fidelity: no required check carries them,
+so a hand `gt merge` or a web-UI enqueue bypasses all three. The root re-reads
+the holds file, `ledger.py list` for `rules_blocked`, and the fidelity grades
+before any hand `stack-enqueue`.
 
 The holds file stays the root's interface. A `hold` label on a PR holds it too,
 with every PR stacked above it. The enqueue command is `stack-enqueue <prefix top>...`, naming
@@ -1926,7 +1927,7 @@ sets no limit of its own: the provider admits or refuses each one.
 A lane name a Sprite refuses starts the same lane locally under O14's load hold. A
 failed Sprite launch starts it locally at once only when its receipts prove
 worker-start never ran: the brief's `.worker` directory holds
-no `<lane>.json`, and `prepare.status` or `attach.status` records a nonzero exit, or
+no `worker-start.json`, and `prepare.status` records a nonzero exit, or
 the runner saw the launcher exit with no prepare exit recorded. A Sprite the provider
 refuses for capacity is such a launch: `cc-remote orca prepare` exits nonzero at the
 create, before it provisions or attaches anything. Each logs
