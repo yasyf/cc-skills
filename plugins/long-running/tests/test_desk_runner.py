@@ -6678,14 +6678,12 @@ def test_a_root_go_ordering_the_lane_to_work_leaves_its_mechanism_owed(shell, co
 
 
 def test_the_landing_desk_redraws_the_drive_root_card_from_the_ledger_only_when_it_changes(shell, config, tmp_path):
-    raw = json.loads(config.read_text())
-    raw["landing"]["status_card"] = True
-    config.write_text(json.dumps(raw))
-    shell.rows = stack_rows(**{"28997": "landed"})
-    shell.rows[2]["hold_reason"] = "waiting on the owner"
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")] * 4
-    landing_pass(shell, config)
-    landing_pass(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = {row["pr"]: row for row in stack_rows(**{"28997": "landed"})}
+    rows["29020"]["hold_reason"] = "waiting on the owner"
+    landing.draw_card(rows)
+    landing.draw_card(rows)
     assert len(shell.cards) == 1
     card = shell.cards[0]
     assert card["drive"] == "d1" and card["refs"] == []
@@ -6696,10 +6694,22 @@ def test_the_landing_desk_redraws_the_drive_root_card_from_the_ledger_only_when_
     ]
     assert {lane["name"]: (lane["status"], lane.get("detail")) for lane in card["rollup"]["lanes"]} == {"artifact-retry": ("1 open PR", "#29016"), LANE: ("1 open PR", "#29020")}
     assert {fact["label"]: fact["value"] for fact in card["facts"]} == {"Open PRs": "2", "Queued": "0", "Held": "1", "Landed": "1"}
-    shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
+    rows["29016"] = dict(rows["29016"], state="landed")
     shell.card_error = "cc-slack: dm-status root_only needs this session's status thread; post a card first"
-    landing_pass(shell, config)
-    landing_pass(shell, config)
+    landing.draw_card(rows)
+    landing.draw_card(rows)
+    runner.flush()
     assert [card["progress"]["step"] for card in shell.cards] == [1, 2, 2]
     failed = [line for line in escalations(shell) if "CARD-FAILED" in line]
     assert len(failed) == 1 and "post a card first" in failed[0]
+
+
+def test_the_drive_root_card_stays_inside_cc_slacks_limits_on_a_large_ledger(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = {str(10_000_000 + n): {"pr": str(10_000_000 + n), "lane": "bulk", "head": f"{n:010x}", "state": "open" if n < 60 else "landed"} for n in range(1500)}
+    card = landing.card(rows)
+    assert card["progress"] == {"step": 960, "total": 1000, "label": "PRs landed"}
+    assert len(card["rollup"]["prs"]) == 50
+    detail = card["rollup"]["lanes"][0]["detail"]
+    assert len(detail) <= 200 and detail.endswith("more")

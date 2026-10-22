@@ -424,7 +424,8 @@ SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 CARD_ROLLUP = 50
 CARD_REFS = 10
-CARD_LANE_PRS = 20
+CARD_DETAIL = 200
+CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
@@ -2997,13 +2998,13 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         landed = [pr for pr, row in rows.items() if row.get("state") == LANDED]
         queued = sorted({pr for prs in self.believed_queued(rows).values() for pr in prs}, key=int)
-        held = [pr for pr, row in open_rows.items() if row.get("hold_reason")]
+        held = set(holds.held(holds.read(self.holds), rows)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
 
         def url(pr: str) -> str:
             return f"https://github.com/{self.repo}/pull/{pr}"
 
         def status(pr: str, row: dict) -> str:
-            if row.get("hold_reason"):
+            if pr in held:
                 return "held"
             if row.get("rules_blocked"):
                 return "rules-blocked"
@@ -3017,9 +3018,12 @@ class Landing:
         def detail(prs: list[str]) -> dict:
             if not prs:
                 return {}
-            shown = sorted(prs, key=int)[:CARD_LANE_PRS]
-            more = f" +{len(prs) - len(shown)} more" if len(prs) > len(shown) else ""
-            return {"detail": numbered(shown) + more}
+            ordered = sorted(prs, key=int)
+            for count in range(len(ordered), 0, -1):
+                text = numbered(ordered[:count]) + (f" +{len(ordered) - count} more" if count < len(ordered) else "")
+                if len(text) <= CARD_DETAIL:
+                    return {"detail": text}
+            return {"detail": f"{len(ordered)} PRs"}
 
         lanes = [
             {"name": lane[:CARD_NAME], "status": f"{len(prs)} open PR{'' if len(prs) == 1 else 's'}" if prs else "no open PR", **detail(prs)}
@@ -3029,10 +3033,11 @@ class Landing:
             "drive": self.runner.config.drive,
             "rollup": {"lanes": lanes[:CARD_ROLLUP], "prs": [{"url": url(pr), "label": f"#{pr} {row.get('lane', '')}".strip()[:CARD_LABEL], "status": status(pr, row)} for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0]))][:CARD_ROLLUP]},
             "refs": [{"url": url(pr), "label": f"#{pr}"} for pr in queued][:CARD_REFS],
-            "facts": [{"label": "Open PRs", "value": str(len(open_rows))}, {"label": "Queued", "value": str(len(queued))}, {"label": "Held", "value": str(len(held))}, {"label": "Landed", "value": str(len(landed))}],
+            "facts": [{"label": "Open PRs", "value": str(len(open_rows))}, {"label": "Queued", "value": str(len(queued))}, {"label": "Held", "value": str(len(held & open_rows.keys()))}, {"label": "Landed", "value": str(len(landed))}],
         }
-        if open_rows or landed:
-            card["progress"] = {"step": len(landed), "total": len(landed) + len(open_rows), "label": "PRs landed"}
+        if total := len(landed) + len(open_rows):
+            scale = min(1.0, CARD_STEPS / total)
+            card["progress"] = {"step": round(len(landed) * scale), "total": round(total * scale), "label": "PRs landed"}
         return card
 
     def draw_card(self, rows: dict[str, dict]) -> None:
@@ -3040,7 +3045,10 @@ class Landing:
         card = json.dumps(self.card(rows), sort_keys=True)
         if card == self.card_drawn:
             return
-        done = self.shell.run(["cc-slack", "dm-status", "--root-only", "--card", card])
+        try:
+            done = self.shell.run(["cc-slack", "dm-status", "--root-only", "--card", card])
+        except OSError as error:
+            done = Done(127, "", f"cc-slack did not start: {error}")
         if done.code:
             why = (done.err or done.out).strip()
             self.runner.escalate(f"card:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "CARD-FAILED", "landing", f"the drive root card was not redrawn: {why} | post one status card with slack_dm_status, and the next pass redraws its root")
