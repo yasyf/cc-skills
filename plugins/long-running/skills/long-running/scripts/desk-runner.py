@@ -453,7 +453,7 @@ HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
-HEARTBEAT = "orca-runner.heartbeat.json"
+HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
 ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
 RESEND_LIMIT = 2
@@ -1117,14 +1117,14 @@ class Runner:
         self.book.edit(RUNNER, settle)
         self.record(f"escalation:deferred:{held['ids'][0]}", f"DEFERRED {len(lines)} escalations held during {held['incident']}: {' | '.join(lines)}")
 
-    def beat(self) -> None:
+    def beat(self, desk: str) -> None:
         drive = self.config.desk_inbox.parent
-        restart = f"nohup desk-runner.py run --config {self.config.source} --desk orca > {drive.parent / 'orca-runner.log'} 2>&1 < /dev/null &"
+        restart = f"nohup desk-runner.py run --config {self.config.source} --desk {desk} > {drive.parent / f'{desk}-runner.log'} 2>&1 < /dev/null &"
         beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": restart}
         drive.mkdir(parents=True, exist_ok=True)
-        staged = drive / f".{HEARTBEAT}"
+        staged = drive / f".{HEARTBEATS[desk]}"
         staged.write_text(json.dumps(beat) + "\n")
-        staged.replace(drive / HEARTBEAT)
+        staged.replace(drive / HEARTBEATS[desk])
 
     def stop_marker(self) -> Path:
         return self.config.source.with_name(f"{self.config.source.name}.stop")
@@ -1133,10 +1133,17 @@ class Runner:
         marker = self.stop_marker()
         return marker.is_file() and marker.read_text().strip() == str(os.getpid())
 
-    def handoff(self) -> int:
-        beat = self.config.desk_inbox.parent / HEARTBEAT
+    def rest(self, seconds: float) -> bool:
+        for _ in range(int(seconds / WAKE_SECONDS)):
+            if self.stop_requested():
+                return True
+            self.shell.sleep(WAKE_SECONDS)
+        return self.stop_requested()
+
+    def handoff(self, desk: str) -> int:
+        beat = self.config.desk_inbox.parent / HEARTBEATS[desk]
         if not beat.is_file():
-            print("desk-runner handoff: no orca runner has beaten here")
+            print(f"desk-runner handoff: no {desk} runner has beaten here")
             return 0
         pid = json.loads(beat.read_text())["pid"]
         try:
@@ -3913,7 +3920,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.aged_holds()
         runner.flush()
         runner.write_view()
-        runner.beat()
+        runner.beat("orca")
         if once:
             return 0
         runner.idle(runner.pass_wait())
@@ -3947,9 +3954,12 @@ def run_landing(runner: Runner, once: bool) -> int:
         except OrcaUnreachable as down:
             runner.orca_down(down)
         runner.flush()
+        runner.beat("landing")
         if once:
             return 0
-        runner.shell.sleep(max(0.0, interval - (runner.now() - started).total_seconds()))
+        if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
+            runner.stop_marker().unlink()
+            return 0
 
 
 def launch_model(model: str) -> str:
@@ -3986,6 +3996,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--once", action="store_true")
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
+    handoff.add_argument("--desk", choices=("orca", "landing"), required=True)
     show = verbs.add_parser("show")
     for sub in (relay, launch, policy, loop, rebind, handoff, show):
         sub.add_argument("--config", type=Path, required=True)
@@ -4004,7 +4015,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "rebind":
         return runner.rebind()
     if args.verb == "handoff":
-        return runner.handoff()
+        return runner.handoff(args.desk)
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":
