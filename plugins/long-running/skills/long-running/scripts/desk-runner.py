@@ -365,7 +365,7 @@ ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 ENQUEUE_FAILED = 5
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
-    r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d"
+    r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
 TRANSIENT_ATTEMPTS = 3
 TRANSIENT_PAUSE_SECONDS = 20

@@ -1754,6 +1754,23 @@ def test_a_check_failing_for_any_other_reason_is_never_retried(shell, config, tm
     assert len(escalations(shell)) == 1
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        "fatal: unable to access 'https://github.com/Forge-AI/monorepo.git/': Recv failure: Operation timed out\n",
+        "fatal: unable to access 'https://github.com/Forge-AI/monorepo.git/': Failed to connect to github.com port 443 after 75006 ms: Couldn't connect to server\n",
+        "fatal: unable to access 'https://github.com/Forge-AI/monorepo.git/': Could not resolve host: github.com\n",
+        "fatal: unable to access 'https://github.com/Forge-AI/monorepo.git/': Recv failure: Connection was aborted\n",
+    ],
+)
+def test_a_git_network_failure_reads_as_transient(error):
+    assert runner_module.TRANSIENT_FAILURE.search(error)
+
+
+def test_a_git_failure_that_is_not_the_network_reads_as_permanent():
+    assert not runner_module.TRANSIENT_FAILURE.search("fatal: couldn't find remote ref refs/heads/a/3\n")
+
+
 def test_an_enqueue_that_hits_a_transient_network_failure_is_retried(shell, config, tmp_path):
     shell.rows = single_row()
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
