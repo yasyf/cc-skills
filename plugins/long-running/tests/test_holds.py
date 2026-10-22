@@ -182,3 +182,50 @@ def test_held_resolves_lane_lines_to_open_rows_and_a_rowless_lane_to_nothing():
     assert holds.held([holds.Entry("L34-publish HOLD waits")], rows) == {"36935"}
     assert holds.held([holds.Entry("HOLD L35-sizing waits"), holds.Entry("lane:L36-unopened waits"), holds.Entry("#30082 owner review")], rows) == {"36934", "30082"}
     assert holds.held([holds.Entry("hold:all owner review"), holds.Entry("release lane:L34-publish"), holds.Entry("release #30082 reviewed")], rows) == {"36934"}
+
+
+def test_every_line_form_written_through_the_cli_parses_back_to_what_it_holds(tmp_path):
+    path = tmp_path / "holds.md"
+    rows = {
+        "30082": {"lane": "L28", "state": "open"},
+        "30083": {"lane": "L29", "state": "open"},
+        "30084": {"lane": "L30", "state": "open"},
+    }
+
+    assert run(path, "add", "--all", "--reason", "every PR waits for the owner") == 0
+    assert run(path, "release", "--pr", "30082", "--reason", "owner reviewed it") == 0
+    assert run(path, "release", "--lane", "L29", "--reason", "owner reviewed the lane") == 0
+
+    assert path.read_text() == "hold:all every PR waits for the owner\nrelease #30082 owner reviewed it\nrelease lane:L29 owner reviewed the lane\n"
+    entries = holds.read(path)
+    assert [entry.holds_all for entry in entries] == [True, False, False] and [entry.release for entry in entries] == [False, True, True]
+    assert holds.held(entries, rows) == {"30084"} and holds.released(entries, rows) == {"30082", "30083"}
+
+
+def test_rm_takes_back_a_hold_all_or_a_release_line(tmp_path):
+    path = tmp_path / "holds.md"
+    path.write_text("hold:all every PR waits\nrelease #30082 owner reviewed it\n#30085 owner review\n")
+
+    assert run(path, "rm", "--pr", "30082", "--release") == 0
+    assert run(path, "rm", "--all") == 0
+
+    assert path.read_text() == "#30085 owner review\n"
+
+
+@pytest.mark.parametrize(
+    ("argv", "line"),
+    [
+        (("add", "--all", "--reason", "owner review"), "hold:all already holding"),
+        (("release", "--pr", "30082", "--reason", "again"), "release #30082 first reason"),
+        (("release", "--pr", "30082", "--reason", "with #30090 too"), None),
+        (("release", "--lane", "L29", "--reason", "and lane:L30"), None),
+    ],
+)
+def test_a_second_hold_all_a_second_release_or_a_reason_naming_another_subject_is_refused(tmp_path, argv, line):
+    path = tmp_path / "holds.md"
+    if line:
+        path.write_text(f"{line}\n")
+
+    assert run(path, *argv) == 1
+
+    assert (path.read_text() if path.exists() else None) == (f"{line}\n" if line else None)

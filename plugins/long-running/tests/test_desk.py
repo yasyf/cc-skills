@@ -403,6 +403,30 @@ def test_unlabel_records_the_pull_and_blocks_a_relabel_of_the_same_head(capsys):
     assert "the same head is never re-queued" in capsys.readouterr().out
 
 
+def test_requeue_clears_the_latch_on_a_pulled_head_so_it_may_be_labelled_once_more(capsys):
+    shell = desk_shell()
+    label(shell)
+    run(shell, "unlabel", "--repo", REPO, "--ledger", LEDGER, "--pr", PR, "--reason", "mq dequeue")
+    capsys.readouterr()
+
+    assert run(shell, "requeue", "--ledger", LEDGER, "--pr", PR, "--expect-head", HEAD[:10]) == 0
+    assert "cleared the label latch" in capsys.readouterr().out
+    row = shell.fields(PR)
+    assert (row["labelled_at"], row["label_pulled_at"], row["label_pull_reason"]) == ("", "", "")
+
+    assert label(shell) == 0
+    assert shell.labelled == [f"{PR}:merge", f"{PR}:merge"]
+
+
+def test_requeue_of_a_head_the_latch_does_not_name_changes_nothing(capsys):
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
+
+    assert run(shell, "requeue", "--ledger", LEDGER, "--pr", PR, "--expect-head", HEAD[:10]) == 0
+    assert "carries no label latch" in capsys.readouterr().out
+    assert shell.fields(PR)["label_pulled_at"] == "y"
+
+
 def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     shell = desk_shell()
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
@@ -841,14 +865,14 @@ def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(ca
 class RacingShell(FakeShell):
     races = 1
 
-    def run(self, argv, stdin=None):
-        return ledger.Shell.run(self, argv, stdin)
+    def run(self, argv, stdin=None, cwd=None):
+        return ledger.Shell.run(self, argv, stdin, cwd)
 
-    def once(self, argv, stdin):
+    def once(self, argv, stdin, cwd=None):
         if ledger.is_git_fetch(argv) and self.races:
             self.races -= 1
             raise subprocess.CalledProcessError(1, argv, stderr="error: cannot lock ref 'refs/desk/base/dev': is at 1a3f56ec but expected 8a099d99\n")
-        return FakeShell.run(self, argv, stdin)
+        return FakeShell.run(self, argv, stdin, cwd)
 
 
 def test_a_settle_that_loses_the_base_ref_lock_to_a_concurrent_fetch_retries_and_lands(capsys, tmp_path, monkeypatch):
@@ -1712,8 +1736,8 @@ class MovingShell(FakeShell):
         super().__init__()
         self.moves, self.to, self.after = moves, to, after
 
-    def run(self, argv, stdin=None):
-        out = super().run(argv, stdin)
+    def run(self, argv, stdin=None, cwd=None):
+        out = super().run(argv, stdin, cwd)
         if argv[0] == "gh" and "POST" in argv and f"issues/{self.after}/labels" in argv[2]:
             self.pulls[self.moves]["head"]["sha"] = self.to
         return out
@@ -1870,6 +1894,21 @@ def test_list_blocks_a_head_on_a_pending_review_or_an_unwaived_finding(review, b
     assert json.loads(capsys.readouterr().out)[0]["rules_blocked"] is blocked
 
 
+def test_list_gives_each_row_its_queue_priority_with_an_open_owner_ask_on_top(capsys):
+    shell = FakeShell(
+        rows=[
+            {"key": "24070", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "24071", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "24072", "fields": {"lane": LANE, "state": "open"}},
+            {"key": "ask/000001", "fields": {"lane": LANE, "text": "ship the bake policy", "prs": "24071,24072"}},
+            {"key": "ask/000002", "fields": {"lane": LANE, "text": "an older ask", "prs": "24070", "dropped_at": "2026-01-02T00:00:00Z"}},
+        ]
+    )
+    assert run(shell, "priority", "--ledger", LEDGER, "--pr", "24072", "--priority", "7") == 0
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert {row["pr"]: row["priority"] for row in json.loads(capsys.readouterr().out)} == {"24070": 100, "24071": 0, "24072": 7}
+
 def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lock):
     shell = FakeShell()
     lane_pull(shell, "24071", "a" * 40, "lightning/one")
@@ -1886,6 +1925,60 @@ def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lo
         ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
         ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
     ]
+
+
+def stack(shell: FakeShell, worktree: Path, *branches: str) -> None:
+    shell.stacks[str(worktree)] = {"root": str(worktree), "branches": [{"branch": branch} for branch in branches]}
+
+
+def test_refresh_tracks_every_pr_the_registered_worktrees_stack_grows_after_register(tmp_path, monkeypatch, capsys, lock):
+    monkeypatch.chdir(tmp_path)
+    shell = FakeShell(rows=[{"key": "24063", "fields": {"lane": "lo-other", "registered": "lo-other", "state": "open"}}])
+    lane_pull(shell, "24060", "a" * 40, "lo-fix-a/b5")
+    stack(shell, tmp_path, "lo-fix-a/b5")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lo-fix-a/b5", "--repo", REPO, "--pr", "24060")
+    lane_pull(shell, "24061", "b" * 40, "lo-fix-a/b6", base="lo-fix-a/b5")
+    lane_pull(shell, "24062", "c" * 40, "lo-fix-a/b7", base="lo-fix-a/b6")
+    lane_pull(shell, "24063", "d" * 40, "lo-fix-a/b8", base="lo-fix-a/b7")
+    lane_pull(shell, "24064", "e" * 40, "lo-fix-a/b9-elsewhere")
+    stack(shell, tmp_path, "lo-fix-a/b5", "lo-fix-a/b6", "lo-fix-a/b7", "lo-fix-a/b8")
+
+    assert refresh(shell, lock) == 0
+
+    assert shell.fields(f"lane/{LANE}")["worktree"] == str(tmp_path)
+    assert sorted(shell.pr_keys()) == ["24060", "24061", "24062", "24063"]
+    assert [shell.fields(pr)["registered"] for pr in ("24060", "24061", "24062", "24063")] == [LANE, LANE, LANE, "lo-other"]
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert {row["pr"]: row["ours"] for row in json.loads(capsys.readouterr().out)} == {"24060": True, "24061": True, "24062": True, "24063": True}
+
+
+def test_register_outside_the_lanes_stack_records_no_worktree(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    shell = FakeShell()
+    lane_pull(shell, "24060", "a" * 40, "lo-fix-a/b5")
+    stack(shell, tmp_path, "root-branch")
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lo-fix-a/b5", "--repo", REPO)
+
+    assert shell.fields(f"lane/{LANE}")["worktree"] == ""
+
+
+def test_refresh_keeps_the_prefix_alone_when_the_lanes_worktree_is_gone_or_lists_no_stack(tmp_path, capsys, lock):
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    lanes = [
+        {"key": "lane/gone", "fields": {"lane": "gone", "branch_prefix": "gone/", "worktree": str(tmp_path / "removed")}},
+        {"key": "lane/broken", "fields": {"lane": "broken", "branch_prefix": "broken/", "worktree": str(broken)}},
+    ]
+    shell = FakeShell(rows=lanes)
+    lane_pull(shell, "24070", "a" * 40, "gone/one")
+    lane_pull(shell, "24071", "b" * 40, "broken/one")
+
+    assert refresh(shell, lock) == 0
+
+    assert {pr: shell.fields(pr)["registered"] for pr in shell.pr_keys()} == {"24070": "gone", "24071": "broken"}
+    assert f"lane broken's worktree {broken} lists no stack, so only its prefix is tracked: ccx: stack list: detached HEAD" in capsys.readouterr().err
 
 
 def test_an_unreported_registered_head_is_labelled_once_its_gates_pass(capsys, lock):

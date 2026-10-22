@@ -77,8 +77,9 @@ class FakeShell(ledger.Shell):
         self.foreign: set[str] = set()
         self.cci: list[dict] = []
         self.cci_cursors: dict[str, int] = {}
+        self.stacks: dict[str, dict] = {}
 
-    def run(self, argv, stdin=None):
+    def run(self, argv, stdin=None, cwd=None):
         self.calls.append(list(argv))
         if argv[:2] == ["cci", "tail"] and "opened" in argv:
             pr = argv[argv.index("--pr") + 1].rpartition("#")[2]
@@ -95,6 +96,10 @@ class FakeShell(ledger.Shell):
             return self._git(argv, stdin)
         if argv[0] == "ccx" and argv[1:4] == ["vcs", "pr", "state"]:
             return self._pr_state(argv)
+        if argv[0] == "ccx" and argv[1:4] == ["vcs", "stack", "list"]:
+            if str(cwd) not in self.stacks:
+                raise subprocess.CalledProcessError(1, argv, stderr="ccx: stack list: detached HEAD; no stack to resolve")
+            return json.dumps(self.stacks[str(cwd)])
         if argv[0] == "ccx":
             self.ccx_calls.append(list(argv))
             watched = argv[4 : argv.index("--repo")]

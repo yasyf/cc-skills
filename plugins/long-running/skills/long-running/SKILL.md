@@ -30,8 +30,7 @@ channel or thread, the Slack watch lane is standing too, briefed from
 `reference/slack-watch-brief.md`. When the owner names a Slack
 channel for the drive's updates, `comms-desk` is standing, briefed from
 `reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
-not a subagent. Its landing process shares the store and runs D3, D14, D16, and D20
-where the checkout carries `stack-enqueue`.
+not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
 The root spawns a subagent for every task with a body, including its own routine work.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
@@ -1227,11 +1226,14 @@ On a drive where many lanes open PRs, the root is the wrong place for their repo
 Each report is a message in the root's window, and each landing is a wait. The desk is
 one long-lived lane, `landing-desk`, that takes those reports and reconciles landings.
 
-Lanes never enqueue under D1. Where the checkout carries `stack-enqueue`,
-`desk-runner.py run --desk landing` owns D3, D14, D16, and D20, including for shards.
-The landing desk never enqueues beside it. Without that script, the desk keeps
-the `ledger.py label` path. The root owns the holds file and priority PRs under D3.
-It receives P0 lines immediately and a summary every 30 minutes.
+Lanes never enqueue under D1. `desk-runner.py run --desk landing` is the drive's
+merge queue and owns D3, D14, D16, and D20, including for shards. It reaches the
+repository's queue through the adapter `landing.adapter` names in `runner.json`:
+`graphite-stack-enqueue` runs the repository's own stack-enqueue script, and `label`
+runs `ledger.py label` for a queue that takes the `merge` label. The landing desk
+never enqueues beside it. The root owns the holds file and priority PRs under D3,
+and steers the queue with `mq.py`. It receives P0 lines immediately and a summary
+every 30 minutes.
 
 `scripts/ledger.py` is its one tool. It uses `ccx vcs pr state` for refreshes and
 `ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
@@ -1261,15 +1263,15 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes, which it refuses only `stack-enqueue`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. A tooling lane merges its own PRs in other repos. Where the checkout carries `stack-enqueue`, the landing runner enqueues every green, approved, unheld bottom prefix under D3; without it, the landing desk runs `ledger.py label`. A hold is a holds-file line, an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the runner's gate reads holds: `stack-enqueue` takes no hold flag and reads none. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record and the runner removes its label. Without `stack-enqueue`, the desk re-reads the holds file and `ledger.py held` before every `ledger.py label`, never a cached set.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and `incident-` or `outage-` lanes, which it refuses only `stack-enqueue`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack refuses `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is a holds-file line, an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
-A ready stack is enqueued as one batch from any of its PRs: `stack-enqueue` lands the largest green bottom prefix in one call, never the first PR alone and the rest later, and never through the `merge` label or `gt merge` on one PR of a stack. A partial enqueue needs `--partial`. On a stalled queue, where a head's draft closed unmerged, the desk runs `stack-enqueue --check <head>`, then `--recover`.
+A ready stack is enqueued as one batch from any of its PRs: the adapter lands the largest green bottom prefix in one call, never the first PR alone and the rest later, and never through the `merge` label or `gt merge` on one PR of a stack. On a stalled queue, where a head's draft closed unmerged, the root reads `mq.py --config <runner config> why <head>`, then runs `mq.py recover <head>`.
 
-Only the root edits the holds file, and only through `holds.py`, never a hand or `python` rewrite. `holds.py --config <runner config> add --pr <n> --reason "<why>"` writes `#<n> <why>`, `add --lane <name> --reason "<why>"` writes `lane:<name> <why>`, `rm --pr <n>` or `rm --lane <name>` lifts that entry, and `list` prints each line with what it holds; `--file <holds file>` names the file directly. A line holds the one PR its leading `#<n>` names, and a later `#<n>` in the reason is prose. `add` refuses a reason that carries `lane:<name>`, and refuses a PR line whose reason says the PR should land, such as `ours to land`: lift its hold with `rm` instead. The runner reads the same file through `holds.py`, the one parser. It also reads a lane hold written by hand as `<lane> HOLD <why>` or `HOLD <lane> <why>`, which holds what `lane:<name>` holds: every open ledger row of that lane. A line that matches no form stops the landing pass, and so does a lane line naming a lane no ledger row carries in any state, because it holds nothing: the runner gates and enqueues nothing and posts `HOLDS-UNREAD` to the root once per distinct line, quoting it, until the line is fixed. The runner checks first thing on each pass, an empty ledger included, and each enqueue re-reads the file under the same rule just before its call. That moment it also reads the `hold` label and the PR's cci `hold` and `ready` records fresh, refuses with one `REFUSED` line when any holds it or a `hold` record is newer than its newest `ready` record, and repeats the read once `stack-enqueue` returns, taking a prefix a hold appeared on back out of the queue with `stack-enqueue --dequeue` and a `DEQUEUED` line. Hold a pull request whose lane has no row by its `#<n>`. Blank lines are fine. `hold:all` and `release` lines are still written by hand, one per line. Under a `hold:all <reason>` line the landing runner holds every open row except those a `release #<n>` or `release lane:<name>` line names. The runner never enqueues a prefix containing or sitting above a held PR, including any PR of a held lane; the lane reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
+Only the root edits the holds file, and only through `holds.py`, never a hand or `python` rewrite. `holds.py --config <runner config> add --pr <n> --reason "<why>"` writes `#<n> <why>`, `add --lane <name> --reason "<why>"` writes `lane:<name> <why>`, `rm --pr <n>` or `rm --lane <name>` lifts that entry, and `list` prints each line with what it holds; `--file <holds file>` names the file directly. A line holds the one PR its leading `#<n>` names, and a later `#<n>` in the reason is prose. `add` refuses a reason that carries `lane:<name>`, and refuses a PR line whose reason says the PR should land, such as `ours to land`: lift its hold with `rm` instead. The runner reads the same file through `holds.py`, the one parser. It also reads a lane hold written by hand as `<lane> HOLD <why>` or `HOLD <lane> <why>`, which holds what `lane:<name>` holds: every open ledger row of that lane. A line that matches no form stops the landing pass, and so does a lane line naming a lane no ledger row carries in any state, because it holds nothing: the runner gates and enqueues nothing and posts `HOLDS-UNREAD` to the root once per distinct line, quoting it, until the line is fixed. The runner checks first thing on each pass, an empty ledger included, and each enqueue re-reads the file under the same rule just before its call. That moment it also reads the `hold` label and the PR's cci `hold` and `ready` records fresh, refuses with one `REFUSED` line when any holds it or a `hold` record is newer than its newest `ready` record, and repeats the read once the adapter's enqueue returns, taking a prefix a hold appeared on back out of the queue through the adapter's dequeue, with a `DEQUEUED` line and a cci `stopped` record to every drive that names each PR. Hold a pull request whose lane has no row by its `#<n>`. Blank lines are fine. `add --all --reason "<why>"` writes `hold:all <why>`, `release --pr <n> --reason "<why>"` or `release --lane <name> --reason "<why>"` writes `release #<n> <why>` or `release lane:<name> <why>`, and `rm --all` or `rm --pr <n> --release` takes one back; a release reason that names another `#<n>` or `lane:<name>` is refused, since the runner would read it as a second release. Under a `hold:all <reason>` line the landing runner holds every open row except those a `release #<n>` or `release lane:<name>` line names. The runner never enqueues a prefix containing or sitting above a held PR, including any PR of a held lane; the lane reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
 
-Lanes record each report themselves with `ledger.py report --drive <drive>`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --drive <drive> --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
+Lanes record each report themselves with `ledger.py report --drive <drive>`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --drive <drive> --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root runs `mq.py --config <runner config> priority <n> 0` and `mq.py why <n>` in the same turn under D3, and fixes or routes whatever check `why` names. An open owner ask that links the PR gives it priority 0 already. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once; the runner's parallel enqueues keep that. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI. On 2026-10-12 lanes L28 and L23 ran `stack-enqueue` themselves under a lane hold, landing #36023 and #36039; the owner ruled that the tooling, not a memory, stops it. The same night a hand-written `#30082 ours to land` line held the very PR it meant to free.*
 
@@ -1277,27 +1279,64 @@ Lanes record each report themselves with `ledger.py report --drive <drive>`: PR,
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
-**D3. Enqueue every ready bottom prefix in parallel.** `<tip>` is the top of the largest contiguous bottom prefix whose PRs pass. `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR in that prefix. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
+**D3. Enqueue every ready bottom prefix in priority order.** `<tip>` is the top of the largest contiguous bottom prefix whose PRs pass. Under the `label` adapter, `ledger.py label --pr <tip> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR in that prefix. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
 
 Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR or an orphaned base refuses the whole attempt.
 
 An open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run. Restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
-Where the checkout carries `.agents/skills/submit-pr/scripts/stack-enqueue`,
-`desk-runner.py run --desk landing` runs D3. Each pass fast-forwards the checkout
+`desk-runner.py run --desk landing` runs D3 as the drive's merge queue. `runner.json`
+names its adapter as `landing.adapter`: `{"kind": "graphite-stack-enqueue", "script":
+"<path to stack-enqueue under the checkout>"}` or `{"kind": "label"}`. The runner
+refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk
+setting it cannot run. Each pass fast-forwards the checkout
 to the remote trunk, so `landing.checkout` names a worktree only the runner uses;
 one that cannot fast-forward logs `CHECKOUT-STALE` and gates nothing that pass.
 It then runs `ledger.py refresh` and `reconcile`, reads rows, groups every tracked open stack tip by the root of
-its stack, and gates each stack in parallel, naming every tip of a fork in one call:
-`stack-enqueue <tip>... --check [--whole]`. The gate selects the largest
-ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
-and runs independent enqueues in parallel. It permits another attempt for the
+its stack, and gates each stack in parallel, naming every tip of a fork in one
+adapter check. The check selects the largest ready bottom prefix. Trees gate in
+`(priority, root PR)` order, where a tree's priority is the lowest ledger `priority`
+among its PRs: the value `mq.py priority <n> <value>` writes, else 0 while an open
+owner ask links the PR, else 100. Accepted enqueues run one parallel wave per
+priority, lowest first.
+
+Every prefix passes the check registry before it enqueues. `landing.checks` lists the
+checks in order, and every built-in runs when it lists none:
+
+- `hold`: the holds file, the `hold` label, and the PR's cci `hold` and `ready` records, read fresh just before the enqueue call.
+- `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
+- `fidelity`: the fidelity lane's cci `review` grade at the head, below.
+- `merge-mode`: the owner's merge mode, below.
+- `approvals` and `required-ci`: the adapter's own verdict on the PR.
+
+The first check that refuses a prefix posts its blocker or ask and stops it there.
+`mq.py --config <runner config> why <n>` prints the adapter's verdict and one
+`<check> pass|pending|fail <reason>` line per check, and posts nothing; `mq.py checks`
+prints the registry. The runner accepts an enqueue for its exact prefix heads.
+It permits another attempt for the
 same heads only when earlier attempts are proven to have enqueued nothing, or
 when `ccx vcs pr status` reads a believed-queued PR `not queued` or `evicted` at
-the head it admitted. A drop whose Merge activity comment names a merge
-conflict goes to the lane as a blocker instead; any other drop is gated again.
-`stack-enqueue` then re-enqueues a head a batch-mate's red check or downstack
-failure ejected, and blocks a head its own red check ejected until a new head.
+the head it admitted. Then the adapter's verdict on the dropped PR names the
+ejection, never the PR's comment text:
+
+- `conflict` stays out at that head, and the gate routes its ejection to the lane.
+- `own-red` is gated again, and the adapter blocks it until a new head.
+- `batch-mate-red` is gated again and goes back at the same head. One blaming a PR
+  outside the PR's own stack logs `AWAITS-GO` and waits for a root `go` naming the PR.
+- `flaky-check` is a red check that read green on the PR's own head and failed only
+  in a queue draft holding nothing but its stack. It goes back in at the same head
+  through the adapter's `flake` once on the queue's own policy, which comments on the
+  PR, and no blocker goes to the lane. A second at that head logs `AWAITS-GO`, and
+  the root's next `go` naming the PR puts it back the same way.
+
+`mq.py dequeue <n>` takes a PR out of the queue only when this drive's queue
+enqueued it or one of its lanes opened it. For another drive's PR it refuses and
+names that drive's root. A dequeue posts a cci `stopped` record to every drive
+whose records name the PR, and the queue leaves that head out until `mq.py requeue <n>`,
+which first has the adapter release its own latch on the head: under `label`, `ledger.py requeue`
+clears the pulled or labelled mark that otherwise refuses the same head.
+`mq.py hold <n> --reason R` and `mq.py lift <n>` write the holds file through
+`holds.py`, and `mq.py status` prints what the queue holds and the order it gates.
 A PR's lane, for every blocker and restack the runner routes, is the poster
 of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, else
 the lane that registered its ledger row; a cci blocker also goes to the root
@@ -1345,12 +1384,14 @@ the root asks the owner once which merge mode the drive runs in:
 
 The root records the pick as a cc-notes answer, `ccn answer add` with the question
 verbatim and the label `program:<drive>`, and writes it to `runner.json` as
-`landing.merge_mode`. The landing runner refuses to start without one of the three
+`landing.merge_mode`, with the repository's high-risk globs as `landing.high_risk_paths`,
+and names the adapter as `landing.adapter`: `graphite-stack-enqueue` when the checkout carries
+`.agents/skills/submit-pr/scripts/stack-enqueue`, else `label`. The landing runner refuses to start without one of the three
 values and posts `MERGE-MODE-UNSET`. It re-reads the value on every use, so a later
 change is one edit plus an `answer supersede`, with no restart.
 
-Under `every`, and under `high-risk` for a PR whose changed files match a glob in the
-runner's `HIGH_RISK_PATHS`, a prefix that passes every other gate is not enqueued.
+Under `every`, and under `high-risk` for a PR whose changed files match a glob in
+`landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
 owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`,
 with the options `Merge #<n> <short sha>` and `Hold #<n>`, never as an
@@ -1368,20 +1409,19 @@ until it reads. Incident fixes still land by plain squash under every mode.
 (1fe20ee) that the drive asks at the start which of the three modes it runs in, and
 that each per-PR ask is a card with buttons, never a blocking `AskUserQuestion`.*
 
-The runner posts no commit status and adds or removes no label. Its landing pass
+The runner posts no commit status and adds or removes no label. Its check registry
 alone enforces holds, rules-review, and fidelity: no required check carries them,
-so a hand `gt merge` or a web-UI enqueue bypasses all three. The root re-reads
-the holds file, `ledger.py list` for `rules_blocked`, and the fidelity grades
-before any hand `stack-enqueue`.
+so a hand `gt merge`, a web-UI enqueue, or a hand adapter call bypasses all three.
+The root reads `mq.py why <n>` before any of those.
 
 The holds file stays the root's interface. A `hold` label on a PR holds it too,
-with every PR stacked above it. The enqueue command is `stack-enqueue <prefix top>...`, naming
-every top of the prefix, since `stack-enqueue` refuses a green PR the batch would
-carry unnamed. A `held` refusal waits for the root and is never routed as a red.
+with every PR stacked above it. The enqueue names every top of the prefix, since
+the stack-enqueue adapter refuses a green PR the batch would carry unnamed. A
+`held` refusal waits for the root and is never routed as a red.
 The runner verifies an enqueue only when `reconcile` records every prefix row
 as `landed` by squash on the base. The landing desk never enqueues beside it.
 Never hold a ready prefix behind another stack's landing under D19.
-The runner enqueues a ready stack as one batch, never its first PR alone, and never through `merge` or `gt merge` on one PR; a stalled queue head gets `stack-enqueue --check <head>`, then `--recover`.
+The runner enqueues a ready stack as one batch, never its first PR alone, and never through `merge` or `gt merge` on one PR; a stalled queue head gets `mq.py why <head>`, then `mq.py recover <head>`.
 
 The accepted policy is a record seeded from config as `prefix` at #28601's
 revision. The root changes it with `desk-runner.py policy --config C --key L<n>
@@ -1389,19 +1429,21 @@ revision. The root changes it with `desk-runner.py policy --config C --key L<n>
 A command naming another predecessor is rejected with `STALE-POLICY`; a
 stale-checkout ruling such as L260 cannot replace the accepted rule that way.
 
-Where the repo has no enqueue script, the landing desk uses
-`ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>`. One label
-on the prefix top enqueues the prefix as a batch. `label --all-clean` grades
-stacks sequentially and is the fallback sweep only for these repos. Re-read
-holds before each call and mirror PR holds and held lanes' open PRs under D1.
+Under the `label` adapter, one label on the prefix top enqueues the prefix as a
+batch, and the desk mirrors PR holds and held lanes' open PRs as `ledger.py hold`
+rows under D1 so `label` refuses them too.
 
-Lanes never enqueue under D1. For priority PRs, the root reads their gates in one batched
-`ccx vcs pr status <n1> <n2> ...` call and enqueues in the same turn. Priority
-approval covers only the named head under D1. The desk records outside enqueues
-on refresh as `in the queue, labelled outside the desk`.
+Lanes never enqueue under D1. For priority PRs, the root reads `mq.py why` for each
+and sets `mq.py priority <n> 0` in the same turn. Priority approval covers only
+the named head under D1. The desk records outside enqueues on refresh as
+`in the queue, labelled outside the desk`.
 
 *Prevents a green tip enqueueing a red parent, an ejected head entering the queue
-again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
+again unchanged, and a green priority PR waiting for the owner to queue it by hand.
+On 2026-10-21 the owner moved drive machinery out of the monorepo: #41528 removed
+stack-enqueue's rules-review gate, its drive-scoped dequeue, and `--flake`, and the
+owner ruled that the long-running merge queue carries all three, behind a repository
+adapter, with no monorepo wrapper skill.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py reconcile` fetches the
 trunk (the repo's default branch) once, lands every row a squash subject ending `(#n)`
@@ -1464,13 +1506,11 @@ merge conflict or after a bottom prefix lands under D16.
 because an unrelated stack moved and then spends half an hour in a rebase and a CI
 re-run that change nothing about what the landing does.*
 
-**D10. Record reports immediately; reconcile every three minutes.** Where
-`stack-enqueue` exists, the landing runner runs D3 every 180 seconds by
-default, without waiting for a report. The landing desk types reports, runs
-refresh/watch/P0 and red routing, records holds, and keeps stale, summary,
-shards, and train duties. It never enqueues beside the runner. Where the repo
-has no script, a `clean` report still triggers `ledger.py label` on its largest
-ready, unheld, unqueued bottom prefix in the same turn.
+**D10. Record reports immediately; reconcile every three minutes.** The landing
+runner runs D3 every 180 seconds by default, without waiting for a report. The
+landing desk types reports, runs refresh/watch/P0 and red routing, records holds,
+and keeps stale, summary, shards, and train duties. It never enqueues beside the
+runner.
 
 Each desk pass reads all PR numbers in one `ccx vcs pr status <n1> <n2> ...` call
 and the Buildkite build list, never one REST call per PR. The pack's `buildkite_budget`
@@ -1499,8 +1539,7 @@ Spawn parallel sub-lanes named
 `landing-desk-<shard>`, each owning a named set of lanes' rows in the same ledger with
 `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane. Each
 shard runs `refresh`, `landed`, `route`, and `stale` on its own rows every three
-minutes. It runs D3's `ledger.py label` path only where no `stack-enqueue` exists;
-the landing runner owns those enqueues otherwise.
+minutes. The landing runner owns every enqueue.
 
 Stagger desks and shards by a minute at `:00`, `:01`, and `:02`.
 Read all PR numbers in the pass with one `ccx vcs pr status` call and the Buildkite
@@ -1512,14 +1551,14 @@ growing with the board until its pass takes 20 minutes.*
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.** The root registers the drive with `drive.py start --ledger <id>`. The pack's PR hook then registers every PR a drive session or Orca worker opens under the lane's name. It records the head when the command prints one. This covers in-process subagents and teammates at any depth; `orca-launch.sh` passes the drive to Orca workers, resolving it from the Orca run when the desk runner, which holds no session, launches them. A session no drive claims prints one stderr line from `drive.py record`. The same hook settles the row when a drive session announces a landing with `cci post --kind landed --pr <n>` or closes a PR with `gh pr close`: `drive.py landed` proves the squash or the close against the trunk through `ledger.py landed`, so the row leaves the open set in that step.
 
-Lanes still register their branch at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`, and still `report` verdicts; a value ending in `/` or `-` is a namespace covering a stack, any other value one exact branch. `register` refuses a prefix that covers the owner's whole `<user>/` namespace or already matches open PRs another lane tracks or that predate the ledger, naming those PRs and suggesting the exact branch, `<user>/<lane-slug>-`, or `--pr`; `ledger.py unregister --ledger <id> --lane <name>` removes a prefix and drops the untouched rows only it pulled in. To un-admit a PR no drive lane owns, `ledger.py unregister --ledger <id> --pr <n>` removes its row whole, so the runner neither mirrors a `fidelity` status onto it nor gates it. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. When the root moves a PR to another lane, it runs `ledger.py reassign --ledger <id> --pr <n> --lane <new>`; `route` and `refresh` then address the new lane, and the row's `reassigned` field keeps each move. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
+Lanes still register their branch at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`, and still `report` verdicts; a value ending in `/` or `-` is a namespace covering a stack, any other value one exact branch. Run from the lane's worktree, `register` also records that worktree when its Graphite stack holds the branch, and every `refresh` then tracks each open PR on that stack, including branches `ccx vcs stack new` cuts later, so a stacked PR needs no hand registration. `register` refuses a prefix that covers the owner's whole `<user>/` namespace or already matches open PRs another lane tracks or that predate the ledger, naming those PRs and suggesting the exact branch, `<user>/<lane-slug>-`, or `--pr`; `ledger.py unregister --ledger <id> --lane <name>` removes a prefix and drops the untouched rows only it pulled in. To un-admit a PR no drive lane owns, `ledger.py unregister --ledger <id> --pr <n>` removes its row whole, so the runner neither mirrors a `fidelity` status onto it nor gates it. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. When the root moves a PR to another lane, it runs `ledger.py reassign --ledger <id> --pr <n> --lane <new>`; `route` and `refresh` then address the new lane, and the row's `reassigned` field keeps each move. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
 
 Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
 *Prevents three PRs a lane never reported sitting unmerged for hours, and the 2026-10-06 `yasyf/` registration in ledger `b29c27a` that pulled six unrelated open PRs into the drive for the landing runner to enqueue.*
 
 **D14. Grade a moved or unreported head like any other.** Every tracked current
-head takes D3's gates without a report. Where `stack-enqueue` exists, the landing
+head takes D3's gates without a report. The landing
 runner routes a `BLOCKED` head at most once per head, and only for red CI, a
 merge conflict, a changes-requested review or fidelity grade, or a queue
 ejection. A pending or running check, a missing approval, or an ejection that
@@ -1529,7 +1568,8 @@ hold lifts. A PR based on another open PR's branch gets no failing-required
 route unless a status other than a gate's, such as `buildkite/test`, is red on
 its own head. A queue drop
 that blames a PR outside the stack re-enqueues the same head after the root's
-next `go` record naming the PR.
+next `go` record naming the PR, and a `flaky-check` drop the queue is still
+retrying is not routed.
 It re-runs the gate immediately before creating the route and suppresses a
 blocker that already cleared. A merge conflict whose lane has no dispatch Orca
 shows active and no session `cci who` lists is parked instead: the root gets one
@@ -1541,21 +1581,17 @@ that later send. Orca lanes receive a relay; other lanes receive
 The landing desk never repeats these per-head gate messages and retains
 `ledger.py route` for red CI and conflicts.
 
-Without `stack-enqueue`, the desk sends `new head <sha9>: <blocker>` once per head
-and blocker. A head that moved since refresh is graded on the next pass without
-a route; red CI and conflicts go through `route` without a duplicate batch message.
-
 *Prevents two heads that moved after their reports being ignored for hours.*
 
 **D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head.
 
-In the same pass, run `route` and send its messages. D3's executor handles enqueues; the landing desk runs that step only without `stack-enqueue`. `summary` settles landings first, so a landed row never appears as pending; its `--checkout` defaults to the working directory and its `--repo` to that checkout's origin, the rule every `--repo` verb follows.
+In the same pass, run `route` and send its messages. D3's merge queue handles every enqueue. `summary` settles landings first, so a landed row never appears as pending; its `--checkout` defaults to the working directory and its `--repo` to that checkout's origin, the rule every `--repo` verb follows.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
 **D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`.
 
-Where `stack-enqueue` exists, the landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"` for others. The landing desk never duplicates it. Without that script, the desk keeps the route; for Orca lanes use `desk-runner.py relay --config C --key R<n> --lane L --text T`.
+The landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"` for others. The landing desk never duplicates it.
 
 *Prevents the wait for unfinished PRs above a green bottom that the owner ruled out on 2026-10-01, and made the repo rule in the monorepo's #28601: AGENTS.md "Stacked diffs" lands the largest green bottom prefix with `stack-enqueue <any PR of the stack>` and restacks everything above it right after. Restacking children and rerunning their CI after the prefix lands is an accepted cost.*
 
@@ -1744,8 +1780,7 @@ See Lane rotation.
 processes with one config and store: `run --desk orca` and `run --desk landing`.
 Restarting either is idempotent. The orca process alone consumes the Run mailbox;
 let an existing desk finish its pass and end its loop before starting it. Keep
-the old session open. The landing process runs D3, D14, D16, and D20 where the
-checkout carries `stack-enqueue`.
+the old session open. The landing process is the drive's merge queue and runs D3, D14, D16, and D20.
 
 Each orca pass writes `orca-runner.heartbeat.json` beside `orca.desk_inbox` with its
 pid, pass time, and restart command. A `cci post` that fails stays queued for the next
@@ -1759,6 +1794,8 @@ as finishing no pass. The hook reads the heartbeat in the
 `inbox/` directory under the `state_dir` that the drive registry records for the
 session, so the check holds however the command spells the inbox path, such as
 `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
+Each landing pass writes `landing-runner.heartbeat.json` in the same directory, which
+`handoff --desk landing` reads; no hook watches it.
 
 The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 `inbox-rotate.py` records time and stream-end marks and archives through the newest
@@ -2631,11 +2668,11 @@ and put its id in every brief. Each pass reads all PR numbers in one
 call per PR. Run every three minutes, with desks and shards staggered by a minute at
 `:00`, `:01`, and `:02`.
 
-Where the checkout carries `stack-enqueue`, start the landing runner from
-[its config](reference/orca-desk-brief.md#config-and-startup). It owns the enqueue
-pass and re-reads holds for every call. The model desk runs the ledger duties
-below and never adds an enqueue loop beside it. Use `ledger.py label` only where
-the repo has no enqueue script.
+Start the landing runner from
+[its config](reference/orca-desk-brief.md#config-and-startup), with `landing.adapter`
+naming the repository's queue. It owns the enqueue pass and re-reads holds for
+every call. The model desk runs the ledger duties below and never adds an enqueue
+loop beside it.
 
 A resumed root in a new session runs `drive.py start --drive <id> --ledger <id>`
 to join the existing drive. Run `drive.py end` only when the drive is over.
@@ -2675,9 +2712,11 @@ ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 3
 ledger.py drop    --ledger "$LEDGER" --ask ask/000002 --reason "owner withdrew it"
 ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
-if [ ! -f "$CHECKOUT/.agents/skills/submit-pr/scripts/stack-enqueue" ]; then
-  ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
-fi
+mq.py --config "$RUNNER_CONFIG" status
+mq.py --config "$RUNNER_CONFIG" why 21221
+mq.py --config "$RUNNER_CONFIG" priority 21221 0
+mq.py --config "$RUNNER_CONFIG" dequeue 21221 --reason "the owner pulled it"
+mq.py --config "$RUNNER_CONFIG" requeue 21221
 
 drive.py end
 ```

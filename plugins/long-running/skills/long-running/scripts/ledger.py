@@ -17,11 +17,13 @@
     ledger.py refresh [--repo owner/name] --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
     ledger.py hold    --ledger ID [--repo owner/name] --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID [--repo owner/name] --pr N
+    ledger.py priority --ledger ID [--repo owner/name] --pr N --priority N
     ledger.py held    --drive D
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
     ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
+    ledger.py requeue --ledger ID [--repo owner/name] --pr N --expect-head SHA
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]... [--shard LANES]
     ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
     ledger.py watch   --repo owner/name --ledger ID --drive D --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
@@ -33,7 +35,7 @@
     ledger.py list    --ledger ID [--repo owner/name] [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
-branch under a lane's registered prefix, or because refresh was handed its number; the
+branch under a lane's registered prefix or in the Graphite stack of the worktree the lane registered from, or because refresh was handed its number; the
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
@@ -132,6 +134,8 @@ LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+OWNER_PRIORITY = 0
+DEFAULT_PRIORITY = 100
 ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PR_KEY = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)")
@@ -279,27 +283,27 @@ class Shell:
     output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
     """
 
-    def run(self, argv: list[str], stdin: str | None = None) -> str:
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         for attempt in range(CCN_READ_ATTEMPTS - 1 if is_ccn_read(argv) else 0):
             try:
-                return self.once(argv, stdin)
+                return self.once(argv, stdin, cwd)
             except subprocess.CalledProcessError:
                 time.sleep(CCN_READ_BACKOFF_SECONDS * 2**attempt)
         for attempt in range(REF_LOCK_ATTEMPTS - 1 if is_git_fetch(argv) else 0):
             try:
-                return self.once(argv, stdin)
+                return self.once(argv, stdin, cwd)
             except subprocess.CalledProcessError as error:
                 if REF_LOCK_RACE not in (error.stderr or ""):
                     raise
                 time.sleep(REF_LOCK_BACKOFF_SECONDS * 2**attempt)
-        return self.once(argv, stdin)
+        return self.once(argv, stdin, cwd)
 
     @staticmethod
-    def once(argv: list[str], stdin: str | None) -> str:
+    def once(argv: list[str], stdin: str | None, cwd: Path | None = None) -> str:
         with tempfile.TemporaryFile("w+") as feed:
             feed.write(stdin or "")
             feed.seek(0)
-            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS).stdout
+            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=cwd).stdout
 
 
 class ForgeUnreachable(RuntimeError):
@@ -1388,6 +1392,33 @@ def prefix_prs(state: dict, prefix: str) -> list[str]:
     return [pr for pr in map(str, state["lanes"][prefix]) if on_prefix(state["prs"][pr]["headRefName"], prefix)]
 
 
+def stack_listing(shell: Shell, ccx: str, worktree: Path) -> dict:
+    return json.loads(shell.run([ccx, "vcs", "stack", "list", "--json"], cwd=worktree))
+
+
+def lane_worktree(shell: Shell, args: argparse.Namespace) -> str:
+    """The working copy register runs in when its Graphite stack holds the lane's branch in the lane's repository, else empty."""
+    try:
+        listing = stack_listing(shell, args.ccx, Path.cwd())
+    except subprocess.CalledProcessError:
+        return ""
+    held = any(on_prefix(branch["branch"], args.branch_prefix) for branch in listing["branches"])
+    return listing["root"] if held and same_repo(origin_repo(shell, Path(listing["root"])), args.repo) else ""
+
+
+def lane_stack(shell: Shell, ccx: str, registration: dict[str, str]) -> list[str]:
+    """Every branch of the Graphite stack in the lane's registered worktree, so each branch `ccx vcs stack new` cuts there is tracked; none once the worktree is gone."""
+    worktree = registration.get("worktree")
+    if not worktree or not Path(worktree).is_dir():
+        return []
+    try:
+        listing = stack_listing(shell, ccx, Path(worktree))
+    except subprocess.CalledProcessError as failure:
+        print(f"ledger.py: lane {registration['lane']}'s worktree {worktree} lists no stack, so only its prefix is tracked: {(failure.stderr or '').strip() or failure}", file=sys.stderr)
+        return []
+    return [branch["branch"] for branch in listing["branches"]]
+
+
 def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
     """Open PRs on the prefix that another lane already owns or that predate the drive's ledger."""
     try:
@@ -1433,7 +1464,7 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
         guard_prefix(shell, args, notes)
-        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "registered_at": utc_stamp()})
+        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "worktree": lane_worktree(shell, args), "registered_at": utc_stamp()})
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
@@ -1509,13 +1540,18 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
-    prefixes = sorted({lane["branch_prefix"] for lane in registrations})
+    stacks = {lane["lane"]: lane_stack(shell, args.ccx, lane) for lane in registrations}
+    prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
     wanted = sorted((set(known) | set(named)) - settled, key=int)
     try:
         state = pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
+    for lane, branches in stacks.items():
+        for pr in (pr for branch in branches for pr in prefix_prs(state, branch)):
+            if pr not in registered and every.get(pr, {}).get("lane", lane) == lane:
+                registered[pr] = lane
     rows = []
     for key in sorted((set(wanted) | set(registered)) - settled, key=int):
         if key in reopenable and state["prs"][key]["state"] != "OPEN":
@@ -1574,6 +1610,19 @@ def cmd_lift(args: argparse.Namespace, shell: Shell) -> int:
     Notes(shell, args.ledger, args.scope).set_fields(args.pr, {name: "" for name in HOLD_FIELDS})
     print(f"lifted #{args.pr} at {utc_stamp()}")
     return 0
+
+
+def cmd_priority(args: argparse.Namespace, shell: Shell) -> int:
+    Notes(shell, args.ledger, args.scope).set_fields(args.pr, {"priority": str(args.priority)})
+    print(f"#{args.pr} priority {args.priority}: the merge queue gates and enqueues lower values first")
+    return 0
+
+
+def queue_priority(fields: dict[str, str], asked: set[str], pr: str) -> int:
+    """A row's merge-queue priority: its own `priority` field, else top priority while an open owner ask links it, else the default."""
+    if fields.get("priority"):
+        return int(fields["priority"])
+    return OWNER_PRIORITY if pr in asked else DEFAULT_PRIORITY
 
 
 def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool) -> bool:
@@ -1936,6 +1985,18 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_requeue(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger, args.scope)
+    head = notes.rows().get(args.pr, {}).get("label_head", "")
+    if not head or not head.startswith(args.expect_head):
+        print(f"#{args.pr} {args.expect_head[:9]} carries no label latch; label may queue it")
+        return 0
+    requeued = utc_stamp()
+    notes.set_fields(args.pr, {"labelled_at": "", "label_pulled_at": "", "label_pull_reason": "", "label_requeued_at": requeued})
+    print(f"cleared the label latch on #{args.pr} {head[:9]} at {requeued}; label may queue the same head once more")
+    return 0
+
+
 def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> None:
     if is_shallow(shell, checkout):
         raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
@@ -2285,7 +2346,15 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
     }
     ordered = sorted(rows.items(), key=lambda item: int(item[0]))
     if args.json:
-        print(json.dumps([{"pr": key, "repo": args.repo, **fields, "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, args.repo, fields, key)} for key, fields in ordered]))
+        asked = {pr for key, fields in every.items() if key.startswith(ASK_PREFIX) and not fields.get("dropped_at") and not fields.get("answered_at") for pr in linked_prs(fields)}
+        print(
+            json.dumps(
+                [
+                    {"pr": key, "repo": args.repo, **fields, "priority": queue_priority(fields, asked, key), "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(shell, args.repo, fields, key)}
+                    for key, fields in ordered
+                ]
+            )
+        )
         return 0
     for key, fields in ordered:
         rules = " rules-blocked" if rules_blocked(every, key) else ""
@@ -2463,6 +2532,12 @@ def build_parser() -> argparse.ArgumentParser:
     lift.add_argument("--pr", required=True, type=pr_number)
     lift.set_defaults(handler=cmd_lift)
 
+    priority = subparsers.add_parser("priority", help="set the merge-queue priority of a PR; lower values gate and enqueue first")
+    add_ledger(priority, repo=True)
+    priority.add_argument("--pr", required=True, type=pr_number)
+    priority.add_argument("--priority", required=True, type=int)
+    priority.set_defaults(handler=cmd_priority)
+
     route = subparsers.add_parser("route", help="print the message that sends a red or conflicting head to its lane, once per PR, head, and job")
     add_ledger(route, repo=True)
     route.add_argument("--pr", type=pr_number)
@@ -2507,6 +2582,12 @@ def build_parser() -> argparse.ArgumentParser:
     unlabel.add_argument("--pr", required=True, type=pr_number)
     unlabel.add_argument("--reason", required=True)
     unlabel.set_defaults(handler=cmd_unlabel)
+
+    requeue = subparsers.add_parser("requeue", help="clear the label latch on a PR's labelled or pulled head, so label may queue that same head once more")
+    add_ledger(requeue, repo=True)
+    requeue.add_argument("--pr", required=True, type=pr_number)
+    requeue.add_argument("--expect-head", required=True, metavar="SHA")
+    requeue.set_defaults(handler=cmd_requeue)
 
     landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the trunk")
     add_ledger(landed, repo=True)
