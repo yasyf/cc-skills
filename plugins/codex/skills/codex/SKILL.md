@@ -375,6 +375,11 @@ absolute and outside any repo). The filesystem is the registry:
 - Before re-dispatching anything that "seems dead", check `--ps` first — a
   wedged run is visible (old log age, live pid) and killable; a completed one
   has its reply on disk.
+- A run's worker kills its codex process tree when the run settles.
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --reap [--older-than 1h] [--dry-run]`
+  kills the tree a dead worker left behind. It covers runs settled longer ago than
+  `--older-than` and prints one JSONL record per run it targets. `--ps` and
+  `--collect` run it silently at the 1h default.
 
 ## Generating Images ($imagegen)
 

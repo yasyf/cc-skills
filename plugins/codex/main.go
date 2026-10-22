@@ -72,6 +72,8 @@ func main() {
 		mintRunMode(args[1:])
 	case len(args) == 1 && args[0] == "--ps":
 		psMode()
+	case len(args) >= 1 && args[0] == "--reap":
+		reapMode(args[1:])
 	case len(args) == 1 && args[0] == "--sweep":
 		sweepMode()
 	case len(args) >= 1 && args[0] == "--watch":

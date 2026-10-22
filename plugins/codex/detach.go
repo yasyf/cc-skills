@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -58,6 +59,7 @@ func detachWorker(sdir string) {
 // worker is orphaned. A worker-spawn failure exits without a pid → status 126.
 func detachMiddle(sdir string) {
 	pipe := os.NewFile(3, "pipe")
+	_ = atomicWrite(join(sdir, "sid"), strconv.Itoa(os.Getpid())+"\n")
 	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		os.Exit(127)
@@ -80,6 +82,15 @@ func detachMiddle(sdir string) {
 // stages the reply (rename only on rc 0 + non-empty), and writes codex's code to
 // status. No failure mode leaves the run statusless (which would hang a waiter).
 func runWorker(sdir string) {
+	sid, owned := readPid(join(sdir, "sid"))
+	if owned {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+		go func() {
+			<-sigs
+			reapOwnSession(sid)
+		}()
+	}
 	replyTmp := ""
 	rc := 126
 	var cmd cmdSpec
@@ -125,6 +136,9 @@ func runWorker(sdir string) {
 	// The parent's pollStatus already unblocked on the status write above, so the
 	// registration runs on time no caller is waiting for (worker orphaned to PID 1).
 	registerTranscript(sdir)
+	if owned {
+		reapOwnSession(sid)
+	}
 	os.Exit(0)
 }
 
