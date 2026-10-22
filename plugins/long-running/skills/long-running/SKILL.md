@@ -891,6 +891,34 @@ and never leaves the PRs behind the gate parked.
 board pick 7174aab had already made. The owner said "accept the rulings on my behalf, we already said
 that's what we want."*
 
+**R19b. Extrapolate every ruling.**
+A ruling binds everything it implies, not only the mechanism the owner named.
+The turn it arrives, the root records the owner's words verbatim and writes its implications.
+They cover sibling mechanisms, both directions of a relation, and every artifact, lane,
+ledger row, budget line, test row, board card, and brief that carries the old assumption.
+It confirms those implications with the owner that turn, in chat for a few or on one card
+for many, then applies the ruling to every live artifact and lane at once, never to new
+work only (R17).
+A ruling travels by its words and its implications, never by an id or a gist. A brief,
+handoff, progress doc, or compaction narrative that carries only the id has dropped it.
+Before a board, brief, handoff, or plan is presented, the root sweeps the whole artifact
+against every ruling's broadest reading. A sentence that keeps, budgets, tests, or asks
+about a thing a ruling removed is a defect even when it cites nothing.
+A board, card, or reply is drafted from the owner's rulings, never from the code as it
+stands on the base branch. A card that explains a term from that code where a ruling
+covers it fails the sweep.
+When the owner repeats a ruling, the repeat is a defect report: the root finds every
+place the earlier narrowing survived, fixes them all that turn, and tells the owner what
+was missed and why.
+
+*Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
+starting a session in the cloud and then writing on the Mac is out of scope, and again
+that journal-specific code lives in the journal crate, not the server. Each ruling had
+been recorded as an id and a gist and applied to the one mechanism named. Sibling
+mechanisms, the reverse direction, budget lines, test rows, board cards, and briefs kept
+the old assumption. Board writers drafted from code on dev, and compactions carried the
+plan text as the authority.*
+
 **R20. A Slack link from the owner is an assignment, and Slack drafting is a lane.**
 A Slack permalink the owner pastes, bare or with words, is the root's to own, whoever
 wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
@@ -2343,8 +2371,8 @@ ccx: role=<role> [cpu=high] [place=remote|local] tooling-lane=<key, for a toolin
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
-  with its id, and the entry point (symbol at file:line) it makes the change call; or
-  "none">. Before READY, state which entry point your diff calls, each ruling it meets,
+  with its id and its confirmed implications (R19b), and the entry point (symbol at
+  file:line) it makes the change call; or "none">. Before READY, state which entry point your diff calls, each ruling it meets,
   and anything it leaves out, as a `contract` record on the bus (R22). Never wait for
   a confirm.
 Design questions: settle each from this brief, the standing rules register, and the
@@ -2381,7 +2409,8 @@ Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
-Standing rules served: <`#<seq>` ids with their answer ids, or "none">. Your task cites
+Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
+  words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
@@ -3260,7 +3289,8 @@ earlier one since the last generated record is named to read first. Use this sha
 <every ask, its current state, evidence, and next gate>
 
 ### Owner rulings (verbatim)
-<rulings that must survive, with answer ids>
+<each ruling that must survive: the owner's words, its confirmed implications, and its
+answer id; an id or a gist alone drops it (R19b)>
 
 ### Landed
 <completed work and evidence>
@@ -3814,6 +3844,10 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     the owner's authorization? → its line goes on the `production-operations` log
     this turn. Is a lane or the alerts desk about to name a mechanism? → it reads
     that log's last 24 hours first.
+25. Did the owner just rule, or repeat a ruling? → record the words verbatim, write
+    and confirm its implications this turn, and apply it to every live artifact and
+    lane. Before presenting a board, brief, handoff, or plan, sweep it against every
+    ruling's broadest reading (R19b).
 
-Apply D3 to priority PRs before delegating. A call that survives all twenty-four decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty-five decides
 something no lane can decide for you; everything else is a lane.

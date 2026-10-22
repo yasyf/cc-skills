@@ -64,7 +64,9 @@ Do, in this order:
        state that no register doc exists. Never build or edit the register.
        Read the brief's standing answers with `ccn answer show <id>` and check
        `ccn answer list --label scope:durable` for their successors. Carry each live
-       rule as a bullet with its answer id. Carry every answer id from the previous
+       rule as a bullet that opens with its answer id, then quotes the owner's words
+       verbatim and its confirmed implications; an id or a gist alone drops the
+       ruling (SKILL.md R19b). Carry every answer id from the previous
        handoff or write `- <answer id> superseded by <answer id>`. cci GO records
        with --topic standing link these answers; corrections name the replaced
        record with --re. Never use a sequence range as the standing-rule list.
