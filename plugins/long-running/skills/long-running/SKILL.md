@@ -743,6 +743,13 @@ and at least every 10 minutes. The shell PR merges first; the page at
 `live/<date>-<slug>`. The lane hands its link to comms for `#outage` and the
 account channels.
 
+Each retro scaffold names the drive's records as sources: the incident's cc-notes
+investigation and log ids, the owner answers and notes it turned on, and one
+`--incident "cci:<tenant>|<customer>|<lane regex>"` query naming the incident's
+tenant, customer, and lanes. The lane writes incident records as cc-notes
+investigations, logs, docs, or notes through `ccn`, never as loose Markdown under
+`~/.claude/scratch`.
+
 At resolution, it runs `live finalize`, completes the retro
 with Remediation and the owner's prevention picks on `retro/<date>-<slug>`,
 and runs `retro.py publish <dir>`. It waits through merge and the rendered-URL
@@ -1126,7 +1133,10 @@ queues `owner-facing times are Pacific with no zone label (R21): restate <times>
 your last reply in Pacific` when it carries a UTC clock time (`17:35Z`, `17:3xZ`,
 `16:52 UTC`). Its `plain_words_in_owner_questions` hook blocks a drive root's
 `AskUserQuestion` that carries a codename, an inbox or answer id, or a proposed Slack
-reply.
+reply. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
+`UNBLOCK` line appended to an `inbox/*.md` file, and a `cci post --kind go|lift|unblock`
+record, that names the PR or routing change an unanswered `AskUserQuestion` or a board
+posted that turn asks about; write it in a later turn, once the owner answers.
 
 *Prevents release-v3, 2026-10-01: the root reported every time to the owner in UTC
 (`17:35Z`) although the owner had asked for Pacific, because the rule lived only as a
@@ -1598,6 +1608,9 @@ process requires it to start.
 
 The release owner starts the release and posts
 `cci post --drive <drive> --lane <lane> --kind release --pr <pr> --target <component> --text <build>`.
+The release tooling posts nothing to cci, so the release owner and every lane that
+starts, freezes, or watches a release post the start claim, the applying announcement to
+peer roots, and the freeze's owner and hold themselves, as `reference/release-lanes.md` shows.
 A `release` record on the drive from another lane, stamped after the landing, that
 names one of the components with `--target` or the PR with `--pr` settles the landing.
 A `release` record on another drive settles nothing. Until one arrives the runner
