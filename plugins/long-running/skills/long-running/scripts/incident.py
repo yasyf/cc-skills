@@ -34,8 +34,8 @@ landing, and not-ours verdicts land on the investigation. Briefs carry both ids,
 append evidence with ``ccn log append`` instead of writing scratch files. A refused cc-notes
 write reaches the root once and never blocks a launch.
 
-A side effect needs its grant: ``thread`` and ``channel`` for comms posts, which the comms
-lane makes with ``cc-slack ... --grant <ref>``; ``sync`` for the apply; ``rebuild`` for the
+A side effect needs its grant: ``thread`` and ``channel`` for comms posts, each a
+``slack-grant:<channel id>`` cc-notes answer the Slack permission hook reads; ``sync`` for the apply; ``rebuild`` for the
 re-kick. A missing grant, a silent comms lane, an overdue action, and a failed canary are
 the only things that reach the root, each once, as a bus ask and an open decision.
 ``grant`` adds the missing authority and the next pass proceeds.

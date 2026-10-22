@@ -69,11 +69,12 @@ never a PR URL. Every such draft passes
 - Each grant is the owner's authority for one kind of side effect. The root
   records Slack grants for the affected account channels and threads, plus
   `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and
-  `52f4863`. These standing rulings need no per-post owner ask. The comms lane
-  passes each id as `--grant <id>`. `thread` comes from `cc-slack grant --url <permalink>
-  --quote "<owner's words>"` and covers replies in that thread. `channel` comes
-  from `cc-slack grant --channel <channel id> --quote "<owner's words>"` and covers
-  top-level posts in that one channel, never a reply, broadcast, or edit. `sync`
+  `52f4863`. These standing rulings need no per-post owner ask. `thread` and
+  `channel` are each the id of a cc-notes answer quoting the owner's words with the
+  label `slack-grant:<channel id>`, recorded with `ccn answer add "<question>" --body
+  "<owner's words>" --label slack-grant:<channel id>`. The Slack permission hook reads
+  that label as a standing grant for top-level posts and replies in that channel, and
+  mints each write's ticket; the comms lane passes no ticket or grant flag. `sync`
   and `rebuild` cite the owner's words or the standing rule that authorizes the
   pipeline sync and the re-kick. A missing grant pauses only the step that needs it.
   The executor asks the root once, and `incident.py grant` lets the next pass
@@ -190,9 +191,8 @@ The executor posts each event as a cci `ask` from
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
 the copy through an Opus writer subagent (`Agent` with `model: opus`) and posts it with
-`cc-slack reply --url <thread> --grant <grant> --text <copy>`. For the `channel`
-surface it posts with `cc-slack send --channel <channel id> --grant <grant> --text
-<copy>`. Consecutive replies under one thread grant need no human message between
+`cc-slack reply --url <thread> --text <copy>`. For the `channel`
+surface it posts with `cc-slack send --channel <channel id> --text <copy>`. Consecutive replies under one thread grant need no human message between
 them. It then answers the entry:
 
 ```sh
