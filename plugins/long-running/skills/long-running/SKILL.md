@@ -959,8 +959,8 @@ starts, so a root that started on an older plugin spawns lanes without the tools
 added since. `general-purpose` carries every MCP tool the session has, plus
 `ToolSearch` to load them. The lane uses the cc-slack tools first (`slack_thread`,
 `slack_history`, `slack_react`, `slack_unreact`, `slack_reply`, `slack_send`), and the
-CLI by path when a tool call errors:
-`~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`. Both can
+`cc-slack` CLI on PATH when a tool call errors. When `cc-slack whoami` shows no
+identity, the lane runs `cc-slack login` from the project checkout and retries. Both can
 refuse: a Slack hook that crashes on import, no Slack identity on the machine, or a
 conversation the bot cannot join. Then the lane posts the same checked text through
 the user-level Slack MCP, `mcp__slack__slack_send_message` and
