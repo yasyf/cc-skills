@@ -954,6 +954,18 @@ merge ask, which is a card under D3. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
+With `landing.status_card` set to `true` in `runner.json`, the landing desk keeps the
+drive's root card current, so the root never writes rollup JSON itself. Each pass that
+changes the ledger's picture, it runs `cc-slack dm-status --root-only` with the
+drive's lanes and their open PRs as the `rollup`, the PRs the desk holds in the queue
+as `refs`, PRs landed out of all tracked as `progress`, and open, queued, held, and
+landed counts as `facts`. cc-slack polls those refs and redraws the card as CI and the
+queue move. The desk inherits the root's `CLAUDE_CODE_SESSION_ID` from the shell that
+started it, and redraws the root of that session's status thread, so the root sends
+one status card before it starts the landing desk. A redraw cc-slack refuses logs
+`CARD-FAILED` once per error, and the next pass tries again. This needs a cc-slack
+release with `dm-status --root-only`.
+
 Every lane that posts to Slack, the R20 Slack lane, the incident comms lane, and
 `comms-desk`, spawns as `general-purpose` on opus, never as `long-running:lane` or
 `lane-ship`. A plugin agent type's tool list is read once, when the root's session
