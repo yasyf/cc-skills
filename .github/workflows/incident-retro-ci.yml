@@ -1,0 +1,31 @@
+name: incident-retro CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/incident-retro/**"
+      - "plugins/_shared/**"
+      - ".github/workflows/incident-retro-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/incident-retro/**"
+      - "plugins/_shared/**"
+      - ".github/workflows/incident-retro-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/incident-retro/skills/incident-retro
+    steps:
+      - uses: actions/checkout@v7
+      - name: Live sync
+        run: python3 scripts/test_retro_live.py
+      - name: Live render
+        run: python3 scripts/test_live_render.py

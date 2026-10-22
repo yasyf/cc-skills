@@ -1353,6 +1353,8 @@ const F_SHORT=fmtIn({day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"
 const F_KEY=fmtIn({year:"numeric",month:"2-digit",day:"2-digit"});
 const F_TZ=fmtIn({timeZoneName:"short"});
 const fmtTime=s=>{const t=tsOf(s);return t==null?"":F_TIME.format(t)};
+const F_CLOCK=fmtIn({hour:"numeric",minute:"2-digit",hour12:true});
+const fmtClock=t=>F_CLOCK.format(t).toLowerCase().replace(/\s+/g,"");
 const fmtLocal=s=>{const t=tsOf(s);return t==null?"":F_SHORT.format(t)};
 const fmtDay=s=>{const t=tsOf(s);return t==null?"":F_DAY.format(t)};
 const dayKey=s=>{const t=tsOf(s);if(t==null)return "";const p=Object.fromEntries(F_KEY.formatToParts(t).filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));return `${p.year}-${p.month}-${p.day}`};
@@ -2301,7 +2303,8 @@ function renderLiveCard(){
 }
 
 const VIEW_KEY="ir-view:"+SLUG;
-const MON_TONE={Alert:"p-crit",Warn:"p-warn",OK:"p-ok","No Data":"p-dead"};
+const MON_TONE={Alert:"p-crit",Warn:"p-warn",OK:"p-ok",Resolved:"p-ok","No Data":"p-dead"};
+const lvMonState=m=>m.overallState==="OK"&&m.alerted?"Resolved":m.overallState||"unknown";
 const PR_TONE={open:"p-acc",draft:"p-dead",merged:"p-ok",closed:"p-crit"};
 const LV_PR=Object.create(null);
 const LV_PR_FRESH_MS=60e3,LV_TOASTS=3,LV_TOAST_MS=9e3,LV_GAP_MS=15*60e3,LV_BEAT_OK_MS=90e3,LV_BEAT_DOWN_MS=5*60e3,LV_KEY_MOMENTS=3;
@@ -2472,7 +2475,7 @@ function lvSlackHtml(hit,url){
 function lvMonitorHtml(id,url,charted){
  const mon=monitorOf(id);
  if(!mon)return null;
- const st=mon.overallState||"unknown";
+ const st=lvMonState(mon);
  const chart=charted&&!charted.has(id)&&mon.series&&Array.isArray(mon.series.t)&&mon.series.t.length>1;
  if(charted)charted.add(id);
  const href=mon.url&&safeUrl(mon.url)?mon.url:url;
@@ -2570,12 +2573,19 @@ function lvSpark(m){
  const lines=rows.map(r=>`<polyline points="${r.v.map((v,i)=>v==null?"":`${x(i)},${y(v)}`).filter(Boolean).join(" ")}"/>`).join("");
  return `<svg class="lv-spark" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${crit!=null?`<line x1="0" x2="100" y1="${y(crit)}" y2="${y(crit)}"/>`:""}${lines}</svg>`;
 }
+const lvWindow=s=>s%86400===0?`${s/86400}-day`:s%3600===0?`${s/3600}-hour`:`${Math.round(s/60)}-minute`;
+function lvRecovery(m){
+ const at=tsOf(m.recoveredAt);
+ if(m.overallState!=="Alert"||at==null)return "";
+ return m.windowSeconds?`The failing signal recovered at ${fmtClock(at)}, and Datadog holds Alert until its ${lvWindow(m.windowSeconds)} window clears around ${fmtClock(at+m.windowSeconds*1000)}.`:
+  `The failing signal recovered at ${fmtClock(at)}, and Datadog still reads Alert.`;
+}
 function lvMonitorCard(m){
- const st=m.overallState||"unknown";
+ const st=lvMonState(m),recovery=lvRecovery(m);
  const last=lvRows().filter(e=>lvRole(e)==="monitor").pop();
  const href=m.url&&safeUrl(m.url)?m.url:null;
- return `<div class="lv-card2" data-role="monitor" data-state="${esc(st)}"><div class="lv-ch2"><span class="nm">Paging monitor</span><span class="pill ${MON_TONE[st]||"p-dead"}">${esc(st)}</span></div>`+
-  `<p class="lv-step">${esc(m.name||"Monitor "+m.id)}</p>${lvSpark(m)}`+
+ return `<div class="lv-card2" data-role="monitor" data-state="${esc(m.overallState||"unknown")}"><div class="lv-ch2"><span class="nm">Paging monitor</span><span class="pill ${MON_TONE[st]||"p-dead"}">${esc(st)}</span></div>`+
+  `<p class="lv-step">${esc(m.name||"Monitor "+m.id)}</p>${recovery?`<p class="lv-stepl lv-recovery">${esc(recovery)}</p>`:""}${lvSpark(m)}`+
   `<div class="lv-am">${last?`<span>last change <span class="v">${esc(fmtTime(last.ts))}</span></span>`:""}`+
   (m.fetchedAt?`<span>checked <span class="v" data-ago="${esc(m.fetchedAt)}">${esc(lvAgo(m.fetchedAt))}</span></span>`:"")+
   (href?`<a href="${esc(href)}" target="_blank" rel="noopener">Datadog</a>`:"")+`</div></div>`;

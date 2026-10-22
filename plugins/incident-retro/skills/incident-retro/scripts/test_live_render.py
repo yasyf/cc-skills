@@ -116,6 +116,10 @@ LIVE_VIEW = """JSON.stringify({
   toasts: [...document.querySelectorAll("#lvToasts .lv-toast")].map(t => t.textContent),
   flashed: [...document.querySelectorAll("#lvChs .lv-row.lv-new")].map(n => n.dataset.kind),
 })"""
+MONITOR_CARD = """JSON.stringify((card => ({
+  pill: card.querySelector(".pill").textContent,
+  recovery: (card.querySelector(".lv-recovery") || {}).textContent || null,
+}))(document.querySelector('#lvNow .lv-card2[data-role=monitor]')))"""
 OPEN_ROWS = "(document.querySelectorAll('#lvChs .lv-row:not(.open)').forEach(r => r.click()), 1)"
 MONITOR_URL = "https://app.datadoghq.com/monitors/4242"
 PR_URL = "https://github.com/Forge-AI/monorepo/pull/34474"
@@ -164,7 +168,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
         shutil.rmtree(cls.root, ignore_errors=True)
 
     @classmethod
-    def publish(cls, rec, with_slack=False):
+    def publish(cls, rec, with_slack=False, monitor=MONITOR_SNAPSHOT):
         live = cls.root / "live"
         live.mkdir(exist_ok=True)
         (live / "retro.json").write_text(json.dumps(rec, indent=2))
@@ -174,7 +178,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             (slack / "thread.json").write_text(json.dumps(SLACK_SNAPSHOT))
             datadog = live / "evidence" / "datadog"
             datadog.mkdir(parents=True, exist_ok=True)
-            (datadog / "monitor-4242.json").write_text(json.dumps(MONITOR_SNAPSHOT))
+            (datadog / "monitor-4242.json").write_text(json.dumps(monitor))
 
     def open_page(self, chrome, base, chapters=None):
         target = chrome.call("Target.createTarget", {"url": "about:blank"})["targetId"]
@@ -307,6 +311,33 @@ class LivePollRebuildsThePage(unittest.TestCase):
             self.assertEqual([c[0] for c in kept["chapters"]], ["Fix rolls out", "Reports come in", "Migration breaks runs"],
                              "an answer out of shape replaced the last good chapters")
             self.assertEqual(kept["chapters"][0][2], ["report", "deploy"], "the new entry did not join the last chapter")
+            self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
+        finally:
+            server.shutdown()
+            server.server_close()
+            chrome.close()
+
+    def test_the_paging_monitor_names_its_recovery_while_datadog_holds_alert_then_reads_resolved(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            evidence = {"monitors": [{"id": 4242, "url": MONITOR_URL, "file": "evidence/datadog/monitor-4242.json"}]}
+            held = {**MONITOR_SNAPSHOT, "alerted": True, "recoveredAt": "2026-09-18T19:42:39Z", "windowSeconds": 7200}
+            self.publish(record(timeline=TIMELINE[:2], evidence=evidence), with_slack=True, monitor=held)
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            card = json.loads(B.evaluate(chrome, session, MONITOR_CARD))
+            self.assertEqual(card, {"pill": "Alert", "recovery": "The failing signal recovered at 7:42pm, and Datadog "
+                                    "holds Alert until its 2-hour window clears around 9:42pm."})
+
+            cleared = record(timeline=TIMELINE[:2], evidence=evidence)
+            cleared["live"]["updatedAt"] = "2026-09-18T21:45:00Z"
+            self.publish(cleared, with_slack=True, monitor={**held, "overallState": "OK"})
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+            card = json.loads(B.evaluate(chrome, session, MONITOR_CARD))
+            self.assertEqual(card, {"pill": "Resolved", "recovery": None},
+                             "a monitor that paged and cleared did not read Resolved")
             self.assertEqual(B.page_errors(chrome), [], "the page logged an error in the live view")
         finally:
             server.shutdown()
