@@ -445,25 +445,53 @@ descriptor:
   permissions: { contents: write }
   steps:
     - uses: actions/checkout@v7
+      with: { fetch-depth: 0 }
     - name: Download release assets
       env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
       run: |
         mkdir -p dist
         gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
           --dir dist --pattern '*.tar.gz' --pattern 'checksums.txt'
-    - name: Render descriptor
-      run: scripts/render-descriptor.sh dist "${GITHUB_REF_NAME#v}" > bin/<name>.binrun
+    - name: Render descriptor and sync manifest version
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        plugin/scripts/render-descriptor.sh dist "$version" > plugin/bin/<name>.binrun
+        chmod +x plugin/bin/<name>.binrun
+        jq --arg v "$version" '.version = $v' plugin/.claude-plugin/plugin.json > plugin.json.tmp
+        mv plugin.json.tmp plugin/.claude-plugin/plugin.json
     - name: Validate descriptor
-      run: binrun -- parse bin/<name>.binrun
+      run: binrun -- parse plugin/bin/<name>.binrun
+    - name: Move the tag onto the synced descriptor and land it on main
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add plugin/bin/<name>.binrun plugin/.claude-plugin/plugin.json
+        if ! git diff --cached --quiet; then
+          git commit -m "chore(release): sync <name>.binrun + manifest to ${GITHUB_REF_NAME}"
+          git tag -fa "${GITHUB_REF_NAME}" -m "${GITHUB_REF_NAME}"
+          git push --force origin "refs/tags/${GITHUB_REF_NAME}"
+        fi
+        git fetch origin main
+        if ! git merge-base --is-ancestor HEAD origin/main; then
+          git rebase origin/main
+          git push origin HEAD:main
+        fi
     - name: Ship descriptor
       env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-      run: gh release upload "${GITHUB_REF_NAME}" bin/<name>.binrun --repo "${GITHUB_REPOSITORY}" --clobber
+      run: gh release upload "${GITHUB_REF_NAME}" plugin/bin/<name>.binrun --repo "${GITHUB_REPOSITORY}" --clobber
 ```
 
-Ship the rendered descriptor to where the wrapper reads it — committed at `bin/<name>.binrun` (CI
-commits it back, or CI asserts a hand-committed descriptor's digests match the built assets and
-fails loudly on a mismatch). A `dynamic` descriptor skips this job entirely: its body never changes,
-so it is committed once.
+A marketplace that pins a plugin with `ref: vX.Y.Z` installs the tag's own tree, so the tag must
+carry the descriptor and manifest for its own assets. The job checks out the tag, commits the
+rendered pair on top of the tagged commit, and force-moves the tag onto that commit. The binaries
+were built from its parent, and the two commits differ only in those two files. The job then
+replays the commit onto `main`, a fast-forward unless `main` moved during the release. Never commit
+the sync on `main` alone after tagging, since the tag then carries the previous release's
+descriptor, or none on the first release.
+
+A rerun changes nothing once the tag carries the pair and
+`main` contains it. A `dynamic` descriptor skips this job entirely, because its body never changes
+and is committed once.
 
 The descriptor's `format`/`path`/`providers.name` reference whichever archive the release publishes.
 binrun itself ships `tar.gz`; a plugin that keeps a bare-binary asset publishes it as a
