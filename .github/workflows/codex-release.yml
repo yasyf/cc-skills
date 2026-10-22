@@ -49,9 +49,11 @@ jobs:
   # to pin the just-released version, and move the plugin manifest to the same
   # version in the SAME commit. It gates on `release` (rather than a
   # `release: published` trigger) because a release goreleaser creates with the
-  # default GITHUB_TOKEN does not fire `release` events for other workflows. Both
-  # files are committed back to main because the plugin marketplace serves main
-  # HEAD, and the descriptor is re-uploaded to the release for parity. Bumping
+  # default GITHUB_TOKEN does not fire `release` events for other workflows. The
+  # sync commit sits on the tagged commit and the tag moves onto it, so a
+  # marketplace pinned to the tag installs the tag's own assets; the same commit
+  # then lands on main, which a marketplace tracking main HEAD serves, and the
+  # descriptor is re-uploaded to the release for parity. Bumping
   # plugin.json here (not in a separate hand commit) keeps it in lockstep with
   # the descriptor, so the CI agreement gate stays green after every release.
   descriptor:
@@ -63,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: plugins/codex/go.mod
@@ -90,17 +92,24 @@ jobs:
           descriptor="$(tail -n +2 plugins/codex/bin/codex-ask.binrun | jq -r .version.static)"
           test "$manifest" = "$descriptor" \
             || { echo "version drift: plugin.json=$manifest descriptor=$descriptor" >&2; exit 1; }
-      - name: Commit refreshed descriptor and manifest to main
+      - name: Move the tag onto the synced descriptor and land it on main
         id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json; then
-            echo "descriptor and manifest already current for ${GITHUB_REF_NAME}"
+          git add -f plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json
+          if git diff --cached --quiet; then
+            echo "${GITHUB_REF_NAME} already carries its descriptor and manifest"
           else
-            git add -f plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json
             git commit -m "chore(codex): sync codex-ask.binrun + manifest to ${GITHUB_REF_NAME}"
-            git pull --rebase origin main
+            git tag -fa "${GITHUB_REF_NAME}" -m "${GITHUB_REF_NAME}"
+            git push --force origin "refs/tags/${GITHUB_REF_NAME}"
+          fi
+          git fetch origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "main already carries ${GITHUB_REF_NAME}'s descriptor and manifest"
+          else
+            git rebase origin/main
             git push origin HEAD:main
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
