@@ -1059,10 +1059,12 @@ class Runner:
         incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
         if not clocks:
             self.release_deferred()
+        held = set(self.book.load(RUNNER).facts.get(DEFERRED, {"ids": []})["ids"])
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
             label, topic = action.target.split()[:2]
             if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
-                self.defer(action, clocks)
+                if action.action_id not in held:
+                    self.defer(action, clocks)
                 continue
             kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
             message = self.message_file(topic)
