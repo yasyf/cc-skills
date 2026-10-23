@@ -75,9 +75,9 @@ class Root:
     def blockers(self) -> list[tuple[str, ...]]:
         return [call for call in self.calls if call[:2] == ("cci", "post") and "blocker" in call]
 
-    def question(self, digest: str, text: str, blocks: list[str]) -> Path:
+    def question(self, digest: str, text: str, blocks: list[str], term: str = "") -> Path:
         path = self.state_dir / "register" / f"question-{digest}.json"
-        path.write_text(json.dumps({"digest": digest, "text": text, "term": "", "sentence": "", "rows": [], "blocks": blocks}))
+        path.write_text(json.dumps({"digest": digest, "text": text, "term": term, "sentence": "", "rows": [], "blocks": blocks}))
         return path
 
 
@@ -157,14 +157,15 @@ def test_the_turn_end_closes_chat_questions_and_leaves_board_questions_open(root
     assert "closed" not in json.loads(loops.read_text())
 
 
-def test_a_closed_question_no_longer_gates_a_writer_spawn(root):
-    root.question("0123456789abcdef", "what is the merge card?", [])
-    spawn = {"name": "lane-x", "prompt": "Lane lane-x: fix the flaky api test."}
+def test_a_closed_question_no_longer_warns_a_writer_spawn(root):
+    root.question("0123456789abcdef", "what is the merge card?", [], "merge card")
+    root.question("fedcba9876543210", "what is a relay slot?", ["c7-timers"])
+    spawn = {"name": "lane-x", "prompt": "Lane lane-x: redraw the merge card."}
 
-    [refusal] = root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn)
+    [warning] = root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn)
     root.fire(StopEvent)
 
-    assert refusal.startswith("This reply or brief does not quote the open owner question below.")
+    assert warning.startswith("An owner question is open and this reply or brief touches it without quoting it.")
     assert root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn) == []
 
 
