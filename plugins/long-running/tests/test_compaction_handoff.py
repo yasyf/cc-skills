@@ -19,6 +19,7 @@ from hooks import compaction_handoff as handoff
 
 FIXTURES = Path(handoff.__file__).parent / "tests" / "fixtures"
 SESSION = "0123456789abcdef"
+THRESHOLD_600K_K = 567
 
 
 def context(session_dir: Path, raw: dict):
@@ -39,7 +40,7 @@ def tool_event(session_dir: Path, tool_name: str, tool_input: dict, **raw) -> Po
         "session_id": SESSION,
         "tool_name": tool_name,
         "tool_input": tool_input,
-        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
+        "transcript_path": str(FIXTURES / "usage-522k.jsonl"),
         "cwd": str(FIXTURES / "project-600k"),
     } | raw
     return PostToolUseEvent(_raw=payload, ctx=context(session_dir, payload))
@@ -436,7 +437,7 @@ def test_an_inactive_drive_is_not_nudged_whatever_the_transcript_holds(home: Pat
 
 def test_nudge_fires_from_a_tail_window_of_an_oversized_transcript(home: Path, docs: Path) -> None:
     session = home / "session"
-    source = FIXTURES / "usage-460k.jsonl"
+    source = FIXTURES / "usage-522k.jsonl"
     padding = (json.dumps({"type": "queue-operation", "operation": "enqueue", "padding": "x" * 4096}) + "\n").encode()
     big = home / "big.jsonl"
     big.write_bytes(padding * 4500 + source.read_bytes())
@@ -455,6 +456,18 @@ def test_nudge_fires_from_a_tail_window_of_an_oversized_transcript(home: Path, d
 
     [nudge] = pending(session)
     assert nudge.startswith("Context is near the auto-compaction threshold. ")
+
+
+@pytest.mark.parametrize(("left", "phase", "nudges"), [(60, "idle", 0), (50, "due", 1), (45, "due", 1)])
+def test_the_nudge_fires_once_50k_tokens_or_fewer_remain_before_the_threshold(
+    home: Path, docs: Path, left: int, phase: str, nudges: int
+) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True).save(bash(session))
+
+    handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / f"usage-{THRESHOLD_600K_K - left}k.jsonl")))
+
+    assert (state(session).phase, len(pending(session))) == (phase, nudges)
 
 
 def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> None:
