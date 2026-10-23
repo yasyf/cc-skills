@@ -370,8 +370,8 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
-        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state \} \} \} \}', query)
-        commits = {alias: {"status": {"contexts": [{**status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
+        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} \} \}', query)
+        commits = {alias: {"status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
@@ -1676,6 +1676,31 @@ def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [("hj-rows-fixture", "#39050 bbbb222222: graphite FAILING_REQUIRED")]
+
+
+def test_a_failing_required_check_posts_one_blocker_per_job_and_cause_and_a_line_per_later_head(shell, config, tmp_path):
+    ssm_miss = {"context": "buildkite/sand-mac-harness-release", "state": "failure", "description": "Build #8812 failed (3 minutes)"}
+    row = {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "dev", "state": "open"}
+
+    def head(sha: str, *statuses: dict) -> None:
+        shell.combined_statuses[sha] = list(statuses)
+        shell.rows = [row | {"head": sha, "reported_head": sha}]
+        shell.gates["39050"] = [gate(f"#39050 BLOCKED {sha} graphite FAILING_REQUIRED")]
+        landing_pass(shell, config)
+        landing_pass(shell, config)
+
+    head("aaaa111111", ssm_miss)
+    head("bbbb222222", ssm_miss | {"description": "Build #8840 failed (4 minutes)"})
+    head("cccc333333", ssm_miss | {"description": "Build #8851 canceled"})
+    head("dddd444444", ssm_miss | {"description": "Build #8851 canceled"}, {"context": "buildkite/test", "state": "failure", "description": "Build #8852 failed"})
+
+    first = next(seq for seq, post in enumerate(shell.posts, 1) if post["kind"] == "blocker")
+    assert [(post["kind"], post.get("re"), post["text"]) for post in shell.posts if post["kind"] in ("blocker", "note")] == [
+        ("blocker", None, "#39050 aaaa111111: graphite FAILING_REQUIRED"),
+        ("note", str(first), "#39050 bbbb222222: the same failure again: buildkite/sand-mac-harness-release: Build ## failed (# minutes)"),
+        ("blocker", None, "#39050 cccc333333: graphite FAILING_REQUIRED"),
+        ("blocker", None, "#39050 dddd444444: graphite FAILING_REQUIRED"),
+    ]
 
 
 def test_a_red_by_design_pr_gets_no_failing_required_blocker(shell, config, tmp_path):

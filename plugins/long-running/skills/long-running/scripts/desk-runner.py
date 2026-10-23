@@ -545,6 +545,8 @@ SHOW_WORKERS = 8
 GATE_WORKERS = 4
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
+RUN_NUMBERS = re.compile(r"\d+")
+POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
@@ -3584,7 +3586,7 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
 
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
-    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state }} }} }} }}' for index, sha in enumerate(shas))
+    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description }} }} }} }}' for index, sha in enumerate(shas))
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
@@ -3806,7 +3808,7 @@ class Landing:
                     if self.retrying(pr, match, stack):
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
-                        self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red)
+                        self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
 
     def red_by_design(self, pr: str) -> bool:
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
@@ -3831,6 +3833,12 @@ class Landing:
         sha = self.row_heads.get(pr) or verdict["sha"]
         enqueued_here = any(same_head(enqueued_heads(action.action_id).get(pr) or "-", sha) for action in self.book.actions(LANDING, kind="enqueue"))
         return enqueued_here and (not self.flake_retried(pr, sha) or self.flake_retried(pr, sha, BELIEVED_QUEUED | {"flake-refused", "stranded", "unsettled", "failed"}))
+
+    def red_cause(self, pr: str, sha: str) -> str:
+        """The red jobs on `pr`'s head outside the gates, each with its status description and run numbers and durations folded, so the same job failing the same way on the next head reads the same; empty when the statuses are unread or no such job is red."""
+        statuses = self.head_statuses(pr, sha) or []
+        red = sorted({(status["context"], RUN_NUMBERS.sub("#", status["description"])) for status in statuses if status["state"] in RED_STATES and status["context"] not in GATE_STATUSES})
+        return "; ".join(f"{context}: {cause}" for context, cause in red)
 
     def gated_red(self, pr: str, sha: str) -> bool:
         """Whether a stacked PR's failing required check comes only from a gate status or from its unlanded base: no status but a gate's is red on its own head. A status read that fails counts as gated for this pass, and the next pass reads again."""
@@ -3942,7 +3950,7 @@ class Landing:
                     with self.reading:
                         self.unread.setdefault(why, {})[heads[sha]] = sha
                     continue
-                statuses = [{"context": context["context"], "state": context["state"].lower()} for context in (commit["status"] or {"contexts": []})["contexts"]]
+                statuses = [{"context": context["context"], "state": context["state"].lower(), "description": context["description"] or ""} for context in (commit["status"] or {"contexts": []})["contexts"]]
                 with self.reading:
                     self.read[sha] = (now, statuses)
                 found[sha] = statuses
@@ -4921,12 +4929,15 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
-    def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool) -> None:
-        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
+    def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
+        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = f"blocker:{pr}:{sha}"
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr):
             return
+        red = self.red_cause(pr, sha) if failing and not blocker.conflict else ""
+        cause = hashlib.sha1(f"{blocker.text}\n{red}".encode()).hexdigest()[:12] if red else ""
+        earlier = self.cause_blocker(pr, cause) if cause else None
         parked = bool(owner and blocker.conflict and not self.lane_live(owner))
         if parked and self.book.known(RUNNER, f"escalation:{PARKED}:{pr}"):
             return
@@ -4935,8 +4946,17 @@ class Landing:
             return
         if parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
+        elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
+            self.post_record("note", key, json.loads(earlier.target)["lane"], f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
         else:
-            self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr)
+            self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
+
+    def cause_blocker(self, pr: str, cause: str) -> actions.Action | None:
+        """The blocker this desk already posted on `pr` for the same refusal, red jobs and causes, if any."""
+        return next(
+            (action for action in self.book.actions(LANDING, kind="bus", status="completed") if action.action_id.startswith(f"blocker:{pr}:") and json.loads(action.target).get("cause") == cause),
+            None,
+        )
 
     def lane_live(self, lane: str) -> bool:
         """The lane has a dispatch Orca shows active, or a session `cci who` lists."""
@@ -4976,7 +4996,7 @@ class Landing:
         container = lane_container(lane)
         return key in self.book.load(LANDING).actions or (container in self.book.store.ids() and key in self.book.load(container).actions)
 
-    def route(self, key: str, lane: str, text: str, pr: str) -> None:
+    def route(self, key: str, lane: str, text: str, pr: str, cause: str = "") -> None:
         if self.routed(key, lane):
             return
         if not lane:
@@ -4986,15 +5006,15 @@ class Landing:
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
                 self.runner.send(lane_container(lane), dispatch, relay)
         else:
-            self.post_blocker(key, ",".join(self.reach(lane)), text, pr)
+            self.post_blocker(key, ",".join(self.reach(lane)), text, pr, cause)
 
-    def post_blocker(self, key: str, to: str, text: str, pr: str) -> None:
-        self.post_record("blocker", key, to, text, pr)
+    def post_blocker(self, key: str, to: str, text: str, pr: str, cause: str = "") -> None:
+        self.post_record("blocker", key, to, text, pr, cause=cause)
 
-    def post_record(self, kind: str, key: str, to: str, text: str, pr: str) -> None:
-        self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text}), key, None)
+    def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> None:
+        self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        done = self.runner.cci_post(kind, text, to, pr, key)
+        done = self.runner.cci_post(kind, text, to, pr, key, flags=["--re", re_seq] if re_seq else None)
         if done.code == 0:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:
