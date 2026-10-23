@@ -114,7 +114,7 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
     return Input(tool="Agent", tool_input={"name": name, "prompt": prompt, "subagent_type": agent_type}, **({"state": [ACTIVE], "env": DRIVE_CONFIG} | extra))
 
 
-@on(
+@on(  # capt-hook: no-escape plan refusal, plan 1.9
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     tests={
