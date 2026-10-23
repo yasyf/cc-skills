@@ -91,12 +91,12 @@ class FakeShell(runner_module.Shell):
         self.advance_error = ""
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
-        self.pulls: dict[str, dict] = {}
         self.files: dict[str, list[str]] = {}
         self.files_error = ""
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
         self.quota_error = ""
         self.pr_labels: dict[str, list[str]] = {}
+        self.head_refs: dict[str, str] = {}
         self.pr_label_error = ""
         self.dequeue_code = 0
         self.queue: dict[str, str] = {}
@@ -244,10 +244,6 @@ class FakeShell(runner_module.Shell):
             if self.files_error:
                 return runner_module.Done(1, "", self.files_error)
             return runner_module.Done(0, "".join(f"{name}\n" for name in self.files[argv[3].split("/")[4]]), "")
-        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/"):
-            assert len(argv) == 3
-            pull = self.pulls.get(argv[2].rsplit("/", 1)[1])
-            return runner_module.Done(0, json.dumps(pull), "") if pull else runner_module.Done(1, "", "gh: Not Found (HTTP 404)")
         if argv == ["git", "patch-id", "--stable"]:
             return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
@@ -268,6 +264,9 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "release", "live"]:
             assert argv[4:] == ["--json"]
             return runner_module.Done(0, json.dumps(self.live.get(argv[3], {})), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "labels,headRefName":
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "labels,headRefName"]
+            return runner_module.Done(0, json.dumps({"labels": [{"name": name} for name in self.pr_labels.get(argv[3], [])], "headRefName": self.head_refs.get(argv[3], f"lane-{argv[3]}")}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "labels":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "labels"]
             if self.pr_label_error:
@@ -563,6 +562,7 @@ class FakeShell(runner_module.Shell):
 @pytest.fixture
 def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return FakeShell(tmp_path)
 
 
@@ -1117,7 +1117,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     for _ in range(4):
         orca_pass(shell, config)
         shell.sleep(60)
-    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH"]
+    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LAUNCH-STALLED"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     for _ in range(3):
         shell.sleep(60)
@@ -1125,7 +1125,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     assert launches(shell) == []
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
     assert action.status == "failed" and "load 40 above 8 cores" in action.reason
-    [load, line] = escalations(shell)
+    [load, _, line] = escalations(shell)
     assert load.startswith("LOAD-HIGH load:") and "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
     [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
     assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
@@ -1143,6 +1143,48 @@ def test_show_marks_a_load_held_launch_held_with_its_reason_and_age(shell, confi
     shell.cpu_load = 1.0
     cli(shell, config, "show")
     assert "- R638 launch [accepted] accepted 11:00" in capsys.readouterr().out
+
+
+def stalled(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("LAUNCH-STALLED ")]
+
+
+def test_an_accepted_launch_with_no_dispatch_a_minute_on_logs_one_launch_stalled_through_a_live_clock(shell, config, tmp_path, monkeypatch):
+    """Papercut 3dfdc2f: launches R10190 and R10191 sat accepted with no dispatch at load 11 of 32 cores, and nothing told the root."""
+    live_clock(tmp_path, shell)
+    shell.cpu_load = 11
+    monkeypatch.setattr(shell, "cores", lambda: 32)
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    lanes = {"R10190": "inc-a-evidence", "R10191": "inc-a-fix"}
+    for key, lane in lanes.items():
+        cli(shell, config, "launch", "--key", key, "--lane", lane, "--model", "incident", "--effort", "xhigh", "--brief", str(brief))
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    orca_pass(shell, config)
+    shell.sleep(59)
+    orca_pass(shell, config)
+    assert stalled(shell) == []
+    shell.sleep(1)
+    for _ in range(3):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert sorted(stalled(shell)) == [
+        f"LAUNCH-STALLED stalled:desk-lane-{lane}/{key} {lane}: {key} accepted at 11:00 has no dispatch 60 s on, with the 1-minute load 11 of 32 cores;"
+        f" withdraw it with `orca-desk: withdraw {key}`, then launch it by hand: `orca-launch.sh {lane} incident xhigh {brief}`"
+        for key, lane in lanes.items()
+    ]
+    assert [post["kind"] for post in shell.posts if post["text"].startswith("LAUNCH-STALLED")] == ["blocker", "blocker"]
+    assert launches(shell) == [] and {incident(tmp_path, f"desk-lane-{lane}").actions[key].status for key, lane in lanes.items()} == {"accepted"}
+
+
+def test_a_launch_the_runner_started_logs_no_launch_stalled(shell, config, tmp_path):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1 and stalled(shell) == []
 
 
 def gate(*lines: str, would: str = "") -> str:
@@ -1223,18 +1265,29 @@ def test_a_prefix_holding_a_pr_no_drive_lane_opened_is_never_enqueued(shell, con
     assert len(lines) == 1 and "FOREIGN" in lines[0] and "#28997" in lines[0] and "nothing was enqueued" in lines[0]
 
 
+def test_a_labelled_row_the_gate_admits_is_not_foreign_to_the_prefix_check_in_the_same_pass(shell, config, tmp_path):
+    shell.rows = [dict(row, ours=row["pr"] != "28997") for row in stack_rows()]
+    shell.pr_labels["28997"] = ["drive:d1"]
+    shell.head_refs["28997"] = "a/1"
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    landing_pass(shell, config)
+    assert len(registrations(shell)) == 1 and shell.enqueues() == [] and escalations(shell) == []
+    assert len([call for call in shell.calls if call[-1] == "labels,headRefName"]) == 1
+
+
 def registrations(shell: FakeShell) -> list[list[str]]:
     return [call[4:] for call in shell.calls if len(call) > 4 and Path(call[1]).name == "ledger.py" and call[4] == "register"]
 
 
-def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_registered_and_enqueued(shell, config, tmp_path):
+def test_a_rowless_prefix_pr_carrying_the_drive_label_is_registered_under_its_branch_and_enqueued(shell, config, tmp_path):
     shell.rows = stack_rows()[1:]
-    shell.records.append({"seq": 34766, "drive": "d1", "lane": "wf_ccb4ca77-be1", "kind": "opened", "to": [], "refs": {"prs": [28997]}, "text": "#28997 opened", "source": "post"})
+    shell.pr_labels["28997"] = ["drive:d1"]
+    shell.head_refs["28997"] = "a/1"
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE\n")
     landing_pass(shell, config)
-    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "wf_ccb4ca77-be1", "--pr", "28997"]]
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "a/1", "--pr", "28997"]]
     assert shell.enqueues() == [] and not [line for line in escalations(shell) if "FOREIGN" in line]
     shell.rows = stack_rows()
     landing_pass(shell, config)
@@ -1243,59 +1296,53 @@ def test_a_prefix_pr_a_drive_lane_posted_opened_without_a_ledger_row_is_register
     assert not [line for line in escalations(shell) if "FOREIGN" in line]
 
 
-def test_an_open_pr_a_drive_lane_posted_opened_is_registered_before_any_gate_reaches_it(shell, config, tmp_path):
-    """#40339 on Oct 19: a ccx claim posted it opened, no gate ever named it, so it never became a row and its fidelity grade was never mirrored."""
-    shell.rows = stack_rows()
-    shell.rows[2]["registered"] = LANE
+def test_an_opened_or_head_record_admits_no_pr(shell, config, tmp_path):
+    """#41141: a lane's opened record named a PR another engineer opened, and the runner admitted it from that text; record text never admits a PR now."""
+    shell.rows = [*stack_rows(), {"pr": "41141", "branch": "other/fix-mount", "base": "dev", "head": "4114141141", "state": "open", "ours": False}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
     shell.records += [
-        {"seq": 34766, "drive": "d1", "lane": "mem-da4-suites", "kind": "opened", "to": [], "refs": {"prs": [40339]}, "text": "opened #40339", "source": "claim", "at": "2026-10-19T13:50:24Z"},
-        {"seq": 34767, "drive": "d1", "lane": "tooling", "kind": "opened", "to": [], "refs": {"prs": [397]}, "text": "opened #397", "source": "claim", "at": "2026-10-19T15:04:57Z"},
-        {"seq": 34768, "drive": "d1", "lane": "tooling", "kind": "opened", "to": [], "refs": {"prs": ["yasyf/cc-context#428"]}, "text": "opened yasyf/cc-context#428", "source": "claim", "at": "2026-10-19T15:04:35Z"},
-        {"seq": 34769, "drive": "d1", "lane": "mem-w6", "kind": "opened", "to": [], "refs": {"prs": ["Forge-AI/monorepo#40400"]}, "text": "opened Forge-AI/monorepo#40400", "source": "claim", "at": "2026-10-19T15:30:00Z"},
-        {"seq": 34770, "drive": "d1", "lane": "mem-r6", "kind": "opened", "to": [], "refs": {"prs": [40401]}, "text": "opened #40401", "source": "claim", "at": "2026-10-19T15:31:00Z"},
-        {"seq": 34771, "drive": "d1", "lane": LANE, "kind": "opened", "to": [], "refs": {"prs": [29020]}, "text": "opened #29020", "source": "post", "at": "2026-10-01T09:00:00Z"},
+        {"seq": 104650, "drive": "d1", "lane": "inc-mount-fix", "kind": "opened", "to": [], "refs": {"prs": [41141]}, "text": "opened #41141", "source": "post", "at": "2026-10-21T09:00:00Z"},
+        {"seq": 104651, "drive": "d1", "lane": "inc-mount-fix", "kind": "head", "to": [], "refs": {"prs": ["Forge-AI/monorepo#41141"]}, "text": "#41141 4114141141", "source": "post", "at": "2026-10-21T09:00:01Z"},
     ]
-    shell.pulls = {
-        "40339": {"state": "open", "created_at": "2026-10-19T13:50:20Z"},
-        "397": {"state": "closed", "created_at": "2025-01-02T00:00:00Z"},
-        "40401": {"state": "open", "created_at": "2026-10-19T16:00:00Z"},
-    }
     landing_pass(shell, config)
-    assert [call[-1] for call in registrations(shell)] == ["40339", "40400"]
-    assert registrations(shell)[0] == ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "mem-da4-suites", "--pr", "40339"]
-    asked = [call[2] for call in shell.calls if call[:2] == ["gh", "api"] and "/pulls/" in call[2]]
-    assert asked == ["repos/Forge-AI/monorepo/pulls/40339", "repos/Forge-AI/monorepo/pulls/397", "repos/Forge-AI/monorepo/pulls/40401"]
+    assert registrations(shell) == []
+    [line] = [line for line in escalations(shell) if line.startswith("NOT-OURS")]
+    assert "#41141" in line and "the drive did not admit it" in line
 
 
-def test_a_refreshed_row_a_drive_lane_posted_opened_or_head_is_registered_without_a_lane_round_trip(shell, config, tmp_path):
-    """#40902 and #40941 on Oct 20: a refresh rowed each before any lane registered it, and the only claims were a qualified `opened` and a bare `head`, so the desk skipped both as NOT-OURS."""
+def test_an_unadmitted_row_carrying_the_drive_label_is_registered_under_its_branch_reading_github_once_per_head(shell, config, tmp_path):
+    """#40902 and #40941 on Oct 20: a refresh rowed each before any lane registered it, and the desk skipped both as NOT-OURS for want of a record; the PR's own label admits it now."""
     shell.rows = [*stack_rows(), {"pr": "40902", "branch": "durable-step-6a-detach-route", "base": "dev", "head": "6b42b36b990", "state": "open", "ours": False}, {"pr": "40941", "branch": "step-6-fork-detach", "base": "dev", "head": "e615fb42c6f", "state": "open", "ours": False}]
-    shell.rows[2]["registered"] = LANE
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.records += [
-        {"seq": 101750, "drive": "d1", "lane": "step-6", "kind": "opened", "to": [], "refs": {"prs": ["Forge-AI/monorepo#40902"]}, "text": "opened #Forge-AI/monorepo#40902", "source": "claim", "at": "2026-10-20T08:06:17Z"},
-        {"seq": 102513, "drive": "d1", "lane": "step-6", "kind": "head", "to": [], "refs": {"prs": [40941]}, "text": "OPENED #40941 e615fb4 (ruling 9e85f73), off dev", "source": "post", "at": "2026-10-20T13:58:51Z"},
-        {"seq": 102514, "drive": "d1", "lane": "step-6", "kind": "ask", "to": [], "refs": {"prs": [28997]}, "text": "Grade #28997", "source": "post", "at": "2026-10-20T13:58:52Z"},
-        {"seq": 102515, "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": [29020]}, "text": "#29020 cccc333333", "source": "post", "at": "2026-10-20T13:59:00Z"},
-    ]
-    shell.pulls = {"40941": {"state": "open", "created_at": "2026-10-20T13:58:28Z"}}
+    shell.pr_labels["40902"] = ["drive:d1"]
+    shell.head_refs.update({"40902": "durable-step-6a-detach-route", "40941": "step-6-fork-detach"})
     landing_pass(shell, config)
-    assert registrations(shell) == [
-        ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "step-6", "--pr", "40902"],
-        ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "step-6", "--pr", "40941"],
-    ]
-    assert [call[2] for call in shell.calls if call[:2] == ["gh", "api"] and "/pulls/" in call[2]] == ["repos/Forge-AI/monorepo/pulls/40941"]
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "durable-step-6a-detach-route", "--pr", "40902"]]
+    [line] = [line for line in escalations(shell) if line.startswith("NOT-OURS")]
+    assert "#40941" in line
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    assert landing.admit({"40941": "e615fb42c6f"}) == set() and landing.admit({"40941": "e615fb42c6f"}) == set()
+    assert len([call for call in shell.calls if call[-1] == "labels,headRefName" and call[3] == "40941"]) == 2
 
 
-def test_a_rowless_rider_a_drive_lane_posted_opened_is_registered_instead_of_escalated(shell, config, tmp_path):
+def test_a_row_ledger_unadmit_withdrew_is_never_read_for_admission(shell, config, tmp_path):
+    shell.rows = [*stack_rows(), {"pr": "41141", "branch": "other/fix-mount", "base": "dev", "head": "4114141141", "state": "open", "ours": False, "unadmitted": "2026-10-21T09:05:00Z"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.pr_labels["41141"] = ["drive:d1"]
+    landing_pass(shell, config)
+    assert registrations(shell) == [] and not [call for call in shell.calls if call[-1] == "labels,headRefName"]
+
+
+def test_a_rowless_rider_carrying_the_drive_label_is_registered_instead_of_escalated(shell, config, tmp_path):
     shell.rows = fork_rows()[:3]
-    shell.records.append({"seq": 34766, "drive": "d1", "lane": "wf_rider", "kind": "opened", "to": [], "refs": {"prs": [36530]}, "text": "#36530 opened", "source": "post"})
+    shell.pr_labels["36530"] = ["drive:d1"]
+    shell.head_refs["36530"] = "ro/rider"
     rider = "rides the batch through #36463 but is neither named nor below #{}; name it too or pass --partial to leave it out"
     shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 " + rider.format(36487), "#36530 BLOCKED 9999aaaaaa " + rider.format(36487))]
     shell.gates["36487 36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY", "#36530 BLOCKED 9999aaaaaa " + rider.format("36487 #36501"))]
     landing_pass(shell, config)
-    assert ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "wf_rider", "--pr", "36530"] in registrations(shell)
+    assert ["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "ro/rider", "--pr", "36530"] in registrations(shell)
     assert not [line for line in escalations(shell) if "FOREIGN" in line] and shell.enqueues() == []
 
 
@@ -1310,7 +1357,7 @@ def test_an_open_pr_skipped_as_not_ours_escalates_once_per_head(shell, config, t
     landing_pass(shell, config)
     landing_pass(shell, config)
     lines = escalations(shell)
-    assert len(lines) == 1 and "NOT-OURS" in lines[0] and "#29020" in lines[0] and "ledger.py register --lane <lane> --pr 29020" in lines[0]
+    assert len(lines) == 1 and "NOT-OURS" in lines[0] and "#29020" in lines[0] and "ledger.py register --lane <lane> --branch-prefix <its branch> or --pr 29020" in lines[0]
     shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
     landing_pass(shell, config)
     assert len(escalations(shell)) == 2
@@ -1780,6 +1827,25 @@ def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attem
     landing_pass(shell, config)
     lines = escalations(shell)
     assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "handshake operation timed out" in lines[0]
+
+
+@pytest.mark.parametrize("failure", [(1, "", "stack-enqueue: error: could not resolve the head ref of #29020: the branch a/3 is gone\n"), (5, HANDSHAKE, "")], ids=["queue-deleted-branch", "network-timeout"])
+def test_a_check_with_no_verdict_on_a_tip_that_landed_since_the_pass_read_the_ledger_escalates_nothing(shell, config, tmp_path, failure):
+    """#98460: the queue landed #40945 and deleted its branch, and the next check on it posted GATE-FAILED."""
+    shell.rows = single_row()
+    shell.gates["29020"] = [failure]
+    real = shell.run
+
+    def run(argv, stdin=None, env=None):
+        done = real(argv, stdin, env)
+        if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "landed":
+            assert "--pr=29020" in argv
+            shell.rows[0] |= {"state": "landed", "landed_sha": "f00d000003"}
+        return done
+
+    shell.run = run
+    landing_pass(shell, config)
+    assert escalations(shell) == []
 
 
 @pytest.mark.parametrize("failure", [(2, "", "usage: stack-enqueue PR [PR ...]\n"), (5, "stack-enqueue failed: Graphite pull-request-info failed: status error, message nope\n", "")])
@@ -3101,6 +3167,25 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
 
 
+def test_a_fix_the_runner_squashed_owes_its_release_after_the_executor_incident_naming_it_recovers(shell, config, tmp_path):
+    """#41063: the executor record naming the fix settled before the pass that read its landing, so the runner owed no release for a fix it had squashed (8075b15 section 4 change 4)."""
+    incident_pr(shell)
+    shell.rows[0]["lane"] = LANE
+    shell.bodies["36650"] = "Fixes the sand migrate check.\n"
+    store = actions.Store()
+    store.create(actions.Incident("api-1001", "executor", 1, actions.stamp(shell.clock), {"adopted": {"fix": LANE}, "repair_pr": 36650}))
+    landing_pass(shell, config)
+    assert len(merges(shell)) == 1
+    path = store.path("api-1001")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"status": "recovered"}))
+    shell.sleep(60)
+    shell.rows = [shell.rows[0] | {"state": "landed", "landed_sha": INCIDENT_SQUASH, "landed_at": actions.stamp(shell.now())}]
+    landing_pass(shell, config)
+    [release] = [post for post in shell.posts if post["kind"] == "release"]
+    assert release["text"].startswith("#36650 landed as 9a8b7c6d5e as an incident fix. Start the release its squash needs now")
+    assert json.loads(incident(tmp_path, "desk-landing").actions["release:36650"].target)["incident"]
+
+
 @pytest.mark.parametrize(("buckets", "decision"), [(("pass", "pending"), "APPROVED"), (("pass", "fail"), "APPROVED"), (("pass", "pass"), "REVIEW_REQUIRED")], ids=["a-pending-check", "a-red-check", "no-approval"])
 def test_an_incident_fix_short_of_approved_and_green_is_neither_merged_nor_enqueued(shell, config, tmp_path, buckets, decision):
     incident_pr(shell, buckets)
@@ -3387,6 +3472,28 @@ def test_a_landing_from_before_a_restart_is_owed_only_while_no_live_deploy_carri
     else:
         assert shell.posts == [] and released.status == "verified"
         assert released.verification_receipt["shipped"] == "sand on plat-usw2-prod runs 7d9d9602f9 (releases/2026-10-20/51)"
+
+
+def test_a_restarted_runner_never_replays_a_settled_incident_release_or_its_held_blocker(shell, config, tmp_path):
+    """#104815 to #104821 on Oct 20: a restarted runner posted seven RELEASE-HELD-AFTER-LANDING blockers for #41074 and #41089, released hours earlier (backlog dcf28ec item 1)."""
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    for text in ("hold #36642: one cut with #41071 when that lands", "hold #36642 until #41071 lands, then one cut"):
+        cci_record(shell, kind="hold", status="open", refs={"prs": [36642]}, at=actions.stamp(shell.now()), text=text)
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8748"]}, at=actions.stamp(shell.now()), text="CUT build 8748 (releases/2026-10-20/33)")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert release_action(tmp_path).status == "verified"
+    settled = [post["text"] for post in shell.posts if post["kind"] in ("release", "blocker")]
+    assert [text for text in settled if text.startswith("RELEASE-HELD-AFTER-LANDING")]
+    shell.sleep(6 * 60 * 60)
+    for _ in range(3):
+        landing_pass(shell, config)
+        shell.sleep(3 * 60)
+    assert [post["text"] for post in shell.posts if post["kind"] in ("release", "blocker")] == settled
 
 
 def test_a_landing_read_in_the_pass_it_lands_never_reads_what_is_live(shell, config, tmp_path):
@@ -4240,7 +4347,43 @@ def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, 
         "config": str(config.resolve()),
         "terminal": "term_root",
         "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca > {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
+        "version": runner_module.RUNNING_VERSION,
     }
+
+
+def installed(tmp_path: Path, *versions: str) -> None:
+    plugins = tmp_path / ".claude" / "plugins"
+    plugins.mkdir(parents=True, exist_ok=True)
+    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"long-running@skills": [{"scope": "user", "version": version} for version in versions], "other@skills": [{"scope": "user", "version": "999.0.0"}]}}))
+
+
+def newer(version: str, step: int = 1) -> str:
+    major, _, rest = version.partition(".")
+    return f"{int(major) + step}.{rest}"
+
+
+def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and_installed_version(shell, config, tmp_path):
+    """#535 shipped at 5:07 PM on Oct 20 as 0.7.186 and the live runner stayed on 0.7.185 until 9:26 PM, so the evening's phantom cutters ran on a fixed bug (#107539)."""
+    running = runner_module.RUNNING_VERSION
+    installed(tmp_path, running)
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == []
+    installed(tmp_path, running, newer(running))
+    for _ in range(2):
+        orca_pass(shell, config)
+        landing_pass(shell, config)
+    installed(tmp_path, newer(running, 2))
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    source = config.resolve()
+    assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == [
+        f"RUNNER-STALE stale:{desk}:{running}<{version} {desk}: {running} < {version}: this {desk} runner, pid {os.getpid()}, runs {running} while {version} is installed, so no fix released since reaches it;"
+        f" rotate it with `desk-runner.py handoff --config {source} --desk {desk}`, then start the next one with `nohup desk-runner.py run --config {source} --desk {desk} > {tmp_path / f'{desk}-runner.log'} 2>&1 < /dev/null &`"
+        for version in (newer(running), newer(running, 2))
+        for desk in ("orca", "landing")
+    ]
+    assert {post["kind"] for post in shell.posts if post["text"].startswith("RUNNER-STALE")} == {"blocker"}
 
 
 def test_the_orca_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
@@ -4263,6 +4406,22 @@ def test_handoff_waits_for_the_runner_to_remove_the_stop_marker(shell, config, t
     monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
     assert cli(shell, config, "handoff", "--desk", "orca") == 0
     assert not runner.stop_marker().exists()
+
+
+def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
+    """Tasks 36d2185 and f04ea6b: landing runner 76826 stayed on 0.7.183 through the 2:48 PM rotation on Oct 20, because its loop never read the stop marker."""
+    land_fast(shell, config)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.stop_marker().write_text(f"{os.getpid()}\n")
+    before = shell.now()
+    assert runner_module.run_landing(runner, False) == 0
+    assert not runner.stop_marker().exists() and shell.now() - before < timedelta(seconds=180)
+    assert [post["kind"] for post in shell.posts] == ["release"]
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release"]
+    shell.sleep(20 * 60)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release", "blocker"]
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
@@ -5362,6 +5521,35 @@ def test_a_root_record_that_mentions_a_cut_without_a_target_ref_opens_no_cut_clo
     orca_pass(shell, config)
     shell.sleep(5 * 60)
     orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert f"go:{seq}" not in incident(tmp_path, "desk-runner").facts.get("cut-clocks", {})
+    assert cut_silent(shell) == [] and [call for call in launches(shell) if call[1].startswith("manual-release-")] == []
+
+
+@pytest.mark.parametrize(
+    ("to", "text", "refs"),
+    [
+        (
+            ["inc-a-fix", "landing-desk-42", "fidelity-desk-14", WALKER],
+            "GO 01:26 PM: #41176 plain enqueue on green + approval + fidelity ok; fidelity-desk-14 grades --pr 41176. It rides the next sand cut after the #41163 one (walker-7 keys that cut on #41176 + #41170 landed).",
+            {},
+        ),
+        (
+            ["inc-b-fix", "landing-desk-42", "manual-release-at", "alerts-desk"],
+            "GO option A now: build with codex sol xhigh under your contract, one PR off dev, direct merge, sand cut at the squash; HEAD on every push",
+            {"path": "/blobs/00a2e945f92936ee.txt"},
+        ),
+    ],
+    ids=["104822-future-tense-go", "107029-order-naming-no-component"],
+)
+def test_the_orders_behind_the_phantom_cutters_open_no_cut_clock_and_launch_no_manual_release_lane(shell, config, tmp_path, to, text, refs):
+    """CUT-SILENT #104822 launched manual-release-after from the future-tense GO #104776, and #107029 fired on GO #106999, which named no component; both orders are reshaped here without their content (backlog dcf28ec item 2)."""
+    orca_pass(shell, config)
+    seq = cci_record(shell, to=to, at=actions.stamp(shell.now()), text=text, refs=refs)
+    orca_pass(shell, config)
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    shell.sleep(60)
     orca_pass(shell, config)
     assert f"go:{seq}" not in incident(tmp_path, "desk-runner").facts.get("cut-clocks", {})
     assert cut_silent(shell) == [] and [call for call in launches(shell) if call[1].startswith("manual-release-")] == []

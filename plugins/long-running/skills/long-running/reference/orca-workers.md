@@ -136,7 +136,7 @@ Leave the terminal open, as R195 requires, and report the dispatch to the root.
 
 ### Incident lanes: gpt-6.1-sol on the fast tier
 
-Launch both incident lanes with `scripts/orca-launch.sh <lane> incident xhigh <brief>`.
+Launch both incident lanes with `orca-launch.sh <lane> incident xhigh <brief>`.
 `worker-start` has no service-tier flag, so the script passes the tier on the codex
 command line. It creates a top-level (`--no-parent`) worktree and a terminal running
 codex on the fast tier, then starts the worker on that terminal. This is the recipe

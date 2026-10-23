@@ -200,7 +200,10 @@ obtained, at start and before each pass that launches. When the Run has no coord
 Orca finds that terminal gone, a runner started inside an Orca terminal rebinds the Run to
 that terminal, and one started outside any refuses to start and prints the rebind command; a
 binding lost mid-run escalates UNBOUND once and fails every launch at once with
-`LAUNCH-FAILED`, which no incident clock defers. `rebind` runs
+`LAUNCH-FAILED`, which no incident clock defers. A launch still accepted with no dispatch 60 seconds after the runner
+could start it, at its acceptance or a manual release's grace minute after its CUT-SILENT, logs one `LAUNCH-STALLED`
+blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command that launches it by hand, whatever held
+it; no incident clock defers it. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
 binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
@@ -230,7 +233,9 @@ blockers and restacks. Every queue call goes through the repository adapter `lan
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none: `hold`, `rules-review`,
 `fidelity`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict. Trees gate in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
-wave per priority, lower first. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
+reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
+log `GATE-FAILED`. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
@@ -247,10 +252,12 @@ a merge conflict, a changes-requested review or fidelity grade, or a queue eject
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no failing-required-check blocker
 unless a commit status other than `release-pr-check` or `emergency-head` is red on its own head. It gates only tips the ledger lists as `ours`, every tip of one stack in one call, and never enqueues a prefix
-holding a PR that no drive lane registered or named in an `opened` or `head` record on cci. A PR of this repo that has no registered ledger row but
-such a record on the drive is registered under the record's lane each pass, whether or not a refresh already gave it a row, and the next pass gates it as ours: an `owner/repo#N` ref
-names its repo, and a bare number counts once GitHub shows that PR open here and opened no later than the record. It logs one `NOT-OURS`
-escalation per head of an open stack-top PR it skips for that reason. Every PR an open cci `hold` record
+holding a PR the drive did not admit. A PR is the drive's by what GitHub shows of the PR itself, never by record text: the
+branch prefix or stack a lane registered, which `ledger.py refresh` admits, or the drive's `drive:<drive>` label, which the
+desk reads once per PR and head with `gh pr view --json labels,headRefName` for an unadmitted row or a rider and registers
+under its head branch, so the next pass gates it as ours. A row `ledger.py unadmit` withdrew is never admitted again
+except by an explicit `ledger.py register`. It logs one `NOT-OURS` escalation per head of an open stack-top PR it skips
+for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
 `<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
@@ -284,7 +291,8 @@ An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `out
 number an open executor incident names as its `repair_pr`, is never enqueued: in the pass its head reads `APPROVED` and every
 required check passes, the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
 `land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A PR whose ledger row lands carrying the `merge-fast`
-label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, sends one cci `release` record to `landing.release_owner` and the root in the pass
+label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, a PR this runner
+merged by plain squash among them however its incident reads by then, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
 `release` record on the drive from another lane, stamped after the landing, names one of those components with `--target` or the
 PR with `--pr`, the runner posts one `blocker` to both each `deadlines.release_start_minutes` (default 10) after the landing, with
@@ -322,7 +330,7 @@ does at once for a terminal Orca shows closed. Everything else is kept and named
 Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, RUNNER-STALE, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -348,6 +356,10 @@ that would enqueue logs one `MERGE-ASK` per waiting PR and head instead, and enq
 waiting PR and its head by a short sha. A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
+Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
+plugin version the runner runs. A runner behind the version `installed_plugins.json` lists logs one
+`RUNNER-STALE <running> < <installed>` blocker per installed version, naming the `handoff` that rotates it and the
+restart command; `drive.py digest` prints each desk's running and installed versions.
 """
 
 from __future__ import annotations
@@ -375,6 +387,7 @@ from zoneinfo import ZoneInfo
 
 import actions
 import cci
+import drive
 import holds
 import inboxes
 import lanes
@@ -390,7 +403,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "RUNNER-STALE": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -410,7 +423,6 @@ BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 OWNER_KINDS = ("head", "opened", "ready", "claim")
-CLAIM_FILTERS = tuple(f"--kind={kind}" for kind in cci.CLAIM_KINDS)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_GRADES = (FIDELITY_OK, "fidelity: missing")
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -481,7 +493,9 @@ HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
-HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
+HEARTBEATS = drive.HEARTBEATS
+RUNNING_VERSION = drive.plugin_manifest()["version"]
+LAUNCH_STALL = timedelta(seconds=60)
 ORPHANED_SEND = timedelta(minutes=2)
 RESEND_AFTER = timedelta(seconds=30)
 RESEND_LIMIT = 2
@@ -501,6 +515,9 @@ RUN_REF = re.compile(r"R\d+|\d+")
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
+DRIVE_LABEL = "drive:"
+NOT_ADMITTED = "the drive did not admit it: no lane registered it, by name or by a branch prefix or stack its branch is on, and it carries no drive label"
+ADMIT_HOW = "the lane that opened it runs ledger.py register --lane <lane> --branch-prefix <its branch> or --pr {pr}, or labels it drive:<drive>"
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
@@ -1265,14 +1282,28 @@ class Runner:
         self.book.edit(RUNNER, settle)
         self.record(f"escalation:deferred:{held['ids'][0]}", f"DEFERRED {len(lines)} escalations held during {held['incident']}: {' | '.join(lines)}")
 
+    def restart_command(self, desk: str) -> str:
+        return f"nohup desk-runner.py run --config {self.config.source} --desk {desk} > {self.config.desk_inbox.parent.parent / f'{desk}-runner.log'} 2>&1 < /dev/null &"
+
     def beat(self, desk: str) -> None:
-        drive = self.config.desk_inbox.parent
-        restart = f"nohup desk-runner.py run --config {self.config.source} --desk {desk} > {drive.parent / f'{desk}-runner.log'} 2>&1 < /dev/null &"
-        beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": restart}
-        drive.mkdir(parents=True, exist_ok=True)
-        staged = drive / f".{HEARTBEATS[desk]}"
+        inbox = self.config.desk_inbox.parent
+        beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "version": RUNNING_VERSION}
+        inbox.mkdir(parents=True, exist_ok=True)
+        staged = inbox / f".{HEARTBEATS[desk]}"
         staged.write_text(json.dumps(beat) + "\n")
-        staged.replace(drive / HEARTBEATS[desk])
+        staged.replace(inbox / HEARTBEATS[desk])
+
+    def stale(self, desk: str) -> None:
+        """Log one `RUNNER-STALE` per installed version this runner's code is behind, naming the handoff that rotates it."""
+        installed = drive.installed_version()
+        if drive.behind(RUNNING_VERSION, installed):
+            self.escalate(
+                f"stale:{desk}:{RUNNING_VERSION}<{installed}",
+                "RUNNER-STALE",
+                desk,
+                f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, runs {RUNNING_VERSION} while {installed} is installed, so no fix released since reaches it;"
+                f" rotate it with `desk-runner.py handoff --config {self.config.source} --desk {desk}`, then start the next one with `{self.restart_command(desk)}`",
+            )
 
     def stop_marker(self) -> Path:
         return self.config.source.with_name(f"{self.config.source.name}.stop")
@@ -2210,6 +2241,29 @@ class Runner:
         text = f"{key} refused on {held}; nothing was launched, and {remedy}"
         if self.book.attempt(container, lambda incident: incident.fail(key, text)):
             self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, text)
+
+    def stalled_launches(self) -> None:
+        """Log one `LAUNCH-STALLED` for each launch still accepted with no dispatch `LAUNCH_STALL` after the runner could start it, naming the withdraw and the hand launch; no incident clock defers it."""
+        for container in self.book.containers(LANE_PREFIX):
+            lane = container.removeprefix(LANE_PREFIX)
+            for action in self.book.actions(container, kind="launch", status="accepted"):
+                if (since := self.launchable_at(action)) is None or self.now() - since < LAUNCH_STALL:
+                    continue
+                spec = json.loads(action.target)
+                self.escalate(
+                    f"stalled:{container}/{action.action_id}",
+                    "LAUNCH-STALLED",
+                    lane,
+                    f"{action.action_id} accepted at {pacific(actions.parse_stamp(action.accepted_at))} has no dispatch {int((self.now() - since).total_seconds())} s on, with the 1-minute load {self.shell.load():.0f} of {self.shell.cores()} cores;"
+                    f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
+                )
+
+    def launchable_at(self, action: actions.Action) -> datetime | None:
+        """When the runner could first start a launch: its acceptance, or for a manual release `CUT_GRACE` after its CUT-SILENT posted, None until it has."""
+        if not action.action_id.startswith(CUT_LAUNCH):
+            return actions.parse_stamp(action.accepted_at)
+        silent = self.book.load(RUNNER).actions.get(f"escalation:cut:{action.action_id.removeprefix(CUT_LAUNCH)}")
+        return actions.parse_stamp(silent.response["at"]) + CUT_GRACE if silent and silent.status != "accepted" else None
 
     def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
         key = action.action_id
@@ -3344,7 +3398,7 @@ class Landing:
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
-        self.opened_seen = 0
+        self.labels_read: dict[str, bool] = {}
         self.row_heads: dict[str, str] = {}
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
@@ -3474,9 +3528,10 @@ class Landing:
     def gate(self, rows: dict[str, dict], held: list[str]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         bases = {row.get("base") for row in open_rows.values()}
+        admitted = self.admit({pr: row.get("head", "") for pr, row in open_rows.items() if not row.get("ours") and not row.get("unadmitted")})
         for pr, row in open_rows.items():
-            if not row.get("ours") and row.get("branch") not in bases:
-                self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: no drive lane registered it or posted an opened or head record naming it on cci, so the desk never gates or enqueues it; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+            if not row.get("ours") and pr not in admitted and row.get("branch") not in bases:
+                self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: {NOT_ADMITTED}, so the desk never gates or enqueues it; {ADMIT_HOW.format(pr=pr)}")
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
@@ -3487,14 +3542,14 @@ class Landing:
         for tips, done in gated:
             verdicts = done.verdicts
             if done.code and not verdicts:
-                self.runner.escalate(f"gate:{','.join(tips)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(tips), f"the {self.adapter.kind} check exited {done.code} with no verdict: {done.last}")
+                self.gate_failed(tips, done)
                 continue
             if done.would is not None:
                 self.accept(tips, done.would, verdicts, rows)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
-                    if self.admit_opened([pr]):
-                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and no drive lane registered it or posted an opened or head record naming it on cci; nothing was enqueued; the lane that opened it runs ledger.py register --lane <lane> --pr {pr}")
+                    if pr not in self.admit({pr: match["sha"]}):
+                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
                     gated_red = pr in children and self.adapter.failing_required(match) and self.gated_red(pr, match["sha"])
@@ -3502,6 +3557,17 @@ class Landing:
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red)
+
+    def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
+        """Escalate `GATE-FAILED` for a check that read no verdict, naming only the tips that have not landed since the pass read the ledger."""
+        if left := [tip for tip in tips if tip not in self.landed_now(tips)]:
+            self.runner.escalate(f"gate:{','.join(left)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(left), f"the {self.adapter.kind} check exited {done.code} with no verdict: {done.last}")
+
+    def landed_now(self, tips: list[str]) -> set[str]:
+        """The tips whose ledger row reads landed once `ledger.py landed` settles them by their squash on the freshly fetched trunk."""
+        self.ledger_py("landed", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout), *(f"--pr={tip}" for tip in tips))
+        rows = self.rows() or {}
+        return {tip for tip in tips if rows.get(tip, {}).get("state") == "landed"}
 
     def retrying(self, pr: str, verdict: dict, stack: set[str]) -> bool:
         """Whether the queue's ejection of a head this desk enqueued is a flaky check the desk retries itself, or whose retry the queue still holds, so the lane is not asked for a new head."""
@@ -3660,8 +3726,9 @@ class Landing:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
-            if unclaimed := self.admit_opened(foreign):
-                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which no drive lane registered or named in an opened or head record; nothing was enqueued")
+            admitted = self.admit({pr: rows.get(pr, {}).get("head") or (verdicts[pr]["sha"] if pr in verdicts else "") for pr in foreign if not rows.get(pr, {}).get("unadmitted")})
+            if unclaimed := [pr for pr in foreign if pr not in admitted]:
+                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
@@ -3776,44 +3843,28 @@ class Landing:
                 f" | send a needs_you card with options `Merge #{pr} {short}` and `Hold #{pr}`; Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`, Hold runs `holds.py add --pr {pr}`",
             )
 
-    def admit_opened(self, prs: list[str]) -> list[str]:
-        """Register each PR in `prs` that an `opened` or `head` record on this drive names under the lane that posted it, so the next pass's refresh fills its row and gates it as ours; returns the PRs no such record names or the ledger refused."""
-        drive = self.runner.config.drive
-        unclaimed = []
-        for pr in prs:
-            posted = cci.records(self.runner.cci_tail, drive, *CLAIM_FILTERS, "--pr", f"{self.repo}#{pr}")
-            opened = [record for record in posted if record["kind"] in cci.CLAIM_KINDS and record["drive"] == drive and pr in dict(repo_prs(record, self.repo))]
-            if not opened or self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", opened[-1]["lane"], "--pr", pr).code:
-                unclaimed.append(pr)
-        return unclaimed
+    def admit(self, heads: dict[str, str]) -> set[str]:
+        """The PRs in `heads`, a PR to its head, that carry the drive's label on GitHub, each registered under its head branch so the next refresh rows it as ours. GitHub is read once per PR and head, and record text never admits a PR."""
+        for pr, head in heads.items():
+            if f"{pr}@{head}" not in self.labels_read:
+                self.read_label(pr, head)
+        return {pr for pr, head in heads.items() if self.labels_read.get(f"{pr}@{head}")}
 
-    def admit_drive_opened(self, rows: dict[str, dict]) -> None:
-        """Register each PR of this repo that an `opened` or `head` record on this drive names and no ledger row registers, under the lane that posted it, so its next refresh fills the row and the desk gates it. A ref to `owner/repo#N` names its repo; a bare number, as ccx claimed tool-repo PRs before it qualified them, counts only once GitHub shows that PR open here and opened no later than the record. Each record is read once per process; a GitHub read that fails stops the pass's admissions at that record, which the next pass reads again."""
-        drive = self.runner.config.drive
-        known = {pr for pr, row in rows.items() if row.get("registered")}
-        for record in cci.records(self.runner.cci_tail, drive, *CLAIM_FILTERS, since=self.opened_seen):
-            if record["kind"] in cci.CLAIM_KINDS and record["drive"] == drive:
-                for pr, qualified in repo_prs(record, self.repo):
-                    if pr in known:
-                        continue
-                    if not qualified and (here := self.opened_here(pr, record)) is not True:
-                        if here is None:
-                            return
-                        continue
-                    done = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", record["lane"], "--pr", pr)
-                    if done.code:
-                        last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                        self.runner.escalate(f"admit:{pr}", "ADMIT-FAILED", f"#{pr}", f"ledger.py register refused #{pr}, which {record['lane']} posted {record['kind']} on cci #{record['seq']}: {last[0]}; its grade is not mirrored until a lane registers it")
-                    known.add(pr)
-            self.opened_seen = record["seq"]
-
-    def opened_here(self, pr: str, record: dict) -> bool | None:
-        """Whether GitHub shows `pr` open in this repo and opened no later than `record`; None when GitHub refuses the read for any reason but a missing PR."""
-        done = self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}"])
+    def read_label(self, pr: str, head: str) -> None:
+        """Register `pr` when it carries the drive's label and remember the answer for its head; a failed read is asked again on the next call."""
+        label = f"{DRIVE_LABEL}{self.runner.config.drive}"
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "labels,headRefName"])
         if done.code:
-            return False if "HTTP 404" in done.err else None
-        pull = json.loads(done.out)
-        return pull["state"] == "open" and actions.parse_stamp(pull["created_at"]) <= actions.parse_stamp(record["at"])
+            return
+        view = json.loads(done.out)
+        if label not in {item["name"] for item in view["labels"]}:
+            self.labels_read[f"{pr}@{head}"] = False
+            return
+        registered = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", view["headRefName"], "--pr", pr)
+        if registered.code:
+            last = (registered.err or registered.out).strip().splitlines()[-1:] or [f"exit {registered.code}"]
+            self.runner.escalate(f"admit:{pr}@{head}", "ADMIT-FAILED", f"#{pr}", f"ledger.py register refused #{pr}, which carries {label}: {last[0]}; the desk gates it once a lane registers it")
+        self.labels_read[f"{pr}@{head}"] = not registered.code
 
     def awaiting_go(self, enqueues: list[actions.Action], heads: dict[str, str]) -> bool:
         """Whether a head in `heads` the queue dropped for a failure outside its stack still waits for a root `go` record naming its PR, posted after the newest such drop."""
@@ -4036,7 +4087,7 @@ class Landing:
         judged = []
         for pr in sorted(landed - set(read), key=int):
             row = rows[pr]
-            incident = self.is_incident(pr, row)
+            incident = self.squashed(pr) or self.is_incident(pr, row)
             if (incident or MERGE_FAST in row.get("labels", "").split(",")) and not self.accept_release(pr, row, incident, row["landed_at"] < self.started):
                 continue
             judged.append(pr)
@@ -4047,6 +4098,10 @@ class Landing:
                 self.press_release(action)
             elif action.status == "verified" and (action.verification_receipt or {}).get("builds") and not (action.verification_receipt or {}).get("live"):
                 self.publish_line(action)
+
+    def squashed(self, pr: str) -> bool:
+        """Whether this runner merged the PR by plain squash, so its landing owes a release however the PR's incident reads now."""
+        return any(action.action_id.startswith(f"land:{pr}@") and action.status == "completed" for action in self.book.actions(LANDING, kind="squash"))
 
     def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
         """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `<landing.release_cli> live --json` shows its squash or a later commit running, and closes without a record."""
@@ -4374,7 +4429,7 @@ class Landing:
         said = " ".join(filter(None, (verdict["verdict"], verdict["detail"]))) if verdict else "no verdict"
         lines = [f"#{pr} {head[:10]} {self.adapter.kind}: {said}"]
         if not row.get("ours"):
-            lines.append("ours fail no drive lane registered it or posted an opened or head record naming it on cci")
+            lines.append(f"ours fail {NOT_ADMITTED}")
         adapter_states = self.adapter.classify(verdict) if verdict else {}
         graded = Graded({pr: head}, rows, self.runner.now(), act=False)
         for name in self.checks:
@@ -4529,10 +4584,6 @@ class Landing:
         self.releases(rows)
         self.verify_restacks(rows)
         self.requeue(rows)
-        try:
-            self.admit_drive_opened(rows)
-        except CciTailFailed as failure:
-            self.runner.tail_failed(failure)
         if advanced and not unread and (held := self.held(rows)) is not None:
             self.squash_incidents(rows, held)
             self.retry_flakes(rows)
@@ -4591,6 +4642,8 @@ def run_orca(runner: Runner, once: bool) -> int:
         else:
             runner.orca_back()
         runner.aged_holds()
+        runner.stalled_launches()
+        runner.stale("orca")
         runner.flush()
         runner.write_view()
         runner.beat("orca")
@@ -4656,6 +4709,7 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.tail_failed(failure)
         except OrcaUnreachable as down:
             runner.orca_down(down)
+        runner.stale("landing")
         runner.flush()
         runner.beat("landing")
         if once:

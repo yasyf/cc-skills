@@ -452,7 +452,7 @@ as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
 
 - It posts the fence and launches the fix and evidence lanes through
-  `scripts/orca-launch.sh <lane> incident xhigh` as Orca codex workers on
+  `orca-launch.sh <lane> incident xhigh` as Orca codex workers on
   `gpt-6.1-sol`, fast tier, `xhigh`; plain `sol` is the standard tier and never
   an incident route. With no mechanism after 15 minutes, it adds an Opus 5.5
   backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running.
@@ -1317,7 +1317,7 @@ Lanes record each report themselves with `ledger.py report --drive <drive>`: PR,
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once; the runner's parallel enqueues keep that. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI. On 2026-10-12 lanes L28 and L23 ran `stack-enqueue` themselves under a lane hold, landing #36023 and #36039; the owner ruled that the tooling, not a memory, stops it. The same night a hand-written `#30082 ours to land` line held the very PR it meant to free.*
 
-**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row; the landing runner runs `register` itself, under the poster's lane, for a PR of its repository that no row registers while an `opened` or `head` record on the drive names it. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts. The desk never enqueues, labels, or lands a PR no drive lane opened, however green and approved: the landing runner and `ledger.py label` refuse any stack holding a PR that no lane registered in the ledger or named in an `opened` or `head` record on cci, and the author login never makes a PR ours.
+**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row. A PR is the drive's by what GitHub shows of the PR itself, never by record text: `refresh` admits every open PR on a branch prefix or stack a lane registered, and the landing runner registers a PR carrying the `drive:<drive>` label under its head branch. Every lane registers its branch prefix at spawn with `ledger.py register --lane <lane> --branch-prefix <prefix>`. `ledger.py unadmit --pr <n>` withdraws a PR the drive admitted by mistake: its row stays unregistered, so neither `refresh` nor the runner admits it again until a lane runs `register --pr` for it, and a merge label the desk set comes off. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts. The desk never enqueues, labels, or lands a PR the drive did not admit, however green and approved: the landing runner and `ledger.py label` refuse any stack holding one, and neither an `opened` or `head` record nor the author login makes a PR ours.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
@@ -2520,7 +2520,7 @@ with a scoped brief.
 Keep the original lane running; the new lane must not duplicate its active work.
 
 A lane using the separate desktop Orca adapter is a session the Agent tool cannot
-message. Run `desk-launch.py lane <lane> <model> <effort> <brief>`; the runner invokes `scripts/orca-launch.sh` using
+message. Run `desk-launch.py lane <lane> <model> <effort> <brief>`; the runner invokes `orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤500-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,

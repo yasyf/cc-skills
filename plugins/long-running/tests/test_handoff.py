@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -719,3 +720,38 @@ def test_a_drive_with_no_incident_lane_says_so(drive_home: Path, capsys: pytest.
     body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
     assert "## Incident lanes\n- none posted in the last 6 h\n" in body
+
+
+def test_generate_clears_a_cursor_from_before_the_drive_that_no_line_sits_past_and_keeps_one_with_a_line_past_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Papercut 3dfdc2f, Oct 20: the orca desk restarted after an inbox rotation onto a `.cursor` file written Oct 1."""
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    inbox = drive_home / ".claude/scratch/brook/inbox"
+    stale, behind = inbox / "landing-desk.md.cursor", inbox / "orca-desk.md.cursor"
+    stale.write_text("L1\n")
+    written = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    for cursor in (stale, behind):
+        os.utime(cursor, (written, written))
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert not stale.exists() and behind.read_text() == "R2\n"
+    for line in (
+        "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
+        "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+        "- cleared stale cursor landing-desk.md.cursor at L1, written before the drive started at 2026-10-20T00:00:00Z",
+    ):
+        assert line in body
+
+
+def test_generate_keeps_a_read_through_cursor_written_after_the_drive_started(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    cursor = drive_home / ".claude/scratch/brook/inbox/landing-desk.md.cursor"
+    cursor.write_text("L1\n")
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert cursor.read_text() == "L1\n" and "cleared stale cursor" not in body

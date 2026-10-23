@@ -73,16 +73,12 @@ class FakeShell(ledger.Shell):
         self.pr_state_error = ""
         self.prompt_watch: dict = {}
         self.calls: list[list[str]] = []
-        self.foreign: set[str] = set()
         self.cci: list[dict] = []
         self.cci_cursors: dict[str, int] = {}
         self.stacks: dict[str, dict] = {}
 
     def run(self, argv, stdin=None, cwd=None):
         self.calls.append(list(argv))
-        if argv[:2] == ["cci", "tail"] and "opened" in argv:
-            pr = argv[argv.index("--pr") + 1].rpartition("#")[2]
-            return "" if pr in self.foreign else json.dumps({"kind": "opened", "refs": {"prs": [int(pr)]}}) + "\n"
         if argv[0] == "cci":
             return self._cci(argv)
         if argv[0] == "gh":

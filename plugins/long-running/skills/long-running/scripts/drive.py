@@ -14,6 +14,7 @@
     drive.py watch   --session ID --lane NAME [--drive ID] --channel ID [--message TS] [--thread-ts TS]
     drive.py lane-status LANE [--drive ID]
     drive.py pr-owed LANE [--drive ID]
+    drive.py digest  [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
 
@@ -68,6 +69,11 @@ It prints ``owed: <mark> #<seq>`` and exits 0 when the lane's newest MECHANISM o
 and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, topic, or incident tag such as ``SAND-5A``.
 Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
 
+``digest`` prints one line per desk runner from its heartbeat in ``<state dir>/inbox``: its pid, the plugin version it
+runs, the version ``installed_plugins.json`` lists, and its last pass. A runner behind the installed version, or one whose
+heartbeat names no version, reads stale with the ``desk-runner.py handoff`` and restart commands that rotate it; the
+command exits 1 while any desk is stale or has no heartbeat.
+
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
@@ -107,10 +113,36 @@ PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
 LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
 SLACK_TS = re.compile(r"p?(?P<seconds>\d{10})\.?(?P<micros>\d{6})")
+PLUGIN = Path(__file__).resolve().parents[3]
+HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
+VERSION_PART = re.compile(r"\d+")
 
 
 def drives_dir() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
+
+
+def plugin_manifest() -> dict:
+    return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
+
+
+def installed_version() -> str:
+    """The newest version of this plugin Claude Code lists in ``installed_plugins.json``, or empty when it lists none."""
+    path = drives_dir().parents[1] / "plugins" / "installed_plugins.json"
+    if not path.is_file():
+        return ""
+    name = plugin_manifest()["name"]
+    installs = [install for key, entries in load(path)["plugins"].items() if key.partition("@")[0] == name for install in entries]
+    return max((install["version"] for install in installs), key=version_key, default="")
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in VERSION_PART.findall(version.partition("-")[0]))
+
+
+def behind(running: str, installed: str) -> bool:
+    """Whether a runner reporting ``running``, empty for one that reports none, runs older code than the installed version."""
+    return bool(installed) and (not running or version_key(running) < version_key(installed))
 
 
 def stamp() -> str:
@@ -456,6 +488,26 @@ def cmd_pr_owed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    installed = installed_version()
+    current = True
+    for desk, name in HEARTBEATS.items():
+        path = Path(entry["state_dir"]) / "inbox" / name
+        if not path.is_file():
+            current = False
+            print(f"{desk}: no heartbeat at {path}, so no {desk} runner has finished a pass")
+            continue
+        beat = load(path)
+        running = beat.get("version", "")
+        late = behind(running, installed)
+        current &= not late
+        state = f"stale; rotate it with `desk-runner.py handoff --config {beat['config']} --desk {desk}`, then start the next one with `{beat['restart']}`" if late else "current"
+        print(f"{desk}: pid {beat['pid']} runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last pass {beat['at']}: {state}")
+    return 0 if current else 1
+
+
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
@@ -564,6 +616,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr_owed.add_argument("lane")
     pr_owed.add_argument("--drive")
     pr_owed.set_defaults(handler=cmd_pr_owed)
+
+    digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one; exit 1 when one is behind or has no heartbeat")
+    digest.add_argument("--drive")
+    digest.set_defaults(handler=cmd_digest)
 
     worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
     worktree.add_argument("--lane", required=True)

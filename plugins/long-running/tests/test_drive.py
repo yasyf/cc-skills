@@ -479,3 +479,46 @@ def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo,
     releases = json.loads((drive.drives_dir() / "900424b6.json").read_text())["releases"]
     assert releases == {build: {"owner": "release-walker-4@release-v3", "release": "releases/2026-10-22/3", "at": releases[build]["at"]}}
     assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
+
+
+def heartbeat(entry: dict, desk: str, pid: int, version: str) -> str:
+    restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
+    inbox = Path(entry["state_dir"]) / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    beat = {"pid": pid, "at": "2026-10-20T21:26:00-07:00", "config": "/drive/runner.json", "terminal": "term_root", "restart": restart, "version": version}
+    (inbox / drive.HEARTBEATS[desk]).write_text(json.dumps(beat) + "\n")
+    return restart
+
+
+def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_commands_that_rotate_it(repo, capsys):
+    """#535 shipped as 0.7.186 at 5:07 PM on Oct 20 and the live runner stayed on 0.7.185 until 9:26 PM (#107539)."""
+    entry = started(repo)
+    plugins = drive.drives_dir().parents[1] / "plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.185"}, {"version": "0.7.186"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
+    )
+    heartbeat(entry, "orca", 73091, "0.7.186")
+    restart = heartbeat(entry, "landing", 49612, "0.7.185")
+    capsys.readouterr()
+
+    assert drive.main(["digest"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "orca: pid 73091 runs 0.7.186, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: current",
+        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, then start the next one with `{restart}`",
+    ]
+    heartbeat(entry, "landing", 50113, "0.7.186")
+    assert drive.main(["digest"]) == 0
+
+
+def test_digest_names_a_desk_with_no_heartbeat_and_exits_one(repo, capsys):
+    entry = started(repo)
+    heartbeat(entry, "orca", 73091, "0.7.186")
+    capsys.readouterr()
+
+    assert drive.main(["digest"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("orca: pid 73091 runs 0.7.186, installed unknown") and lines[0].endswith(": current")
+    assert lines[1] == f"landing: no heartbeat at {Path(entry['state_dir']) / 'inbox' / drive.HEARTBEATS['landing']}, so no landing runner has finished a pass"
