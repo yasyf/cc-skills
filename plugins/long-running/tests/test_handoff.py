@@ -834,8 +834,9 @@ def test_a_failed_register_read_still_generates_and_posts_one_blocker(
 
     body = shell.docs[out["id"]]
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n\n- #2 [cci #2]\n\n- the register rows did not load (rulings.py: error: no register ledger for brook)" in body
-    [(program, text)] = posted
-    assert program == "brook" and text.startswith("The register rows for brook did not load for the handoff: rulings.py: error: no register ledger for brook.")
+    [(cci_drive, text)] = posted
+    assert cci_drive == "state" and text.startswith("The register rows for state did not load for the handoff: rulings.py: error: no register ledger for brook.")
+    assert [handoff.sys.executable, str(standing.RULINGS), "rows", "--drive", "d1", "--repo", REPO, "--json"] in shell.calls
 
 
 def test_lint_fails_the_aff1d7d4_handoff_against_the_register(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

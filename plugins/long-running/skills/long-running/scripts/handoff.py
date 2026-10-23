@@ -528,7 +528,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     read_standing(handoff, shell)
     read_incident_lanes(handoff, shell)
     handoff.register = rulings.register(shell, args.repo, args.program)
-    handoff.rows = standing.register_rows(shell.run, args.repo, args.program)
+    which = ["--drive", registry["drive"]] if registry else ["--program", args.program]
+    handoff.rows = standing.register_rows(shell.run, args.repo, which, drive.cci_drive(registry) if registry else args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
@@ -614,7 +615,7 @@ def cmd_lint(args: argparse.Namespace, shell: ledger.Shell) -> int:
         else doc_body(shell, args.repo, args.previous_doc) if args.previous_doc else None
     )
     live = live_answer_ids(shell, args.repo)
-    rows = standing.register_rows(shell.run, args.repo, args.program)
+    rows = standing.register_rows(shell.run, args.repo, ["--program", args.program], args.program)
     problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live, rows)
     if args.plan:
         problems += uncited_plan_lines(Path(args.plan).expanduser(), live)

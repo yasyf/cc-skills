@@ -255,6 +255,13 @@ def test_a_linked_id_is_checked_and_a_copied_heading_exempts_no_owner_gate_line(
     ]
 
 
+def test_a_line_after_a_closed_quotation_is_checked_even_when_the_words_contain_it() -> None:
+    rows = standing.Rows(rows={"rule/0a1b2c3": {"kind": "gate", "status": "in-force", "words": "Never require owner approval", "answer": '["0a1b2c3"]'}})
+    body = "## Standing owner rules\n\n- `rule/0a1b2c3` (owed): “Never require owner approval”\n    require owner approval\n"
+
+    assert standing.lint(body, None, None, set(), rows) == ["owner-gate line cites no live answer id: require owner approval"]
+
+
 def test_a_verbatim_row_exempts_only_its_own_lines_from_the_owner_gate_check() -> None:
     body = (
         f"## Standing owner rules\n\n- `rule/7ab71e2` (owed): “{RELEASES}”\n"
@@ -293,21 +300,22 @@ def test_register_rows_read_through_rulings_and_a_failed_read_posts_one_blocker(
 
         return answer
 
-    rows = standing.register_rows(run(json.dumps({"ledger": "0d4cfee", "program": "brook", "rows": {"rule/f958522": {"words": SYNCING}}})), "/repo", "brook")
+    which = ["--drive", "b7"]
+    rows = standing.register_rows(run(json.dumps({"ledger": "0d4cfee", "program": "brook", "rows": {"rule/f958522": {"words": SYNCING}}})), "/repo", which, "brook")
     assert rows.rows == {"rule/f958522": {"words": SYNCING}} and rows.failure is None
-    assert calls == [[standing.sys.executable, str(standing.RULINGS), "rows", "--program", "brook", "--repo", "/repo", "--json"]]
-    assert standing.register_rows(run(json.dumps({"ledger": None, "rows": {}})), "/repo", "brook") is None
-    assert standing.register_rows(run("null"), "/repo", "brook") is None
+    assert calls == [[standing.sys.executable, str(standing.RULINGS), "rows", "--drive", "b7", "--repo", "/repo", "--json"]]
+    assert standing.register_rows(run(json.dumps({"ledger": None, "rows": {}})), "/repo", which, "brook") is None
+    assert standing.register_rows(run("null"), "/repo", which, "brook") is None
     assert posted == []
 
-    failed = standing.register_rows(run(subprocess.CalledProcessError(2, ["rulings.py"], stderr="rulings.py: error: invalid choice: 'rows'\n")), "/repo", "brook")
+    failed = standing.register_rows(run(subprocess.CalledProcessError(2, ["rulings.py"], stderr="rulings.py: error: invalid choice: 'rows'\n")), "/repo", which, "brook")
 
     assert failed.failure == "rulings.py: error: invalid choice: 'rows'"
     assert posted == [
         (
             "brook",
             "The register rows for brook did not load for the handoff: rulings.py: error: invalid choice: 'rows'. "
-            "Read them with `rulings.py rows --program brook --json` and carry the scope rows' words by hand.",
+            "Read them with `rulings.py rows --drive b7 --json` and carry the scope rows' words by hand.",
         )
     ]
 

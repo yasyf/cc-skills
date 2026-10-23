@@ -194,14 +194,14 @@ def register_lines(lines: list[str], rows: Rows | None) -> set[int]:
         if not (match := ROW_BULLET.match(line)) or not (cited := cited_rows(match[2], rows.rows)):
             continue
         quoted.add(at)
-        indent = len(match[1])
-        words = [flat(fields["words"]) for fields in cited.values()]
+        for fields in cited.values():
+            if lines[at + 1 : at + 1 + len(following := continuation_lines(fields))] == following:
+                quoted.update(range(at + 1, at + 1 + len(following)))
         children = {child for fields in cited.values() for child in child_lines(fields)}
         for below in range(at + 1, len(lines)):
-            if indent_of(lines[below]) <= indent:
+            if indent_of(lines[below]) <= len(match[1]):
                 break
-            continued = indent_of(lines[below]) >= indent + CONTINUATION and any(flat(lines[below]).strip("“”") in text for text in words)
-            if continued or lines[below] in children:
+            if lines[below] in children:
                 quoted.add(below)
     return quoted
 
@@ -236,33 +236,38 @@ def failure_of(failed: Exception) -> str:
     return "printed no JSON"
 
 
-def post_blocker(program: str, text: str) -> None:
+def post_blocker(drive: str, text: str) -> None:
     hour = datetime.now(timezone.utc).strftime("%Y%m%dT%H")
-    argv = ["cci", "post", "--drive", program, "--lane", "root", "--kind", "blocker", "--to", "root", "--id", f"register-rows:{program}:{hour}", "--text", text]
+    argv = ["cci", "post", "--drive", drive, "--lane", "root", "--kind", "blocker", "--to", "root", "--id", f"register-rows:{drive}:{hour}", "--text", text]
     try:
         subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         return
 
 
-def register_rows(run: Callable[[list[str]], str], repo: str, program: str) -> Rows | None:
+def register_rows(run: Callable[[list[str]], str], repo: str, which: list[str], drive: str) -> Rows | None:
     try:
-        found = json.loads(run([sys.executable, str(RULINGS), "rows", "--program", program, "--repo", repo, "--json"]))
+        found = json.loads(run([sys.executable, str(RULINGS), "rows", *which, "--repo", repo, "--json"]))
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as failed:
         reason = failure_of(failed)
         post_blocker(
-            program,
-            f"The register rows for {program} did not load for the handoff: {reason}. "
-            f"Read them with `rulings.py rows --program {program} --json` and carry the scope rows' words by hand.",
+            drive,
+            f"The register rows for {drive} did not load for the handoff: {reason}. "
+            f"Read them with `rulings.py rows {' '.join(which)} --json` and carry the scope rows' words by hand.",
         )
         return Rows(failure=reason)
     return Rows(rows=found["rows"]) if found and found.get("ledger") else None
 
 
+def continuation_lines(fields: dict) -> list[str]:
+    following = [f"{' ' * CONTINUATION}{line}" for line in fields["words"].splitlines()[1:]]
+    return [*following[:-1], f"{following[-1]}”"] if following else []
+
+
 def quoted_words(key: str, fields: dict, detail: str) -> list[str]:
-    first, *rest = fields["words"].splitlines() or [""]
-    lines = [f"- `{key}` ({detail}): “{first}", *(f"{' ' * CONTINUATION}{line}" for line in rest)]
-    return [*lines[:-1], f"{lines[-1]}”"]
+    first = next(iter(fields["words"].splitlines()), "")
+    following = continuation_lines(fields)
+    return [f"- `{key}` ({detail}): “{first}{'' if following else '”'}", *following]
 
 
 def implication_line(implication: dict) -> str:
@@ -369,7 +374,8 @@ def cmd_lint(args: argparse.Namespace) -> int:
     )
     live = {answer["id"] for answer in answers(args.repo)}
     shell = ledger.Shell()
-    problems = lint(body, previous, rulings.register(shell, args.repo, args.program), live, register_rows(shell.run, args.repo, args.program))
+    rows = register_rows(shell.run, args.repo, ["--program", args.program], args.program)
+    problems = lint(body, previous, rulings.register(shell, args.repo, args.program), live, rows)
     for problem in problems:
         print(problem)
     return VIOLATIONS if problems else 0
