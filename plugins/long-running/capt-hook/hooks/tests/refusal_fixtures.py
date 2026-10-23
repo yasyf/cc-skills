@@ -67,6 +67,15 @@ diff --git a/plugins/long-running/skills/long-running/scripts/drive.py b/plugins
 +        print(desk.name, desk.version)
 """
 
+LOGGED_STATE = """\
+diff --git a/plugins/long-running/skills/long-running/scripts/drive.py b/plugins/long-running/skills/long-running/scripts/drive.py
+--- a/plugins/long-running/skills/long-running/scripts/drive.py
++++ b/plugins/long-running/skills/long-running/scripts/drive.py
+@@ -543,0 +544,2 @@ def lane_status(args):
++def upload(args):
++    log.info("UPLOAD-STARTED")
+"""
+
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
 

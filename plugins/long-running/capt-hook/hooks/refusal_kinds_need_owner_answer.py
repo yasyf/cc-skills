@@ -16,6 +16,7 @@ from .tests.refusal_fixtures import (
     CITED,
     HEREDOC_BODY,
     LAUNCH_STALLED,
+    LOGGED_STATE,
     PLAIN,
     RETIRE_AND_RECONVERT,
     TEST_ONLY,
@@ -67,6 +68,8 @@ REFUSAL_HINT = re.compile(
 )
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
+UNREADABLE = ""
+DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 UNCITED_KINDS = (
     "A drive lane's PR may not add a refusal kind, quarantine kind, budget, retry, or clock unless its `## Rulings` section cites an owner answer naming it."
@@ -104,14 +107,34 @@ class Request:
     bodies: tuple[str, ...]
     texts: tuple[str, ...]
     edit: tuple[str, ...] | None
+    worktree: bool
+
+
+def run(argv: list[str], cwd: Path | None) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=READ_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 
 def read(argv: list[str], cwd: Path | None) -> str | None:
+    done = run(argv, cwd)
+    return done.stdout if done is not None and done.returncode == 0 else None
+
+
+def parsed(text: str | None) -> dict:
     try:
-        done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=READ_TIMEOUT_SECONDS)
-    except (OSError, subprocess.TimeoutExpired):
+        value = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def text_of(path: Path) -> str | None:
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
         return None
-    return done.stdout if done.returncode == 0 else None
 
 
 def values(args: tuple[str, ...], flags: tuple[str, ...]) -> list[str]:
@@ -135,23 +158,23 @@ def request(evt: BaseHookEvent, call: Call) -> Request | None:
     cwd = call.cwd or evt.cwd
     if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args:
         parent = values(call.args, ("--parent",))
-        return Request(str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None)
+        return Request(str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True)
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else ()
     repo = ("-R", found) if (found := named_repo(call)) else ()
     if argv[:3] == ("gh", "pr", "create"):
         base = values(argv, ("--base", "-B"))
-        return Request(str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None)
+        return Request(str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False)
     if argv[:3] == ("gh", "pr", "edit") and (values(argv, GH_BODY) or values(argv, GH_BODY_FILE)):
-        return Request(str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]))
+        return Request(str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False)
     return None
 
 
-def lane_pr(evt: BaseHookEvent) -> Request | None:
+def lane_prs(evt: BaseHookEvent) -> list[Request]:
     if (lane := lane_name(evt)) is None or LANDERS.match(lane):
-        return None
+        return []
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
-        return None
-    return next((found for call in evt.cmd.calls() if (found := request(evt, call))), None)
+        return []
+    return [found for call in evt.cmd.calls() if (found := request(evt, call))]
 
 
 def added(diff: str) -> Iterator[tuple[str, int, str]]:
@@ -164,17 +187,18 @@ def added(diff: str) -> Iterator[tuple[str, int, str]]:
         elif raw.startswith("+") and path:
             yield path, line, raw[1:]
             line += 1
+        elif raw.startswith(" "):
+            line += 1
 
 
 def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
     for name in filter(None, (read(UNTRACKED, cwd) or "").split("\0")):
-        path = Path(cwd or ".") / name
-        if not EXEMPT.search(name) and path.is_file():
-            yield from ((name, number, text) for number, text in enumerate(path.read_text(errors="replace").splitlines(), start=1))
+        if not EXEMPT.search(name) and (content := text_of(Path(cwd or ".") / name)) is not None:
+            yield from ((name, number, text) for number, text in enumerate(content.splitlines(), start=1))
 
 
 def pr_view(req: Request) -> dict:
-    return json.loads(read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd) or "{}")
+    return parsed(read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd))
 
 
 def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
@@ -184,47 +208,60 @@ def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
     base = f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
     if not base:
         return
-    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--unified=0", "--merge-base", base], req.cwd) or "")
-    yield from untracked(req.cwd)
+    span = ["--merge-base", base] if req.worktree else [f"{base}...HEAD"]
+    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--unified=0", *span], req.cwd) or "")
+    if req.worktree:
+        yield from untracked(req.cwd)
 
 
 def named(text: str, match: re.Match[str]) -> str:
     return found["name"] if (found := ASSIGNED.match(text)) else (match.group("name") or match.group(0)).strip("\"'` ")
 
 
-def classify(path: str, line: int, text: str) -> Finding | None:
+def kind_of(name: str) -> str:
+    return "quarantine kind" if "quarantin" in name.casefold() else "refusal kind"
+
+
+def declared(text: str, match: re.Match[str]) -> bool:
+    return text[match.end() :].lstrip()[:1] in DECLARING or bool(ASSIGNED.match(text))
+
+
+def classify(path: str, line: int, text: str) -> list[Finding]:
     if EXEMPT.search(path) or COMMENT.match(text):
-        return None
-    if match := KIND.search(text):
-        kind = "quarantine kind" if "QUARANTIN" in match["name"] else "refusal kind"
-        return Finding(kind, match["name"], path, line, text, True)
+        return []
+    if kinds := [Finding(kind_of(match["name"]), match["name"], path, line, text, declared(text, match)) for match in KIND.finditer(text)]:
+        return kinds
     if match := REFUSAL_NAME.search(text):
-        kind = "quarantine kind" if "quarantin" in match["name"].casefold() else "refusal kind"
-        return Finding(kind, match["name"], path, line, text, True)
+        return [Finding(kind_of(match["name"]), match["name"], path, line, text, True)]
     for kind, pattern in (("retry", RETRY), ("clock", CLOCK), ("budget", BUDGET)):
         if match := pattern.search(text):
-            return Finding(kind, named(text, match), path, line, text, True)
+            return [Finding(kind, named(text, match), path, line, text, True)]
     if match := REFUSAL_HINT.search(text):
-        return Finding("refusal or retry", named(text, match), path, line, text, False)
-    return None
+        return [Finding("refusal or retry", named(text, match), path, line, text, False)]
+    return []
 
 
-def body_text(req: Request, view: dict) -> str:
-    texts = list(req.texts)
-    for value in req.bodies:
-        if value == "-":
-            texts.append(req.raw)
-            continue
-        candidates = [Path(req.cwd or ".") / part for part in dict.fromkeys((value, value.split("=", 1)[-1]))]
-        texts.extend(path.read_text() for path in candidates if path.is_file())
-    return "\n".join(texts) if req.bodies or req.texts else view.get("body") or ""
+def body_file(req: Request, value: str) -> str | None:
+    if value == "-":
+        return req.raw
+    candidates = (Path(req.cwd or ".") / part for part in dict.fromkeys((value, value.split("=", 1)[-1])))
+    return next((text for path in candidates if path.is_file() and (text := text_of(path)) is not None), None)
+
+
+def body_text(req: Request, view: dict) -> str | None:
+    if not (req.bodies or req.texts):
+        return str(view.get("body") or "")
+    files = [body_file(req, value) for value in req.bodies]
+    return None if None in files else "\n".join([*req.texts, *files])
 
 
 def owner_answer(evt: BaseHookEvent, req: Request, rulings: str) -> str | None:
     entry = drive_entry(evt)
     repo = entry["checkout"] if entry else str(req.cwd or ".")
     for answer in dict.fromkeys(ANSWER_ID.findall(rulings)):
-        if json.loads(read(["ccn", "-R", repo, "answer", "show", answer, "--json"], req.cwd) or "{}").get("id"):
+        if (done := run(["ccn", "-R", repo, "answer", "show", answer, "--json"], req.cwd)) is None:
+            return UNREADABLE
+        if done.returncode == 0 and parsed(done.stdout).get("id"):
             return answer
     return None
 
@@ -255,6 +292,11 @@ def ship(command: str, **extra: object) -> Input:
             pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET), decide=UNCONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=UNCONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=CONFIRMED): Block(pattern=r"UPLOAD-STARTED"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}.missing", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(
             pattern=r"values\.go:\d+ refusal or retry"
@@ -276,20 +318,22 @@ def ship(command: str, **extra: object) -> Input:
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },
 )
-def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
-    if (req := lane_pr(evt)) is None:
-        return None
+def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
-    findings = [found for path, line, text in diff_lines(req, view) if (found := classify(path, line, text))]
-    if not findings:
+    findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
+    if not findings or (body := body_text(req, view)) is None:
         return None
-    body = body_text(req, view)
     rulings = found.group(0) if (found := RULINGS.search(body)) else ""
-    answer = owner_answer(evt, req, rulings) if rulings else None
-    folded = body.casefold()
+    if (answer := owner_answer(evt, req, rulings) if rulings else None) == UNREADABLE:
+        return None
+    folded = rulings.casefold()
     open_findings = [finding for finding in findings if not (answer and finding.name.casefold() in folded)]
     if not open_findings:
         return None
     if answer is None and any(finding.definite for finding in open_findings):
         return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings)}")
     return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings)}", confirm=NAMES_IT)
+
+
+def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
+    return next((result for req in lane_prs(evt) if (result := verdict(evt, req)) is not None), None)
