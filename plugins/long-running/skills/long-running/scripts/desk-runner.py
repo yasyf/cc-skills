@@ -691,6 +691,7 @@ class Shell:
 
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
+    Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
     """
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
@@ -698,7 +699,7 @@ class Shell:
             feed.write(stdin or "")
             feed.seek(0)
             try:
-                proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, env={**os.environ, **env} if env else None, timeout=COMMAND_TIMEOUT_SECONDS)
+                proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, timeout=COMMAND_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
         return Done(proc.returncode, proc.stdout, proc.stderr)
