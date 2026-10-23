@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -93,6 +94,9 @@ class FakeCcn(ledger.Shell):
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
         self.notes = CcnPlans([])
         self.lane_records: list[dict] = []
+        self.register_rows: dict = {"ledger": None, "program": "brook", "rows": {}, "classified": []}
+        self.rows_error: str | None = None
+        self.posts: list[list[str]] = []
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
@@ -117,6 +121,13 @@ class FakeCcn(ledger.Shell):
             return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > int(since))
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps({"id": argv[3], "rows": self.rows})
+        if argv[1:3] == [str(standing.RULINGS), "rows"]:
+            if self.rows_error:
+                raise subprocess.CalledProcessError(2, argv, stderr=self.rows_error)
+            return json.dumps(self.register_rows)
+        if argv[:2] == ["cci", "post"]:
+            self.posts.append(argv)
+            return ""
         assert argv[1:3] == ["-R", REPO], argv
         verb = argv[3:5]
         labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
@@ -771,3 +782,72 @@ def test_generate_keeps_a_read_through_cursor_written_after_the_drive_started(dr
     body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
     assert cursor.read_text() == "L1\n" and "cleared stale cursor" not in body
+
+
+AFF1D7D4 = Path(__file__).parent / "fixtures" / "handoff-aff1d7d4-shape.md"
+ROW_WORDS = "the app shows no syncing state, and the downloading bar is the one transfer state"
+
+
+def scope_rows(count: int) -> dict:
+    rows = {}
+    for n in range(count):
+        implications = [{"n": i, "text": f"surface {n}.{i} shows no syncing state " + "x" * 80, "direction": "removes", "state": "proposed", "proof": "seed"} for i in range(1, 6)]
+        rows[f"rule/{n:07x}"] = {
+            "kind": "scope",
+            "status": "in-force",
+            "words": f"{ROW_WORDS}, row {n}",
+            "answer": json.dumps([f"{n:07x}"]),
+            "said": "1",
+            "implications": json.dumps(implications),
+            "names": json.dumps([f"syncing state {n}", "Syncing"]),
+            "updated_at": "2026-10-01T00:00:00Z",
+            "evidence": "seed",
+        }
+    return rows
+
+
+def test_generate_prints_every_scope_row_in_the_owners_words_past_the_size_cap(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with(register=False)
+    shell.register_rows = {"ledger": "0d4cfee", "program": "brook", "rows": scope_rows(60), "classified": []}
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    body = shell.docs[out["id"]]
+    assert len(body.partition(f"\n{handoff.NARRATIVE}\n")[0].encode()) > progress.CAP
+    assert "no `standing-rules` register doc" not in body
+    for key, fields in shell.register_rows["rows"].items():
+        assert f"- `{key}` (in-force, said 1): “{fields['words']}”\n" in body
+        assert all(f"  - implication {i['n']}, removes, proposed: {i['text']}\n" in body for i in json.loads(fields["implications"]))
+    assert standing.lint(handoff.lint_view(body), None, None, set(), standing.Rows(rows=shell.register_rows["rows"])) == []
+    assert shell.posts == []
+
+
+def test_a_failed_register_read_still_generates_and_posts_one_blocker(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with(register=False)
+    shell.rows_error = "rulings.py: error: no register ledger for brook\n"
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    body = shell.docs[out["id"]]
+    assert "## Standing owner rules\n\n- no `standing-rules` register doc\n\n- #2 [cci #2]\n\n- the register rows did not load (rulings.py: error: no register ledger for brook)" in body
+    [post] = shell.posts
+    assert post[:10] == ["cci", "post", "--drive", "brook", "--lane", "root", "--kind", "blocker", "--to", "root"]
+
+
+def test_lint_fails_the_aff1d7d4_handoff_against_the_register(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.register_rows = {
+        "ledger": "0d4cfee",
+        "program": "brook",
+        "rows": {"rule/f958522": {"kind": "scope", "status": "in-force", "words": ROW_WORDS, "answer": '["f958522"]', "updated_at": "2026-10-01T00:00:00Z"}},
+        "classified": [],
+    }
+
+    code = handoff.main(["lint", "--file", str(AFF1D7D4), "--program", "brook", "--repo", REPO], shell)
+
+    printed = capsys.readouterr().out.splitlines()
+    assert code == standing.VIOLATIONS
+    assert 'the handoff says "no `standing-rules` register doc"; the register ledger holds the owner\'s rows, so regenerate the section with `handoff.py generate`' in printed
+    assert (
+        f"`f958522` cites without its words register row `rule/f958522`: - f958522: the app shows no syncing state.; quote the row's words verbatim: “{ROW_WORDS}”"
+    ) in printed
