@@ -3475,13 +3475,14 @@ def enqueued_heads(key: str) -> dict[str, str]:
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes requested", "REVIEW_REQUIRED": "waiting for review"}
 
 
-def merge_card_block(repo: str, pr: str, waits: str, question: str, view: dict) -> dict:
-    """The board card that asks whether to merge `pr`: the question, the PR's title, author, size, and review state, the PR itself, and Merge recommended over Hold."""
-    context = f"{view['title']}, by {view['author']['login']}, +{view['additions']} −{view['deletions']} lines, review: {REVIEWS.get(view.get('reviewDecision') or '', 'none yet')}."
+def merge_card_block(repo: str, pr: str, waits: str, detail: str, view: dict) -> dict:
+    """The board card that asks whether to merge `pr` at the head in `waits`: a short question, then why it waits and any rule it touches, the PR's title, author, size, and review state, the PR itself, and Merge recommended over Hold."""
+    summary = f"{view['title']}, by {view['author']['login']}, +{view['additions']} −{view['deletions']} lines, review: {REVIEWS.get(view.get('reviewDecision') or '', 'none yet')}."
+    context = f"{detail}\n\n{summary}"
     return {
         "id": waits,
         "type": "card",
-        "title": question,
+        "title": f"Merge this PR at {waits.rsplit(':', 1)[1]}?",
         "children": [
             {"id": f"{waits}-context", "type": "markdown", "md": context},
             {"id": f"{waits}-pr", "type": "pr", "repo": repo, "number": int(pr)},
@@ -4216,25 +4217,24 @@ class Landing:
         entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
 
-    def merge_card(self, pr: str, head: str, question: str) -> str | None:
+    def merge_card(self, pr: str, head: str, detail: str) -> str | None:
         """Ask the merge question for `pr` at `head` through `cc-present ask` in the drive root's session, so it lands on the root's board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. The card's Slack ts, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
         posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
-        if posted and posted["question"] == question:
+        if posted and posted["question"] == detail:
             return posted["ts"]
-        registry = drive.drives_dir() / f"{self.runner.config.drive}.json"
-        if not registry.is_file():
-            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry at {registry} names the root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
+        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.runner.config.drive and entry["sessions"]), None)
+        if not entry:
+            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
-        session = drive.load(registry)["sessions"][-1]
         view = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS])
-        done = view if view.code else self.ask_card(merge_card_block(self.repo, pr, waits, question, json.loads(view.out)), session)
+        done = view if view.code else self.ask_card(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)), entry["sessions"][-1])
         if done.code or not (ts := slack_ts(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
             self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
-        self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": question}}))
+        self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
 
     def ask_card(self, card: dict, session: str) -> Done:
@@ -4267,7 +4267,7 @@ class Landing:
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"It changes {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}." if paths else "Every PR waits for your answer." if mode == "every" and not self.lands_green else "It touches a reserved rule."
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
-            if not (ts := self.merge_card(pr, heads[pr], f"Merge this PR at {short}? {why}{touched}")):
+            if not (ts := self.merge_card(pr, heads[pr], f"{why}{touched}")):
                 continue
             authorize = "".join(f"; the card quotes {key} and its words, and the Merge go authorizes it" for key, _ in reserved)
             self.runner.escalate(

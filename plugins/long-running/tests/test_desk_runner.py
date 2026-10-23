@@ -626,7 +626,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
     shell.attachments[f"{LANE}.full.md"] = briefs / "f85c00ba"
     registry = tmp_path / ".claude/long-running/drives/d1.json"
     registry.parent.mkdir(parents=True)
-    registry.write_text(json.dumps({"drive": "d1", "sessions": ["s-old-root", "s-root"]}))
+    registry.write_text(json.dumps({"drive": "durable", "cci_drive": "d1", "sessions": ["s-old-root", "s-root"]}))
     path = tmp_path / "runner.json"
     path.write_text(
         json.dumps(
@@ -2448,9 +2448,9 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
         "card": {
             "id": "merge:29020:cccc333",
             "type": "card",
-            "title": "Merge this PR at cccc333? Every PR waits for your answer.",
+            "title": "Merge this PR at cccc333?",
             "children": [
-                {"id": "merge:29020:cccc333-context", "type": "markdown", "md": "Record each run's owner, by dana, +12 \u22123 lines, review: approved."},
+                {"id": "merge:29020:cccc333-context", "type": "markdown", "md": "Every PR waits for your answer.\n\nRecord each run's owner, by dana, +12 \u22123 lines, review: approved."},
                 {"id": "merge:29020:cccc333-pr", "type": "pr", "repo": "Forge-AI/monorepo", "number": 29020},
                 {"id": "merge:29020:cccc333-answer", "type": "choice", "options": [{"id": "merge", "label": "Merge", "recommended": True}, {"id": "hold", "label": "Hold"}]},
             ],
@@ -2537,7 +2537,7 @@ def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, conf
     assert shell.enqueues() == []
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK ") and "merge mode high-risk" in line
-    assert shell.pr_cards[0]["card"]["title"] == "Merge this PR at cccc333? It changes api/migrations/0399_run_owner.sql."
+    assert shell.pr_cards[0]["card"]["children"][0]["md"].startswith("It changes api/migrations/0399_run_owner.sql.\n\n")
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
@@ -2574,7 +2574,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers
     [line] = escalations(shell)
     assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
     message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
-    assert shell.pr_cards[0]["card"]["title"].endswith(' It touches your rule "User data stays where it is." Merging also allows it.')
+    assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
     assert "the card quotes reserved/user-data and its words, and the Merge go authorizes it" in message
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
@@ -2595,7 +2595,7 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     assert shell.enqueues() == []
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and len(shell.pr_cards) == 1
-    assert 'It touches your rule "User data stays where it is."' in shell.pr_cards[0]["card"]["title"]
+    assert 'It touches your rule "User data stays where it is."' in shell.pr_cards[0]["card"]["children"][0]["md"]
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
@@ -2645,7 +2645,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     landing_pass(shell, config)
     first, second = shell.pr_cards
-    assert second["card"]["id"] == first["card"]["id"] == "merge:29020:cccc333" and "User data stays where it is." in second["card"]["title"]
+    assert second["card"]["id"] == first["card"]["id"] == "merge:29020:cccc333" and "User data stays where it is." in second["card"]["children"][0]["md"]
     assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("at ts 1700000001.000100") == 1
 
 
