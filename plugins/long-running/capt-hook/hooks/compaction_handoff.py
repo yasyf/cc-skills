@@ -334,7 +334,10 @@ def post_blocker(evt: BaseHookEvent, text: str) -> None:
         return
     drive = entry.get("cci_drive") or Path(entry["state_dir"]).name
     argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
-    subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return
 
 
 def failure_of(failed: subprocess.CalledProcessError | subprocess.TimeoutExpired) -> str:

@@ -817,6 +817,27 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
     ]
 
 
+def test_a_failed_root_slice_read_still_restores_the_drive_when_cci_cannot_run(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = home / "session"
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "brook")}))
+    (home / "bin" / "cci").unlink()
+    monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
+    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
+        monkeypatch.delenv(key, raising=False)
+
+    def fail(args: tuple[str, ...]) -> str:
+        raise subprocess.TimeoutExpired(["rulings.py", *args], 20)
+
+    stub_slice(monkeypatch, fail)
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    restored = handoff.reground(session_start(session, "resume")).message
+
+    assert restored.startswith(f"Read `{plan}` before anything else")
+    assert state(session).root_slice is None
+
 def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_it(
     home: Path, plan: Path, docs: Path
 ) -> None:
