@@ -200,10 +200,9 @@ obtained, at start and before each pass that launches. When the Run has no coord
 Orca finds that terminal gone, a runner started inside an Orca terminal rebinds the Run to
 that terminal, and one started outside any refuses to start and prints the rebind command; a
 binding lost mid-run escalates UNBOUND once and fails every launch at once with
-`LAUNCH-FAILED`, which no incident clock defers. A launch still accepted with no dispatch 60 seconds after the runner
-could start it, at its acceptance or a manual release's grace minute after its CUT-SILENT, logs one `LAUNCH-STALLED`
-blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command that launches it by hand, whatever held
-it; no incident clock defers it. `rebind` runs
+`LAUNCH-FAILED`, which no incident clock defers. A launch still accepted with no dispatch 60 seconds after its
+`accepted_at` logs one `LAUNCH-STALLED` blocker naming the `orca-desk: withdraw` line and the `orca-launch.sh` command
+that launches it by hand, whatever held it; no incident clock defers it. `rebind` runs
 `orca orchestration run-use` from the current terminal and records it; `show` prints the
 binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
@@ -2243,27 +2242,20 @@ class Runner:
             self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, text)
 
     def stalled_launches(self) -> None:
-        """Log one `LAUNCH-STALLED` for each launch still accepted with no dispatch `LAUNCH_STALL` after the runner could start it, naming the withdraw and the hand launch; no incident clock defers it."""
+        """Log one `LAUNCH-STALLED` for each launch still accepted with no dispatch `LAUNCH_STALL` after its `accepted_at`, naming the withdraw and the hand launch; no incident clock defers it."""
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             for action in self.book.actions(container, kind="launch", status="accepted"):
-                if (since := self.launchable_at(action)) is None or self.now() - since < LAUNCH_STALL:
+                if self.now() - (since := actions.parse_stamp(action.accepted_at)) < LAUNCH_STALL:
                     continue
                 spec = json.loads(action.target)
                 self.escalate(
                     f"stalled:{container}/{action.action_id}",
                     "LAUNCH-STALLED",
                     lane,
-                    f"{action.action_id} accepted at {pacific(actions.parse_stamp(action.accepted_at))} has no dispatch {int((self.now() - since).total_seconds())} s on, with the 1-minute load {self.shell.load():.0f} of {self.shell.cores()} cores;"
+                    f"{action.action_id} accepted at {pacific(since)} has no dispatch {int((self.now() - since).total_seconds())} s on, with the 1-minute load {self.shell.load():.0f} of {self.shell.cores()} cores;"
                     f" withdraw it with `orca-desk: withdraw {action.action_id}`, then launch it by hand: `orca-launch.sh {lane} {spec['model']} {spec['effort']} {spec['brief']}`",
                 )
-
-    def launchable_at(self, action: actions.Action) -> datetime | None:
-        """When the runner could first start a launch: its acceptance, or for a manual release `CUT_GRACE` after its CUT-SILENT posted, None until it has."""
-        if not action.action_id.startswith(CUT_LAUNCH):
-            return actions.parse_stamp(action.accepted_at)
-        silent = self.book.load(RUNNER).actions.get(f"escalation:cut:{action.action_id.removeprefix(CUT_LAUNCH)}")
-        return actions.parse_stamp(silent.response["at"]) + CUT_GRACE if silent and silent.status != "accepted" else None
 
     def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
         key = action.action_id
@@ -3528,6 +3520,7 @@ class Landing:
     def gate(self, rows: dict[str, dict], held: list[str]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         bases = {row.get("base") for row in open_rows.values()}
+        self.labels_read = {key: True for key, admitted in self.labels_read.items() if admitted}
         admitted = self.admit({pr: row.get("head", "") for pr, row in open_rows.items() if not row.get("ours") and not row.get("unadmitted")})
         for pr, row in open_rows.items():
             if not row.get("ours") and pr not in admitted and row.get("branch") not in bases:
@@ -3844,7 +3837,7 @@ class Landing:
             )
 
     def admit(self, heads: dict[str, str]) -> set[str]:
-        """The PRs in `heads`, a PR to its head, that carry the drive's label on GitHub, each registered under its head branch so the next refresh rows it as ours. GitHub is read once per PR and head, and record text never admits a PR."""
+        """The PRs in `heads`, a PR to its head, that carry the drive's label on GitHub, each registered under its head branch so the next refresh rows it as ours. GitHub is read once per PR and head in a pass, and again in the next pass for a PR it did not admit; record text never admits a PR."""
         for pr, head in heads.items():
             if f"{pr}@{head}" not in self.labels_read:
                 self.read_label(pr, head)

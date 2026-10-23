@@ -2400,6 +2400,20 @@ def test_unadmit_of_a_pr_below_a_labelled_tip_pulls_the_label_from_the_tip(capsy
     assert shell.fields(PR)["label_pull_reason"] == "unadmitted #24081 from the drive"
 
 
+def test_unadmit_of_a_fork_parent_pulls_the_label_from_every_tip_above_it(capsys):
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"] += [
+        {"key": "24081", "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:05:00Z", "label_stack": "24081,24083"}},
+        {"key": "24083", "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:05:00Z", "label_stack": "24081,24083"}},
+        {"key": PR, "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:00:00Z", "label_stack": f"24081,{PR}"}},
+    ]
+    shell.pulls["24083"] = {"number": 24083, "head": {"sha": "e" * 40}}
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "24081") == 0
+
+    assert sorted(shell.unlabelled) == sorted([f"{PR}:merge", "24083:merge"])
+
+
 def test_unadmit_of_an_unlabelled_pr_pulls_nothing_and_refuses_a_row_the_ledger_lacks(capsys):
     shell = FakeShell(rows=[{"key": "24070", "fields": {"lane": LANE, "registered": LANE}}])
 

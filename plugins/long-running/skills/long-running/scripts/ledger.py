@@ -1992,7 +1992,7 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_unadmit(args: argparse.Namespace, shell: Shell) -> int:
-    """Withdraw each named PR from the drive: its row stays, unregistered and marked, so neither a refresh nor the landing desk admits it again, and the merge label that `label` set on its stack's tip comes off unless something pulled it."""
+    """Withdraw each named PR from the drive: its row stays, unregistered and marked, so neither a refresh nor the landing desk admits it again, and the merge label that `label` set on every tip whose stack holds it comes off unless something pulled it."""
     notes = Notes(shell, args.ledger, args.scope)
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows()
@@ -2002,9 +2002,13 @@ def cmd_unadmit(args: argparse.Namespace, shell: Shell) -> int:
         for pr in args.pr:
             notes.set_fields(pr, {"registered": "", "unadmitted": withdrawn})
     tips: dict[str, list[str]] = {}
+    for key, fields in rows.items():
+        stack = fields.get("label_stack", "").split(",") if fields.get("label_stack") else [key]
+        if fields.get("labelled_at") and not fields.get("label_pulled_at") and stack[-1] == key:
+            for pr in args.pr:
+                if pr in stack:
+                    tips.setdefault(key, []).append(pr)
     for pr in args.pr:
-        if rows[pr].get("labelled_at") and not rows[pr].get("label_pulled_at"):
-            tips.setdefault(rows[pr].get("label_stack", "").split(",")[-1] or pr, []).append(pr)
         print(f"unadmitted #{pr} at {withdrawn}: the drive no longer gates or enqueues it, and only `ledger.py register --pr {pr}` admits it again")
     gh = Github(shell, args.repo)
     for tip, withdrawn_prs in tips.items():
