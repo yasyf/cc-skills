@@ -15,6 +15,7 @@ from .tests.refusal_fixtures import (
     CARD_TERMS,
     CARD_TERMS_KIND,
     CITED,
+    DESK_RUNNER_ON_BASE,
     DIGIT_ID_BODY,
     DURATION_FIELDS,
     FAILS_OPEN,
@@ -25,6 +26,7 @@ from .tests.refusal_fixtures import (
     LOGGED_STATE,
     NEW_SENTINEL,
     NO_DRIVE,
+    ON_BASE,
     PLAIN,
     RELISTED,
     RETIRE_AND_RECONVERT,
@@ -259,10 +261,13 @@ def pr_view(req: Request) -> dict | None:
     return None if found is None else parsed(found)
 
 
-def diff_text(req: Request, view: dict) -> str | None:
+def base_ref(req: Request, view: dict) -> str:
+    return f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
+
+
+def diff_text(req: Request, base: str) -> str | None:
     if req.edit is not None:
         return read(["gh", "pr", "diff", *req.edit, *req.gh], req.cwd) or ""
-    base = f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
     if not base:
         return None
     span = ["--merge-base", base] if req.worktree else [f"{base}...{req.head or 'HEAD'}"]
@@ -270,12 +275,15 @@ def diff_text(req: Request, view: dict) -> str | None:
 
 
 def new_findings(req: Request, view: dict) -> list[Finding]:
-    if (diff := diff_text(req, view)) is None:
+    base = base_ref(req, view)
+    if (diff := diff_text(req, base)) is None:
         return []
     root = toplevel(req)
     lines = [*added(diff), *(untracked(req.cwd, root) if root else ())]
     kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
-    return [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
+    found = [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
+    on_base = {path: read(["git", "show", f"{base}:{path}"], req.cwd) or "" for path in {finding.path for finding in found}}
+    return [finding for finding in found if not mentions(on_base[finding.path], finding.name)]
 
 
 def named(text: str, match: re.Match[str]) -> str:
@@ -388,6 +396,8 @@ def ship(command: str, **extra: object) -> Input:
             pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
         ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(ON_BASE, base=DESK_RUNNER_ON_BASE)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(ON_BASE)): Warn(pattern=r"refusal kind MERGE-ASK"),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Warn(),

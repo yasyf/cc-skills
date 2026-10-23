@@ -166,11 +166,23 @@ HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bod
 EOF"""
 
 
-def sources(diff: str, *, pr: str | tuple[int, str] = "") -> dict[str, str | tuple[int, str]]:
+ON_BASE = """\
+diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
+--- a/plugins/long-running/skills/long-running/scripts/desk-runner.py
++++ b/plugins/long-running/skills/long-running/scripts/desk-runner.py
+@@ -4901,0 +4902 @@ class Landing:
++        \"\"\"Hold a PR whose `MERGE-ASK`, `RULING-ASK` lines the owner has not tapped.\"\"\"
+"""
+
+DESK_RUNNER_ON_BASE = 'ESCALATION_KINDS = {"MERGE-ASK": "report", "RULING-ASK": "report"}\n'
+
+
+def sources(diff: str, *, pr: str | tuple[int, str] = "", base: str = "") -> dict[str, str | tuple[int, str]]:
     return {
         "git symbolic-ref": "origin/main\n",
         "git rev-parse": f"{TREE}\n",
         "git diff": diff,
+        "git show": base,
         "git ls-files": "",
         "gh pr view": pr,
         "gh pr diff": diff,
