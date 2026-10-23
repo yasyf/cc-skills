@@ -64,6 +64,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -674,9 +675,12 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     git = ["git", "-C", checkout]
     pinned = f"refs/rulings/{head}"
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
-    text = shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", f"{pinned}...{head}"])
-    shell.run([*git, "update-ref", "-d", pinned])
-    return parse_diff(text)
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".diff") as out:
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", f"--output={out.name}", f"{pinned}...{head}"])
+            return parse_diff(Path(out.name).read_text(errors="replace"))
+    finally:
+        shell.run([*git, "update-ref", "-d", pinned])
 
 
 def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:

@@ -349,8 +349,9 @@ class RegisterShell(ledger.Shell):
                 return self.diff
             case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
                 return ""
-            case ["git", "-C", "/repo", "diff", "--no-color", "--no-ext-diff", "--no-textconv", _]:
-                return self.diff
+            case ["git", "-C", "/repo", "diff", "--no-color", "--no-ext-diff", "--no-textconv", output, _]:
+                Path(output.removeprefix("--output=")).write_text(self.diff)
+                return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "main"})
             case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
@@ -1029,27 +1030,34 @@ def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_na
     assert "rule/aaaaaaa" in required(out)
 
 
-BINARY_DIFF = "diff --git a/fixtures/page.png b/fixtures/page.png\nnew file mode 100644\nindex 0000000..3333333\nBinary files /dev/null and b/fixtures/page.png differ\n"
+FIXTURES_DIFF = (
+    b"diff --git a/fixtures/page.png b/fixtures/page.png\nnew file mode 100644\nindex 0000000..3333333\nBinary files /dev/null and b/fixtures/page.png differ\n"
+    b"diff --git a/fixtures/blob b/fixtures/blob\nnew file mode 100644\nindex 0000000..4444444\n--- /dev/null\n+++ b/fixtures/blob\n@@ -0,0 +1 @@\n+\xb5\xff\n"
+)
 
 
-class CompareRefused(RegisterShell):
+class LargeDiff(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        if argv[:2] == ["gh", "api"]:
-            raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
+        match argv:
+            case ["gh", "api", *_]:
+                raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
+            case ["git", "-C", "/repo", "diff", *_, output, "refs/rulings/cafef00d...cafef00d"]:
+                Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
+                self.calls.append(argv)
+                return ""
         return super().run(argv, stdin, cwd)
 
 
 def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_binary_file_by_name(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
-    rows = seeded(package) | {"rule/2345678": {"kind": "order", "status": "in-force", "words": "Keep page fixtures small.", "paths": '["fixtures/*.png"]'}}
-    shell = CompareRefused(rows, diff=DIFF + BINARY_DIFF)
+    rows = seeded(package) | {"rule/2345678": {"kind": "order", "status": "in-force", "words": "Keep page fixtures small.", "paths": '["fixtures/*"]'}}
+    shell = LargeDiff(rows)
 
     code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
 
     assert code == 0
     assert {"rule/bbbbbbb", "rule/2345678"} <= set(required(out))
     assert ["git", "-C", REPO, "fetch", "-q", "origin", "+main:refs/rulings/cafef00d", "cafef00d"] in shell.calls
-    assert ["git", "-C", REPO, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "refs/rulings/cafef00d...cafef00d"] in shell.calls
-    assert ["git", "-C", REPO, "update-ref", "-d", "refs/rulings/cafef00d"] in shell.calls
+    assert shell.calls[-1] == ["git", "-C", REPO, "update-ref", "-d", "refs/rulings/cafef00d"]
 
 
 def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
