@@ -326,6 +326,22 @@ def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root)
     assert 'your reply has a drive word, "slice"' in nudge
 
 
+def test_the_root_reply_is_not_nudged_for_terms_the_reader_names_that_the_reply_does_not_contain(drive_root: Root) -> None:
+    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", "The chat-list fix is live for every team.")) + "\n")
+    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
+    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
+    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": ["REPLY_IN_PLAIN_WORDS", "claude-haiku-5-5", "chat-list"]}))
+
+    with stubbed_commands(PLAIN_READS):
+        assert owner_facing.plain_words_on_reply(evt) is None
+
+    with nudges.NudgeState.mutate(evt) as state:
+        pending, state.pending = state.pending, []
+    [nudge] = pending
+    assert 'the owner would need "chat-list" defined' in nudge
+    assert "REPLY_IN_PLAIN_WORDS" not in nudge and "claude-haiku" not in nudge
+
+
 def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_refused(drive_root: Root, tmp_path: Path) -> None:
     state = tmp_path / "scratch"
     state.mkdir()
