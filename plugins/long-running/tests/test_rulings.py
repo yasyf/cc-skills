@@ -293,7 +293,7 @@ def seeded(package: Path) -> dict[str, dict[str, str]]:
 class RegisterShell(ledger.Shell):
     def __init__(self, rows: dict[str, dict[str, str]], answers: list[dict] | None = None, diff: str = "", lanes: list[str] | None = None, records: list[dict] | None = None) -> None:
         self.rows = {key: dict(fields) for key, fields in rows.items()}
-        self.answers = [dict(answer, tags=list(answer["tags"])) for answer in answers or []]
+        self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
         self.lanes = lanes or []
         self.records = records or []
@@ -1163,6 +1163,24 @@ def test_classify_answer_takes_only_words_in_an_owner_answer_body(home: Path, pa
     assert code == 1
     assert out.startswith("NOT-VERBATIM 5eed0c0de1b2c3d4: ")
 
-    written = dict(ROUND_TWO, tags=["program:brook", "scope:durable"])
-    with pytest.raises(SystemExit, match=r"^NOT-OWNER 5eed0c0: "):
-        rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]))
+    unlabelled = {key: value for key, value in ROUND_TWO.items() if key != "tags"}
+    for written in (dict(ROUND_TWO, tags=["program:brook", "scope:durable"]), unlabelled):
+        with pytest.raises(SystemExit, match=r"^NOT-OWNER 5eed0c0: "):
+            rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]))
+
+
+def test_one_answer_extends_several_rows_in_one_batch_and_never_again(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[ROUND_TWO])
+    path = tmp_path / "round-two-rows.json"
+    path.write_text(
+        json.dumps([
+            {"extends": "rule/5eed0c0", "words": "r2-op9-approval (a run missing its state opens read-only with Retry)"},
+            {"extends": "rule/bbbbbbb", "words": "r2-drain-approval"},
+        ])
+    )
+
+    code, _ = ran(capsys, shell, "classify", "--answer", "5eed0c0", str(path))
+
+    assert code == 0
+    assert [json.loads(shell.rows[key]["repeats"])[0]["proof"] for key in ("rule/5eed0c0", "rule/bbbbbbb")] == ["proof:answer:5eed0c0de1b2c3d4"] * 2
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(path))[0] == 1

@@ -753,7 +753,7 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
     item = entry["digest"]
     if item not in captured:
         return [f"UNKNOWN-CAPTURE {item}: no capture with this digest in {loaded.state / 'owner-prompts.jsonl'}"]
-    if item in batch.digests or item in loaded.classified():
+    if item in loaded.classified() or (item in batch.digests and captured[item]["source"] != ANSWER_SOURCE):
         return [f"CLASSIFIED {item}: this capture is already in the register or earlier in this batch"]
     batch.digests.add(item)
     if "no" in entry:
@@ -943,7 +943,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
 
 def answer_capture(loaded: Register, identity: str) -> dict:
     answer = ccn(loaded.shell, loaded.repo, "answer", "show", identity)
-    if OWNER_ANSWER not in answer["tags"]:
+    if OWNER_ANSWER not in (answer.get("tags") or []):
         raise SystemExit(f"NOT-OWNER {identity}: classify --answer reads only an answer labelled {OWNER_ANSWER}, whose body holds the owner's clicked words")
     return {"digest": answer["id"][:DIGEST_CHARS], "at": answer["created_at"], "source": ANSWER_SOURCE, "text": answer["body"], "answer": answer["id"]}
 
