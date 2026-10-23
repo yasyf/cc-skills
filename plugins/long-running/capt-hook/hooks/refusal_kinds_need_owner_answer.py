@@ -18,8 +18,9 @@ from .tests.refusal_fixtures import (
     DIGIT_ID_BODY,
     DURATION_FIELDS,
     FAILS_OPEN,
-    HEREDOC_BODY,
     HELPER_PACKAGE_CLOCK,
+    HELPER_TRANSCRIPT,
+    HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
     NEW_SENTINEL,
@@ -395,8 +396,10 @@ def ship(command: str, **extra: object) -> Input:
         ship("gh pr edit 101 --add-label docs", commands=sources(NEW_SENTINEL)): Allow(),
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Warn(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", state=[], commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, state=[], commands=sources(LAUNCH_STALLED)): Warn(
+            pattern=r"LAUNCH-STALLED"
+        ),
+        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Warn(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },

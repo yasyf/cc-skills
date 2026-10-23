@@ -7,6 +7,7 @@ CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
 TREE = BODIES / "tree"
+HELPER_TRANSCRIPT = BODIES.parent / "launched-460k.jsonl"
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
 
 LAUNCH_STALLED = """\
