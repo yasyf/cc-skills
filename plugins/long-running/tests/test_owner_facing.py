@@ -13,7 +13,7 @@ from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_
 from fire import fire
 from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
-from hooks.tests.board_fixtures import GLOSSARY, ROWS
+from hooks.tests.board_fixtures import ANSWERS, GLOSSARY, ROWS
 from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
 
 MISFIRES = {
@@ -279,7 +279,7 @@ def test_lane_probes_and_root_routing_pass(root: Root, incidents: Path, command:
     assert root.tool("Bash", {"command": command}, **raw) == []
 
 
-PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY}
+PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY, "ccn -R": ANSWERS}
 
 
 @pytest.fixture
@@ -342,12 +342,30 @@ def test_the_root_reply_is_not_nudged_for_terms_the_reader_names_that_the_reply_
     assert "REPLY_IN_PLAIN_WORDS" not in nudge and "claude-haiku" not in nudge
 
 
+def test_the_root_reply_is_nudged_for_a_lane_name_and_never_for_engineering_words(drive_root: Root) -> None:
+    reply = "Break-glass is granted on the stack; the drift preview and the pre-release check passed, and p1a-land is merged."
+    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", reply)) + "\n")
+    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
+    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
+    terms = ["Break-glass", "stack", "drift preview", "pre-release check", "p1a-land"]
+    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": terms}))
+
+    with stubbed_commands(PLAIN_READS):
+        assert owner_facing.plain_words_on_reply(evt) is None
+
+    with nudges.NudgeState.mutate(evt) as state:
+        pending, state.pending = state.pending, []
+    [nudge] = pending
+    assert 'the owner would need "p1a-land" defined' in nudge
+    assert [term for term in terms[:-1] if f'"{term}"' in nudge] == []
+
+
 def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_refused(drive_root: Root, tmp_path: Path) -> None:
     state = tmp_path / "scratch"
     state.mkdir()
     capture = {"digest": "a" * 16, "at": "2026-01-02T03:04:05Z", "session": "s-owner", "source": "prompt", "text": "keep the desk copy on the laptop. never on the phone"}
     (state / "owner-prompts.jsonl").write_text(json.dumps(capture) + "\n")
-    reads = {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)}), f"{owner_facing.RULINGS} glossary": GLOSSARY}
+    reads = PLAIN_READS | {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)})}
 
     def card(title: str):
         card = {"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies a note back to the phone.", "options": ["Right", "Some wrong", "Open board"]}

@@ -15,6 +15,12 @@ SCOPE_WORDS = "a note started on the phone and then edited on the laptop is out 
 UPDATE_WORDS = "download the update in the background, show the banner, and only restart when i click it, and only between edits"
 SWEEPS_LOG = json.dumps([{"id": "e" * 40, "title": f"sweeps: {PROGRAM}"}, {"id": "f" * 40, "title": "sweeps: another-program"}])
 GLOSSARY = "note\nlaptop\nphone\ncloud\nshare link\nbanner\nupdate\nbackup\nserver\nteam\n"
+ANSWERS = json.dumps(
+    [
+        {"id": "a" * 40, "title": "When should the upload run?", "body": 'Owner tap on Slack card cards:upload: "Upload after the nightly backup". The night-courier lane carries it.', "tags": ["from:owner"]},
+        {"id": "b" * 40, "title": "Keep the held copy?", "body": 'Owner chat: "never a held copy on the laptop"', "tags": ["from:owner"]},
+    ]
+)
 ROWS = json.dumps(
     {
         "ledger": "5" * 40,

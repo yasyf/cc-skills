@@ -333,6 +333,7 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         "cci post": "#1\n",
         f"ccn -R {REPO} log list": SWEEPS_LOG,
         f"ccn -R {REPO} log show": sweeps(minutes),
+        f"ccn -R {REPO} answer list": "[]",
         "cc-present outcomes": json.dumps({"revising": {"blockIds": list(revised)}}),
     }
     return Input(
