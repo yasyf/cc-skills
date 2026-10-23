@@ -5675,6 +5675,21 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     assert brief.startswith("ccx: lane=manual-release-sand role=release incident=none effort=xhigh\n") and hand in brief and f"after GO #{seq}" in brief
 
 
+def test_a_manual_release_launch_stalls_sixty_seconds_after_its_acceptance_with_no_grace_added(shell, config, tmp_path):
+    seq = go_to_walker(shell, config)
+    orca_pass(shell, config)
+    shell.sleep(4 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len(cut_silent(shell)) == 1 and stalled(shell) == []
+    accepted = incident(tmp_path, "desk-lane-manual-release-sand").actions[f"cut:go:{seq}"]
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    shell.clock = actions.parse_stamp(accepted.accepted_at) + timedelta(seconds=60)
+    orca_pass(shell, config)
+    [line] = stalled(shell)
+    assert line.startswith(f"LAUNCH-STALLED stalled:desk-lane-manual-release-sand/cut:go:{seq} manual-release-sand: cut:go:{seq} accepted at ") and "has no dispatch 60 s on" in line
+
+
 @pytest.mark.parametrize(("kind", "refs"), [("release", {"targets": ["sand"], "builds": ["https://buildkite.com/forge/release/builds/8748"]}), ("refuse", {"targets": ["sand"]})], ids=["cut", "refused"])
 def test_a_cut_or_a_refusal_from_the_release_lane_stops_the_cut_clock(shell, config, tmp_path, kind, refs):
     go_to_walker(shell, config)
