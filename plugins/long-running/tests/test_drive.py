@@ -146,12 +146,6 @@ def test_start_records_the_program_workers_resolve_and_a_handoff_keeps_it(repo, 
     assert started(repo, "--drive", "900424b6")["program"] == "plan-slug"
 
 
-def test_context_of_reads_the_registry_program_never_the_state_dir_name(repo, tmp_path):
-    entry = started(repo, "--state-dir", str(tmp_path / "release-v3")) | {"program": "plan-slug"}
-
-    assert (drive.context_of(entry)["program"], drive.context_of(entry)["title"]) == ("plan-slug", "plan-slug")
-
-
 def test_context_rewrites_the_dashboard_context_with_the_state_dir_as_the_cci_drive(repo, tmp_path):
     started(repo, "--state-dir", str(tmp_path / "release-v3"))
     path = tmp_path / "release-v3" / "dashboard" / "context.json"

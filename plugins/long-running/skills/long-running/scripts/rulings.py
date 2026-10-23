@@ -48,8 +48,9 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -104,7 +105,7 @@ DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
 CLAUSE_ENDS = (";", ". ", "\n")
-AFFIRMATIVE = re.compile(r"^(?:merge|yes|right|approve|authorize)\b", re.IGNORECASE)
+AFFIRMATIVE = re.compile(r"^(?:merge|yes|approve|authorize)\b", re.IGNORECASE)
 RIGHT = "right"
 NUMBER = re.compile(r"\b\d+\b")
 ANCHOR_SUFFIX = re.compile(r"(?::\d+(?:-\d+)?)?(?:\s+@\s+\S+)?$")
@@ -116,7 +117,7 @@ WORD = re.compile(r"[a-z][a-z'-]+")
 SLACK_ACTION = re.compile(r"(\{\"type\":\s*\"slack\.action\".*?\})\s*</channel>", re.DOTALL)
 CARD_FILE = re.compile(r"@(\S+\.json)")
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
-OPEN_HIT = re.compile(r"^open \S+ \S+:\d+ \S+")
+HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
 
 
@@ -273,6 +274,19 @@ def captures(state: Path) -> dict[str, dict]:
     return {entry["digest"]: entry for line in path.read_text().splitlines() if line.strip() and (entry := json.loads(line))}
 
 
+def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:
+    found = ccn(shell, repo, "ledger", "list", "--label", "register", "--label", f"program:{program}") or []
+    if not found:
+        raise SystemExit(f"no register ledger labelled register and program:{program} in {repo}")
+    return max(found, key=lambda entry: entry["updated_at"])["id"]
+
+
+@contextmanager
+def writing(args: argparse.Namespace, shell: ledger.Shell) -> Iterator[Register]:
+    with ledger.locked(ledger.default_lock(ledger_of(shell, args.repo, program_of(args)))):
+        yield Register.load(args, shell)
+
+
 @dataclass
 class Register:
     shell: ledger.Shell
@@ -285,10 +299,7 @@ class Register:
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell) -> Register:
         program = program_of(args)
-        found = ccn(shell, args.repo, "ledger", "list", "--label", "register", "--label", f"program:{program}") or []
-        if not found:
-            raise SystemExit(f"no register ledger labelled register and program:{program} in {args.repo}")
-        identity = max(found, key=lambda entry: entry["updated_at"])["id"]
+        identity = ledger_of(shell, args.repo, program)
         shown = ccn(shell, args.repo, "ledger", "show", identity)
         rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
         return cls(shell, args.repo, program, state_dir(args), identity, rows)
@@ -509,7 +520,7 @@ class Want:
     def matches(self, fields: dict[str, str]) -> bool:
         if self.lane in listed(fields.get("lanes")) or steps_match(listed(fields.get("steps")), self.step):
             return True
-        return any(fnmatch.fnmatch(anchor, glob) for anchor in anchors(fields) for glob in self.paths)
+        return any(fnmatch.fnmatch(anchor, glob) or fnmatch.fnmatch(glob, anchor) for anchor in anchors(fields) for glob in self.paths)
 
     @classmethod
     def parse(cls, header: re.Match[str]) -> Want:
@@ -578,8 +589,8 @@ def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
     return match["repo"] or ledger.origin_repo(shell, Path(args.repo)), match["pr"]
 
 
-def symbol_lines(fields: dict[str, str], diff: Diff) -> list[tuple[str, str, int]]:
-    homes = anchors(fields)
+def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tuple[str, str, int]]:
+    homes = anchors(fields) if at_home else []
     found = []
     for symbol in symbols(fields):
         pattern = name_pattern(symbol.rsplit(".", 1)[-1])
@@ -592,7 +603,7 @@ def symbol_lines(fields: dict[str, str], diff: Diff) -> list[tuple[str, str, int
 
 
 def touched(fields: dict[str, str], diff: Diff) -> bool:
-    return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or bool(symbol_lines(fields, diff))
+    return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or bool(symbol_lines(fields, diff, at_home=False))
 
 
 def required_slice(loaded: Register, diff: Diff) -> str:
@@ -677,10 +688,20 @@ def new_key(entry: dict, capture: dict) -> str:
     return f"prompt/{datetime.fromisoformat(capture['at']).astimezone(PACIFIC):%m%d-%H%M%S}"
 
 
-def refusals(loaded: Register, captured: dict[str, dict], entry: dict, taken: set[str]) -> list[str]:
+@dataclass
+class Batch:
+    keys: set[str] = field(default_factory=set)
+    digests: set[str] = field(default_factory=set)
+    added: dict[str, int] = field(default_factory=dict)
+
+
+def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Batch) -> list[str]:
     item = entry["digest"]
     if item not in captured:
         return [f"UNKNOWN-CAPTURE {item}: no capture with this digest in {loaded.state / 'owner-prompts.jsonl'}"]
+    if item in batch.digests or item in loaded.classified():
+        return [f"CLASSIFIED {item}: this capture is already in the register or earlier in this batch"]
+    batch.digests.add(item)
     if "no" in entry:
         return []
     words, extends = entry.get("words") or "", entry.get("extends")
@@ -692,7 +713,9 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, taken: se
     if kind not in KINDS:
         found.append(f"KIND {item}: {kind!r} is none of {', '.join(KINDS)}")
     implications = entry.get("implications") or []
-    carried = len(listed(extended.get("implications"))) + len(implications)
+    carried = len(listed(extended.get("implications"))) + batch.added.get(extends or "", 0) + len(implications)
+    if extends:
+        batch.added[extends] = batch.added.get(extends, 0) + len(implications)
     if kind == "scope" and carried not in IMPLICATION_COUNTS:
         found.append(f"SCOPE-IMPLICATIONS {item}: a scope row carries 3 to 6 implications, not {carried}")
     if kind == "scope" and not (entry.get("names") or names_of(extended)):
@@ -713,9 +736,9 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, taken: se
         found.append(f"REPEAT {item}: the words carry {because}; extend {candidates} with extends=<key>, never a second row")
     if not extends:
         key = new_key(entry, captured[item])
-        if key in loaded.rows or key in taken:
+        if key in loaded.rows or key in batch.keys:
             found.append(f"KEY-TAKEN {item}: {key} already exists or comes twice in this batch; extend it or pass another key")
-        taken.add(key)
+        batch.keys.add(key)
     if supersedes and not (target := loaded.rulings().get(supersedes)):
         found.append(f"SUPERSEDES {item}: {supersedes} is no in-force row")
     elif supersedes and not any(named(words, name) for name in [*names_of(target), *map(str, listed(target.get("surfaces")))]):
@@ -837,11 +860,10 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
             fields |= {"paths": "pending", "symbols": "pending"}
         if kind == "reserved":
             fields |= {"ops": "pending", "checks": "none"}
-        if supersedes := entry.get("supersedes"):
-            fields["supersedes"] = [supersedes]
+        supersedes = entry.get("supersedes")
         loaded.write(key, **fields)
         if supersedes:
-            loaded.write(supersedes, status="superseded", superseded_by=[key], evidence=f"superseded by {key}: “{first_sentence(words)}”")
+            superseded(loaded, supersedes, key)
     hits = Sweeper(loaded, {key: loaded.rows[key]}).files(default_files(loaded, loaded.plan(args.plan)))
     if how == "extended":
         write_atomic(repeat_file(loaded, key), json.dumps({"key": key, "opened_at": stamp(), "hits": [str(hit) for hit in hits], "posted": None}, indent=2) + "\n")
@@ -875,12 +897,13 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 print(json.dumps(capture, ensure_ascii=False))
         return 0
     entries = [entry for path in args.files for entry in classifications(Path(path))]
-    taken: set[str] = set()
-    if refused := [line for entry in entries for line in refusals(loaded, captured, entry, taken)]:
-        print("\n".join(refused))
-        return 1
-    for entry in entries:
-        print(json.dumps(applied(loaded, args, captured, entry), ensure_ascii=False))
+    with writing(args, shell) as loaded:
+        batch = Batch()
+        if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
+            print("\n".join(refused))
+            return 1
+        for entry in entries:
+            print(json.dumps(applied(loaded, args, captured, entry), ensure_ascii=False))
     return 0
 
 
@@ -901,7 +924,11 @@ def numbers(value: str | None, implications: list[dict]) -> set[int]:
 
 
 def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
+    with writing(args, shell) as loaded:
+        return confirmed(args, loaded)
+
+
+def confirmed(args: argparse.Namespace, loaded: Register) -> int:
     fields = loaded.row(args.key)
     capture = captures(loaded.state).get(args.capture)
     card = card_id(args.key)
@@ -1006,8 +1033,8 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     lines = body.splitlines()
     problems += [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
     tree = sorted(path for glob in want.paths for path in Path(args.repo).glob(glob) if path.is_file())
-    expected = [line for line in fresh.splitlines() if OPEN_HIT.match(line)]
-    expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(tree, args.repo) if hit.status == "open"]
+    expected = [line for line in fresh.splitlines() if HIT_LINE.match(line)]
+    expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(tree, args.repo)]
     problems += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
     if problems:
         print("\n".join(problems))
@@ -1040,7 +1067,7 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
     matched = [(key, fields) for key, fields in loaded.rulings().items() if (anchors(fields) or symbols(fields)) and (touched(fields, diff) or args.lane in listed(fields.get("lanes")))]
     for key, fields in matched:
         sentence = f"On {date_of(fields)} you said “{first_sentence(fields.get('words') or '')}”"
-        if found := symbol_lines(fields, diff):
+        if found := symbol_lines(fields, diff, at_home=True):
             symbol, file, line = found[0]
             rulings.append(f"- {key}: met by {symbol} at {file}:{line}")
             words.append(f"- {sentence}; this change does it.")
@@ -1094,6 +1121,7 @@ def unconfirmed(fields: dict[str, str], now: datetime) -> bool:
 
 
 def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    now = utc_now()
     loaded = Register.load(args, shell)
     rulings = {key: fields for key, fields in loaded.rows.items() if not key.startswith(NOT_RULINGS)}
     if not args.since_last_update:
@@ -1102,7 +1130,6 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return 0
     cursor = loaded.state / "register" / "table-cursor.json"
     last = json.loads(cursor.read_text())["at"] if cursor.exists() else ""
-    now = utc_now()
     parts = [
         ("Changed since the last update", {key: fields for key, fields in rulings.items() if fields.get("updated_at", "") > last}),
         ("In trouble", {key: fields for key, fields in rulings.items() if fields.get("status") in TROUBLE}),
@@ -1112,7 +1139,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
     for title, rows in parts:
         lines += [f"**{title}**", "", *(table(ordered(rows)) if rows else ["None."]), ""]
     print("\n".join(lines).rstrip())
-    write_atomic(cursor, json.dumps({"at": stamp()}) + "\n")
+    write_atomic(cursor, json.dumps({"at": now.strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
     return 0
 
 
@@ -1216,7 +1243,12 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
             print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
             return 1
         permalink = f"p{action['ts'].replace('.', '')}"
-        found = [answer for answer in owner if permalink in (answer.get("body") or "") or f"proof:slack:{action.get('action_ts')}" in (answer.get("tags") or [])]
+        found = [
+            answer
+            for answer in owner
+            if f"proof:slack:{action.get('action_ts')}" in (answer.get("tags") or [])
+            or (permalink in (answer.get("body") or "") and action["label"] in (answer.get("body") or ""))
+        ]
     else:
         capture = captures(loaded.state).get(args.prompt)
         if not capture or (said := replied_to(entries, capture["text"])) is None or not quotes_row(said, key, fields):
@@ -1234,31 +1266,35 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
-    loaded.row(args.key)
-    loaded.write(args.key, status=args.state, evidence=args.evidence)
+    with writing(args, shell) as loaded:
+        loaded.row(args.key)
+        loaded.write(args.key, status=args.state, evidence=args.evidence)
     print(f"{args.key} {args.state} ({args.evidence})")
     return 0
 
 
 def cmd_anchor(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
-    loaded.row(args.key)
     fields = {name: values for name, values in (("paths", args.paths), ("symbols", args.symbols), ("ops", args.ops)) if values}
     if not fields:
         raise SystemExit("anchor needs --paths, --symbols or --ops")
-    loaded.write(args.key, **fields)
+    with writing(args, shell) as loaded:
+        loaded.row(args.key)
+        loaded.write(args.key, **fields)
     print(f"{args.key} anchored: {', '.join(f'{name} {len(values)}' for name, values in fields.items())}")
     return 0
 
 
-def cmd_supersede(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
-    old, new = loaded.row(args.old), loaded.row(args.by)
+def superseded(loaded: Register, old_key: str, replacement: str) -> None:
+    old, new = loaded.row(old_key), loaded.row(replacement)
     if (old_answers := listed(old.get("answer"))) and (new_answers := listed(new.get("answer"))):
-        shell.run(["ccn", "-R", loaded.repo, "answer", "supersede", str(old_answers[0]), "--by", str(new_answers[0])])
-    loaded.write(args.old, status="superseded", superseded_by=union(listed(old.get("superseded_by")), [args.by]), evidence=f"superseded by {args.by}: “{first_sentence(new.get('words') or '')}”")
-    loaded.write(args.by, supersedes=union(listed(new.get("supersedes")), [args.old]))
+        loaded.shell.run(["ccn", "-R", loaded.repo, "answer", "supersede", str(old_answers[0]), "--by", str(new_answers[0])])
+    loaded.write(old_key, status="superseded", superseded_by=union(listed(old.get("superseded_by")), [replacement]), evidence=f"superseded by {replacement}: “{first_sentence(new.get('words') or '')}”")
+    loaded.write(replacement, supersedes=union(listed(new.get("supersedes")), [old_key]))
+
+
+def cmd_supersede(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    with writing(args, shell) as loaded:
+        superseded(loaded, args.old, args.by)
     print(f"{args.old} superseded by {args.by}")
     return 0
 

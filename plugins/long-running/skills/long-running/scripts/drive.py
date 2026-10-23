@@ -159,7 +159,7 @@ def cci_drive(entry: dict) -> str:
 
 
 def context_of(entry: dict) -> dict:
-    program = entry["program"]
+    program = Path(entry["state_dir"]).name
     return {
         "id": entry["drive"],
         "title": program,
