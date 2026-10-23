@@ -591,6 +591,25 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
 
 
+@pytest.mark.parametrize("at", [AT, "2026-10-23 5:30 AM PT"])
+def test_classify_reads_a_capture_stamped_in_iso_or_in_the_hooks_older_pacific_form(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, at: str
+) -> None:
+    captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal") | {"at": at})
+    shell = RegisterShell(seeded(package))
+    three = [
+        {"text": "The desktop shell gains no uploader.", "direction": "removes"},
+        {"text": "Shell upload code is deleted.", "direction": "removes"},
+        {"text": "The journal may keep an upload queue.", "direction": "permits"},
+    ]
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "4" * 16, "kind": "scope", "words": "uploads stay out of the desktop shell.", "implications": three, "names": ["desktop shell"]})
+
+    assert code == 0
+    assert json.loads(out)["key"] == PROMPT_KEY
+    assert shell.rows[PROMPT_KEY]["at"] == "Oct 23 5:30 AM PT"
+
+
 def test_a_repeat_extends_its_row_counts_it_and_opens_a_sweep_until_the_hits_are_posted(
     home: Path, package: Path, state: Path, tmp_path: Path, capsys
 ) -> None:
