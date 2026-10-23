@@ -47,6 +47,7 @@ from .root_context import operand_targets, reads_stdin
 from .tests.board_fixtures import GLOSSARY, ROWS, board
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
+from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.incident_fixtures import (
     BARE_INCIDENT,
     CLOSED_0820,
@@ -715,7 +716,7 @@ def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
 
 
 def status_card(llm: dict | None = None, **card: object) -> Input:
-    return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, commands=PLAIN_READS, llm=llm or {})
+    return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS, llm=llm or {})
 
 
 def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
@@ -793,26 +794,26 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
         ),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
-            state=PROGRAM_ACTIVE,
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
             commands=PLAIN_READS,
         ): Block(pattern=r'a drive word, "sidecar"'),
-        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Block(
+        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Block(
             pattern=r'r3-spikes-queue has a drive word, "lane"'
         ),
         Input(
             command="cc-present start --session s1 --doc - <<'EOF'\n{\"title\": \"Ship the roster change?\", \"blocks\": []}\nEOF",
-            state=PROGRAM_ACTIVE,
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
             commands=PLAIN_READS,
         ): Block(pattern=r'a drive word, "roster"'),
-        Input(command=f"cc-present start --session s1 --doc {board('clean-card.json')}", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
-        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
+        Input(command=f"cc-present start --session s1 --doc {board('clean-card.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(
             tool=SLACK_CARD,
             tool_input={"card": {"title": "Merge the chat-list fix?", "body": "Its checks passed.", "options": ["Merge"]}},
-            state=PROGRAM_ACTIVE,
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
             commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"},
         ): Allow(),
-        Input(command="ls", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
+        Input(command="ls", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands=PLAIN_READS): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
     },
@@ -836,8 +837,8 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
-        Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
+        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
     },

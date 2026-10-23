@@ -17,6 +17,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
+from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.board_fixtures import (
     BREACHES,
     FAILING,
@@ -24,7 +25,6 @@ from .tests.board_fixtures import (
     HELD,
     HEREDOC,
     HEREDOC_SHA,
-    NO_DRIVES,
     REPO,
     ROWS,
     SWEEPS_LOG,
@@ -339,7 +339,7 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         command=command,
         state=extra.pop("state", PROGRAM_ACTIVE),
         cwd=REPO,
-        env={"CLAUDE_CONFIG_DIR": str(NO_DRIVES), **extra.pop("env", {})},
+        env={**DRIVE_CONFIG, **extra.pop("env", {})},
         commands={**commands, **extra.pop("commands", {})},
         **extra,
     )
@@ -381,7 +381,7 @@ def exits(name: str, **extra: object) -> Input:
         posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Block(pattern=HEREDOC_SHA),
         posting(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Block(pattern=r"r3-build: the title does not end"),
-        update("r3-titles.pre-grade.json", state=[]): Allow(),
+        update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
         update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),

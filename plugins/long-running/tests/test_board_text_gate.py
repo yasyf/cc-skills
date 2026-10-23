@@ -48,6 +48,10 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "brook", "sessions": [SESSION], "program": "brook", "state_dir": str(tmp_path / "scratch"), "cci_drive": "brook-bus"}
+    (drives / "brook.json").write_text(json.dumps(entry))
     return Root(tmp_path)
 
 
@@ -59,9 +63,6 @@ def posts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (bin_dir / "cci").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {shlex.quote(str(log))}\necho '#1'\n")
     (bin_dir / "cci").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    drives = tmp_path / "config" / "long-running" / "drives"
-    drives.mkdir(parents=True)
-    (drives / "brook.json").write_text(json.dumps({"drive": "brook", "sessions": [SESSION], "state_dir": str(tmp_path / "scratch"), "cci_drive": "brook-bus"}))
     return log
 
 
@@ -118,7 +119,7 @@ def test_the_recorder_starts_with_each_board_and_once_per_pushed_session(root: R
         gate.start_board_watch(root.event(PostToolUseEvent, command))
 
     start = ["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session"]
-    assert spawned == [([*start, "b1", "--program", "brook"], True), ([*start, SESSION, "--program", "brook"], True), ([*start, "b1", "--program", "brook"], True)]
+    assert spawned == [([*start, "b1", "--drive", "brook"], True), ([*start, SESSION, "--drive", "brook"], True), ([*start, "b1", "--drive", "brook"], True)]
     assert compaction_handoff.script("board_watch.py").is_file()
 
 

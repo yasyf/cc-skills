@@ -285,6 +285,11 @@ PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} gl
 @pytest.fixture
 def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "brook", "sessions": ["0123456789abcdef"], "program": "brook", "state_dir": str(tmp_path / "scratch")}
+    (drives / "brook.json").write_text(json.dumps(entry))
     root = Root(tmp_path)
     seed = PostToolUseEvent(_raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=root.session_dir))
     CompactionState(active=True, slug="brook").save(seed)

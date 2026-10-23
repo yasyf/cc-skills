@@ -7,7 +7,6 @@ from pathlib import Path
 
 BOARDS = Path(__file__).parent / "fixtures" / "boards"
 STATE = BOARDS / "state"
-NO_DRIVES = BOARDS / "config"
 PROGRAM = "brook"
 REPO = "/repo"
 FIDELITY_LANES = ("fidelity-desk", "fidelity-desk-2")
