@@ -780,14 +780,14 @@ def test_round_puts_at_most_ten_rulings_on_the_board_foundational_first_and_skip
         {"id": "rule:aaaaaaa-context", "type": "markdown", "md": "This also means:\n1. rule/aaaaaaa holds."},
         {"id": "rule:aaaaaaa-answer", "type": "choice", "prompt": "Is this what you meant?", "options": rulings.ROUND_PICKS},
     ]
+    assert sorted(path.name for path in (state / "cards").glob("*.json")) == ["prompt:1023-060007.json", "prompt:1023-060008.json"]
+    assert [path.name for path in (state / "cards" / "rounds" / "skipped").iterdir()] == ["rule:bbbbbbb.json"]
 
 
 def test_a_round_card_quoting_a_long_sentence_stays_inside_the_ask_title_limit() -> None:
     card = {"waits": "rule:aaaaaaa", "title": "\u201c" + "w" * 200 + "\u201d", "body": "You said: it."}
     title = rulings.ask_card(card)["title"]
     assert len(title) <= 140 and title.endswith("\u2026\u201d right?")
-    assert sorted(path.name for path in (state / "cards").glob("*.json")) == ["prompt:1023-060007.json", "prompt:1023-060008.json"]
-    assert [path.name for path in (state / "cards" / "rounds" / "skipped").iterdir()] == ["rule:bbbbbbb.json"]
 
 
 def test_round_with_no_queued_card_opens_no_round(home: Path, package: Path, state: Path, capsys) -> None:
