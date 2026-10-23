@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import re
 import subprocess
@@ -9,9 +8,8 @@ import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from functools import cache, cached_property
+from functools import cached_property
 from pathlib import Path
-from types import ModuleType
 
 from cc_transcript.models import AssistantEvent, UserEvent
 from captain_hook import (
@@ -32,6 +30,7 @@ from captain_hook import (
     T,
     TaskCall,
     Tool,
+    Warn,
     ast_grep,
     on,
 )
@@ -228,16 +227,10 @@ PLAN_MODE_FORBIDDEN = (
 )
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|is why|was why|led to|triggered by|results? from)\b", re.IGNORECASE)
 CAUSE_KINDS = {"go", "decision", "decide", "note", "report", "state", "incident"}
-MECHANISM_READ_FAILED = "A root causal record passed because its `MECHANISM` lookup failed ({cause}); check the cited record by hand."
-BLOCKERS = "owner-facing-blockers"
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 UNQUOTED_CAUSE = (
-    "A root record that names a cause cites the lane `MECHANISM` record it rests on."
-    " Quote that record's `#<seq>` in the text, or send the question to a lane with `desk-launch.py lane`."
-)
-CAUSE_JUDGE = Confirm(
-    rule="Block only when the root record asserts why a failure happened, its cause or mechanism, with no lane MECHANISM record cited;"
-    " a record that explains a plan, routing, or ownership choice never blocks."
+    "Warning, nothing was blocked: this root record names a cause and quotes no lane record."
+    " Quote the lane `MECHANISM` record's `#<seq>`, or send the question to a lane with `desk-launch.py lane`."
 )
 RELEASE_PROBES = (("release", "start"), ("release", "status"), ("release", "watch"))
 INBOX_FILE = re.compile(r"/inbox/[\w.-]+\.md\b")
@@ -986,47 +979,6 @@ def root_only_routes_during_an_incident(evt: BaseHookEvent) -> HookResult | None
     return None
 
 
-@cache
-def cci_records() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("long_running_cci", script("cci.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def lane_mechanism(record: object) -> bool:
-    return isinstance(record, dict) and record.get("lane") != "root" and cci_records().mechanism_mark(record) == "MECHANISM"
-
-
-def records_of(stdout: str) -> list[object] | None:
-    try:
-        return [json.loads(line) for line in stdout.splitlines() if line.strip()]
-    except ValueError:
-        return None
-
-
-def mechanism_cited(evt: BaseHookEvent, drive: tuple, refs: list[str]) -> bool | None:
-    for ref in refs:
-        argv = ["cci", "grep", f"^#{ref} ", "--json", "-n", "1", *(["--drive", str(drive[0])] if drive else [])]
-        try:
-            done = subprocess.run(argv, capture_output=True, text=True, timeout=INCIDENT_SOURCE_TIMEOUT_SECONDS)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return mechanism_unread(evt, type(error).__name__)
-        if done.returncode != 0:
-            return mechanism_unread(evt, " ".join(done.stderr.split())[:120] or f"exit {done.returncode}")
-        if (records := records_of(done.stdout)) is None or not all(isinstance(record, dict) and "kind" in record for record in records):
-            return mechanism_unread(evt, "unreadable cci output")
-        if any(lane_mechanism(record) for record in records):
-            return True
-    return False
-
-
-def mechanism_unread(evt: BaseHookEvent, cause: str) -> None:
-    if evt.ctx.s.once(f"mechanism-read:{cause}", scope=BLOCKERS):
-        post_blocker(evt, MECHANISM_READ_FAILED.format(cause=cause))
-    return None
-
-
 def attached(values: dict[str, tuple]) -> str:
     paths = [Path(str(value)).expanduser() for key in ("path", "body-file") for value in values.get(key, ()) if value]
     return "\n".join(path.read_text(errors="replace") for path in paths if path.is_file())
@@ -1042,7 +994,7 @@ def causal_records(evt: BaseHookEvent) -> list[tuple[dict[str, tuple], str]]:
 
 
 def cause(command: str, **extra: object) -> Input:
-    return Input(command=command, state=ACTIVE, decide=extra.pop("decide", CONFIRMED), **extra)
+    return Input(command=command, state=ACTIVE, **extra)
 
 
 @on(
@@ -1050,44 +1002,18 @@ def cause(command: str, **extra: object) -> Input:
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     tests={
-        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Block(
-            pattern=r"cites the lane `MECHANISM` record"
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Warn(
+            pattern=r"^Warning, nothing was blocked: this root record names a cause and quotes no lane record\."
         ),
-        cause(
-            "cci post --drive release-v3 --lane root --kind decision --to worker-fix --text 'a missing object is why uploads fail (#104717)'",
-            commands={"cci grep": ""},
-        ): Block(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
-            commands={"cci grep": '{"seq": 104942, "kind": "mechanism", "lane": "inc-upload-fix"}'},
-        ): Allow(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
-            commands={"cci grep": '{"seq": 104942, "kind": "report", "lane": "inc-upload-fix", "text": "MECHANISM a missing object fails the upload"}'},
-        ): Allow(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
-            commands={"cci grep": '{"seq": 104942, "kind": "mechanism", "lane": "root"}'},
-        ): Block(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
-            commands={"cci grep": '{"seq": 104942, "kind": "report", "lane": "inc-upload-fix", "text": "CANDIDATE a missing object"}'},
-        ): Block(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it'",
-            commands={"cci grep": (1, "cci: daemon unavailable")},
-        ): Allow(),
-        cause(
-            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it'",
-            commands={"cci grep": "not json"},
-        ): Allow(),
-        cause("cci post --drive release-v3 --lane root --kind report --text 'the autoscaler caused the worker crashes'"): Block(),
-        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the crashes'", decide=UNCONFIRMED): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind decision --to worker-fix --text 'a missing object is why uploads fail (#104717)'"): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'"): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind decision --to p5-api --re 112366 --text 'A: write it red asserting cause oom on run and metric'"): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind report --text 'the autoscaler caused the worker crashes'"): Warn(),
         cause("cci post --drive release-v3 --lane root --kind go --to landing-desk --pr 41464 --text 'land it'"): Allow(),
         cause("cci post --drive release-v3 --lane root --kind head --text 'p1 abc because rebased'"): Allow(),
         cause("cci tail --drive release-v3 --cursor root"): Allow(),
-        cause(f"cci post --drive release-v3 --lane root --kind go --to worker-fix --path {CAUSE_RECORD}"): Block(),
-        Input(command="cci post --drive release-v3 --lane root --kind go --text 'the autoscaler caused it'", decide=CONFIRMED): Allow(),
+        cause(f"cci post --drive release-v3 --lane root --kind go --to worker-fix --path {CAUSE_RECORD}"): Warn(),
+        Input(command="cci post --drive release-v3 --lane root --kind go --text 'the autoscaler caused it'"): Allow(),
         cause("cci post --drive release-v3 --lane x --kind go --text 'the autoscaler caused it'", agent_id="a1b2c3"): Allow(),
     },
 )
@@ -1095,9 +1021,8 @@ def root_causes_quote_a_lane_mechanism(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     for values, text in causal_records(evt):
-        refs = RECORD_REF.findall(" ".join([text, *(str(value) for key in ("re", "resolves") for value in values.get(key, ()))]))
-        if mechanism_cited(evt, values.get("drive", ()), refs) is False:
-            return evt.block(UNQUOTED_CAUSE, confirm=CAUSE_JUDGE)
+        if not (values.get("re") or values.get("resolves") or RECORD_REF.search(text)):
+            return evt.context(UNQUOTED_CAUSE)
     return None
 
 

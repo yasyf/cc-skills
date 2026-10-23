@@ -1542,12 +1542,22 @@ def test_rotated_lane_redirects_every_sender_to_its_successor(tree: Tree) -> Non
     spawn(tree, "oncall-connect-2")
 
     assert send(tree, "oncall-connect") == (
-        "`oncall-connect` rotated to `oncall-connect-2`, which owns its work now, and a message to `oncall-connect` "
-        "resumes the old lane on its stale brief. Send this to `oncall-connect-2` instead."
+        "Warning, nothing was blocked: `oncall-connect` rotated to `oncall-connect-2`, which owns its work now, and this message "
+        "resumes the old lane on its stale brief. Send the next one to `oncall-connect-2`."
     )
     assert send(tree, "oncall-connect", sender=None) is not None
     assert send(tree, "oncall-connect", "STAND-DOWN: oncall-connect-2 owns the work.", sender=None) is None
     assert send(tree, "oncall-connect-2") is None
+
+
+def test_a_stand_down_to_a_rotated_lane_passes_however_the_root_words_it(tree: Tree) -> None:
+    tree.lane("rulings-hygiene", 450_000)
+    tree.lane("rulings-hygiene-handoff", 80_000, team=None, status=None)
+    assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": "rulings-hygiene@session-rot"}) == []
+    spawn(tree, "rulings-hygiene-2")
+
+    assert send(tree, "rulings-hygiene", "rulings-hygiene-2 reported; stand down and send nothing further.", sender=None) is None
+    assert send(tree, "rulings-hygiene", "Stand down now.") is None
 
 
 def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
@@ -1557,14 +1567,14 @@ def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
     tree.lane("desk-4-handoff", 80_000, team=None, status=None)
     spawn(tree, "desk-5")
 
-    assert "Send this to `desk-5` instead." in (send(tree, "desk-3") or "")
+    assert "Send the next one to `desk-5`." in (send(tree, "desk-3") or "")
 
 
 def test_stopped_lane_without_a_successor_redirects_lanes_to_main(tree: Tree) -> None:
     reviewer = tree.lane("reviewer", 120_000, team=None)
     assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": reviewer["id"]}) == []
 
-    assert "Send this to `main` instead." in (send(tree, "reviewer") or "")
+    assert "Send the next one to `main`." in (send(tree, "reviewer") or "")
     assert send(tree, "reviewer", sender=None) is None
 
 
@@ -1572,7 +1582,7 @@ def test_stand_down_without_a_handoff_retires_the_lane(tree: Tree) -> None:
     tree.lane("alerts-watch", 450_000)
     assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "alerts-watch", "message": "STAND-DOWN: done."}) == []
 
-    assert "Send this to `main` instead." in (send(tree, "alerts-watch") or "")
+    assert "Send the next one to `main`." in (send(tree, "alerts-watch") or "")
 
 
 def test_numbered_sibling_without_a_handoff_retires_nothing(tree: Tree) -> None:

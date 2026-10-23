@@ -392,7 +392,7 @@ def heartbeat(entry: dict, desk: str, pid: int, version: str) -> str:
     return restart
 
 
-def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_commands_that_rotate_it(repo, capsys):
+def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_handoff_that_rotates_it(repo, capsys):
     """#535 shipped as 0.7.186 at 5:07 PM on Oct 20 and the live runner stayed on 0.7.185 until 9:26 PM (#107539)."""
     entry = started(repo)
     plugins = drive.drives_dir().parents[1] / "plugins"
@@ -401,14 +401,14 @@ def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_comm
         json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.185"}, {"version": "0.7.186"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
     )
     heartbeat(entry, "orca", 73091, "0.7.186")
-    restart = heartbeat(entry, "landing", 49612, "0.7.185")
+    heartbeat(entry, "landing", 49612, "0.7.185")
     capsys.readouterr()
 
     assert drive.main(["digest"]) == 1
 
     assert capsys.readouterr().out.splitlines() == [
         "orca: pid 73091 runs 0.7.186, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: current",
-        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, then start the next one with `{restart}`",
+        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, which starts the next one",
     ]
     heartbeat(entry, "landing", 50113, "0.7.186")
     assert drive.main(["digest"]) == 0

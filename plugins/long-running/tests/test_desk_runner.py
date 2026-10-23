@@ -39,7 +39,13 @@ SIZING_HOLD = f"{SIZING_LANE} HOLD (L35 drop sessions-backfill/upload): no enque
 UNREAD_HOLD = f"{PUBLISH_LANE}: no enqueue until root posts 'L32 pass done' (F189)"
 
 
+class Reexeced(Exception):
+    pass
+
+
 class Process:
+    pid = 4242
+
     def poll(self):
         return 0
 
@@ -129,6 +135,8 @@ class FakeShell(runner_module.Shell):
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
+        self.successors: list[tuple[list[str], Path, bool]] = []
+        self.reexeced: list[list[str]] = []
         self.reviews: dict[str, dict] = {}
         self.checks: dict[str, list[dict]] = {}
         self.merge_commits: dict[str, str] = {}
@@ -171,10 +179,17 @@ class FakeShell(runner_module.Shell):
     def cores(self):
         return 8
 
-    def spawn(self, argv, out, env):
+    def reexec(self, argv):
+        self.reexeced.append(list(argv))
+        raise Reexeced
+
+    def spawn(self, argv, out, env, append=False):
         self.calls.append(list(argv))
         self.spawned_env[Path(argv[0]).name] = env
         out.parent.mkdir(parents=True, exist_ok=True)
+        if Path(argv[0]).name == "desk-runner.py":
+            self.successors.append((list(argv), out, append))
+            return Process()
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
             attempt = Path(argv[4]).with_suffix(".worker")
@@ -2415,24 +2430,52 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
-def test_the_landing_pass_asks_the_owner_once_per_ruling_card_and_again_when_classify_rewrites_it(shell, config, tmp_path):
+def ruling_card(cards: Path, key: str, title: str) -> Path:
+    card = cards / f"{key}.json"
+    card.write_text(json.dumps({"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies it to the laptop.", "options": ["Right", "Some wrong", "Open board"], "waits": key}))
+    return card
+
+
+def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_cards_queue(shell, config, tmp_path):
     cards = tmp_path / "cards"
     cards.mkdir()
-    card = cards / "rule:5c0e9a1.json"
-    ruling = {"status": "needs_you", "title": "\u201ca note started on the phone is out of scope\u201d", "body": "This also means:\n1. Nothing copies it to the laptop.", "options": ["Right", "Some wrong", "Open board"], "waits": "rule:5c0e9a1"}
-    card.write_text(json.dumps(ruling))
+    for index in range(3):
+        ruling_card(cards, f"rule:5c0e9a{index}", f"\u201cruling {index}\u201d")
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
+    for index in range(3, 30):
+        ruling_card(cards, f"rule:5c0e9a{index}", f"\u201cruling {index}\u201d")
     landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("RULING-ASK ruling-ask:rule:5c0e9a1:") and " rule:5c0e9a1: \u201ca note started on the phone is out of scope\u201d | " in line
-    assert f"`cc-slack dm-status --card @{card}`" in line and "never as an AskUserQuestion" in line
-    assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: rule:5c0e9a1"`' in line
-    assert "Right, the card's recommended option, ticks every line" in line and "through `slack_dm_status` with `about` `rule:5c0e9a1`, the card's waits id, so cc-slack opens the reply with the link back to the card itself" in line
-    card.write_text(json.dumps(ruling | {"body": "This also means:\n1. Nothing copies it to the laptop.\n2. Nothing copies it back."}))
+    [line] = [line for line in escalations(shell) if line.startswith("RULING-ASK")]
+    assert line.startswith("RULING-ASK ruling-ask:round-1:rule:5c0e9a0 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
+    assert "on the live cc-present board as round 1, foundational rows first, never as an AskUserQuestion or a bare Slack card" in line
+    assert "`rulings.py confirm <key> --tick all --capture <digest>`" in line
+    assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
+    rounds = cards / "rounds"
+    rounds.mkdir()
+    (rounds / "round-1.json").write_text("{}")
     landing_pass(shell, config)
-    assert len(escalations(shell)) == 2
+    skipped = rounds / "skipped"
+    skipped.mkdir()
+    for card in cards.glob("*.json"):
+        card.replace(skipped / card.name)
+    ruling_card(cards, "rule:5c0e9b0", "\u201cruling after a drained queue\u201d")
+    landing_pass(shell, config)
+    assert [line.split(" ", 2)[1] for line in escalations(shell) if line.startswith("RULING-ASK")] == [
+        "ruling-ask:round-1:rule:5c0e9a0",
+        "ruling-ask:round-2:rule:5c0e9a0",
+        "ruling-ask:round-2:rule:5c0e9b0",
+    ]
+
+
+def test_the_landing_pass_logs_no_ruling_ask_while_no_ruling_card_queues(shell, config, tmp_path):
+    (tmp_path / "cards" / "rounds").mkdir(parents=True)
+    (tmp_path / "cards" / "round-1.md").write_text("# Round 1")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("RULING-ASK")] == []
 
 
 def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(shell, config, tmp_path):
@@ -4765,7 +4808,7 @@ def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, 
         "at": shell.clock.isoformat(),
         "config": str(config.resolve()),
         "terminal": "term_root",
-        "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca > {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
+        "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca >> {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
         "version": runner_module.RUNNING_VERSION,
     }
 
@@ -4797,12 +4840,23 @@ def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and
     landing_pass(shell, config)
     source = config.resolve()
     assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == [
-        f"RUNNER-STALE stale:{desk}:{running}<{version} {desk}: {running} < {version}: this {desk} runner, pid {os.getpid()}, runs {running} while {version} is installed, so no fix released since reaches it;"
-        f" rotate it with `desk-runner.py handoff --config {source} --desk {desk}`, then start the next one with `nohup desk-runner.py run --config {source} --desk {desk} > {tmp_path / f'{desk}-runner.log'} 2>&1 < /dev/null &`"
+        f"RUNNER-STALE stale:{desk}:{running}<{version} {desk}: {running} < {version}: this {desk} runner, pid {os.getpid()},"
+        f" re-executes into {version} at the end of this pass; nothing to do"
         for version in (newer(running), newer(running, 2))
         for desk in ("orca", "landing")
     ]
-    assert {post["kind"] for post in shell.posts if post["text"].startswith("RUNNER-STALE")} == {"blocker"}
+    assert {post["kind"] for post in shell.posts if post["text"].startswith("RUNNER-STALE")} == {"report"}
+    assert shell.reexeced == []
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_its_pass(shell, config, tmp_path, desk):
+    installed(tmp_path, newer(runner_module.RUNNING_VERSION))
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    with pytest.raises(Reexeced):
+        (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
+    assert shell.reexeced == [[str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk]]
+    assert (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).is_file()
 
 
 def test_the_orca_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
@@ -4819,12 +4873,31 @@ def test_a_stop_marker_naming_another_process_stops_nothing(shell, config, tmp_p
     assert not runner.stop_requested()
 
 
-def test_handoff_waits_for_the_runner_to_remove_the_stop_marker(shell, config, tmp_path, monkeypatch):
+def successor(config: Path, tmp_path: Path, desk: str) -> tuple[list[str], Path, bool]:
+    return [str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk], tmp_path / f"{desk}-runner.log", True
+
+
+def test_handoff_waits_for_the_runner_to_remove_the_stop_marker_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
     orca_pass(shell, config)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
+    started = []
+
+    def exit_mark(seconds):
+        started.append(list(shell.successors))
+        runner.stop_marker().unlink()
+
+    monkeypatch.setattr(shell, "sleep", exit_mark)
     assert cli(shell, config, "handoff", "--desk", "orca") == 0
     assert not runner.stop_marker().exists()
+    assert started == [[]]
+    assert shell.successors == [successor(config, tmp_path, "orca")]
+    assert runner_module.RUNNER_BIN.parent.name == "bin" and (runner_module.RUNNER_BIN.parent.parent / ".claude-plugin").is_dir()
+
+
+def test_a_handoff_whose_runner_writes_no_exit_mark_starts_no_successor(shell, config, tmp_path):
+    orca_pass(shell, config)
+    assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    assert shell.successors == []
 
 
 def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
@@ -4844,16 +4917,17 @@ def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_s
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
-def test_handoff_with_no_heartbeat_has_no_runner_to_stop(shell, config, tmp_path, desk):
+def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, config, tmp_path, desk):
     assert cli(shell, config, "handoff", "--desk", desk) == 0
     assert not runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).stop_marker().exists()
+    assert shell.successors == [successor(config, tmp_path, desk)]
 
 
 def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
     landing_pass(shell, config)
     beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())
     assert beat["pid"] == os.getpid()
-    assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing > {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
+    assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert not (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).exists()
 
 
@@ -4880,6 +4954,7 @@ def test_handoff_of_the_landing_desk_names_the_landing_runner_and_not_the_orca_r
     monkeypatch.setattr(shell, "sleep", exit_mark)
     assert cli(shell, config, "handoff", "--desk", "landing") == 0
     assert named == [str(os.getpid())]
+    assert shell.successors == [successor(config, tmp_path, "landing")]
 
 
 def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config, tmp_path):

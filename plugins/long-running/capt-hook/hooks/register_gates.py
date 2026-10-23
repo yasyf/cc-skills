@@ -25,23 +25,19 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, CompactionState, bus_name, ccn, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, CompactionState, ccn, drive_entry, post_blocker, rulings, script
 from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, declared_fixes, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
+from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
 from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
 from .root_context import FILE_WRITES
 from .session_tree import nearest_name
 from .tests.register_fixtures import (
     ACTIVE,
-    CLEAR,
-    CUT_HELD,
     CWD,
     DRIVE_CONFIG,
-    DURING_INCIDENT,
-    GATE_OWED,
     GO_PATH,
     LEDGER,
     OPEN_FIX,
@@ -49,9 +45,7 @@ from .tests.register_fixtures import (
     ROWED,
     ROWS,
     SHA,
-    TWO_STEPS,
     UNROWED,
-    WIDEN_HELD,
     fixture,
     readings,
     reply,
@@ -71,12 +65,8 @@ EXCERPT = 160
 BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
 UNROWED_ANSWER = (
-    "A GO or DECIDE cites only owner answers the register holds, and `{ids}` has no row in register `{program}`. "
-    "Classify the owner's words with `rulings.py classify` first, then post the line."
-)
-REPEAT_OPEN = (
-    "The owner repeated `{keys}`, and its sweep hit list is not posted. "
-    "Post the hits and mark them with `rulings.py sweep <key> --posted <ref>` before this {moment}."
+    "Warning, nothing was blocked: this GO or DECIDE cites `{ids}`, and register `{program}` has no row for it. "
+    "Classify the owner's words with `rulings.py classify`."
 )
 UNCLASSIFIED = (
     'Owner capture {digest} ({at}) has no row in register {program}: "{excerpt}". '
@@ -101,6 +91,7 @@ SEED = "register-seed"
 GRADERS = ("fidelity", "finder", "walker", "end-state", "incident-closeout")
 SEATS = {
     "classify": (True, (SEED,)),
+    "names": (True, (SEED,)),
     "authorize": (True, (SEED,)),
     "supersede": (True, (SEED,)),
     "status": (False, GRADERS),
@@ -108,6 +99,7 @@ SEATS = {
 }
 SEAT_NAMES = {
     "classify": "the root and the register-seed lane",
+    "names": "the root and the register-seed lane",
     "authorize": "the root and the register-seed lane",
     "supersede": "the root and the register-seed lane",
     "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
@@ -124,20 +116,17 @@ SEAT_REFUSED = "`rulings.py {verb}` runs only in {seats}, and this session is {l
 AUTHORIZES_LABEL = (
     "An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
 )
-CUT_GATE = script("cut_gate.py")
-CUT_CHECK = f"{sys.executable} {CUT_GATE} check"
 WIDENED_TO = "fleet"
-RELEASE_NOUNS = {"cut": "cut", "widen": "flag widening"}
+WIDENING = "widen"
 TARGET_FLAGS = frozenset({"--targets", "--target", "--groups"})
 RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
-GO_WAITS = "A GO naming `{tokens}` waits while gate row `{key}` is owed. Meet the gate first, then post the GO."
-CUT_REFUSED = "This {verb} is refused while the register's cut rules below hold. Clear each one, then run it again."
+GATES_OWED = "Warning, nothing was blocked: gate rows the register holds as owed name what this call starts. Meet each before going on."
 CONTRACT_MISSING = "CONTRACT-MISSING "
 ACCEPTED = "accepted "
 ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
 READBACK_MISSING = (
-    "Lane `{lane}` opens no first PR and reports no READY until a fidelity desk accepts its read-back."
-    " Post `rulings.py readback` as a `[readback]` contract and wait for `readback: ok {lane}`."
+    "Warning, nothing was blocked: lane `{lane}` has no read-back a fidelity desk accepted yet."
+    " Post `rulings.py readback` as a `[readback]` contract so a desk grades it."
 )
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a", "CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
 READY_REPORT = "python3 ledger.py report --ledger L1 --drive brook-drive --pr 42 --head abc1234 --lane lane-a --verdict clean --text 'READY #42 green'"
@@ -228,10 +217,6 @@ def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
             blocker(evt, f"unclassified:{capture['digest']}", text)
 
 
-def open_repeats(register: dict) -> list[str]:
-    return [repeat["key"] for _, repeat in register_files(register, "repeat-*.json") if repeat.get("posted") is None]
-
-
 def is_answer(evt: BaseHookEvent, token: str) -> bool:
     done = ccn(str(evt.cwd), "answer", "show", token, "--json")
     if done.returncode == NOT_FOUND:
@@ -265,27 +250,26 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
     skip_if=[FromSubagent(), Annotated("raw")],
     tests={
         register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
-        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(
-            pattern=r"^A GO or DECIDE cites only owner answers the register holds, and `1dfd09d` has no row in register `brook`\."
+        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Warn(
+            pattern=r"^Warning, nothing was blocked: this GO or DECIDE cites `1dfd09d`, and register `brook` has no row for it\."
         ),
-        register_case(go(f"lanes stop until {UNROWED[:7]} lands", "decide"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(pattern=r"`1dfd09d` has no row"),
+        register_case(go(f"lanes stop until {UNROWED[:7]} lands", "decide"), "quiet", (UNROWED[:7], shown(UNROWED))): Warn(pattern=r"`1dfd09d`, and register"),
         register_case(
             f'echo "GO root (4:50 AM) walker: cut web under {UNROWED}" >> /s/inbox/deploy-go.md', "quiet", (UNROWED, shown(UNROWED))
-        ): Block(pattern=r"has no row in register"),
+        ): Warn(pattern=r"has no row for it"),
         register_case(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
-        register_case(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"`1234567` has no row"),
-        register_case(f"cci post --lane root --kind go --to walker --path {GO_PATH}", "quiet", (UNROWED[:7], shown(UNROWED))): Block(
-            pattern=r"`1dfd09d` has no row"
+        register_case(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Warn(pattern=r"`1234567`, and register"),
+        register_case(f"cci post --lane root --kind go --to walker --path {GO_PATH}", "quiet", (UNROWED[:7], shown(UNROWED))): Warn(
+            pattern=r"`1dfd09d`, and register"
         ),
         register_case(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
         register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], (1, "ccn: store locked"))): Allow(),
-        register_case(go("cut web"), "repeat"): Block(pattern=r"^The owner repeated `rule/0a1b2c3`, and its sweep hit list is not posted\..* before this GO\.$"),
-        spawn("lane-x", "Lane lane-x: build the slice verb.", "repeat"): Block(pattern=r"before this spawn\.$"),
-        register_case("codex-ask -m sol /s/briefs/lane-x.md", "repeat"): Block(pattern=r"before this spawn\.$"),
-        register_case("cc-present push /tmp/board.json", "repeat"): Block(pattern=r"before this board push\.$"),
-        register_case("cc-present update-block --id c7-timers /tmp/block.json", "repeat"): Block(pattern=r"board push"),
+        register_case(go("cut web"), "repeat"): Allow(),
+        spawn("lane-x", "Lane lane-x: build the slice verb.", "repeat"): Allow(),
+        register_case("codex-ask -m sol /s/briefs/lane-x.md", "repeat"): Allow(),
+        register_case("cc-present push /tmp/board.json", "repeat"): Allow(),
         spawn("incident-api-500s-fix", "Fix the api 500s.", "repeat"): Allow(),
         register_case("cc-present reply --block r3 --body 'Done.'", "repeat"): Allow(),
         register_case("ls", "repeat"): Allow(),
@@ -303,14 +287,11 @@ def register_gate(evt: BaseHookEvent) -> HookResult | None:
     try:
         register = read_register(evt, which)
         report_unclassified(evt, register)
-        repeated = open_repeats(register) if moment else []
-        missing = [] if repeated else unrowed(evt, citing, register)
+        missing = unrowed(evt, citing, register)
     except READ_ERRORS as error:
         failed_open(evt, "register_gate", error)
         return None
-    if repeated:
-        return evt.block(REPEAT_OPEN.format(keys=", ".join(repeated), moment=moment))
-    return evt.block(UNROWED_ANSWER.format(ids=", ".join(missing), program=register["program"])) if missing else None
+    return evt.context(UNROWED_ANSWER.format(ids=", ".join(missing), program=register["program"])) if missing else None
 
 
 def option(args: tuple[str, ...], name: str) -> list[str]:
@@ -671,14 +652,14 @@ def start_targets(args: tuple[str, ...]) -> list[str]:
     return [target for target in named if target]
 
 
-def release_calls(evt: BaseHookEvent) -> list[tuple[str, list[str]]]:
+def release_targets(evt: BaseHookEvent) -> list[str]:
     found = []
     for call in evt.command.calls("ci"):
         args = call.args
         if args[:2] == ("release", "start"):
-            found.append(("cut", start_targets(args[2:])))
+            found += start_targets(args[2:])
         elif args[:3] == ("release", "channel", "promote") and args[4:5] == (WIDENED_TO,):
-            found.append(("widen", [WIDENED_TO]))
+            found.append(WIDENING)
     return found
 
 
@@ -690,9 +671,9 @@ def names_token(text: str, token: str) -> bool:
     return re.search(rf"(?<![\w.]){re.escape(token)}(?!\w|\.\w)", text) is not None
 
 
-def waiting_gos(rows: dict, texts: list[str]) -> list[str]:
+def owed_gates(rows: dict, texts: list[str]) -> list[str]:
     return [
-        GO_WAITS.format(tokens=", ".join(named), key=key)
+        f"- {key} ({', '.join(named)}): {row.get('words', '')}"
         for key, row in rows.items()
         if row.get("kind") == "gate" and row.get("status") == "owed"
         for named in [[token for token in json.loads(row.get("blocks") or "[]") if any(names_token(text, token) for text in texts)]]
@@ -700,70 +681,36 @@ def waiting_gos(rows: dict, texts: list[str]) -> list[str]:
     ]
 
 
-def cut_outcome(verb: str, targets: list[str], register: dict, entry: dict, repairs: list[str] | None) -> dict:
-    argv = [*CUT_CHECK.split(), "--verb", verb, *(f"--target={target}" for target in targets), "--drive", bus_name(entry)]
-    argv += ["--ledger", entry["ledger"], "--repo", entry["repo"], "--started", entry["started_at"], *(["--incident"] if repairs is not None else [])]
-    argv += [f"--repair={pr}" for pr in repairs or []]
-    done = subprocess.run(argv, input=json.dumps(register), capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True, cwd=entry["checkout"])
-    return json.loads(done.stdout)
-
-
-def cut_case(command: str, outcome: dict | None = None, incidents: str = "[]", **extra: object) -> Input:
-    commands = readings("quiet") | {" ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}"}
-    if outcome is not None:
-        commands[CUT_CHECK] = json.dumps(outcome)
-    return Input(command=command, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=commands, **extra)
+def cut_case(command: str, **extra: object) -> Input:
+    return Input(command=command, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("quiet"), **extra)
 
 
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash", "Edit", "Write")],
     tests={
-        cut_case("tools/ci release channel promote next fleet", GATE_OWED): Block(
-            pattern=WIDEN_HELD
-        ),
+        cut_case("tools/ci release channel promote next fleet"): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*- rule/7e8f901 \(widen\): Run every scenario"),
         cut_case("tools/ci release channel promote fleet next"): Allow(),
-        cut_case("tools/ci release start sand", CLEAR): Allow(),
-        cut_case("tools/ci release start sand", DURING_INCIDENT, OPEN_FIX): Allow(),
-        cut_case("tools/ci release start --target sand", TWO_STEPS): Block(pattern=CUT_HELD),
-        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7 now'"): Block(
-            pattern=r"^A GO naming `1\.7` waits while gate row `rule/7e8f901` is owed\. Meet the gate first, then post the GO\.$"
-        ),
+        cut_case("tools/ci release start sand && tools/ci release channel promote next fleet"): Warn(pattern=r"\(widen\)"),
+        cut_case("tools/ci release start sand"): Allow(),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7 now'"): Warn(pattern=r"- rule/7e8f901 \(1\.7\)"),
         cut_case("cci post --lane root --kind go --to walker --text 'start step 1.75 now'"): Allow(),
-        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7.'"): Block(pattern=r"`1\.7`"),
-        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7'", None, OPEN_FIX): Allow(),
-        cut_case("tools/ci release start web && tools/ci release channel promote next fleet", GATE_OWED): Block(pattern=CUT_HELD),
-        cut_case("tools/ci release start --targets=sand,web --env prod --commit abc1234", GATE_OWED): Block(pattern=CUT_HELD),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7.'"): Warn(pattern=r"\(1\.7\)"),
         cut_case("cci post --lane root --kind note --to walker --text 'step 1.7 is next'"): Allow(),
-        Input(command="tools/ci release start sand", cwd=CWD, commands={CUT_CHECK: json.dumps(GATE_OWED)}): Allow(),
-        Input(command="tools/ci release start sand", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+        Input(command="tools/ci release channel promote next fleet", cwd=CWD, commands=readings("quiet")): Allow(),
+        Input(command="tools/ci release channel promote next fleet", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
     },
 )
 def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
-    releases = release_calls(evt)
-    texts = go_texts(evt)
-    if not (releases or texts) or not (which := drive_args(evt)) or (entry := drive_entry(evt)) is None:
+    texts = go_texts(evt) + release_targets(evt)
+    if not texts or not (which := drive_args(evt)):
         return None
     try:
-        register = read_register(evt, which)
-        waiting = waiting_gos(register["rows"], texts)
-        repairs = declared_fixes(evt) if (waiting or releases) and open_incidents(evt) else None
-        outcomes = [(verb, cut_outcome(verb, targets, register, entry, repairs)) for verb, targets in releases]
+        owed = owed_gates(read_register(evt, which)["rows"], texts)
     except READ_ERRORS as error:
         failed_open(evt, "go_and_cut_gate", error)
         return None
-    if waiting and repairs is None:
-        return evt.block(waiting[0])
-    for text in waiting:
-        blocker(evt, f"go:{text}", f"go_and_cut_gate let a GO through during an open incident: {text}")
-    for verb, outcome in outcomes:
-        for found in outcome["blockers"]:
-            blocker(evt, f"cut:{found['key']}", f"go_and_cut_gate let a {RELEASE_NOUNS[verb]} through during an open incident: {found['text']}")
-    held = [(verb, outcome["stops"]) for verb, outcome in outcomes if outcome["stops"]]
-    if not held:
-        return None
-    verb, reasons = held[0]
-    return evt.block("\n".join([CUT_REFUSED.format(verb=RELEASE_NOUNS[verb]), fenced("\n".join(f"- {found['text']}" for found in reasons))]))
+    return evt.context("\n".join([GATES_OWED, fenced("\n".join(owed))])) if owed else None
 
 
 def unflagged(argv: tuple[str, ...]) -> tuple[str, ...]:
@@ -830,22 +777,22 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
     only_if=[Tool("Bash")],
     tests={
         gated("ccx vcs ship -m 'long-running: ✨ x' --new-branch lane-a-x"): Allow(),
-        gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Block(
-            pattern=r"^Lane `lane-a` opens no first PR and reports no READY until a fidelity desk accepts its read-back\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
+        gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Warn(
+            pattern=r"^Warning, nothing was blocked: lane `lane-a` has no read-back a fidelity desk accepted yet\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
         ),
-        gated("gh pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"): Block(pattern=r"the newest grade, #9, is missing"),
-        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Block(pattern=r"opens no first PR"),
+        gated("gh pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"): Warn(pattern=r"the newest grade, #9, is missing"),
+        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Warn(pattern=r"has no read-back"),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n", prs=OPEN_PR): Allow(),
         gated("ccx vcs stack continue", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Allow(),
-        gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Block(pattern=r"opens no first PR"),
-        gated(READY_REPORT, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", prs=OPEN_PR): Block(pattern=r"opens no first PR and reports no READY"),
+        gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Warn(pattern=r"has no read-back"),
+        gated(READY_REPORT, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", prs=OPEN_PR): Warn(pattern=r"has no read-back"),
         gated(READY_REPORT.replace("READY #42 green", "STATE #42 waiting on CI"), "CONTRACT-MISSING lane-a: none\n"): Allow(),
         gated("git push origin HEAD", "CONTRACT-MISSING lane-a: none\n"): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING x: none\n", env={"CLAUDE_LONG_RUNNING_LANE": ""}): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING x: none\n", env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING inc-api-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "inc-api-fix"}): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=OPEN_FIX): Allow(),
-        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Block(pattern=r"`alerts-api-0305-fix`"),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Warn(pattern=r"`alerts-api-0305-fix`"),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Allow(),
         gated("ccx vcs ship -m x", "Traceback: boom\n"): Allow(),
@@ -865,4 +812,4 @@ def readback_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "readback_gate", error)
         return None
-    return evt.block("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())])) if said.startswith(CONTRACT_MISSING) else None
+    return evt.context("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())])) if said.startswith(CONTRACT_MISSING) else None

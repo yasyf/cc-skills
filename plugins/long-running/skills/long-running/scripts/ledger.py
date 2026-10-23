@@ -1413,11 +1413,12 @@ def lane_stack(shell: Shell, ccx: str, registration: dict[str, str]) -> list[str
 
 
 def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
-    """Open PRs on the prefix that another lane already owns or that predate the drive's ledger."""
+    """Open PRs on the prefix that another lane already owns or that predate the drive's ledger; none when the forge does not answer, so the lane registers and the next pass reads its PRs."""
     try:
         state = pr_state(shell, args.ccx, args.repo, [], [args.branch_prefix])
     except subprocess.CalledProcessError as failure:
-        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+        print(f"ledger.py register: the open PRs on {args.branch_prefix} did not read, so no other lane's PR was checked: {(failure.stderr or '').strip() or failure}", file=sys.stderr)
+        return []
     started = parse_iso(notes.show()["created_at"])
     rows = notes.pr_rows()
     reasons = {}

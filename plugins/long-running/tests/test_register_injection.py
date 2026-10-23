@@ -141,16 +141,16 @@ def test_an_incident_spawn_passes_with_its_slice_and_captures_written_into_the_p
     assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--drive", "b7"))]
 
 
-def test_a_sub_lane_a_lane_spawns_is_refused_without_its_slice_and_refreshed_with_one(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_sub_lane_a_lane_spawns_is_warned_without_its_slice_and_refreshed_with_one(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: calls.append(args) or "fresh /tmp/brief.md slice-hash 0123456789ab\n")
     session = activated(tools / "session")
     sliced = "Lane lane-a-sub.\nRegister slice: lane=lane-a-sub step=1.9\nslice-hash: 0123456789ab\n"
 
-    refused = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": "Lane lane-a-sub: build the tests."}, agent_id="a1b2c3"))
+    warned = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": "Lane lane-a-sub: build the tests."}, agent_id="a1b2c3"))
     passed = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": sliced}, agent_id="a1b2c3"))
 
-    assert "needs a `Register slice: lane=<name> step=<n>` line" in refused.message
+    assert warned.action.value == "warn" and "has no `Register slice: lane=<name> step=<n>` line" in warned.message
     assert passed is None
     assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--drive", "b7"))]
 
