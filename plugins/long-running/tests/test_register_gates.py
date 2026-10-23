@@ -297,3 +297,32 @@ def test_c228_during_an_incident_a_cut_without_the_declared_fix_is_refused():
 
     assert keys(outcome["stops"]) == ["fix:41555"]
     assert outcome["blockers"] == []
+
+
+def test_acceptance_reads_the_contract_missing_line_a_failing_accepted_run_prints(monkeypatch):
+    def refused(cwd, *args, **_):
+        raise subprocess.CalledProcessError(1, ["rulings.py", *args], output="CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n")
+
+    def crashed(cwd, *args, **_):
+        raise subprocess.CalledProcessError(2, ["rulings.py", *args], output="Traceback (most recent call last):\n")
+
+    evt = argparse.Namespace(cwd=Path("/repo"))
+    monkeypatch.setattr(register_gates, "rulings", refused)
+    assert register_gates.acceptance(evt, "lane-a", DRIVE) == "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"
+    monkeypatch.setattr(register_gates, "rulings", crashed)
+    with pytest.raises(subprocess.CalledProcessError):
+        register_gates.acceptance(evt, "lane-a", DRIVE)
+
+
+def test_a_named_ship_helper_is_gated_as_the_lane_that_spawned_it(tmp_path):
+    subagents = tmp_path / SESSION / "subagents"
+    subagents.mkdir(parents=True)
+    (subagents / "agent-arelease-fix-1a2b.meta.json").write_text(json.dumps({"name": "release-fix", "agentType": "long-running:lane-ship"}))
+    (subagents / "agent-aship-602-1a2b.meta.json").write_text(json.dumps({"name": "ship-602", "agentType": "ship-pr", "parentAgentId": "arelease-fix-1a2b"}))
+    helper = subagents / "agent-aship-602-1a2b.jsonl"
+    helper.write_text("")
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text("")
+    raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": "gh pr create"}, "cwd": str(tmp_path), "agent_id": "aship-602-1a2b"}
+
+    assert register_gates.owning_lane(PreToolUseEvent(_raw=raw, ctx=build_context(None, helper, tmp_path, tmp_path))) == "release-fix"

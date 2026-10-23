@@ -4,7 +4,7 @@ import json
 import re
 import secrets
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -75,14 +75,14 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
     ]
 
 
-def nearest_name(evt: BaseHookEvent) -> str | None:
+def nearest_name(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _: False) -> str | None:
     try:
         meta = evt.ctx.t.path.with_suffix(".meta.json")
     except EvidenceIncomplete:
         return None
     while meta.is_file():
         fields = json.loads(meta.read_text())
-        if name := fields.get("name"):
+        if (name := fields.get("name")) and not skip(fields.get("agentType")):
             return name
         if not (parent := fields.get("parentAgentId")):
             return None
