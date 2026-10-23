@@ -199,8 +199,9 @@ def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
             yield from ((name, number, text) for number, text in enumerate(content.splitlines(), start=1))
 
 
-def pr_view(req: Request) -> dict:
-    return parsed(read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd))
+def pr_view(req: Request) -> dict | None:
+    found = read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd)
+    return None if found is None else parsed(found)
 
 
 def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
@@ -278,6 +279,9 @@ def evidence(findings: list[Finding], rulings: str) -> str:
 
 def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
+    if view is None and not (req.bodies or req.texts):
+        return None
+    view = view or {}
     findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
     if not findings or (body := body_text(req, view)) is None:
         return None
@@ -329,6 +333,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Block(),
         ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
             pattern=r"LAUNCH-STALLED"
