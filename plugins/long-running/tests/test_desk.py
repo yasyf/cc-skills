@@ -2320,6 +2320,18 @@ def test_register_accepts_a_lane_specific_prefix_over_the_lanes_own_new_prs(caps
     assert capsys.readouterr().out.strip() == "registered mem-07-normalize on yasyf/mem-07-normalize-*"
 
 
+def test_register_writes_the_prefix_when_the_forge_does_not_answer(capsys):
+    shell = FakeShell()
+    shell.pr_state_error = "ccx vcs pr state: no poll answered within 30s"
+
+    assert run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07-normalize", "--branch-prefix", "yasyf/mem-07-normalize-", "--repo", REPO) == 0
+
+    assert shell.fields("lane/mem-07-normalize")["branch_prefix"] == "yasyf/mem-07-normalize-"
+    out = capsys.readouterr()
+    assert out.out.strip() == "registered mem-07-normalize on yasyf/mem-07-normalize-*"
+    assert "the open PRs on yasyf/mem-07-normalize- did not read, so no other lane's PR was checked: ccx vcs pr state: no poll answered within 30s" in out.err
+
+
 def test_a_prefix_with_no_trailing_separator_claims_exactly_that_branch(capsys, lock):
     shell = FakeShell()
     lane_pull(shell, "24091", "a" * 40, "yasyf/iris-memory-07")
