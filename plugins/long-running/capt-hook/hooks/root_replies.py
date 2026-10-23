@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -23,7 +25,7 @@ from captain_hook import (
 )
 
 from .compaction_handoff import CompactionState
-from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
+from .owner_facing import CCI_POST, INCIDENT_SOURCE_TIMEOUT_SECONDS, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 
 ACTIVE = [CompactionState(active=True)]
@@ -72,6 +74,17 @@ QUERY_CITED = re.compile(r"#\d{3,}\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]
 UNSOURCED_NUMBER = (
     "A count, rate, or percentage told to the owner names the query record it came from."
     " Put that record's `#<seq>` or link beside each number below, or drop the number."
+)
+RELEASE_CLAIM = re.compile(r"\b(?:published|released|(?:is|are|now|went|go(?:es)?) live|rolled out)\b", re.IGNORECASE)
+RELEASE_PROOF_KINDS = frozenset({"release", "serving", "fix-live"})
+RECORD_REF = re.compile(r"#(\d{3,})\b")
+UNPROVEN_RELEASE = (
+    "A reply that calls a build published, released or live cites its `release` record's `#<seq>`, or follows `tools/ci release live` this turn."
+    " Run `tools/ci release live <target>` or cite the record, then reply."
+)
+RELEASE_JUDGE = Confirm(
+    rule="Block only when the reply tells the owner a build or fix is published, released or live with no release record cited and no live read this turn;"
+    " a plan, a question, or a release still in progress never blocks."
 )
 NUMBER_JUDGE = Confirm(rule="Block only when the reply states a measured production count, rate, or percentage with no record, query, or link it came from.")
 
@@ -372,3 +385,49 @@ def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
         return None
     lines = [line.strip()[:NUMBER_TEXT_SHOWN] for line in last_reply(evt).splitlines() if MEASURED.search(line) and not QUERY_CITED.search(line)][:NUMBERS_SHOWN]
     return evt.block("\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"]), confirm=NUMBER_JUDGE) if lines else None
+
+
+def release_read(evt: BaseHookEvent) -> bool:
+    return any((args := script_args(argv, frozenset({"ci"}))) and args[:2] == ("release", "live") for argv in turn_commands(evt))
+
+
+def release_cited(reply: str) -> bool | None:
+    for ref in dict.fromkeys(RECORD_REF.findall(reply)):
+        try:
+            done = subprocess.run(["cci", "grep", f"^#{ref} ", "--json", "-n", "1"], capture_output=True, text=True, timeout=INCIDENT_SOURCE_TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode != 0:
+            return None
+        if any(json.loads(line).get("kind") in RELEASE_PROOF_KINDS for line in done.stdout.splitlines() if line.strip()):
+            return True
+    return False
+
+
+def released(reply: str, *events: object, stub: str | tuple[int, str] = "", stored: dict = SAND_NOT_MIGRATED, decide: str = CONFIRMED) -> Input:
+    return Input(
+        transcript=[T.user("is it out?"), *events, T.assistant(reply)], state=ACTIVE, decide=decide, commands=incident_sources(stored) | {"cci grep": stub}
+    )
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        released("sand 1437 is released."): Block(pattern=r"`tools/ci release live`"),
+        released("sand 1437 is released (#500300).", stub='{"seq": 500300, "kind": "release"}'): Allow(),
+        released("sand 1437 is live (#500300).", stub='{"seq": 500300, "kind": "go"}'): Block(),
+        released("sand 1437 is live.", T.assistant(T.tool("Bash", command="tools/ci release live sand"))): Allow(),
+        released("sand 1437 is released (#500300).", stub=(1, "cci: daemon unavailable")): Allow(),
+        released("sand 1437 is released.", stored=CLOSED_0820): Allow(),
+        released("sand 1437 is released.", decide=UNCONFIRMED): Allow(),
+        released("The fix lane opened its PR."): Allow(),
+        Input(transcript=[T.user("is it out?"), T.assistant("sand 1437 is released.")], decide=CONFIRMED, commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
+    },
+)
+def releases_cite_their_proof(evt: BaseHookEvent) -> HookResult | None:
+    reply = last_reply(evt)
+    if not CompactionState.load(evt).active or not RELEASE_CLAIM.search(reply) or release_read(evt) or not open_incidents(evt):
+        return None
+    return evt.block(UNPROVEN_RELEASE, confirm=RELEASE_JUDGE) if release_cited(reply) is False else None
