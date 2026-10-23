@@ -3065,6 +3065,17 @@ def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_escalates_onc
     assert line.startswith("RULINGS-UNREAD ") and "so the head passes the rulings check" in line
 
 
+def test_a_check_pr_failure_whose_text_differs_only_in_numbers_escalates_once_per_head(shell, config, tmp_path):
+    """Oct 23: a fetch failure naming each run's pid in its temporary ref posted 30 identical RULINGS-UNREAD records to root in ten minutes."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    for pid in (4101, 4102, 4103):
+        shell.check_pr["29020"] = (0, f"BLOCKER the diff of acme/app#29020: git fetch origin +dev:refs/rulings/cccc333333-{pid} exited 128\n")
+        landing_pass(shell, config)
+    assert sum("check-pr" in call for call in shell.calls) == 3
+    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["RULINGS-UNREAD rulings-unread"]
+
+
 def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another_repo_does_not(shell, config, tmp_path):
     lone_green_pr(shell)
     finder_verdict(shell, "29020", "ok cccc333 no findings")
