@@ -3650,7 +3650,7 @@ def test_only_an_open_root_hold_record_holds_a_landed_incident_fix(shell, config
     assert len([line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]) == held
 
 
-def test_a_released_build_posts_one_released_line_to_the_root_and_comms_once_every_component_is_live(shell, config, tmp_path):
+def test_a_released_build_posts_one_released_line_to_the_root_alone_once_every_component_is_live(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["comms_lane"] = "comms-desk"
     config.write_text(json.dumps(raw))
@@ -3666,7 +3666,7 @@ def test_a_released_build_posts_one_released_line_to_the_root_and_comms_once_eve
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = [post for post in shell.posts if post["kind"] == "fix-live"]
-    assert (line["to"], line["text"], line["target"], line["build"], line["id"]) == ("root,comms-desk", f"RELEASED sand 0.162.1437 ({build})", "sand", build, "release:36642:live")
+    assert (line["to"], line["text"], line["target"], line["build"], line["id"]) == ("root", f"RELEASED sand 0.162.1437 ({build})", "sand", build, "release:36642:live")
 
 
 def test_a_landed_merge_fast_pr_with_release_with_tells_the_release_owner_and_root_once(shell, config, tmp_path):

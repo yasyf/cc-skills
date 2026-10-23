@@ -34,17 +34,19 @@ stays open, so it keys nothing:
 a worker's or desk's prompt is a `blocker` to `root`. A question on the coordinator's terminal
 is the coordinator asking the owner there, so it raises no record. The coordinator cannot be
 woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
-while that desk's own terminal reads clear or stale. It is an `ask` to `owner`, which the dashboard's needs-owner
-card shows, when no supervisor is registered, when the supervisor is itself at a prompt,
-unknown, or unreachable, and when the prompt is still open five minutes after the supervisor
-was told. A supervisor that holds a foreground wait is never idle, so it keeps
+while that desk's own terminal reads clear or stale. It is a `needs_you` card in the owner's DM,
+posted with `cc-slack dm-status` into the status thread of the drive's newest root session,
+when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
+unreachable, and when the prompt is still open five minutes after the supervisor was told.
+A supervisor that holds a foreground wait is never idle, so it keeps
 `cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
 as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`,
 and three polls in a row that read it again are one `READABLE` report. A shorter read posts nothing, so a terminal
 or `worker-list` that flaps under load raises no second record for the same unread state.
 When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
-each record it raised. While `worker-list` fails, no worker is closed: each keeps its open prompt
-and reads unknown or unreachable until the list answers again.
+each record it raised, and an `info` card in the same thread says the owner's prompt cleared.
+While `worker-list` fails, no worker is closed: each keeps its open prompt and reads unknown or
+unreachable until the list answers again.
 
 The supervisor's record comes with one wake: the record's line typed into the supervisor's own
 terminal with `orca terminal send --enter`, once per prompt, and only when Orca reads that
@@ -52,7 +54,7 @@ terminal `tui-idle` and `prompt_screen.input_state` reads its screen `idle`, Cla
 Codex's. A `busy` or `waiting` supervisor gets no line, the row says which, and each poll looks
 again. The row keeps what the send reached: `turn_started` when Orca saw the turn start,
 `input_accepted` when it only took the line. A line is never typed twice, and a send Orca
-refuses, by an error or by `accepted: false`, is an owner `ask` at once.
+refuses, by an error or by `accepted: false`, is the owner's card at once.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
 restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock` and writes its own script
@@ -341,11 +343,20 @@ class Watch:
         except (json.JSONDecodeError, KeyError):
             return None
 
+    def card(self, entry: dict, status: str, title: str, body: str) -> bool:
+        card = {"status": status, "title": title, "body": body, "drive": drive.cci_drive(entry)}
+        return self.shell.run(["cc-slack", "dm-status", "--session", entry["sessions"][-1], "--card", json.dumps(card)]).code == 0
+
     def close(self, entry: dict, row: dict, why: str = "the prompt left the screen") -> None:
-        """Resolve each record the row's prompt raised; a record cci refused to resolve stays for the next poll."""
+        """Resolve each record and card the row's prompt raised; one cci or cc-slack refused stays for the next poll."""
         left = {}
         for who, seq in (row.get("alerts") or {}).items():
-            if self.post(entry, "unblock", None, row["name"], f"CLEARED {row['name']} ({row['role']}) terminal={row['terminal']}: {why}", seq) is None:
+            cleared = f"CLEARED {row['name']} ({row['role']}) terminal={row['terminal']}: {why}"
+            if who == OWNER:
+                resolved = self.card(entry, "info", f"The {row['name']} terminal no longer waits on a prompt", cleared)
+            else:
+                resolved = self.post(entry, "unblock", None, row["name"], cleared, seq) is not None
+            if not resolved:
                 left[who] = seq
         row["alerts"] = left
         if not left:
@@ -414,8 +425,9 @@ class Watch:
             why = f"supervisor {supervisor.subject.name} stayed {row['supervisor_input']} for {minutes}m"
         else:
             why = f"supervisor {supervisor.subject.name} got the line {minutes}m ago, {REACHED[row['wake']['reached']]}, and it is still open"
-        if seq := self.post(entry, "ask", OWNER, subject.name, self.prompt_text(row, seen, f"It froze the coordinator; {why}. Answer it in that terminal.")):
-            alerts[OWNER] = seq
+        text = self.prompt_text(row, seen, f"It froze the coordinator; {why}. Answer it in that terminal.")
+        if self.card(entry, "needs_you", f"The {subject.name} terminal waits on {WAITS_ON[seen.state]}", text):
+            alerts[OWNER] = row["episode"]
 
     def settle(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
         subject, moment = seen.subject, stamp(self.shell.now())

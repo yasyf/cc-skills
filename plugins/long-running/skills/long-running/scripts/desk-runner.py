@@ -324,7 +324,7 @@ root `--resolves` on one of the runner's records about it, its RELEASE-HELD-AFTE
 each open root `hold` record after its landing that names the PR or is addressed to the release owner logs one
 `RELEASE-HELD-AFTER-LANDING`; no other kind is a hold, and a root `--resolves` on the hold closes it. Once the record that settles a landing carries a build, each pass reads
 `<landing.release_cli> live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
-`RELEASED <component> <version> (<build>)` to the root and `landing.comms_lane` once every component reads live, keyed
+`RELEASED <component> <version> (<build>)` to the root alone once every component reads live, keyed
 `release:<pr>:live`. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
 drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. Each landing is
 judged once, by the first pass that reads it, and the set read persists in the landing desk's store: the desk's first pass
@@ -3567,7 +3567,6 @@ class Landing:
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
         self.release_cli = release_cli(self.checkout, config)
-        self.comms = config.get("comms_lane", "")
         self.status_card = config.get("status_card", False)
         self.card_drawn = ""
         self.landed: set[str] = set()
@@ -4541,7 +4540,7 @@ class Landing:
                 )
 
     def publish_line(self, action: actions.Action) -> None:
-        """Once a landing's release names its build, read `<release_cli> live <id> --json` each pass and post one RELEASED fix-live record to the root and the comms lane when every component it ships is live."""
+        """Once a landing's release names its build, read `<release_cli> live <id> --json` each pass and post one RELEASED fix-live record to the root alone when every component it ships is live; the root dispatches any post."""
         landed, receipt = json.loads(action.target), action.verification_receipt
         components = landed["components"] or receipt["targets"]
         release = receipt["release"] or BUILD_NUMBER.search(receipt["builds"][0])[1]
@@ -4556,9 +4555,8 @@ class Landing:
         build = receipt["builds"][0]
         versions = ", ".join(f"{component} {live[component]['live']}" for component in components)
         key = f"release:{landed['pr']}:live"
-        to = ",".join([ROOT, *([self.comms] if self.comms else [])])
         flags = [arg for component in components for arg in ("--target", component)] + ["--build", build]
-        done = self.runner.cci_post("fix-live", f"RELEASED {versions} ({build})", to, landed["pr"], key, pr=landed["pr"], record_id=key, flags=flags)
+        done = self.runner.cci_post("fix-live", f"RELEASED {versions} ({build})", ROOT, landed["pr"], key, pr=landed["pr"], record_id=key, flags=flags)
         if done.code == 0 and POSTED.match(done.out):
             self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": int(POSTED.match(done.out)[1])}))
 

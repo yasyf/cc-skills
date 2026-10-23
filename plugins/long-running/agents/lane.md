@@ -1,7 +1,7 @@
 ---
 name: lane
 description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except the cc-slack tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_history, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_watch, mcp__plugin_cc-slack_cc-slack__slack_unwatch, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__await
+tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status
 model: opus
 experimental:
   cacheTtl: 1h

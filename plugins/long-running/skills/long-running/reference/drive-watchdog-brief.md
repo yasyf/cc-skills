@@ -3,7 +3,8 @@
 Spawn `drive-watchdog` as `long-running:lane`, model opus, effort xhigh, beside the
 landing desk once the drive has a plan and an owner table doc. It watches every
 lane's cci traffic against the plan, corrects drift as it happens, keeps the retro
-log behind the owner table's last column, and refreshes the dashboard's Plan table.
+log behind the owner table's last column. It feeds no dashboard (owner instruction of
+2026-10-18).
 Fill the angle brackets and paste the brief.
 
 ## Root discipline
@@ -64,11 +65,8 @@ what went wrong, what it slowed, and what corrected it. An entry with no step ta
 context only. This log feeds the owner table's "What went wrong or slowed it so far"
 column.
 
-Every 30 minutes:
-  - Regenerate the dashboard's Plan table:
-    `plan-table.py --doc <table doc id> --retro-log <log id> --repo <checkout> --out <state dir>/dashboard/plan-table.md`
-  - Post one cci state to root: findings opened, corrected, and outstanding, and
-    the top three things slowing the critical path, in plain words.
+Every 30 minutes, post one cci state to root: findings opened, corrected, and
+  outstanding, and the top three things slowing the critical path, in plain words.
 
 Start by reading the last two hours
 (`cci tail --drive <drive> --since <seq two hours back> --kind decide,ask,blocker,hold,defect,state -n 200`)

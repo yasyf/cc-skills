@@ -30,7 +30,7 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     assert "tail -n 0 -F" not in text
 
 
-DESK_BRIEFS = ["landing-desk", "priority-desk", "comms-desk", "drive-watchdog", "alerts-desk"]
+DESK_BRIEFS = ["landing-desk", "priority-desk", "drive-watchdog", "alerts-desk"]
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md", *(f"reference/{desk}-brief.md" for desk in DESK_BRIEFS)])
@@ -48,14 +48,42 @@ def test_lanes_never_block_a_plain_wait_past_sixty_seconds(path):
     assert "-- <command>" in text
 
 
-def test_the_comms_desk_posts_milestones_and_never_reads_or_answers_its_channel():
+def flat(path: Path) -> str:
+    return " ".join(path.read_text().split())
+
+
+def test_the_comms_desk_posts_one_dispatched_message_and_never_stands_polls_or_reads_its_channel():
     skill = Path(__file__).resolve().parents[1] / "skills/long-running"
-    brief = (skill / "reference/comms-desk-brief.md").read_text()
+    brief = flat(skill / "reference/comms-desk-brief.md")
     assert "--label slack-grant:<channel id>" in brief
-    assert "Post one top-level update per milestone" in brief
-    assert "cc-slack history" not in brief and "cc-slack thread" not in brief
+    assert "you post one message the owner gave word for, report it, and end" in brief
+    assert [word for word in ("desk-wait", "polls until", "comms-desk-feed", "cc-slack history", "slack_history", "slack_watch", "`comms-desk` is standing") if word in brief] == []
     assert "a reply in any of its threads" not in brief and "within 15 minutes" not in brief
-    assert "reference/comms-desk-brief.md" in (skill / "SKILL.md").read_text()
+    text = flat(skill / "SKILL.md")
+    assert "No comms lane stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once per post" in text
+    assert "`comms-desk` is standing" not in text and "`slack_history`" not in text
+
+
+@pytest.mark.parametrize("agent", ["lane", "lane-ship"])
+def test_lane_agents_carry_no_slack_watch_history_or_await_tool(agent):
+    text = (Path(__file__).resolve().parents[1] / "agents" / f"{agent}.md").read_text()
+    tools = text.split("\ntools: ", 1)[1].split("\n", 1)[0].split(", ")
+    assert "mcp__plugin_cc-slack_cc-slack__slack_thread" in tools
+    assert [tool for tool in tools if tool.rsplit("__", 1)[-1] in {"slack_watch", "slack_unwatch", "slack_history", "await"}] == []
+
+
+@pytest.mark.parametrize("path", ["SKILL.md", "reference/slack-lane-brief.md"])
+def test_a_draft_the_owner_did_not_ask_for_goes_on_the_permission_hooks_ask_card_never_an_askuserquestion_preview(path):
+    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running" / path)
+    assert "AskUserQuestion Send preview" not in text and "`AskUserQuestion` `Send` preview" not in text
+    assert "source:askuserquestion" not in text
+    assert "the ask card the cc-slack permission hook prints for" in text
+
+
+@pytest.mark.parametrize("path", ["SKILL.md", "reference/drive-watchdog-brief.md", "reference/owner-report-table.md", "reference/orca-lane-brief.md"])
+def test_no_lane_feeds_a_dashboard_on_a_clock(path):
+    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running" / path)
+    assert [words for words in ("runs it every 30 minutes", "regenerates the dashboard", "Regenerate the dashboard", "refreshes the dashboard", "dashboard's Plan progress card") if words in text] == []
 
 
 def test_the_skill_names_orca_launch_by_its_stable_bin_entry_never_a_scripts_path():

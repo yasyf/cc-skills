@@ -88,7 +88,7 @@ verbs close an ask outside that lifecycle: `ledger.py drop --ledger <id> --ask <
 --reason "<why>"` when the owner withdraws it, and `ledger.py answer --ledger <id> --ask
 <id> --text "<reply>"` when it was a question rather than shipped work.
 
-A desk's own ask, such as a comms desk or a fidelity desk, is never done, so it is
+A desk's own ask, such as a fidelity desk's, is never done, so it is
 recorded standing: `ledger.py ask --ledger <id> --text "<ask>" --lane <lane> --accept
 "<check>" --standing [HOURS]`, or `ledger.py ask --ledger <id> --ask <id> --standing
 [HOURS]` for an ask already recorded. A standing ask reads `IN-PROGRESS` while the later

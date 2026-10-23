@@ -25,10 +25,10 @@ The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
 once the drive has a plan; and one priority desk per owner-named #1-priority outcome
 while that outcome is open. No dashboard or dashboard curator runs (owner instruction
-of 2026-10-18), and no lane or root watches Slack (owner answer d94db5b). When the owner names a Slack
-channel for the drive's updates, `comms-desk` is standing, briefed from
-`reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
-not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
+of 2026-10-18), and no lane or root watches Slack (owner answer d94db5b). No comms lane
+stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once per post
+the owner gave word for, and it ends after that post. The orca desk is the
+`desk-runner.py run --desk orca` process, not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
 The root spawns a subagent for every task with a body, including its own routine work.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
@@ -833,7 +833,7 @@ down; a running copy never sees the `SendMessage`.
 opening #28594 29 s after its stand-down (2026-10-01).*
 
 **R19. A settled question is applied, never asked.**
-Before an owner question reaches a `needs_you` card, `AskUserQuestion`, or a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
+Before an owner question reaches a `needs_you` card or, in a planning round, a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
 First read the owner's plan and every plan it names as source of truth, including each plan's Decisions section and the section the question touches. Then check `ccn answer list --label scope:durable` plus the drive's answer labels. Last check the project's feedback memories.
 A question any of them answers is applied: the root writes the ruling to the lanes (R18) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking.
 
@@ -869,9 +869,10 @@ told you", or "the plan is", is recorded the turn it arrives, as an `answer_add`
 `scope:durable` and a line in the plan's Decisions section. When a turn ends without an `answer_add` or
 `answer_edit`, the `root_context` hook queues `owner standing rule not recorded:
 answer_add it (scope:durable) + a plan Decisions line` for the next turn.
-An `AskUserQuestion` answer, a picked `Send` preview of a Slack lane's draft included,
-is recorded by the cc-notes pack itself with `from:owner` and `source:askuserquestion`;
-the root never records one by hand.
+A tap on a `needs_you` card, a tap approving a Slack lane's draft included, is the
+owner's answer and the authorization for that question (owner answer 01736af). The root
+records it as one `from:owner` answer whose body names the card's permalink and the
+tapped label.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
@@ -950,8 +951,10 @@ who gets it ("explain to X …", "tell them …", "reply there", "manage the com
 approval: the root quotes the owner's words verbatim to the Slack lane that turn, and
 the lane posts directly with no draft round trip. The Slack permission hook counts the
 root's prompts as the owner's words for a lane's write and mints the ticket for that
-place. Only a post the owner did not ask for goes back as
-an exact draft for an `AskUserQuestion` `Send` preview. On a hook refusal for a judge
+place. Only a post the owner did not ask for goes back to the root as an exact draft.
+The root runs that write, posts the ask card the cc-slack permission hook prints for it
+with `slack_dm_status`, and stops on that post until the owner's tap approves it; then
+it retries the same write (owner answer 01736af). On a hook refusal for a judge
 timeout, the lane retries once, then reports the verdict to the hook lane and keeps going.
 The root hands the Slack lane facts: what happened, when in Pacific time, who asked,
 and every link. It never hands over wording, never writes a "proposed reply" into a
@@ -963,8 +966,8 @@ for a granted thread. The grant comes from the owner's own words, never from own
 words a lane relays.
 
 The root does not compose Slack copy; the Slack lane drafts and posts as the cc-slack
-bot. A write the owner approved, through an `AskUserQuestion` `Send` preview or an
-explicit instruction in the turn, the root may run itself with the cc-slack tools. The
+bot. A write the owner approved, through a tap on that ask card or an explicit
+instruction in the turn, the root may run itself with the cc-slack tools. The
 permission hook owns that approval check, and no pack hook reroutes an approved root
 write to a lane. `cc-slack dm-status` to the user's own DM stays the root's.
 
@@ -1003,7 +1006,7 @@ Every lane that posts to Slack, the R20 Slack lane, the incident comms lane, and
 starts, so a root that started on an older plugin spawns lanes without the tools
 added since. `general-purpose` carries every MCP tool the session has, plus
 `ToolSearch` to load them. The lane uses the cc-slack tools first (`slack_thread`,
-`slack_history`, `slack_react`, `slack_unreact`, `slack_reply`, `slack_send`), and the
+`slack_react`, `slack_unreact`, `slack_reply`, `slack_send`), and the
 `cc-slack` CLI on PATH when a tool call errors. When `cc-slack whoami` shows no
 identity, the lane runs `cc-slack login` from the project checkout and retries. Both can
 refuse: a Slack hook that crashes on import, no Slack identity on the machine, or a
@@ -1075,12 +1078,13 @@ cloud run so what does it have to do with his local sand?", and in the thread it
 "lol sorry for the insane spam here".*
 
 **The drive's updates channel.** The turn the owner names a channel for the drive's
-updates, the root records the owner's words as the channel's grant and spawns
-`comms-desk` from `reference/comms-desk-brief.md`. The grant is one cc-notes answer
-quoting those words with the label `slack-grant:<id>`. The Slack permission hook reads
-it as a standing grant for top-level posts. It never waits on a board or a second owner
-ask. The comms desk posts milestones there; it never reads the channel for messages and
-answers nobody in it (owner answer d94db5b).
+updates, the root records the owner's words as the channel's grant. The grant is one
+cc-notes answer quoting those words with the label `slack-grant:<id>`. The Slack
+permission hook reads it as a standing grant for top-level posts. It never waits on a
+board or a second owner ask. At each milestone the root spawns `comms-desk` from
+`reference/comms-desk-brief.md` with that milestone's facts and the owner's word for
+the post. The desk posts it and ends. No lane stands on the channel, reads it for
+messages, or answers anybody in it (owner answer d94db5b).
 
 **Status posts mark milestones, never a clock.** The drive posts to its updates
 channel at each milestone: a fix live on a named build, a release passed or failed, a
@@ -1138,7 +1142,7 @@ the channel'.*
 - A delay the root's own dispatching caused is reported as the root's. Never attribute
   it to the owner ("mixed signals", "conflicting instructions") when the owner said it
   once.
-- Every owner-facing line, `AskUserQuestion`, and board card names the thing, never
+- Every owner-facing line, `needs_you` card, and board card names the thing, never
   its codename: "the release-pipeline cutover stack", not "D"; "the deploy that runs
   after each merge", not "the walker"; "the freeze on api/plat", not "G304". Inbox,
   ruling, answer, and `ctx_` ids belong in the ledger and the briefs, never in a
@@ -1755,7 +1759,7 @@ Once the record that settles a landing names `--build`, the runner reads
 `tools/ci release live <id> --json` each pass, for the release id `releases/<id>`
 its text names or its build number, and posts exactly one
 `RELEASED <component> <version> (<build>)` record, `--kind fix-live --target <component> --build <url>`,
-keyed `release:<pr>:live`, to the root and `landing.comms_lane` once every component
+keyed `release:<pr>:live`, to the root alone once every component
 reads live. It is the only publish line the root forwards to the owner.
 
 A cut has a clock too. A cut order is a root `go` or `decision` addressed to a
@@ -2183,9 +2187,8 @@ no code and never stops a lane; the root acts on its second post that turn.
 
 **W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log,
 tagged `[step <n>]` with the plan step it slowed. That log is the source of the owner
-table's last column. Every 30 minutes the watchdog regenerates the dashboard's Plan
-table with `scripts/plan-table.py` and posts the root the top three things slowing
-the critical path.
+table's last column. Every 30 minutes the watchdog posts the root the top three things
+slowing the critical path. It feeds no dashboard (owner instruction of 2026-10-18).
 
 *Prevents drift found only when the owner asked. The owner ruled on 2026-10-16:
 "its job is to monitor all other progress via cci and figure out what is going off
@@ -2422,7 +2425,7 @@ AskUserQuestion is unavailable. A decision this brief, the plan, and the owner's
   options, keep building what does not depend on it, and wait for the root's answer.
   Never take a default or a provisional pick (owner answers 01736af and 752564a).
 Do NOT touch: <files, branches, worktrees another lane owns>.
-Plan task: register your unit at spawn so the dashboard's Plan progress card counts it:
+Plan task: register your unit at spawn so the progress record's plan counts include it:
   `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
   then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves
   ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
@@ -2923,10 +2926,10 @@ registered appears in the card's note, never as an empty plan.
 The Plan table panel is a `view` card over `plan-table.md` in the dashboard dir. It
 shows the owner report table with each row's PR states refreshed and the watchdog's
 newest retro line appended. `scripts/plan-table.py` regenerates the file from the
-`owner-table` doc, as `reference/owner-report-table.md` describes, and the
-drive-watchdog runs it every 30 minutes. Until the first run the panel says nothing
-matches yet. A drive seeded before the preset carried the panel adds this card to
-its In flight section:
+`owner-table` doc, as `reference/owner-report-table.md` describes. The root runs it
+when the owner asks for the dashboard; no lane runs it on a clock. Until the first run
+the panel says nothing matches yet. A drive seeded before the preset carried the panel
+adds this card to its In flight section:
 
 ```
 - {use: view, id: plan-table, title: Plan table, width: 3, with: {file: plan-table.md, table: Plan table, columns: [step, what_it_delivers, state, what_blocks_it, what_we_are_doing_to_unblock_it, what_went_wrong_or_slowed_it_so_far]}}
@@ -2998,16 +3001,18 @@ so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.
-- A question on the coordinator's terminal is the coordinator's own `AskUserQuestion`,
-  already in front of the owner there, so it raises no record. `show` still lists it.
+- A question dialog on the coordinator's terminal already waits on the owner there, so
+  it raises no record, and `show` still lists it. During execution an owner question
+  goes on a `needs_you` card, never that dialog (owner answer 01736af).
 - Its own approval cannot wake the coordinator. Register one independent agent as its
   supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
   coordinator's approval is then a `blocker` to that lane, and the watch types the
   record's line into the supervisor's own terminal with `orca terminal send --enter`.
-- The owner gets an `ask`, which `lr.needs-owner` shows, when no supervisor can take
-  the prompt. That covers a drive with no supervisor, a supervisor that is itself at a
-  prompt, unknown, or unreachable, and a wake Orca refuses. A prompt still open five
-  minutes after the supervisor's record gets one too.
+- The owner gets a `needs_you` card in the DM status thread of the drive's newest root
+  session, through `cc-slack dm-status`, when no supervisor can take the prompt. That
+  covers a drive with no supervisor, a supervisor that is itself at a prompt, unknown,
+  or unreachable, and a wake Orca refuses. A prompt still open five minutes after the
+  supervisor's record gets one too.
 
 The wake goes out once per prompt, and only to a supervisor that can take it. Orca has
 to read the terminal `tui-idle`, and the screen has to read `idle`.
@@ -3026,11 +3031,13 @@ A supervisor that holds a foreground wait reads `busy` for as long as it waits, 
 `cci watch --drive <cci drive> --to <lane> --for 0` in that wait and the record ends
 it; `drive.py desk --supervisor` prints that command. The supervisor reads the live
 screen and answers only within what the owner already authorized. For anything else
-it posts the owner an `ask`.
+it answers nothing, and the watch's owner card follows five minutes after the
+supervisor heard.
 
 When the prompt leaves the screen, or its terminal leaves the watch, the watch posts
-an `unblock` record that resolves each record it raised. The watch answers no prompt
-and types into no terminal that waits on one; the supervisor's wake is the only line
+an `unblock` record that resolves each record it raised, and an `info` card under the
+owner's card says the prompt cleared. The watch answers no prompt and types into no
+terminal that waits on one; the supervisor's wake is the only line
 it types. It never stops, restarts, releases, closes, or signals anything.
 
 `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line
@@ -3861,7 +3868,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
-17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
+17. Am I about to ask the owner anything (a `needs_you` card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Before writing a desk brief or handoff with an owner rule, record each standing
     rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`
