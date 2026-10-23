@@ -5,7 +5,10 @@ import shlex
 import sys
 from pathlib import Path
 
+from captain_hook import TranscriptFixture
+
 from ..compaction_handoff import CompactionState, script
+from .handoff_fixtures import OPUS, assistant, user
 
 FIXTURES = Path(__file__).parent / "fixtures"
 STATES = FIXTURES / "register"
@@ -54,12 +57,21 @@ def shown(answer: str) -> str:
     return json.dumps({"id": answer, "title": "Does the merge refusal name a next command?", "body": "No"})
 
 
+ANSWER_LIST = f"ccn -R {CWD} answer list"
+CHAT_QUESTION = "what is this record repair step? the server has no need to know the chat format"
+
+
 def answer_show(token: str) -> str:
     return f"ccn -R {CWD} answer show {token}"
 
 
 def readings(state: str, *answers: tuple[str, str | tuple[int, str]]) -> dict[str, str | tuple[int, str]]:
-    return {ROWS: register(state), "cci post": "#1", **{answer_show(token): outcome for token, outcome in answers}}
+    return {ROWS: register(state), "cci post": "#1", ANSWER_LIST: "[]", **{answer_show(token): outcome for token, outcome in answers}}
+
+
+def chat(prompt: str, *replies: str, queued: bool = False) -> TranscriptFixture:
+    asked = {"type": "attachment", "attachment": {"type": "queued_command", "prompt": prompt}} if queued else user(prompt)
+    return TranscriptFixture([asked, *(assistant(OPUS, (10, 0, 1000), content=[{"type": "text", "text": text}]) for text in replies)])
 
 
 def fixture(name: str) -> str:

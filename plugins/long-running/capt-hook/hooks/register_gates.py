@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from cc_transcript import AssistantEvent, AttachmentEvent, UserEvent
 from captain_hook import (
     CONFIRMED,
     UNCONFIRMED,
@@ -38,6 +39,8 @@ from .root_context import FILE_WRITES
 from .session_tree import nearest_name
 from .tests.register_fixtures import (
     ACTIVE,
+    ANSWER_LIST,
+    CHAT_QUESTION,
     CLEAR,
     CUT_HELD,
     CWD,
@@ -54,6 +57,7 @@ from .tests.register_fixtures import (
     TWO_STEPS,
     UNROWED,
     WIDEN_HELD,
+    chat,
     fixture,
     readings,
     reply,
@@ -163,6 +167,10 @@ HOOK_EDIT = (
     " Fix the check in a worktree and ship it as a pull request."
 )
 TIMERS = fixture("brief-158695")
+TIMERS_QUESTION = "what is a relay slot? why is this here?"
+SEED_BRIEF = "Lane register-seed: classify the captures about the record repair step."
+CHAT_REPLY = "The record repair step is the journal's one-time startup migration; the server never learns the chat format."
+RECENT_OWNER_ANSWERS = ("answer", "list", "--label", "from:owner", "--limit", "20", "--json")
 
 
 def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
@@ -347,6 +355,47 @@ def open_questions(register: dict) -> list[dict]:
     return [question for _, question in register_files(register, "question-*.json") if not question.get("closed")]
 
 
+def bears(question: dict, text: str, blocks: set[str], rows: dict) -> bool:
+    if blocks & set(question.get("blocks") or ()):
+        return True
+    rest = folded(text).replace(folded(question["text"]), " ")
+    names = [name for key in question["rows"] if key in rows for name in json.loads(rows[key].get("names") or "[]")]
+    return any(folded(needle) in rest for needle in (question["term"], question["sentence"], *question["rows"], *names) if needle.strip())
+
+
+def prompted(event: object, text: str) -> bool:
+    match event:
+        case UserEvent() if not event.meta.is_sidechain and event.text:
+            return folded(event.text) == text
+        case AttachmentEvent(attachment_type="queued_command") if event.detail.prompt:
+            return folded(event.detail.prompt) == text
+    return False
+
+
+def replied_in_chat(evt: BaseHookEvent, question: dict) -> bool:
+    if question.get("blocks"):
+        return False
+    text, asked = folded(question["text"]), False
+    for event in evt.ctx.t.events:
+        if asked and isinstance(event, AssistantEvent) and not event.meta.is_sidechain and event.text:
+            return True
+        asked = asked or prompted(event, text)
+    return False
+
+
+def owner_answers(evt: BaseHookEvent) -> list[str]:
+    done = ccn(str(evt.cwd), *RECENT_OWNER_ANSWERS)
+    done.check_returncode()
+    return [folded(f"{answer.get('title') or ''} {answer.get('body') or ''}") for answer in json.loads(done.stdout)]
+
+
+def unanswered(evt: BaseHookEvent, questions: list[dict]) -> list[dict]:
+    if not (pending := [question for question in questions if not replied_in_chat(evt, question)]):
+        return []
+    answers = owner_answers(evt)
+    return [question for question in pending if not any(folded(question["text"]) in answer for answer in answers)]
+
+
 def quotes(text: str, question: dict) -> bool:
     return any(folded(needle) in folded(text) for needle in (question["text"], question["term"]) if needle.strip())
 
@@ -386,7 +435,24 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
         asks("timers-writer", TIMERS, "question-timers", decide=CONFIRMED): Block(pattern=r'"what is a relay slot\? why is this here\?"'),
         question(reply("c7-timers", fixture("correction-1244")), "question-timers", decide=UNCONFIRMED): Allow(),
         asks("timers-writer", TIMERS, "question-timers", decide=UNCONFIRMED): Allow(),
-        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the open owner question below\."),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Allow(),
+        asks("lane-x", "Lane lane-x: drop the roster refresh timer.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the open owner question below\."),
+        asks("ship-pr", 'The owner asked "what is a relay slot? why is this here?"; this PR touches none of it. Open the PR.', "question-timers"): Allow(),
+        asks("lane-x", "Lane lane-x: drop the roster refresh timer.", "question-timers", transcript=chat(TIMERS_QUESTION, "A relay slot is a borrowed queue.")): Block(pattern=r"does not quote"),
+        asks("register-seed", "Lane register-seed: classify the eleven queued captures.", "question-chat"): Allow(),
+        asks("register-seed", SEED_BRIEF, "question-chat", decide=CONFIRMED): Block(pattern=r"^An owner question is open"),
+        asks("register-seed", SEED_BRIEF, "question-chat", decide=CONFIRMED, transcript=chat(CHAT_QUESTION)): Block(pattern=r"^An owner question is open"),
+        asks("register-seed", SEED_BRIEF, "question-chat", decide=CONFIRMED, transcript=chat(CHAT_QUESTION, CHAT_REPLY)): Allow(),
+        asks("register-seed", SEED_BRIEF, "question-chat", decide=CONFIRMED, transcript=chat(CHAT_QUESTION, CHAT_REPLY, queued=True)): Allow(),
+        Input(
+            env=DRIVE_CONFIG,
+            tool="Agent",
+            tool_input={"name": "register-seed", "prompt": SEED_BRIEF},
+            state=ACTIVE,
+            cwd=CWD,
+            decide=CONFIRMED,
+            commands=readings("question-chat") | {ANSWER_LIST: json.dumps([{"id": "1041029", "title": "Owner 9:49 AM", "body": f'Owner, chat, verbatim: "{CHAT_QUESTION}"'}])},
+        ): Allow(),
         question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Block(pattern=r"does not quote"),
         question(f"orca-launch.sh timers-writer standard xhigh {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(
             pattern=r"relay slot"
@@ -410,7 +476,9 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
         if not text:
             return None
         register = read_register(evt, which)
-        if not (questions := open_questions(register)):
+        targets = {block for args in replies(evt) for block in option(args, "--block")}
+        bearing = [question for question in open_questions(register) if bears(question, text, targets, register["rows"])]
+        if not (questions := unanswered(evt, bearing)):
             return None
         shown = [fenced("\n".join(asked(question, register["rows"]) for question in questions)), *([fenced(briefs.strip())] if briefs else [])]
         quoted = all(quotes(text, question) for question in questions)

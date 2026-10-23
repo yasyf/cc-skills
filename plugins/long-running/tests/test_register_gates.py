@@ -54,7 +54,7 @@ class Root:
     def run(self, args, *pargs, **kwargs) -> subprocess.CompletedProcess:
         argv = tuple(str(arg) for arg in args)
         self.calls.append(argv)
-        outcome = self.rows if argv[: len(ROWS.split())] == tuple(ROWS.split()) else "#1"
+        outcome = self.rows if argv[: len(ROWS.split())] == tuple(ROWS.split()) else "[]" if argv[3:5] == ("answer", "list") else "#1"
         code, out, err = (0, outcome, "") if isinstance(outcome, str) else (outcome[0], "", outcome[1])
         if kwargs.get("check") and code:
             raise subprocess.CalledProcessError(code, args, out, err)
@@ -75,9 +75,9 @@ class Root:
     def blockers(self) -> list[tuple[str, ...]]:
         return [call for call in self.calls if call[:2] == ("cci", "post") and "blocker" in call]
 
-    def question(self, digest: str, text: str, blocks: list[str]) -> Path:
+    def question(self, digest: str, text: str, blocks: list[str], sentence: str = "") -> Path:
         path = self.state_dir / "register" / f"question-{digest}.json"
-        path.write_text(json.dumps({"digest": digest, "text": text, "term": "", "sentence": "", "rows": [], "blocks": blocks}))
+        path.write_text(json.dumps({"digest": digest, "text": text, "term": "", "sentence": sentence, "rows": [], "blocks": blocks}))
         return path
 
 
@@ -158,8 +158,8 @@ def test_the_turn_end_closes_chat_questions_and_leaves_board_questions_open(root
 
 
 def test_a_closed_question_no_longer_gates_a_writer_spawn(root):
-    root.question("0123456789abcdef", "what is the merge card?", [])
-    spawn = {"name": "lane-x", "prompt": "Lane lane-x: fix the flaky api test."}
+    root.question("0123456789abcdef", "what is the merge card?", [], "The merge card names the PR.")
+    spawn = {"name": "lane-x", "prompt": "Lane lane-x: the merge card names the PR; redraw it."}
 
     [refusal] = root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn)
     root.fire(StopEvent)
