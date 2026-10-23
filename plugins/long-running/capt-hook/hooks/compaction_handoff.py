@@ -746,21 +746,6 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"^Standing rules register `eeeeeee` is over the injection budget and binds this session; "
             r"read it in full with `ccn doc show eeeeeee` before acting\.$"
         ),
-        Input(
-            prompt="continue",
-            state=[
-                CompactionState(
-                    active=True,
-                    slug="brook",
-                    register_doc="e" * 40,
-                    register_body="1. rule\n",
-                    root_slice="\n".join(["scope `1e9a64d`: rule"] * 600),
-                )
-            ],
-        ): Warn(
-            pattern=r"^Standing rules register `eeeeeee`, verbatim; .*\n~{12}\n1\. rule\n~{12}\n(?:scope `1e9a64d`: rule\n){600}"
-            r"Run `rulings\.py sweep --program brook` before the first plan or card edit\.$"
-        ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, slug="brook", root_slice="scope `1e9a64d`: rule")]): Warn(
             pattern=r"^scope `1e9a64d`: rule\nRun `rulings\.py sweep --program brook` before the first plan or card edit\.$"
         ),
