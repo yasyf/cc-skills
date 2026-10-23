@@ -7,9 +7,11 @@ the desk fetches the diff at grading time with the command in its row. Two are
 synthetic, hand-written diffs with the shape of a change that never shipped.
 
 Grade each fixture in head mode as [fidelity-desk-brief.md](../fidelity-desk-brief.md)
-says: the fetched or committed diff is the head and the PR body is empty. Write the
-fixture's name where a grade line names `<head7>`, and record each grade beside
-its expected one with `ccn note add`. What each grade must find is in the drive's
+says: the fetched or committed diff is the head and the PR body is empty. A fixture
+has no PR body to check, so its grade reads the diff alone. A `missing` counts only
+when it names the fixture's row and the code the row bans, never the absent body
+sections. Write the fixture's name where a grade line names `<head7>`, and record
+each grade beside its expected one with `ccn note add`. What each grade must find is in the drive's
 own cc-notes, note `b65fcb5`, beside the owner's words of each row. A shape-only
 pass is the failure every fixture catches: each diff reads as harmless until the
 desk reads what the code does.
