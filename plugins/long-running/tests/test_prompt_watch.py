@@ -193,7 +193,7 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
         "coordinator", "coordinator", "an approval dialog", str(capture), f"orca terminal read --terminal {ROOT} --screen", "Answer only within what the owner already authorized, else ask the owner."
     )
     assert rows[ROOT]["detail"] == f"screen saved at {capture}; supervisor is busy"
-    assert shell.sends == [] and "wake" not in rows[ROOT]
+    assert shell.sends == [] and shell.cards == [] and "wake" not in rows[ROOT]
 
 
 def test_the_dialogs_text_stays_in_an_owner_only_file_under_the_drives_state_directory(home, shell, capsys):

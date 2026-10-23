@@ -3001,8 +3001,9 @@ so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
   the command in the record and decides.
-- A question on the coordinator's terminal is the coordinator's own `AskUserQuestion`,
-  already in front of the owner there, so it raises no record. `show` still lists it.
+- A question dialog on the coordinator's terminal already waits on the owner there, so
+  it raises no record, and `show` still lists it. During execution an owner question
+  goes on a `needs_you` card, never that dialog (owner answer 01736af).
 - Its own approval cannot wake the coordinator. Register one independent agent as its
   supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
   coordinator's approval is then a `blocker` to that lane, and the watch types the
