@@ -143,7 +143,7 @@ CUT_REFUSED = "This {verb} is refused while the register's cut rules below hold.
 CACHE_ENV = {"CLAUDE_CONFIG_DIR": DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]}
 CACHE = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / "plugins" / "cache" / "skills" / "long-running" / "0.7.217"
 HOOK_EDIT = (
-    "The installed long-running plugin changes only through a reviewed pull request, so this write into `{path}` is refused."
+    "The installed long-running plugin changes only through a reviewed pull request, so this write into its `{path}` is refused."
     " Fix the check in a worktree and ship it as a pull request."
 )
 TIMERS = fixture("brief-158695")
@@ -617,7 +617,7 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
     only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
     tests={
         Input(tool="Edit", tool_input={"file_path": f"{CACHE}/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(
-            pattern=rf"^The installed long-running plugin changes only through a reviewed pull request, so this write into `{re.escape(str(CACHE))}/capt-hook/hooks/register_gates\.py` is refused\."
+            pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into its `0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
         ),
         Input(command=f"sed -i '' s/a/b/ {CACHE}/skills/long-running/scripts/rulings.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"rulings\.py` is refused"),
         Input(command=f"echo x >> {CACHE}/capt-hook/hooks/board_text_gate.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"is refused"),
@@ -636,7 +636,7 @@ def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
         return None
     cache = plugin_cache()
     inside = next((path for path in written_paths(evt) if path.is_relative_to(cache)), None)
-    return evt.block(HOOK_EDIT.format(path=inside)) if inside else None
+    return evt.block(HOOK_EDIT.format(path=inside.relative_to(cache))) if inside else None
 
 
 def flag_targets(flag: str, value: str) -> list[str]:
