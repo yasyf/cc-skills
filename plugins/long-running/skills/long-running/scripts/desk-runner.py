@@ -144,6 +144,13 @@ runner's launch receipts, the lane's cci records of the last day, the briefs che
 its PRs' head branches: path, branch, dirty files, commits ahead of `origin/dev`, last commit, push
 state, and PR, or `no worktree found for lane <lane>`. It is a blocker and never deferred.
 `show` lists each lane whose mechanism waits as `pr-silent <lane>: …` with its `drive.py lane-status` command.
+A class record, a lane's `incident` record or any record, such as a `state`, whose text starts
+`CLASS` or `NEW CLASS`, that names an incident tag or topic and has no later root `go`, `decide`, or `decision` naming one of
+them `deadlines.pr_silent_minutes` after it logs one `CLASS-UNOWNED <class>` blocker per class.
+A launch, from the inbox or the `launch` verb, whose lane shares an incident key with a live lane,
+or whose brief names the PR a live lane's branch carries, is refused with `LAUNCH-DUPLICATE` naming
+that lane and its lane status when that lane has commits ahead or a pushed branch; `NOW` and
+`--owner-directed` launch anyway.
 Only an incident fix lane's partial-fix reports launch case lanes: when its `ready:` or
 `fix-live:` Run status carries `UNFIXED <lane>: <case>` lines in its body, the runner launches
 `<first>-case<n>` on the incident alias for each case in the same pass, where `<first>` is
@@ -340,7 +347,7 @@ does at once for a terminal Orca shows closed. Everything else is kept and named
 Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, RUNNER-STALE, HOLDS-UNREAD, RULINGS-REFUSED,
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD, RULINGS-REFUSED,
 RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, and BATCH-POST-OWED to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
@@ -420,7 +427,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -589,6 +596,12 @@ LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
 INCIDENT_PART = re.compile(r"-[^-]+(?:-\d+)?$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
+CLASS_UNOWNED = "class-unowned"
+CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
+FIX_GO_KINDS = frozenset({"go", "decide", "decision"})
+FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
+UNPUSHED = frozenset({"not pushed", "no origin branch"})
+PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
 PR_SILENT_HORIZON = timedelta(hours=1)
 ANSWERS_KEPT = 2000
 LANE_RECORDS = timedelta(days=1)
@@ -712,6 +725,10 @@ def fix_launch(incident: actions.Incident) -> actions.Action | None:
 def first_lane(lane: str) -> str:
     """The lane an incident's fallback and case lanes descend from: the name without its trailing `-opus` and `-case<n>` parts."""
     return LINEAGE.sub("", lane)
+
+
+def duplicate_line(key: str, lane: str, holder: str) -> str:
+    return f"LAUNCH-DUPLICATE {key} {lane}: {holder} already holds this work; relay to it, or launch with NOW or --owner-directed when the owner directs a second lane; nothing was launched"
 
 
 def incident_name(lane: str) -> str:
@@ -1588,6 +1605,9 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
+        if not spec["now"] and (holder := self.duplicate_holder(lane, brief)):
+            self.record(log, duplicate_line(key, lane, holder))
+            return
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
@@ -1962,6 +1982,29 @@ class Runner:
         """The first of `questions` no other unfailed reply to the lane already answers, or empty: Orca refuses a second, different answer to one question."""
         claimed = {json.loads(reply.target)["reply_to"] for reply in self.book.actions(self.lane(lane), kind="reply") if reply.action_id != key and reply.status != "failed"}
         return next((question for question in questions if question not in claimed), "")
+
+    def duplicate_holder(self, lane: str, brief: Path) -> str:
+        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose branch carries a PR the brief names."""
+        keys = brief_incidents(brief) - {NAMES_NOTHING}
+        text = brief.read_text(errors="replace") if brief.is_file() else ""
+        prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
+        for container in self.book.containers(LANE_PREFIX):
+            other = container.removeprefix(LANE_PREFIX)
+            launched = self.book.actions(container, kind="launch")
+            if other == lane or not launched:
+                continue
+            ours = keys | ({incident_name(lane)} if fix_launch(self.book.load(container)) else set())
+            shared = ours & self.incident_keys(other, launched[-1])
+            if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
+                continue
+            try:
+                held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed not in UNPUSHED]
+            except CciTailFailed as failure:
+                self.tail_failed(failure)
+                return ""
+            if held and (shared or prs & {number for tree in held for number in re.findall(r"\d+", tree.pr)}):
+                return f"{other}: {lanes.summary(other, held)}"
+        return ""
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
@@ -2844,6 +2887,33 @@ class Runner:
             self.pr_silent_escalate(self.pr_silent_scan())
         except CciTailFailed as failure:
             self.tail_failed(failure)
+
+    def class_unowned(self) -> None:
+        """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
+        try:
+            records = [record for record in cci.records(self.cci_tail, self.config.drive, since=actions.stamp(self.now() - PR_SILENT_HORIZON)) if record["drive"] == self.config.drive]
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
+        after = timedelta(minutes=self.config.pr_silent_minutes)
+        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in FIX_GO_KINDS and FIX_GO.search(record.get("text") or "")]
+        for record in records:
+            if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
+                continue
+            if not (keys := cci.incident_keys(record)):
+                continue
+            label = min(keys)
+            log = f"escalation:{CLASS_UNOWNED}:{label}"
+            if self.book.known(RUNNER, log):
+                continue
+            at = actions.parse_stamp(record["at"])
+            if self.now() - at < after or any(go["seq"] > record["seq"] and keys & cci.incident_keys(go) for go in gos):
+                continue
+            named = ", ".join(sorted(keys))
+            self.record(
+                log,
+                f"CLASS-UNOWNED {label} {record['lane']}: #{record['seq']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no fix-lane GO naming {named} | root: GO a fix lane for this class",
+            )
 
     def pr_silent_escalate(self, pending: dict[str, dict]) -> None:
         after, every = timedelta(minutes=self.config.pr_silent_minutes), timedelta(minutes=self.config.pr_silent_every_minutes)
@@ -4881,6 +4951,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.deadlines_orca()
             runner.incident_clock()
             runner.pr_silent()
+            runner.class_unowned()
             runner.in_process()
             runner.cut_clock()
             runner.release_coupling()
@@ -5031,7 +5102,13 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":
-        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()), args.owner_directed, role=args.role)
+        brief = args.brief.expanduser().resolve()
+        if not args.owner_directed and (holder := runner.duplicate_holder(args.lane, brief)):
+            runner.record(f"escalation:launch:{args.key}", duplicate_line(args.key, args.lane, holder))
+            runner.flush()
+            print(duplicate_line(args.key, args.lane, holder), file=sys.stderr)
+            return 1
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(brief), args.owner_directed, role=args.role)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
     posted = runner.flush()
