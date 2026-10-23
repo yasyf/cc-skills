@@ -1021,7 +1021,7 @@ def root_causes_quote_a_lane_mechanism(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     for values, text in causal_records(evt):
-        if not RECORD_REF.search(" ".join([text, *(str(value) for key in ("re", "resolves") for value in values.get(key, ()))])):
+        if not (values.get("re") or values.get("resolves") or RECORD_REF.search(text)):
             return evt.context(UNQUOTED_CAUSE)
     return None
 

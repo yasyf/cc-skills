@@ -710,7 +710,7 @@ def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "go_and_cut_gate", error)
         return None
-    return evt.context("\n".join([GATES_OWED, *owed])) if owed else None
+    return evt.context("\n".join([GATES_OWED, fenced("\n".join(owed))])) if owed else None
 
 
 def unflagged(argv: tuple[str, ...]) -> tuple[str, ...]:
