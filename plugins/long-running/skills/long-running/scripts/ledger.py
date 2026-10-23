@@ -1581,6 +1581,13 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     return rows
 
 
+def kept_steps(rows: list[dict], stored: dict[str, dict[str, str]]) -> list[dict]:
+    return [
+        row | {"fields": {name: value for name, value in row["fields"].items() if name != "step"}} if stored.get(row["key"], {}).get("step") else row
+        for row in rows
+    ]
+
+
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     """Regrade every repository the ledger holds, one `ccx vcs pr state` read each; `--pr` and `--lane` name PRs in `--repo`.
 
@@ -1596,7 +1603,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
         named = same_repo(repo, args.repo)
         rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
     with locked(args.lock or default_lock(args.ledger)):
-        notes.sync(rows)
+        notes.sync(kept_steps(rows, notes.stored()) if any("step" in row["fields"] for row in rows) else rows)
     print(f"refreshed {len(rows)} PRs into {args.ledger}")
     return 0
 
