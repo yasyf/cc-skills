@@ -945,8 +945,9 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
         staged = taken_dir / f"{path.stem}.block.json"
         write_atomic(staged, json.dumps(ask_card(card), ensure_ascii=False, indent=2) + "\n")
         shell.run(["cc-present", "update-block", str(staged), "--round", "current"])
-        path.replace(taken_dir / path.name)
     shell.run(["cc-present", "send", "--blocks", ",".join(card["waits"] for *_, card in taken)])
+    for *_, path, _ in taken:
+        path.replace(taken_dir / path.name)
     write_atomic(rounds / f"round-{number}.json", json.dumps({"round": number, "keys": [row_of_card(card["waits"]) for *_, card in taken]}, indent=2) + "\n")
     print(f"round {number}: {len(taken)} rulings on the board, foundational rows first")
     return 0

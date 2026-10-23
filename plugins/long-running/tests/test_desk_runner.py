@@ -2473,7 +2473,7 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
     landing_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("RULING-ASK")]
     assert line.startswith("RULING-ASK ruling-ask:round-1:rule:5c0e9a0 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
-    assert "on the live cc-present board as round 1, foundational rows first, never as an AskUserQuestion or a bare Slack card" in line
+    assert "on the live cc-present board as round 1, foundational rows first, then sends them to Slack in one `cc-present send`, never as an AskUserQuestion or a bare Slack card" in line
     assert "`rulings.py confirm <key> --tick all --capture <digest>`" in line
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
     rounds = cards / "rounds"
