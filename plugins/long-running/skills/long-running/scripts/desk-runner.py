@@ -2820,8 +2820,12 @@ class Runner:
         if action.kind != "relay" or not (relayed := RELAYED_PR.match(action.action_id)):
             return False
         since = actions.parse_stamp(action.accepted_at)
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", lane, "--kind=head", "--kind=review")
-        return any(record["lane"] == lane and names_pr(record, relayed[1]) and actions.parse_stamp(record["at"]) >= since for record in posted)
+        try:
+            posted = self.lane_records(lane, "head", "review")
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
+        return any(names_pr(record, relayed[1]) and actions.parse_stamp(record["at"]) >= since for record in posted)
 
     def deadlines_orca(self) -> None:
         for container in self.book.containers(LANE_PREFIX):
