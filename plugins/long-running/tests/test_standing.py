@@ -218,7 +218,10 @@ def test_the_section_prints_every_scope_row_in_the_owners_words_and_lints_clean(
     assert "  - names: syncing state | Syncing\n" in section
     assert f"- `rule/4830123` (in-force, said 1): “{CONTINUED}”\n" in section
     touched = section.partition("### Rows touched in the last 24 hours\n\n")[2].partition("\n\n")[0]
-    assert touched == f"- `rule/f958522` (scope, touched 2026-10-23T11:58:25Z): “{SYNCING.replace(chr(10), chr(10) + '    ')}”"
+    assert touched == (
+        f"- `rule/f958522` (scope, touched 2026-10-23T11:58:25Z): “{SYNCING.replace(chr(10), chr(10) + '    ')}”\n"
+        "- `corpus/b-tests` (corpus, touched 2026-10-23T11:58:25Z): no words"
+    )
     owed = section.partition("### Owed gates\n\n")[2].partition("\n\n### ")[0]
     assert owed == f"- `rule/7ab71e2` (owed): “{RELEASES}”\n- `rule/bc8938b` (owed): “> a lane waits on an open card: \n    \n    nothing starts until every card is answered”"
     risk = section.partition("### Rows at risk or broken\n\n")[2].partition("\n\n")[0]
@@ -232,6 +235,20 @@ def test_the_section_prints_every_scope_row_in_the_owners_words_and_lints_clean(
         "- implication 1, removes, proposed: No cloud worker continues a chat that started on a Mac. (of `rule/4830123`)\n"
     )
     assert standing.lint(section, None, None, set(), ROWS) == []
+
+
+def test_a_linked_id_is_checked_and_a_copied_heading_exempts_no_owner_gate_line() -> None:
+    body = (
+        "## Standing owner rules\n\n### Scope rows, in the owner's words\n\n"
+        "- [f958522](https://example.com/f958522): the app shows no syncing state.\n"
+        "- release waits on owner approval\n"
+    )
+
+    assert standing.lint(body, None, None, set(), ROWS) == [
+        "owner-gate line cites no live answer id: - release waits on owner approval",
+        "`f958522` cites without its words register row `rule/f958522`: - [f958522](https://example.com/f958522): the app shows no syncing state."
+        + verbatim(SYNCING),
+    ]
 
 
 @pytest.mark.parametrize(("rows", "sentence"), [(None, True), (standing.Rows(failure="exit 2"), True), (standing.Rows(), False)])

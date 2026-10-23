@@ -59,7 +59,8 @@ TOPIC = "standing"
 KINDS = ("go", "correction")
 RULINGS = Path(__file__).with_name("rulings.py")
 NO_REGISTER_DOC = re.compile(r"no `?standing-rules`? register doc")
-ROW_BULLET = re.compile(r"^(\s*)(?:[-*]|\d+\.)\s+[*`]*([a-z]+/[\w.-]+|[0-9a-f]{7,40})\b")
+ROW_BULLET = re.compile(r"^(\s*)(?:[-*]|\d+\.)\s+[*`\[]*([a-z]+/[\w.-]+|[0-9a-f]{7,40})\b")
+ROW_OF = re.compile(r"\(of `([a-z]+/[\w.-]+)`\)$")
 QUOTED = re.compile(r"[“\"][^”\"]+[”\"]")
 CONTINUATION = 4
 LIVE_ROWS = frozenset({"in-force", "pending-owner"})
@@ -153,7 +154,7 @@ def cited_rows(token: str, rows: dict[str, dict]) -> dict[str, dict]:
 def bullet_block(lines: list[str], at: int, indent: int) -> str:
     following = []
     for line in lines[at + 1 :]:
-        if len(line) - len(line.lstrip()) < indent + CONTINUATION:
+        if indent_of(line) < indent + CONTINUATION:
             break
         following.append(line)
     return " ".join([lines[at], *following])
@@ -179,23 +180,35 @@ def row_findings(body: str, rows: Rows | None) -> list[str]:
     return problems
 
 
-def register_span(lines: list[str]) -> range:
-    if ROWS_HEADING not in lines:
-        return range(0)
-    start = lines.index(ROWS_HEADING)
-    end = next((at for at in range(start + 1, len(lines)) if NEXT_SECTION.match(lines[at])), len(lines))
-    return range(start, end)
+def indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def register_lines(lines: list[str], rows: Rows | None) -> set[int]:
+    if rows is None or rows.failure:
+        return set()
+    quoted: set[int] = set()
+    for at, line in enumerate(lines):
+        if (match := ROW_OF.search(line)) and match[1] in rows.rows:
+            quoted.add(at)
+        if (match := ROW_BULLET.match(line)) and cited_rows(match[2], rows.rows):
+            quoted.add(at)
+            for below in range(at + 1, len(lines)):
+                if indent_of(lines[below]) <= len(match[1]):
+                    break
+                quoted.add(below)
+    return quoted
 
 
 def lint(body: str, previous: str | None, register: dict | None, live: set[str], rows: Rows | None = None) -> list[str]:
     lines = body.splitlines()
-    span = register_span(lines)
+    quoted = register_lines(lines, rows)
     return (
         rule_findings(body, previous, register)
         + [
             f"owner-gate line cites no live answer id: {line.strip()[:200]}"
             for at, line in enumerate(lines)
-            if at not in span and not line.startswith(QUOTE) and gated(line, live)
+            if at not in quoted and not line.startswith(QUOTE) and gated(line, live)
         ]
         + row_findings(body, rows)
     )
@@ -249,7 +262,7 @@ def current_rows(rows: Rows) -> dict[str, dict]:
 
 def rows_section(rows: Rows) -> list[str]:
     if rows.failure:
-        return [f"- the register rows did not load ({rows.failure}); a blocker went to the root; read them with `rulings.py rows --json`", ""]
+        return [f"- the register rows did not load ({rows.failure}); read them with `rulings.py rows --json`", ""]
     current = current_rows(rows)
     out = [ROWS_HEADING, ""]
     for key, fields in current.items():
@@ -258,13 +271,17 @@ def rows_section(rows: Rows) -> list[str]:
             out += [f"  - {implication_line(implication)}" for implication in listed(fields, "implications")]
             out += [f"  - names: {' | '.join(listed(fields, 'names'))}"]
     since = rows.read_at - TOUCHED_WINDOW
-    touched = {
-        key: fields
-        for key, fields in rows.rows.items()
-        if fields.get("words") and (updated := fields.get("updated_at")) and datetime.fromisoformat(updated) >= since
-    }
+    touched = {key: fields for key, fields in rows.rows.items() if (updated := fields.get("updated_at")) and datetime.fromisoformat(updated) >= since}
     out += ["", "### Rows touched in the last 24 hours", ""]
-    out += [line for key, fields in touched.items() for line in quoted_words(key, fields, f"{fields['kind']}, touched {fields['updated_at']}")] or ["- none"]
+    out += [
+        line
+        for key, fields in touched.items()
+        for line in (
+            quoted_words(key, fields, f"{fields['kind']}, touched {fields['updated_at']}")
+            if fields.get("words")
+            else [f"- `{key}` ({fields['kind']}, touched {fields['updated_at']}): no words"]
+        )
+    ] or ["- none"]
     out += ["", "### Owed gates", ""]
     out += [line for key, fields in current.items() if fields["kind"] == "gate" and fields["status"] == IN_FORCE for line in quoted_words(key, fields, "owed")] or ["- none"]
     out += ["", "### Rows at risk or broken", ""]
