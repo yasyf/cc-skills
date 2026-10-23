@@ -291,6 +291,7 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("ship the fix")]): Block(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("ship the fix")]): Allow(),
         plan_mode("ExitPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Allow(),
+        plan_mode("ExitPlanMode", OUTAGE_0820, transcript=[T.user("no plan mode today")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("why did you enter plan mode?")]): Block(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first"), T.user("why did you enter plan mode?")]): Allow(),
     },
@@ -299,8 +300,8 @@ def no_plan_mode_in_an_open_incident(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     word = latest_plan_word(evt) or ""
-    if evt.tool_name != "ExitPlanMode" and not PLAN_CONDITIONAL.search(word) and PLAN_FORBIDDEN.search(word):
-        return evt.block(PLAN_MODE_FORBIDDEN)
+    if not PLAN_CONDITIONAL.search(word) and PLAN_FORBIDDEN.search(word):
+        return None if evt.tool_name == "ExitPlanMode" else evt.block(PLAN_MODE_FORBIDDEN)
     if not PLAN_CONDITIONAL.search(word) and PLAN_ORDERED.search(word):
         return None
     return evt.block(PLAN_MODE_IN_INCIDENT) if open_incidents(evt) else None
@@ -368,6 +369,16 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
             commands=incident_sources(OUTAGE_0820),
         ): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources()): Allow(),
+        Input(
+            transcript=[T.user("is it out?"), T.assistant(T.tool("Bash", command="tools/ci release live sand")), T.assistant("sand 1437 is live.")],
+            state=ACTIVE,
+            commands=incident_sources(OUTAGE_0820),
+        ): Allow(),
+        Input(
+            transcript=[T.user("is it out?"), T.assistant(T.tool("Bash", command="echo tools/ci release live sand")), T.assistant("sand 1437 is live.")],
+            state=ACTIVE,
+            commands=incident_sources(OUTAGE_0820),
+        ): Block(),
         Input(transcript=reply_transcript("The fix lane is building the PR."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), commands=incident_sources(OUTAGE_0820)): Allow(),
@@ -377,9 +388,18 @@ def publish_lines_quote_the_released_record(evt: BaseHookEvent) -> HookResult | 
     if not CompactionState.load(evt).active:
         return None
     reply = last_reply(evt)
-    if PUBLISH_CLAIM.search(reply) and not PUBLISH_PROOF.search(reply) and open_incidents(evt):
+    if PUBLISH_CLAIM.search(reply) and not PUBLISH_PROOF.search(reply) and not read_release_live(evt) and open_incidents(evt):
         return evt.block(PUBLISH_FROM_MEMORY)
     return None
+
+
+def read_release_live(evt: BaseHookEvent) -> bool:
+    return any(
+        Path(cmd.argv[0]).name == "ci" and tuple(cmd.argv[1:3]) == ("release", "live")
+        for use in evt.ctx.turn.tool_calls.named("Bash").items
+        for cmd in use.call.command_line
+        if cmd.argv
+    )
 
 
 def question_text(evt: BaseHookEvent) -> str:
@@ -553,9 +573,15 @@ def cci_records() -> ModuleType:
     return module
 
 
-def lane_mechanism(line: str) -> bool:
-    record = json.loads(line)
-    return record.get("lane") != "root" and cci_records().mechanism_mark(record) == "MECHANISM"
+def lane_mechanism(record: object) -> bool:
+    return isinstance(record, dict) and record.get("lane") != "root" and cci_records().mechanism_mark(record) == "MECHANISM"
+
+
+def records_of(stdout: str) -> list[object] | None:
+    try:
+        return [json.loads(line) for line in stdout.splitlines() if line.strip()]
+    except ValueError:
+        return None
 
 
 def mechanism_cited(evt: BaseHookEvent, drive: tuple, refs: list[str]) -> bool | None:
@@ -566,8 +592,10 @@ def mechanism_cited(evt: BaseHookEvent, drive: tuple, refs: list[str]) -> bool |
         except (OSError, subprocess.TimeoutExpired) as error:
             return mechanism_unread(evt, type(error).__name__)
         if done.returncode != 0:
-            return mechanism_unread(evt, " ".join(done.stderr.split())[:200] or f"exit {done.returncode}")
-        if any(lane_mechanism(line) for line in done.stdout.splitlines() if line.strip()):
+            return mechanism_unread(evt, " ".join(done.stderr.split())[:120] or f"exit {done.returncode}")
+        if (records := records_of(done.stdout)) is None or not all(isinstance(record, dict) and "kind" in record for record in records):
+            return mechanism_unread(evt, "unreadable cci output")
+        if any(lane_mechanism(record) for record in records):
             return True
     return False
 
@@ -627,6 +655,10 @@ def cause(command: str, **extra: object) -> Input:
         cause(
             "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it'",
             commands={"cci grep": (1, "cci: daemon unavailable")},
+        ): Allow(),
+        cause(
+            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it'",
+            commands={"cci grep": "not json"},
         ): Allow(),
         cause("cci post --drive release-v3 --lane root --kind report --text 'the autoscaler caused the worker crashes'"): Block(),
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the crashes'", decide=UNCONFIRMED): Allow(),
