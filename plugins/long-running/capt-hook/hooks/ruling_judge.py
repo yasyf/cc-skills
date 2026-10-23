@@ -12,6 +12,7 @@ from pydantic import BaseModel, create_model
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script
 from .register_injection import drive_args
+from .tests.register_fixtures import DRIVE_CONFIG
 
 CANDIDATES = 5
 CANDIDATE_BYTES = 6000
@@ -72,24 +73,25 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
     Event.PreToolUse,
     tests={
         Input(
-            tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]
+            tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "1984bf6"}, env=DRIVE_CONFIG, state=[ACTIVE]
         ): Warn(pattern=r"^Durable owner answer `1984bf6` bears on this call and binds it\.\n~{12}\n- 1984bf6 May a migration"),
         Input(
-            tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "none"}, state=[ACTIVE]
+            tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "none"}, env=DRIVE_CONFIG, state=[ACTIVE]
         ): Allow(),
         Input(
             tool="Agent",
             tool_input={"prompt": "Add a --skip-tenant flag."},
             commands=MATCH,
             llm={"answer": "1984bf6"},
+            env=DRIVE_CONFIG,
             state=[ACTIVE, JudgedAnswers(injected=["main:1984bf6"])],
         ): Allow(),
-        Input(command="echo '- G901 (root) GO walker: release api' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
+        Input(command="echo '- G901 (root) GO walker: release api' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Durable owner answer `1984bf6`"
         ),
-        Input(command="echo '- G902 (root) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
-        Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
-        Input(command="ls", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
+        Input(command="echo '- G902 (root) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=MATCH, llm={"answer": "1984bf6"}, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(command="ls", commands=MATCH, llm={"answer": "1984bf6"}, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=MATCH, llm={"answer": "1984bf6"}): Allow(),
     },
 )

@@ -21,6 +21,7 @@ from hooks.tests.register_fixtures import LEDGER, ROWS
 
 SESSION = "0123456789abcdef"
 DRIVE = "brook-drive"
+PLAN_STEM = "users-plan-stem-of-brook"
 CLASSIFIED = "c4936ff0405c2d0f"
 UNCLASSIFIED = "629293ae14388dc9"
 PLUGIN = Path(__file__).parents[1]
@@ -44,7 +45,7 @@ class Root:
         self.rows: str | tuple[int, str] = json.dumps(
             {"ledger": LEDGER, "program": "brook", "state_dir": str(self.state_dir), "rows": {}, "classified": [CLASSIFIED]}
         )
-        CompactionState(active=True, slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, slug=PLAN_STEM).save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": SESSION, "cwd": str(self.home)}
@@ -111,6 +112,14 @@ def test_an_unclassified_owner_capture_posts_one_blocker_and_never_refuses(root)
     assert option(blocker, "--lane") == "root"
     assert option(blocker, "--to") == "root"
     assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
+
+
+def test_a_drive_whose_plan_stem_differs_from_its_program_reads_the_program_register(root):
+    root.bash(PreToolUseEvent, "cci post --lane root --kind go --to walker --text 'cut web'")
+
+    reads = [call for call in root.calls if "rows" in call and call[call.index("rows") - 1].endswith("rulings.py")]
+    assert reads and all(call[call.index("rows") + 1 : call.index("rows") + 3] == ("--drive", DRIVE) for call in reads)
+    assert not any(PLAN_STEM in call for call in root.calls)
 
 
 def test_a_register_read_error_passes_the_call_and_posts_one_blocker(root):

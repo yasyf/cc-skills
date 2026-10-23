@@ -66,6 +66,16 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
+def drive_home(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "brook")}))
+    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
+        monkeypatch.delenv(key, raising=False)
+    return home
+
+
+@pytest.fixture
 def plan(home: Path) -> Path:
     path = home / ".claude" / "plans" / "brook.md"
     path.parent.mkdir(parents=True)
@@ -647,7 +657,8 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     assert state(session).digest is None
 
 
-def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Path, docs: Path) -> None:
+def test_the_register_arrives_once_whole_after_a_compaction(drive_home: Path, plan: Path, docs: Path) -> None:
+    home = drive_home
     session = home / "session"
     body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 150}\n" for n in range(1, 31))
     add_register(docs, body)
@@ -665,6 +676,15 @@ def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Pa
     assert handoff.deliver_register(bash(session, agent_id="a1")) is None
     assert standing.pointer({"id": REGISTER_ID, "body": body}) in (docs / ("d" * 40 + ".md")).read_text()
     assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
+
+
+def test_a_drive_whose_plan_stem_differs_from_its_program_queues_the_program_register(drive_home: Path, docs: Path) -> None:
+    add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
+    queued = handoff.CompactionState(active=True, slug="users-plan-stem-of-brook")
+
+    handoff.queue_register(queued, bash(drive_home / "session"))
+
+    assert queued.register_doc == REGISTER_ID
 
 
 def session_start(session: Path, source: str) -> SessionStartEvent:
@@ -759,8 +779,9 @@ def stub_slice(monkeypatch: pytest.MonkeyPatch, answer) -> list[tuple[str, ...]]
 
 @pytest.mark.parametrize("source", ["compact", "resume"])
 def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verbatim_past_the_budget(
-    home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch, source: str
+    drive_home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch, source: str
 ) -> None:
+    home = drive_home
     session = home / "session"
     register = "# brook register\n\n1. Pulumi state is the only truth.\n"
     sliced = root_slice(24)

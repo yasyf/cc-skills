@@ -6,7 +6,8 @@ import sys
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, register_context, register_of, script
+from .compaction_handoff import CompactionState, drive_entry, register_context, register_of, script
+from .tests.register_fixtures import DRIVE_CONFIG
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
@@ -16,8 +17,8 @@ ACTIVE = CompactionState(active=True, slug="brook")
 
 
 def drive_args(evt: BaseHookEvent) -> list[str] | None:
-    if (drive := CompactionState.load(evt)).active and drive.slug:
-        return ["--program", drive.slug]
+    if CompactionState.load(evt).active and (entry := drive_entry(evt)):
+        return ["--drive", entry["drive"]]
     if worker := reqenv.getenv(DRIVE_ENV):
         return ["--drive", worker]
     return None
@@ -27,15 +28,15 @@ def drive_args(evt: BaseHookEvent) -> list[str] | None:
     Event.SubagentStart,
     skip_planning_agents=False,
     tests={
-        Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Warn(
+        Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Standing rules register `ccccccc`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
         ),
-        Input(agent_type="general-purpose", agent_id="a1b2c3", commands=NONE_FOUND, state=[ACTIVE]): Allow(),
-        Input(agent_type="Explore", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
-        Input(agent_type="codex:codex-wrapper", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
-        Input(agent_type="Explore", agent_id="a1b2c3", commands=NONE_FOUND, state=[ACTIVE]): Allow(),
-        Input(agent_type="long-running:lane", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
+        Input(agent_type="general-purpose", agent_id="a1b2c3", commands=NONE_FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(agent_type="Explore", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
+        Input(agent_type="codex:codex-wrapper", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
+        Input(agent_type="Explore", agent_id="a1b2c3", commands=NONE_FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
+        Input(agent_type="long-running:lane", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(agent_type="general-purpose", agent_id="a1b2c3"): Allow(),
     },
 )

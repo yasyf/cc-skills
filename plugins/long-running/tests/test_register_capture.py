@@ -54,7 +54,7 @@ class Root:
             ("cc-present", "outcomes"): (1, f'cc-present: no cc-present artifact for session "{SESSION}"; run `cc-present start` first'),
             SWEEP: "open rule/0a1b2c3 plan.md:305 relay slot\n",
         }
-        CompactionState(active=True, slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, slug="users-plan-stem-of-brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def line(self, entry: dict, at: str) -> None:
         envelope = {"isSidechain": False, "uuid": f"u{len(self.transcript.read_text().splitlines())}", "parentUuid": None, "sessionId": SESSION, "timestamp": at}
@@ -100,6 +100,9 @@ class Root:
 def root(tmp_path, monkeypatch) -> Root:
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "brook-drive.json").write_text(json.dumps({"drive": "brook-drive", "sessions": [SESSION], "state_dir": str(tmp_path / "scratch" / "brook")}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     return Root(tmp_path)
 
