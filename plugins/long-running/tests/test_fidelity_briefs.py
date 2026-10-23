@@ -56,7 +56,7 @@ def test_every_fixture_is_a_committed_synthetic_diff_or_a_pointer_pinned_to_a_co
     assert sorted(linked) == sorted(path.name for path in FIXTURES.glob("*.diff"))
     for row in rows:
         assert row[2] in ("`ok`", "`missing`") and re.search(r"`(rule|prompt|corpus)/[^`]+`", row[3])
-        assert row[1].startswith("Synthetic: ") if row[0] in [f"[`{name}`]({name})" for name in linked] else re.search(r"\b[0-9a-f]{11,40}\b", row[1])
+        assert row[1].startswith("Synthetic: ") if row[0] in [f"[`{name}`]({name})" for name in linked] else re.search(r"`git -C <checkout> [^`]*\b[0-9a-f]{11,40}\b[^`]*`", row[1])
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "reference/orca-lane-brief.md", "scripts/pr-prose.py"])

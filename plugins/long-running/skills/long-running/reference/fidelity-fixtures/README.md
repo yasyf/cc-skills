@@ -17,8 +17,8 @@ desk reads what the code does.
 | Fixture | Source | Expected grade | Row it reads against |
 |---|---|---|---|
 | `3j-read-only-deletion` | One-clause deletion at `go/sand/cmd/iris_local_migrator.go:649` on `b3eb96249fc`; the exact edit is in note `b65fcb5`: `git -C <checkout> show b3eb96249fc:go/sand/cmd/iris_local_migrator.go` | `missing` | `rule/784f1ab`; plan 1.7 |
-| `41210-open-elsewhere-suppressed` | `gh pr diff 41210 --repo Forge-AI/monorepo`, head `17f1c046db576d9a29bb792572ccd0c96b9ca871` | `missing` | `prompt/1020-133122` |
-| `40265-hooks-tests-in-monorepo-ci` | `gh pr diff 40265 --repo Forge-AI/monorepo`, head `73e661d002b2e8ffbe63461e99a76017bdf3e82c` (C230) | `missing` | `rule/d968e1d`; standing rule 12 |
+| `41210-open-elsewhere-suppressed` | PR 41210 of Forge-AI/monorepo at its head: `git -C <checkout> fetch origin 17f1c046db576d9a29bb792572ccd0c96b9ca871 && git -C <checkout> diff origin/dev...17f1c046db576d9a29bb792572ccd0c96b9ca871` | `missing` | `prompt/1020-133122` |
+| `40265-hooks-tests-in-monorepo-ci` | PR 40265 of Forge-AI/monorepo at its head: `git -C <checkout> fetch origin 73e661d002b2e8ffbe63461e99a76017bdf3e82c && git -C <checkout> diff origin/dev...73e661d002b2e8ffbe63461e99a76017bdf3e82c` (C230) | `missing` | `rule/d968e1d`; standing rule 12 |
 | `landing-gates-before-41522` | `git -C <checkout> diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904 fdcaf449440^ -- go/ci/internal/landinggates go/ci/landinggates.go go/ci/landinggates_test.go` (C230) | `missing` | `rule/d968e1d` |
 | [`c00-weakened-hypothetical.diff`](c00-weakened-hypothetical.diff) | Synthetic: drops the assertion `plan/B-tests.md` row C00 puts in `TestEveryCorpusShapeOpensAndANewChatStartsBesideIt` (C231) | `missing` | `corpus/b-tests`; `rule/35e3757` |
 | [`syncing-label-hypothetical.diff`](syncing-label-hypothetical.diff) | Synthetic: a `syncing` chat state with a "Syncing…" label (C232) | `missing` | `rule/f958522` |
