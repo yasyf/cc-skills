@@ -2841,7 +2841,7 @@ def test_an_unreadable_test_corpus_holds_the_head_and_escalates_once(shell, conf
     shell.check_pr["29020"] = (1, "TESTS-CORPUS plan/B-tests.md sha256 differs from corpus/b-tests\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and blockers(shell) == []
+    assert shell.enqueues() == [] and [post["to"] for post in blockers(shell)] == ["root"]
     [line] = escalations(shell)
     assert line.startswith("TESTS-CORPUS ") and "cannot read the pinned test corpus at cccc333333: TESTS-CORPUS plan/B-tests.md" in line
 
@@ -2861,7 +2861,7 @@ def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_escalates_onc
     shell.check_pr["29020"] = (code, out)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and blockers(shell) == []
+    assert len(shell.enqueues()) == 1 and [post["to"] for post in blockers(shell)] == ["root"]
     [line] = escalations(shell)
     assert line.startswith("RULINGS-UNREAD ") and "so the head passes the rulings check" in line
 

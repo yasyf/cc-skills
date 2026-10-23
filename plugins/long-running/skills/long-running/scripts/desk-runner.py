@@ -3716,9 +3716,9 @@ class Landing:
         return Grade(False, grade, f"{grade['lane']}'s ok on cci #{grade['seq']} leaves out {len(left)} required row(s) under `checked` or `names`: {', '.join(left[:8])}{' and more' if len(left) > 8 else ''}")
 
     def required(self, pr: str, sha: str, base: str) -> dict[str, set[str]] | None:
-        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required`, read once per head a pass; None when it does not read, which escalates once per head."""
+        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against `base`, or the trunk when the row names none, read once per head a pass; None when it does not read, which escalates once per head."""
         if (pr, sha) not in self.slices:
-            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha, "--base", base)
+            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha, "--base", base or TRUNK)
             if done.code:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(f"slice:{pr}:{sha}", "SLICE-READ-FAILED", f"#{pr}", f"`rulings.py slice --required` exited {done.code} for {sha[:10]}: {last[0]}; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass")
