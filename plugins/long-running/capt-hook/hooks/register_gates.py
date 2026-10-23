@@ -10,8 +10,10 @@ from captain_hook import (
     CONFIRMED,
     UNCONFIRMED,
     Allow,
+    Annotated,
     BaseHookEvent,
     Block,
+    Call,
     Confirm,
     Event,
     FromSubagent,
@@ -54,11 +56,11 @@ EXCERPT = 160
 BLOCKERS = "register-blockers"
 READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
 UNROWED_ANSWER = (
-    "A GO or DECIDE cites only owner answers the register holds, and {ids} has no row in register `{program}`. "
+    "A GO or DECIDE cites only owner answers the register holds, and `{ids}` has no row in register `{program}`. "
     "Classify the owner's words with `rulings.py classify` first, then post the line."
 )
 REPEAT_OPEN = (
-    "The owner repeated the ruling behind {keys}, and its sweep hit list is not posted. "
+    "The owner repeated `{keys}`, and its sweep hit list is not posted. "
     "Post the hits and mark them with `rulings.py sweep <key> --posted <ref>` before this {moment}."
 )
 UNCLASSIFIED = (
@@ -67,11 +69,15 @@ UNCLASSIFIED = (
 )
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 QUESTION_OPEN = (
-    "The owner's question is open. Until its reply is posted, a reply or writer brief quotes the owner's words, the sentence"
-    " under question and the register rows bearing on it, and says from those rulings whether the thing exists at all before"
-    " any code read; it never defines the term or writes the answer for the writer."
+    "An owner question is open, so a reply or writer brief quotes the words, sentence and rows below and says from them whether"
+    " the thing should exist before any code read. It never defines the term or writes the answer for the writer."
 )
-UNQUOTED = "This reply or brief does not quote the owner's words. "
+UNQUOTED = (
+    "This reply or brief does not quote the open owner question below. Quote its words, sentence and rows, and say from them"
+    " whether the thing should exist before any code read."
+)
+CAPTURE_LOG = "owner-prompts"
+CAPTURE_FORMAT = "jsonl"
 QUESTION_JUDGE = Confirm(
     rule="Block when a reply or writer brief, written while the owner's question is open, leaves out his words, the sentence"
     " under question or the register rows bearing on it, or reads code before saying from those rulings whether the thing"
@@ -115,8 +121,16 @@ def citing_lines(evt: BaseHookEvent) -> list[str]:
     return CITING_LINE.findall(inbox_text(evt)) + posted(evt, CITING_KINDS)
 
 
+def captures(register: dict) -> Path:
+    return Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
+
+
+def launches(evt: BaseHookEvent) -> list[tuple[Call, tuple[str, ...]]]:
+    return [(call, run) for call in evt.command.calls() if (run := program((call.name, *call.args))) and Path(run[0]).name in BRIEF_LAUNCHERS]
+
+
 def key_moment(evt: BaseHookEvent) -> str | None:
-    if evt.tool_name == "Agent":
+    if evt.tool_name == "Agent" or launches(evt):
         return "spawn"
     if GO_LINE.search(inbox_text(evt)) or posted(evt, GO_KINDS):
         return "GO"
@@ -135,7 +149,7 @@ def register_files(register: dict, pattern: str) -> list[tuple[Path, dict]]:
 
 
 def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
-    prompts = Path(register["state_dir"]) / "owner-prompts.jsonl"
+    prompts = captures(register)
     if not prompts.is_file():
         return
     classified = set(register["classified"])
@@ -168,45 +182,46 @@ def go(text: str, kind: str = "go") -> str:
     return f"cci post --lane root --kind {kind} --to walker --text '{text}'"
 
 
-def gate(command: str | None = None, state: str = "quiet", *answers: tuple[str, str | tuple[int, str]], **extra: object) -> Input:
+def register_case(command: str | None = None, state: str = "quiet", *answers: tuple[str, str | tuple[int, str]], **extra: object) -> Input:
     fields = {"command": command} if command is not None else {}
     return Input(**(fields | extra), state=ACTIVE, cwd=CWD, commands=readings(state, *answers))
 
 
 def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Input:
-    return gate(None, state, tool="Agent", tool_input={"name": name, "prompt": prompt}, **extra)
+    return register_case(None, state, tool="Agent", tool_input={"name": name, "prompt": prompt}, **extra)
 
 
 @on(
     Event.PreToolUse,
     only_if=[DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
-    skip_if=[FromSubagent()],
+    skip_if=[FromSubagent(), Annotated("raw")],
     tests={
-        gate(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
-        gate(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(
-            pattern=r"^A GO or DECIDE cites only owner answers the register holds, and 1dfd09d has no row in register `brook`\."
+        register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
+        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(
+            pattern=r"^A GO or DECIDE cites only owner answers the register holds, and `1dfd09d` has no row in register `brook`\."
         ),
-        gate(go(f"lanes stop until {UNROWED[:7]} lands", "decide"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(pattern=r"1dfd09d has no row"),
-        gate(
+        register_case(go(f"lanes stop until {UNROWED[:7]} lands", "decide"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(pattern=r"`1dfd09d` has no row"),
+        register_case(
             f'echo "GO root (4:50 AM) walker: cut web under {UNROWED}" >> /s/inbox/deploy-go.md', "quiet", (UNROWED, shown(UNROWED))
         ): Block(pattern=r"has no row in register"),
-        gate(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
-        gate(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"1234567 has no row"),
-        gate(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
-        gate(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
-        gate(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
-        gate(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], (1, "ccn: store locked"))): Allow(),
-        gate(go("cut web"), "repeat"): Block(pattern=r"^The owner repeated the ruling behind rule/0a1b2c3, and its sweep hit list is not posted\..* before this GO\.$"),
+        register_case(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
+        register_case(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"`1234567` has no row"),
+        register_case(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
+        register_case(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
+        register_case(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
+        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], (1, "ccn: store locked"))): Allow(),
+        register_case(go("cut web"), "repeat"): Block(pattern=r"^The owner repeated `rule/0a1b2c3`, and its sweep hit list is not posted\..* before this GO\.$"),
         spawn("lane-x", "Lane lane-x: build the slice verb.", "repeat"): Block(pattern=r"before this spawn\.$"),
-        gate("cc-present push /tmp/board.json", "repeat"): Block(pattern=r"before this board push\.$"),
-        gate("cc-present update-block --id c7-timers /tmp/block.json", "repeat"): Block(pattern=r"board push"),
+        register_case("codex-ask -m sol /s/briefs/lane-x.md", "repeat"): Block(pattern=r"before this spawn\.$"),
+        register_case("cc-present push /tmp/board.json", "repeat"): Block(pattern=r"before this board push\.$"),
+        register_case("cc-present update-block --id c7-timers /tmp/block.json", "repeat"): Block(pattern=r"board push"),
         spawn("incident-api-500s-fix", "Fix the api 500s.", "repeat"): Allow(),
-        gate("cc-present reply --block r3 --body 'Done.'", "repeat"): Allow(),
-        gate("ls", "repeat"): Allow(),
+        register_case("cc-present reply --block r3 --body 'Done.'", "repeat"): Allow(),
+        register_case("ls", "repeat"): Allow(),
         spawn("lane-x", "Lane lane-x: build the slice verb."): Allow(),
         Input(command=go("cut web"), state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
         Input(command=go("cut web"), cwd=CWD, commands=readings("repeat")): Allow(),
-        gate(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
+        register_case(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
     },
 )
 def register_gate(evt: BaseHookEvent) -> HookResult | None:
@@ -237,13 +252,7 @@ def replies(evt: BaseHookEvent) -> list[tuple[str, ...]]:
 
 
 def brief_files(evt: BaseHookEvent) -> list[Path]:
-    found: list[Path] = []
-    for call in evt.command.calls():
-        run = program((call.name, *call.args))
-        if run and Path(run[0]).name in BRIEF_LAUNCHERS:
-            base = Path(call.cwd or evt.cwd)
-            found += [path for arg in run[1:] if (path := base / Path(arg).expanduser()).is_file()]
-    return found
+    return [path for call, run in launches(evt) for arg in run[1:] if (path := Path(call.cwd or evt.cwd) / Path(arg).expanduser()).is_file()]
 
 
 def answer_text(evt: BaseHookEvent) -> tuple[str, str]:
@@ -272,6 +281,10 @@ def asked(question: dict, rows: dict) -> str:
     )
 
 
+def fenced(text: str) -> str:
+    return f"{REGISTER_FENCE}\n{text}\n{REGISTER_FENCE}"
+
+
 def question(text: str, state: str, **extra: object) -> Input:
     return Input(command=text, state=ACTIVE, cwd=CWD, commands=readings(state), **extra)
 
@@ -283,15 +296,16 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[DriveActive(), Tool("Bash", "Agent")],
+    skip_if=[Annotated("raw")],
     tests={
         asks("reply-lookup", fixture("brief-158585"), "question-lookup", decide=CONFIRMED): Block(
-            pattern=r'^The owner\'s question is open\..*\n- The owner asked: "why does it need this lookup\?"\n  Sentence under question: "6\. How does the'
-            r' export learn a report\'s owner\?"\n  Row rule/4d5e6f7: "The export never needs to know about laptop-only reports\."'
+            pattern=r'^An owner question is open, .*\n~{12}\n- The owner asked: "why does it need this lookup\?"\n  Sentence under question: "6\. How does'
+            r' the export learn a report\'s owner\?"\n  Row rule/4d5e6f7: "The export never needs to know about laptop-only reports\."\n~{12}$'
         ),
         asks("timers-writer", TIMERS, "question-timers", decide=CONFIRMED): Block(pattern=r'"what is a relay slot\? why is this here\?"'),
         question(reply("c7-timers", fixture("correction-1244")), "question-timers", decide=UNCONFIRMED): Allow(),
         asks("timers-writer", TIMERS, "question-timers", decide=UNCONFIRMED): Allow(),
-        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the owner's words\."),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the open owner question below\."),
         question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Block(pattern=r"does not quote"),
         question(f"orca-launch.sh timers-writer standard xhigh {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(
             pattern=r"relay slot"
@@ -317,13 +331,14 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
         register = read_register(evt, which)
         if not (questions := open_questions(register)):
             return None
-        shown = [f"{REGISTER_FENCE}\n{briefs.strip()}\n{REGISTER_FENCE}"] if briefs else []
-        message = "\n".join([QUESTION_OPEN, *(asked(question, register["rows"]) for question in questions), *shown])
+        shown = [fenced("\n".join(asked(question, register["rows"]) for question in questions)), *([fenced(briefs.strip())] if briefs else [])]
         quoted = all(quotes(text, question) for question in questions)
     except READ_ERRORS as error:
         failed_open(evt, "owner_question_gate", error)
         return None
-    return evt.block(message, confirm=QUESTION_JUDGE) if quoted else evt.block(UNQUOTED + message)
+    if quoted:
+        return evt.block("\n".join([QUESTION_OPEN, *shown]), confirm=QUESTION_JUDGE)
+    return evt.block("\n".join([UNQUOTED, *shown]))
 
 
 def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: str) -> None:

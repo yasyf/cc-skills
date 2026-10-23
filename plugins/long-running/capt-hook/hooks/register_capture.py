@@ -13,12 +13,11 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
-from .register_gates import READ_ERRORS, failed_open, folded, read_register
+from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
 from .root_context import PACIFIC, DriveActive, OwnerPrompt, message_label
 from .tests.register_fixtures import ACTIVE, CWD, ROWS, readings
 
-PROMPTS = "owner-prompts.jsonl"
 STAMP = "%Y-%m-%d %-I:%M %p PT"
 TRIGGERS = (
     ("what", "is"),
@@ -62,6 +61,8 @@ def digest_of(evt: BaseHookEvent) -> str:
     },
 )
 def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
     with PendingPrompts.mutate(evt) as pending:
         pending.prompts.append({"digest": digest_of(evt), "session": evt.session_id, "source": "prompt", "text": evt.user_prompt or ""})
     return None
@@ -78,8 +79,8 @@ def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
     return found
 
 
-def stamped(prompt: dict, at: datetime) -> dict:
-    return {"digest": prompt["digest"], "at": at.astimezone(PACIFIC).strftime(STAMP), "session": prompt["session"], "source": prompt["source"], "text": prompt["text"]}
+def capture(prompt: dict) -> dict:
+    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": prompt["text"]}
 
 
 @on(
@@ -102,16 +103,21 @@ def stamped(prompt: dict, at: datetime) -> dict:
 def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
     if not PendingPrompts.load(evt).prompts or not (which := drive_args(evt)):
         return None
-    try:
-        with PendingPrompts.mutate(evt) as pending:
-            seen = stamps(evt)
-            if landed := [stamped(prompt, seen[folded(prompt["text"])]) for prompt in pending.prompts if folded(prompt["text"]) in seen]:
-                with (Path(read_register(evt, which)["state_dir"]) / PROMPTS).open("a") as file:
-                    file.writelines(f"{json.dumps(capture)}\n" for capture in landed)
-                pending.prompts = [prompt for prompt in pending.prompts if folded(prompt["text"]) not in seen]
-    except READ_ERRORS as error:
-        failed_open(evt, "stamp_owner_prompts", error)
-        return None
+    with PendingPrompts.mutate(evt) as pending:
+        seen = stamps(evt)
+        pending.prompts = [
+            prompt | {"at": seen[key].astimezone(PACIFIC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt["text"])) in seen else prompt
+            for prompt in pending.prompts
+        ]
+        if not (landed := [capture(prompt) for prompt in pending.prompts if "at" in prompt]):
+            return None
+        try:
+            with captures(read_register(evt, which)).open("a") as file:
+                file.writelines(f"{json.dumps(line)}\n" for line in landed)
+        except READ_ERRORS as error:
+            failed_open(evt, "stamp_owner_prompts", error)
+            return None
+        pending.prompts = [prompt for prompt in pending.prompts if "at" not in prompt]
     return None
 
 

@@ -142,5 +142,5 @@ def test_a_closed_question_no_longer_gates_a_writer_spawn(root):
     [refusal] = root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn)
     root.fire(StopEvent)
 
-    assert refusal.startswith("This reply or brief does not quote the owner's words.")
+    assert refusal.startswith("This reply or brief does not quote the open owner question below.")
     assert root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn) == []
