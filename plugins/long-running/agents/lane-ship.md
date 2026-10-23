@@ -1,7 +1,7 @@
 ---
 name: lane-ship
 description: One implementation lane in a long-running drive that ships a PR or calls a skill such as submit-pr, open-pr, or codex. It is `lane` plus the Skill tool; its allowlist still leaves out ToolSearch, every MCP tool except the cc-slack tools, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table.
-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_history, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_watch, mcp__plugin_cc-slack_cc-slack__slack_unwatch, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__await
+tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status
 model: opus
 experimental:
   cacheTtl: 1h

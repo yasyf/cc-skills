@@ -28,18 +28,19 @@ Rules:
   retro log feeds it, one `[step <n>]` entry per finding. "None recorded" is allowed
   only when that log has nothing for the step.
 - Plain words come first. A PR number or record id may follow the description, at
-  most one per cell. Only PRs are written `#N`, so the dashboard script can refresh
+  most one per cell. Only PRs are written `#N`, so `scripts/plan-table.py` can refresh
   their state. Lane names appear only in the unblock column.
 - The live copy is one cc-notes doc labelled `owner-table` that the root edits at each
   update. The plan carries the format and one filled example, not the live rows.
 
 ## Dashboard
 
-The drive dashboard's Plan table panel renders the live copy.
-`scripts/plan-table.py` reads the doc, refreshes the State column from one batched
-`ccx vcs pr status` call over every PR the table names, appends the watchdog's newest
-retro line per step, and writes `<state dir>/dashboard/plan-table.md`. The
-drive-watchdog runs it every 30 minutes:
+No dashboard runs for the drive (owner instruction of 2026-10-18). When the owner asks
+for one, its Plan table panel renders the live copy. `scripts/plan-table.py` reads the
+doc, refreshes the State column from one batched `ccx vcs pr status` call over every PR
+the table names, appends the watchdog's newest retro line per step, and writes
+`<state dir>/dashboard/plan-table.md`. The root runs it when the owner asks for the
+dashboard; no lane runs it on a clock:
 
 ```
 plan-table.py --doc <table doc id> --retro-log <watchdog log id> --repo <checkout> \

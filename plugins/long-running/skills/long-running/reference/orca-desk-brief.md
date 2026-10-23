@@ -808,7 +808,7 @@ label, posts a blocker every `deadlines.incident_release_minutes` while an incid
 clock runs, and settles only on a `release` record with `--build` and `--target`.
 Once the settling record names a build, each pass reads
 `tools/ci release live <id> --json` and posts one `RELEASED` `fix-live` record to the
-root and `landing.comms_lane` when every component reads live.
+root alone when every component reads live.
 
 A `BLOCKED` head routes at most once per head, and only for red CI, a merge
 conflict, a changes-requested review or fidelity grade, or a queue ejection. A

@@ -257,7 +257,7 @@ Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none
   only when the key-moment judge selects it, once per lane per answer.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`#<seq>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
-Plan task: register your unit at spawn so the dashboard's Plan progress card counts it: `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`, then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves (SKILL.md Plan progress). The coordinator fills the plan id and step, or writes "none".
+Plan task: register your unit at spawn so the progress record's plan counts include it: `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`, then `ccn task start`, `ccn task criterion met|failed`, and `ccn task done` as it moves (SKILL.md Plan progress). The coordinator fills the plan id and step, or writes "none".
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
 
