@@ -318,7 +318,7 @@ def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
     if register:
         problems += verify_reports(item, reads, register)
         problems += [f'sweep: {hit["where"]} names "{hit["name"]}", which {hit["key"]} rules out' for hit in swept(reads, item) or []]
-    problems += plan_words(item.data.decode(), reads) if item.verb == "plan" else plain_words(evt, list(shown(item.doc)), reads)
+    problems += plan_words(evt, item.data.decode(), reads) if item.verb == "plan" else plain_words(evt, list(shown(item.doc)), reads)
     if register:
         problems += text_grade(item, reads, register)
     return problems
@@ -400,6 +400,8 @@ def exits(name: str, **extra: object) -> Input:
         ),
         posting("ls -la"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
+        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Block(pattern=r'the owner would need "Notes R3b" defined'),
+        exits("plan-title.redraft.md", reviewed=(sha12("plan-title.redraft.md"),)): Allow(),
         exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
         exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Block(
             pattern=r'the plan has a plan row number, "C221"\n[\s\S]*the plan has an answer id, "5c0e9a1"\n[\s\S]*an acronym standing in for words, "OPFS"'

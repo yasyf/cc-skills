@@ -21,7 +21,6 @@ from captain_hook import (
     Annotated,
     BaseHookEvent,
     Block,
-    Call,
     CommandSchema,
     Confirm,
     Event,
@@ -145,6 +144,15 @@ He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
 List each term in the text he would need defined before he could act on it: one outside plain English and the glossary that the text does not explain in his own words. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is such a term; one that labels an option, plan, or list item is not. Return no terms when he needs nothing defined.
+---
+{text}"""
+PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, and the product's nouns in this glossary:
+{glossary}
+
+He ruled on these things; each line gives a thing's names, then his words:
+{scopes}
+
+A plan names files, code, and path:line @ ref cites on purpose; those are never terms. List each term he would need defined before he could approve the plan: a bare id, code name, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Return no terms when he needs nothing defined.
 ---
 {text}"""
 CC_PRESENT = CommandSchema(
@@ -562,7 +570,7 @@ def outside_cites(text: str) -> str:
     return seen
 
 
-def plan_words(text: str, reads: Reads) -> list[str]:
+def plan_words(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
     seen = outside_cites(text)
     hits = dict.fromkeys((kind, hit[0]) for kind, pattern in IDS for hit in pattern.finditer(seen))
     found = [f'plain words: the plan has {kind}, "{hit}"' for kind, hit in hits]
@@ -570,7 +578,8 @@ def plan_words(text: str, reads: Reads) -> list[str]:
         return found
     known = {line.strip().lower() for line in glossary.splitlines()}
     acronyms = dict.fromkeys(word for word in ACRONYM.findall(seen) if not {word.lower(), word.lower().removesuffix("s")} & known)
-    return found + [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
+    found += [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
+    return found + reader_test(evt, readable(text), reads, PLAN_READER)
 
 
 def reason(failure: BaseException) -> str:
@@ -641,10 +650,10 @@ class Reads:
             post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
 
 
-def reader_test(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
+def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READER) -> list[str]:
     if not text.strip() or (glossary := reads.glossary()) is None or (scopes := reads.scopes()) is None:
         return []
-    prompt = READER.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", text=text)
+    prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", text=text)
     verdict = evt.llm(prompt, Undefined, size="small")
     return [f'plain words: the owner would need "{term}" defined' for term in verdict.terms] if verdict else []
 
