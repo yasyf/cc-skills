@@ -5144,7 +5144,7 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate
     clocked_lane(shell, config, tmp_path)
     holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
     brief = tmp_path / "cache.md"
-    brief.write_text("Finish the cache half of #1201.\n")
+    brief.write_text("Finish the cache half of #1201.\n\nRegister slice: lane=api-cache step=1.9\n")
     desk_inbox(tmp_path, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
