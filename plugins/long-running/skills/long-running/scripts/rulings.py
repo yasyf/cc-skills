@@ -13,7 +13,7 @@
     rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
     rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ [--root DIR]
     rulings.py accepted     (--program SLUG | --drive ID) --lane NAME
-    rulings.py pr-block     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] --lane NAME
+    rulings.py pr-block     (--program SLUG | --drive ID) [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
     rulings.py table        (--program SLUG | --drive ID) [--since-last-update] [--full]
     rulings.py glossary     (--program SLUG | --drive ID)
     rulings.py authorize    (--program SLUG | --drive ID) --row KEY (--action TS | --prompt DIGEST)
@@ -1275,11 +1275,16 @@ def date_of(fields: dict[str, str]) -> str:
     return match[1] if (match := DATE.match(at)) else at
 
 
+def base_of(shell: ledger.Shell, repo: str, number: str | None) -> str:
+    if number:
+        return json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+    return json.loads(shell.run(["gh", "api", f"repos/{repo}"]))["default_branch"]
+
+
 def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    repo, number = pull(args, shell)
-    base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
-    diff = compare(shell, repo, base, args.head)
+    repo, number = pull(args, shell) if args.pr else (ledger.origin_repo(shell, Path(args.repo)), None)
+    diff = compare(shell, repo, args.base or base_of(shell, repo, number), args.head)
     rulings, words = ["## Rulings", ""], ["### In your words", ""]
     matched = [(key, fields) for key, fields in loaded.rulings().items() if (anchors(fields) or symbols(fields)) and (touched(fields, diff) or args.lane in listed(fields.get("lanes")))]
     for key, fields in matched:
@@ -1288,7 +1293,7 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
             symbol, file, line = found[0]
             rulings.append(f"- {key}: met by {symbol} at {file}:{line}")
             words.append(f"- {sentence}; this change does it.")
-        elif answer := authorizing(loaded, key, number):
+        elif number and (answer := authorizing(loaded, key, number)):
             rulings.append(f"- {key}: authorized by {answer}")
             words.append(f"- {sentence}; this change deletes under it, on your answer {answer}.")
         else:
@@ -1806,7 +1811,7 @@ def build_parser() -> argparse.ArgumentParser:
     accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok")
     accepted.add_argument("--lane", required=True)
     block = verb("pr-block", cmd_pr_block, "print a PR body's ## Rulings and ### In your words sections")
-    block.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")
+    block.add_argument("--pr", metavar="[OWNER/NAME#]N")
     block.add_argument("--head", required=True, metavar="SHA")
     block.add_argument("--base", metavar="REF")
     block.add_argument("--lane", required=True)

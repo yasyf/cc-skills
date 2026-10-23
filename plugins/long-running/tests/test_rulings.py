@@ -347,6 +347,8 @@ class RegisterShell(ledger.Shell):
                 return self.diff
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "main"})
+            case ["gh", "api", "repos/acme/app"]:
+                return json.dumps({"default_branch": "main"})
             case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
                 return "git@github.com:acme/app.git\n"
             case ["cci", "post", *_]:
@@ -1170,6 +1172,15 @@ def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, pa
             "- On Oct 20 you said “Drain the pool when a run closes.”; this change does it.",
         ],
     )
+
+
+def test_pr_block_renders_from_the_pushed_head_before_the_pr_opens(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package), diff=DIFF)
+
+    code, out = ran(capsys, shell, "pr-block", "--head", "cafef00d", "--lane", "lane-b")
+
+    assert (code, out.splitlines()[:3]) == (0, ["## Rulings", "", "- rule/bbbbbbb: met by Pool.drain at src/relay/pool.rs:2"])
+    assert not [argv for argv in shell.calls if argv[:3] == ["gh", "pr", "view"]]
 
 
 def test_table_prints_one_plain_row_per_ruling(home: Path, package: Path, state: Path, capsys) -> None:
