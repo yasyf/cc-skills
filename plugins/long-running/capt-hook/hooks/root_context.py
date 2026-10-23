@@ -323,9 +323,13 @@ class SearchesRepo:
         for call in calls:
             if call.name in SEARCHERS:
                 found = paths(call)
-                if not found or any(source_file(path, plan) for path in found):
+                if (not found and not reads_stdin(call, calls)) or any(source_file(path, plan) for path in found):
                     return True
         return False
+
+
+def reads_stdin(call: Call, calls: Sequence[Call]) -> bool:
+    return any(each.occurrence.index == call.occurrence.index - 1 and each.occurrence.next_op == "|" for each in calls)
 
 
 def within(values: tuple[Scalar | None, ...], limit: int) -> bool:
@@ -458,6 +462,7 @@ root_block(
         Input(command="tail -n 40 /drive/inbox/deploy-go.md"): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md # ccx:raw", state=ACTIVE): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root | grep -E 'MECHANISM|blocker'", state=ACTIVE): Allow(),
     },
 )
 
@@ -526,6 +531,7 @@ root_block(
         Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n")): Allow(),
         Input(command="cat >> inbox.md <<'EOF'\nlaunch l17 NOW\nEOF", state=ACTIVE): Allow(),
         Input(command="ccx vcs status | grep blocked", state=ACTIVE): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root | grep -n MECHANISM", state=ACTIVE, decide=CONFIRMED): Allow(),
         Input(command="ccx vcs status | jq .", state=ACTIVE): Allow(),
     },
 )
@@ -544,6 +550,8 @@ root_block(
         Input(command="rg -n LAUNCH plugins"): Allow(),
         Input(command="rg -n LAUNCH plugins", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="date -u +%H:%MZ && ls ~/scratch", state=ACTIVE): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root | rg -n 'MECHANISM|blocker'", state=ACTIVE, decide=CONFIRMED): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root; rg -n MECHANISM", state=ACTIVE, decide=CONFIRMED): Block(),
     },
 )
 

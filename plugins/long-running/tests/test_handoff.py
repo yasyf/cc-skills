@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -89,9 +91,12 @@ class FakeCcn(ledger.Shell):
         self.stuck: set[str] = set()
         self.history: dict[str, list[dict]] = {}
         self.registers: list[str] = []
+        self.register_label = REGISTER
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
         self.notes = CcnPlans([])
         self.lane_records: list[dict] = []
+        self.register_rows: dict = {"ledger": None, "program": "brook", "rows": {}, "classified": []}
+        self.rows_error: str | None = None
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
@@ -116,6 +121,10 @@ class FakeCcn(ledger.Shell):
             return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > int(since))
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps({"id": argv[3], "rows": self.rows})
+        if argv[1:3] == [str(standing.RULINGS), "rows"]:
+            if self.rows_error:
+                raise subprocess.CalledProcessError(2, argv, stderr=self.rows_error)
+            return json.dumps(self.register_rows)
         assert argv[1:3] == ["-R", REPO], argv
         verb = argv[3:5]
         labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
@@ -127,7 +136,7 @@ class FakeCcn(ledger.Shell):
             return json.dumps(
                 [
                     {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
-                    for i, doc in enumerate(self.registers if REGISTER in labels else self.active)
+                    for i, doc in enumerate(self.registers if self.register_label in labels else self.active)
                 ]
             )
         if verb == ["doc", "show"]:
@@ -138,7 +147,7 @@ class FakeCcn(ledger.Shell):
                     "id": doc,
                     "title": self.titles.get(doc, "brook: progress"),
                     "body": self.docs[doc],
-                    "tags": self.tags.get(doc, [REGISTER] if doc in self.registers else ["progress:brook"]),
+                    "tags": self.tags.get(doc, [self.register_label] if doc in self.registers else ["progress:brook"]),
                     "supersedes": self.supersedes.get(doc, []),
                     "created_at": created,
                     "updated_at": self.updated.get(doc, created),
@@ -150,7 +159,7 @@ class FakeCcn(ledger.Shell):
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
             self.history[doc] = [creation_entry(self.docs[doc])]
-            (self.registers if REGISTER in labels else self.active).append(doc)
+            (self.registers if self.register_label in labels else self.active).append(doc)
             self.added[doc] = argv[5]
             self.titles[doc] = argv[5]
             self.touch(doc)
@@ -195,7 +204,7 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     drives = tmp_path / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "d1.json").write_text(
-        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1", "state_dir": str(tmp_path / "state")})
+        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1", "state_dir": str(tmp_path / "state" / "brook")})
     )
     session = tmp_path / "session.json"
     session.write_text(
@@ -260,7 +269,7 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n"
-        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'dashboard'}` starts it and prints the link for the owner\n",
+        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'brook' / 'dashboard'}` starts it and prints the link for the owner\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body
@@ -270,8 +279,21 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
     assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi"
 
 
+def test_generate_reads_the_register_of_the_drives_program_not_the_plan_stem(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"state_dir": str(drive_home / "state" / "durable-program")}))
+    shell = shell_with()
+    shell.register_label = "standing-rules:durable-program"
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    assert "Register `ccn doc show ccccccc`: 2 owner-approved rules" in shell.docs[out["id"]]
+    labels = [call[6] for call in shell.calls if call[3:6] == ["doc", "list", "--label"] and call[6].startswith("standing-rules:")]
+    assert labels and set(labels) == {"standing-rules:durable-program"}
+
+
 def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    server = drive_home / "state" / "dashboard" / "server.json"
+    server = drive_home / "state" / "brook" / "dashboard" / "server.json"
     server.parent.mkdir(parents=True)
     server.write_text(json.dumps({"url": "http://127.0.0.1:8123/", "tailnet_url": "http://mac.tail1.ts.net:8123/"}))
     shell = shell_with()
@@ -719,3 +741,132 @@ def test_a_drive_with_no_incident_lane_says_so(drive_home: Path, capsys: pytest.
     body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
     assert "## Incident lanes\n- none posted in the last 6 h\n" in body
+
+
+def test_generate_clears_a_cursor_from_before_the_drive_that_no_line_sits_past_and_keeps_one_with_a_line_past_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Papercut 3dfdc2f, Oct 20: the orca desk restarted after an inbox rotation onto a `.cursor` file written Oct 1."""
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    inbox = drive_home / ".claude/scratch/brook/inbox"
+    stale, behind = inbox / "landing-desk.md.cursor", inbox / "orca-desk.md.cursor"
+    stale.write_text("L1\n")
+    written = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    for cursor in (stale, behind):
+        os.utime(cursor, (written, written))
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert not stale.exists() and behind.read_text() == "R2\n"
+    for line in (
+        "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
+        "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
+        "- cleared stale cursor landing-desk.md.cursor at L1, written before the drive started at 2026-10-20T00:00:00Z",
+    ):
+        assert line in body
+
+
+def test_generate_keeps_an_old_cursor_at_the_newest_ruling_when_a_line_follows_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    inbox = drive_home / ".claude/scratch/brook/inbox"
+    (inbox / "landing-desk.md").write_text("- L1 (root) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
+    cursor = inbox / "landing-desk.md.cursor"
+    cursor.write_text("L1\n")
+    written = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    os.utime(cursor, (written, written))
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert cursor.read_text() == "L1\n" and "cleared stale cursor" not in body
+
+
+def test_generate_keeps_a_read_through_cursor_written_after_the_drive_started(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    cursor = drive_home / ".claude/scratch/brook/inbox/landing-desk.md.cursor"
+    cursor.write_text("L1\n")
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert cursor.read_text() == "L1\n" and "cleared stale cursor" not in body
+
+
+AFF1D7D4 = Path(__file__).parent / "fixtures" / "handoff-aff1d7d4-shape.md"
+ROW_WORDS = "the app shows no syncing state, and the downloading bar is the one transfer state"
+
+
+def scope_rows(count: int) -> dict:
+    rows = {}
+    for n in range(count):
+        implications = [{"n": i, "text": f"surface {n}.{i} shows no syncing state " + "x" * 80, "direction": "removes", "state": "proposed", "proof": "seed"} for i in range(1, 6)]
+        rows[f"rule/{n:07x}"] = {
+            "kind": "scope",
+            "status": "in-force",
+            "words": f"{ROW_WORDS}, row {n}",
+            "answer": json.dumps([f"{n:07x}"]),
+            "said": "1",
+            "implications": json.dumps(implications),
+            "names": json.dumps([f"syncing state {n}", "Syncing"]),
+            "updated_at": "2026-10-01T00:00:00Z",
+            "evidence": "seed",
+        }
+    return rows
+
+
+def test_generate_prints_every_scope_row_in_the_owners_words_past_the_size_cap(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(standing, "post_blocker", lambda program, text: posted.append((program, text)))
+    shell = shell_with(register=False)
+    shell.register_rows = {"ledger": "0d4cfee", "program": "brook", "rows": scope_rows(60), "classified": []}
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    body = shell.docs[out["id"]]
+    assert len(body.partition(f"\n{handoff.NARRATIVE}\n")[0].encode()) > progress.CAP
+    assert "no `standing-rules` register doc" not in body
+    for key, fields in shell.register_rows["rows"].items():
+        assert f"- `{key}` (in-force, said 1): “{fields['words']}”\n" in body
+        assert all(f"  - implication {i['n']}, removes, proposed: {i['text']}\n" in body for i in json.loads(fields["implications"]))
+    assert standing.lint(handoff.lint_view(body), None, None, set(), standing.Rows(rows=shell.register_rows["rows"])) == []
+    assert posted == []
+
+
+def test_a_failed_register_read_still_generates_and_posts_one_blocker(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(standing, "post_blocker", lambda program, text: posted.append((program, text)))
+    shell = shell_with(register=False)
+    shell.rows_error = "rulings.py: error: no register ledger for brook\n"
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    body = shell.docs[out["id"]]
+    assert "## Standing owner rules\n\n- no `standing-rules` register doc\n\n- #2 [cci #2]\n\n- the register rows did not load (rulings.py: error: no register ledger for brook)" in body
+    [(cci_drive, text)] = posted
+    assert cci_drive == "brook" and text.startswith("The register rows for brook did not load for the handoff: rulings.py: error: no register ledger for brook.")
+    assert [handoff.sys.executable, str(standing.RULINGS), "rows", "--drive", "d1", "--repo", REPO, "--json"] in shell.calls
+
+
+def test_lint_fails_the_aff1d7d4_handoff_against_the_register(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.register_rows = {
+        "ledger": "0d4cfee",
+        "program": "brook",
+        "rows": {"rule/f958522": {"kind": "scope", "status": "in-force", "words": ROW_WORDS, "answer": '["f958522"]', "updated_at": "2026-10-01T00:00:00Z"}},
+        "classified": [],
+    }
+
+    code = handoff.main(["lint", "--file", str(AFF1D7D4), "--program", "brook", "--repo", REPO], shell)
+
+    printed = capsys.readouterr().out.splitlines()
+    assert code == standing.VIOLATIONS
+    assert 'the handoff says "no `standing-rules` register doc"; the register ledger holds the owner\'s rows, so regenerate the section with `handoff.py generate`' in printed
+    assert (
+        f"`f958522` cites without its words register row `rule/f958522`: - f958522: the app shows no syncing state.; quote the row's words verbatim: “{ROW_WORDS}”"
+    ) in printed

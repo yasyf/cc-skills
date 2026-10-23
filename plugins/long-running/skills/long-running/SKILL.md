@@ -452,7 +452,7 @@ as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
 
 - It posts the fence and launches the fix and evidence lanes through
-  `scripts/orca-launch.sh <lane> incident xhigh` as Orca codex workers on
+  `orca-launch.sh <lane> incident xhigh` as Orca codex workers on
   `gpt-6.1-sol`, fast tier, `xhigh`; plain `sol` is the standard tier and never
   an incident route. With no mechanism after 15 minutes, it adds an Opus 5.5
   backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running.
@@ -1317,7 +1317,7 @@ Lanes record each report themselves with `ledger.py report --drive <drive>`: PR,
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once; the runner's parallel enqueues keep that. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI. On 2026-10-12 lanes L28 and L23 ran `stack-enqueue` themselves under a lane hold, landing #36023 and #36039; the owner ruled that the tooling, not a memory, stops it. The same night a hand-written `#30082 ours to land` line held the very PR it meant to free.*
 
-**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row; the landing runner runs `register` itself, under the poster's lane, for a PR of its repository that no row registers while an `opened` or `head` record on the drive names it. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts. The desk never enqueues, labels, or lands a PR no drive lane opened, however green and approved: the landing runner and `ledger.py label` refuse any stack holding a PR that no lane registered in the ledger or named in an `opened` or `head` record on cci, and the author login never makes a PR ours.
+**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row. A PR is the drive's by what GitHub shows of the PR itself, never by record text: `refresh` admits every open PR on a branch prefix or stack a lane registered, and the landing runner registers a PR carrying the `drive:<drive>` label under its head branch. Every lane registers its branch prefix at spawn with `ledger.py register --lane <lane> --branch-prefix <prefix>`. `ledger.py unadmit --pr <n>` withdraws a PR the drive admitted by mistake: its row stays unregistered, so neither `refresh` nor the runner admits it again until a lane runs `register --pr` for it, and a merge label the desk set comes off. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts. The desk never enqueues, labels, or lands a PR the drive did not admit, however green and approved: the landing runner and `ledger.py label` refuse any stack holding one, and neither an `opened` or `head` record nor the author login makes a PR ours.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
@@ -1396,6 +1396,8 @@ name or a list of lane names when grading is sharded: a grade from any
 listed lane counts and the newest decides. The runner re-reads the lane from
 `runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
+`reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
+`reference/finder-brief.md` is the sol finder's.
 
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
 monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
@@ -2457,6 +2459,14 @@ Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to 
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+PR body: beside `## Rulings`, a `## Regression tests` section lists each test id the
+  change adds or edits and links one CI run where that test failed against the old tree.
+  Nothing checks the link; the fidelity desk reads each named test against the failure
+  it claims (784f1ab). The `## Risk profile` states Load and Data in prose.
+Deletion: a change that deletes a code path, proposed or in a PR, carries its caller
+  trace before the root GOs it: every caller of the removed path, each one read, and what
+  the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
+  fidelity desk grades what the deletion does to each caller, never the diff's shape.
 GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
   per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
@@ -2520,7 +2530,7 @@ with a scoped brief.
 Keep the original lane running; the new lane must not duplicate its active work.
 
 A lane using the separate desktop Orca adapter is a session the Agent tool cannot
-message. Run `desk-launch.py lane <lane> <model> <effort> <brief>`; the runner invokes `scripts/orca-launch.sh` using
+message. Run `desk-launch.py lane <lane> <model> <effort> <brief>`; the runner invokes `orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤500-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
@@ -3334,7 +3344,13 @@ It carries one pointer line:
 Register `ccn doc show <id7>`: N owner-approved rules, delivered verbatim after every compaction.
 ```
 
-With no register doc, the section says so. `generate` reads live standing rules from
+Once the register ledger exists, `generate` reads it through `rulings.py rows --json`
+and the section prints every scope row's words, each implication with its state, and
+its names, verbatim. Then come the rows touched in the last 24 hours, the owed gates by
+key, the rows not in force with their evidence, and the unconfirmed implication lines.
+The progress size cap never measures this section. A failed read leaves a line saying
+so and posts one `blocker` to the root. With neither a register doc nor a register
+ledger, the section says so. `generate` reads live standing rules from
 cci on the drive named by `--program`. Each follows as `- #<seq> [<source>]`, where
 the source is `ccn <answer id>` when cited or `cci #<seq>` otherwise. The rule's text
 stays in cci.
@@ -3499,7 +3515,11 @@ narrative line with `(answer <id>)`. For a standing rule, post
 `cci post --drive <drive> --lane root --kind correction --re <seq> --topic standing --ccn <answer id> --text "<replacement rule>"`.
 The plan's own owner-gate lines without live answer ids appear under `## Lint findings` and count in the
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
-or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
+or file, plus the plan when `--plan` is supplied, and exits 3 on any finding. It also
+reads the register rows. A bullet that leads with a row's answer id or key must carry
+that row's words verbatim; an id alone or a reworded quotation is a finding. The
+sentence "no `standing-rules` register doc" is always a finding. These checks never
+hold a compaction, and no lint check reads sweep staleness.
 
 **Supersede and point.** Exactly one `progress:<slug>` doc is active. When the root
 wrote hand-written records since the last generated one, `generate` augments the newest

@@ -5,8 +5,9 @@ import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from cc_transcript.models import AssistantEvent
+from cc_transcript.models import AssistantEvent, UserEvent
 from captain_hook import (
     CONFIRMED,
     UNCONFIRMED,
@@ -27,10 +28,12 @@ from captain_hook import (
     Tool,
     on,
 )
+from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, script
 from .nudges import queue_nudge
+from .root_context import operand_targets, reads_stdin
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
 from .tests.incident_fixtures import (
@@ -94,6 +97,37 @@ RECORD_SEQ = re.compile(r"#\d")
 OFF_INCIDENT_ASK = "the alert is active: no owner question on other work; the incident's own ask names {names}"
 ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
+PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
+PLAN_CONDITIONAL = re.compile(
+    r"\bplan[ -]?mode\b[^.\n]{0,40}?\b(?:without|until|before|after|only (?:when|once|after))\b[^.\n]{0,60}?\b(?:incident|outage|fix\w*|done|resolved|closed|green|live)\b"
+    r"|\b(?:until|after|once)\b[^.\n]{0,60}?\b(?:incident|outage|fix\w*|done|resolved|closed|green|live)\b[^.\n]{0,40}?\bplan[ -]?mode\b",
+    re.IGNORECASE,
+)
+PLAN_FORBIDDEN = re.compile(
+    r"\b(?:dont|don'?t|do not|never|no|not)\s+(?:\w+\s+){0,3}?(?:(?:enter|endter|go (?:in)?to|start|use|re-?enter)\s+)?(?:plan[ -]?mode|replan)\b",
+    re.IGNORECASE,
+)
+PLAN_ORDERED = re.compile(r"\b(?:enter|endter|go (?:in)?to|start|use|re-?enter|get into)\b[^.\n]{0,20}?\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
+OUTAGE_STOP_WORDS = (
+    "a second outage means we stop patching, re-enter plan mode, and find the fundamental fix"
+)
+CAUSE_RECORD = Path(__file__).parent / "tests" / "fixtures" / "root-cause" / "autoscaler.txt"
+NO_PLAN_BEFORE_FIX = "dont enter plan mode without fixing the incident first"
+PLAN_WHEN_DONE = "check every incident item is done, then enter plan mode only when everything is done"
+PLAN_MODE_FORBIDDEN = (
+    "The owner's latest word on plan mode forbids it now. Ship the fix from the lane that holds it, and enter plan mode only when the owner orders it."
+)
+CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|is why|was why|led to|triggered by|results? from)\b", re.IGNORECASE)
+CAUSE_KINDS = {"go", "decision", "decide", "note"}
+RECORD_REF = re.compile(r"#(\d{3,})\b")
+UNQUOTED_CAUSE = (
+    "A root record that names a cause cites the lane `MECHANISM` record it rests on."
+    " Quote that record's `#<seq>` in the text, or send the question to a lane with `desk-launch.py lane`."
+)
+CAUSE_JUDGE = Confirm(
+    rule="Block only when the root record asserts why a failure happened, its cause or mechanism, with no lane MECHANISM record cited;"
+    " a record that explains a plan, routing, or ownership choice never blocks."
+)
 RELEASE_PROBES = (("release", "start"), ("release", "status"), ("release", "watch"))
 INBOX_FILE = re.compile(r"/inbox/[\w.-]+\.md\b")
 AUTHORIZING_LINE = re.compile(r"\b(?:GO|LIFT|UNBLOCK) root \(.*")
@@ -237,12 +271,48 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
         plan_mode("EnterPlanMode", STALE_0820): Allow(),
         Input(tool="EnterPlanMode", tool_input={}, commands=incident_sources(OUTAGE_0820)): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, agent_id="a1b2c3"): Allow(),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("no plan mode today")]): Block(),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("do not enter plan mode until I ask")]): Block(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("don't replan")]): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont enter plan mode yet"), T.user("ok now re-enter plan mode and replan")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("no, go into plan mode")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont fix anything else, enter plan mode now")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(OUTAGE_STOP_WORDS)]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("ship the fix")]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("ship the fix")]): Allow(),
     },
 )
 def no_plan_mode_in_an_open_incident(evt: BaseHookEvent) -> HookResult | None:
-    if CompactionState.load(evt).active and open_incidents(evt):
-        return evt.block(PLAN_MODE_IN_INCIDENT)
-    return None
+    if not CompactionState.load(evt).active:
+        return None
+    word = latest_plan_word(evt) or ""
+    if not PLAN_CONDITIONAL.search(word) and PLAN_FORBIDDEN.search(word):
+        return evt.block(PLAN_MODE_FORBIDDEN)
+    if not PLAN_CONDITIONAL.search(word) and PLAN_ORDERED.search(word):
+        return None
+    return evt.block(PLAN_MODE_IN_INCIDENT) if open_incidents(evt) else None
+
+
+def owner_words(evt: BaseHookEvent) -> list[str]:
+    return [
+        event.text
+        for event in evt.ctx.t.events
+        if isinstance(event, UserEvent)
+        and not event.meta.is_sidechain
+        and not event.is_agent_injected
+        and event.text
+        and not event.text.lstrip().startswith(("<", "[Request interrupted", "This session is being continued"))
+    ]
+
+
+def latest_plan_word(evt: BaseHookEvent) -> str | None:
+    return next((text for text in reversed(owner_words(evt)) if PLAN_TALK.search(text)), None)
 
 
 def last_reply(evt: BaseHookEvent) -> str:
@@ -396,10 +466,24 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
+def scratch(value: str) -> bool:
+    path = Path.home() / value[2:] if value.startswith("~/") else Path(value)
+    return path.is_absolute() and any(path.is_relative_to(root) for root in (Path.home() / ".claude", Path("/tmp"), Path("/private/tmp")))
+
+
+def product_read(call: Call, calls: list[Call]) -> bool:
+    searches = call.name == "rg" or call.verb_argv[:2] == ("git", "show") or (call.name == "ccx" and call.args[:1] == ("code",))
+    if not searches or (call.name == "rg" and reads_stdin(call, calls)):
+        return False
+    places = [target.value for target in operand_targets(call) if target.value and "/" in target.value]
+    return not places or not all(scratch(place) for place in places)
+
+
 def root_probe(evt: BaseHookEvent) -> bool:
+    calls = list(evt.command.calls())
     return any(
-        call.name in PROBES or (call.name == "ci" and call.args[:2] in RELEASE_PROBES)
-        for call in evt.command.calls()
+        call.name in PROBES or (call.name == "ci" and call.args[:2] in RELEASE_PROBES) or product_read(call, calls)
+        for call in calls
     )
 
 
@@ -422,6 +506,18 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
         probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED, agent_id="aevidence-0123456789abcdef"): Allow(),
         probe("cci post --kind decision --lane root --to inc-sand-fix 'ship it'", SAND_NOT_MIGRATED): Allow(),
         probe("echo 'kubectl get pods'", SAND_NOT_MIGRATED): Allow(),
+        probe("git show HEAD:service/store/open.go", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
+        probe("rg -n Retire service/store", SAND_NOT_MIGRATED): Block(),
+        probe("rg -n Retire", SAND_NOT_MIGRATED): Block(),
+        probe("ccx code read service/store/open.go --section 170-200", SAND_NOT_MIGRATED): Block(),
+        probe("ccx code search 'who retires a store'", SAND_NOT_MIGRATED): Block(),
+        probe("rg -n MECHANISM ~/.claude/scratch/drive/inbox", SAND_NOT_MIGRATED): Allow(),
+        probe("rg -n 'api/health' /tmp/records", SAND_NOT_MIGRATED): Allow(),
+        probe("rg -n '~nobody/x' /tmp/records", SAND_NOT_MIGRATED): Allow(),
+        probe("cci tail --drive release-v3 --cursor root | rg -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
+        probe("cci tail --drive release-v3 --cursor root | grep -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
+        probe("git status", SAND_NOT_MIGRATED): Allow(),
+        probe("git show HEAD:service/store/open.go", CLOSED_0820): Allow(),
         probe("kubectl -n plat get deploy api", CLOSED_0820): Allow(),
         Input(command="kubectl -n plat get deploy api", commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
     },
@@ -429,6 +525,73 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
 def root_only_routes_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
     if root_probe(evt) and CompactionState.load(evt).active and open_incidents(evt):
         return evt.block(ROOT_PROBE)
+    return None
+
+
+def mechanism_cited(evt: BaseHookEvent, drive: tuple, refs: list[str]) -> bool | None:
+    for ref in refs:
+        argv = ["cci", "grep", f"^#{ref} ", "--kind", "mechanism", "--json", "-n", "1", *(["--drive", str(drive[0])] if drive else [])]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=INCIDENT_SOURCE_TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode != 0:
+            return None
+        if done.stdout.strip():
+            return True
+    return False
+
+
+def attached(values: dict[str, tuple]) -> str:
+    paths = [Path(str(value)).expanduser() for key in ("path", "body-file") for value in values.get(key, ()) if value]
+    return "\n".join(path.read_text(errors="replace") for path in paths if path.is_file())
+
+
+def causal_records(evt: BaseHookEvent) -> list[tuple[dict[str, tuple], str]]:
+    posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
+    return [
+        (values, text)
+        for values in posts
+        if CAUSE_KINDS & set(values.get("kind", ())) and CAUSE.search(text := posted_text(values))
+    ]
+
+
+def cause(command: str, **extra: object) -> Input:
+    return Input(command=command, state=ACTIVE, decide=extra.pop("decide", CONFIRMED), **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    skip_if=[FromSubagent()],
+    tests={
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Block(
+            pattern=r"cites the lane `MECHANISM` record"
+        ),
+        cause(
+            "cci post --drive release-v3 --lane root --kind decision --to worker-fix --text 'a missing object is why uploads fail (#104717)'",
+            commands={"cci grep": ""},
+        ): Block(),
+        cause(
+            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
+            commands={"cci grep": '{"seq": 104942, "kind": "mechanism"}'},
+        ): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the crashes'", decide=UNCONFIRMED): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind go --to landing-desk --pr 41464 --text 'land it'"): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind head --text 'p1 abc because rebased'"): Allow(),
+        cause("cci tail --drive release-v3 --cursor root"): Allow(),
+        cause(f"cci post --drive release-v3 --lane root --kind go --to worker-fix --path {CAUSE_RECORD}"): Block(),
+        Input(command="cci post --drive release-v3 --lane root --kind go --text 'the autoscaler caused it'", decide=CONFIRMED): Allow(),
+        cause("cci post --drive release-v3 --lane x --kind go --text 'the autoscaler caused it'", agent_id="a1b2c3"): Allow(),
+    },
+)
+def root_causes_quote_a_lane_mechanism(evt: BaseHookEvent) -> HookResult | None:
+    if not CompactionState.load(evt).active:
+        return None
+    for values, text in causal_records(evt):
+        refs = RECORD_REF.findall(" ".join([text, *(str(value) for key in ("re", "resolves") for value in values.get(key, ()))]))
+        if mechanism_cited(evt, values.get("drive", ()), refs) is False:
+            return evt.block(UNQUOTED_CAUSE, confirm=CAUSE_JUDGE)
     return None
 
 
@@ -456,9 +619,13 @@ def record_text(values: dict[str, tuple]) -> str:
     return " ".join([*(str(word) for word in words if word), *prs])
 
 
+def posted_text(values: dict[str, tuple]) -> str:
+    return "\n".join(part for part in (record_text(values), attached(values)) if part)
+
+
 def authorizing_lines(evt: BaseHookEvent) -> list[str]:
     records = [
-        record_text(values)
+        posted_text(values)
         for call in evt.command.calls("cci")
         if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)
         and AUTHORIZING_KINDS & set(values.get("kind", ()))

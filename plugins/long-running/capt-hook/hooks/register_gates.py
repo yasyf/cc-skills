@@ -1,0 +1,621 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+from collections.abc import Callable
+from pathlib import Path
+
+from captain_hook import (
+    CONFIRMED,
+    UNCONFIRMED,
+    Allow,
+    Annotated,
+    BaseHookEvent,
+    Block,
+    Call,
+    Confirm,
+    Event,
+    FromSubagent,
+    HookResult,
+    Input,
+    TaskCall,
+    Tool,
+    on,
+)
+from captain_hook.util import reqenv
+
+from .compaction_handoff import REGISTER_FENCE, CompactionState, ccn, post_blocker, rulings
+from .lane_landing import lane_name, program
+from .lane_rotation import DriveActive
+from .owner_facing import CCI_POST, inbox_text, incident_spawn, posted_text, prose
+from .register_injection import drive_args
+from .root_context import FILE_WRITES
+from .tests.register_fixtures import (
+    ACTIVE,
+    CWD,
+    GO_PATH,
+    LEDGER,
+    OWNER_QUESTION,
+    ROWED,
+    ROWS,
+    SHA,
+    UNROWED,
+    fixture,
+    readings,
+    reply,
+    shown,
+)
+
+SHORT = 7
+ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
+CITING_LINE = re.compile(r"(?:^|(?<=[\"']))[ \t]*(?:GO|DECIDE) root \(.*", re.MULTILINE)
+GO_LINE = re.compile(r"(?:^|(?<=[\"']))[ \t]*GO root \(.*", re.MULTILINE)
+CITING_KINDS = frozenset({"go", "decide"})
+GO_KINDS = frozenset({"go"})
+BOARD_WRITES = frozenset({"push", "update-block"})
+BRIEF_LAUNCHERS = frozenset({"orca-launch.sh", "codex-ask"})
+NOT_FOUND = 3
+EXCERPT = 160
+BLOCKERS = "register-blockers"
+READ_ERRORS = (subprocess.SubprocessError, OSError, ValueError, KeyError)
+UNROWED_ANSWER = (
+    "A GO or DECIDE cites only owner answers the register holds, and `{ids}` has no row in register `{program}`. "
+    "Classify the owner's words with `rulings.py classify` first, then post the line."
+)
+REPEAT_OPEN = (
+    "The owner repeated `{keys}`, and its sweep hit list is not posted. "
+    "Post the hits and mark them with `rulings.py sweep <key> --posted <ref>` before this {moment}."
+)
+UNCLASSIFIED = (
+    'Owner capture {digest} ({at}) has no row in register {program}: "{excerpt}". '
+    "Classify it with `rulings.py classify` before the next key moment."
+)
+READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
+QUESTION_OPEN = (
+    "An owner question is open, so a reply or writer brief quotes the words, sentence and rows below and says from them whether"
+    " the thing should exist before any code read. It never defines the term or writes the answer for the writer."
+)
+UNQUOTED = (
+    "This reply or brief does not quote the open owner question below. Quote its words, sentence and rows, and say from them"
+    " whether the thing should exist before any code read."
+)
+CAPTURE_LOG = "owner-prompts"
+CAPTURE_FORMAT = "jsonl"
+QUESTION_JUDGE = Confirm(
+    rule="Block when a reply or writer brief, written while the owner's question is open, leaves out his words, the sentence"
+    " under question or the register rows bearing on it, or reads code before saying from those rulings whether the thing"
+    " exists at all; block too when it defines the thing from code or the root's own reading, or writes the answer for the writer."
+)
+WORDS_SHOWN = 200
+NOTE_CLIS = frozenset({"ccn", "cc-notes"})
+REPO_FLAGS = frozenset({"-R", "--repo"})
+LEDGER_VERBS = (("row", "set"), ("row", "rm"), ("sync",), ("edit",), ("rm",), ("archive",))
+LEDGER_TOOLS = frozenset(f"__ledger_{verb}" for verb in ("row_set", "row_rm", "sync", "edit", "rm", "archive"))
+ANSWER_TOOLS = {"__answer_add": "labels", "__answer_edit": "add_labels"}
+LABEL_FLAGS = frozenset({"--label", "--add-label"})
+AUTHORIZES = "authorizes:"
+SHORTEST_PREFIX = 4
+SEED = "register-seed"
+GRADERS = ("fidelity", "finder", "walker", "end-state", "incident-closeout")
+SEATS = {
+    "classify": (True, (SEED,)),
+    "authorize": (True, (SEED,)),
+    "supersede": (True, (SEED,)),
+    "status": (False, GRADERS),
+    "anchor": (False, ("anchor", SEED)),
+}
+SEAT_NAMES = {
+    "classify": "the root and the register-seed lane",
+    "authorize": "the root and the register-seed lane",
+    "supersede": "the root and the register-seed lane",
+    "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
+    "anchor": "the anchor and register-seed lanes",
+}
+DESTINATION_WRITERS = frozenset({"cp", "rsync", "install", "ln"})
+TARGET_WRITERS = frozenset({"mv", "rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
+IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
+LEDGER_WRITE = (
+    "Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
+    " Make the change with the `rulings.py` verb that owns it, from the lane that owns that verb."
+)
+SEAT_REFUSED = "`rulings.py {verb}` runs only in {seats}, and this session is {lane}. Hand the change to one of those lanes."
+AUTHORIZES_LABEL = (
+    "An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
+)
+HOOK_EDIT = (
+    "The installed long-running plugin changes only through a reviewed pull request, so this write into `{path}` is refused."
+    " Fix the check in a worktree and ship it as a pull request."
+)
+TIMERS = fixture("brief-158695")
+
+
+def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
+    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json"))
+
+
+def cause(error: Exception) -> str:
+    detail = getattr(error, "stderr", None) or str(error) or type(error).__name__
+    return " ".join(str(detail).split())[:200]
+
+
+def blocker(evt: BaseHookEvent, key: str, text: str) -> None:
+    if evt.ctx.s.once(key, scope=BLOCKERS):
+        post_blocker(evt, text)
+
+
+def failed_open(evt: BaseHookEvent, hook: str, error: Exception) -> None:
+    blocker(evt, f"{hook}:read", READ_FAILED.format(hook=hook, cause=cause(error)))
+
+
+def folded(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def posted(evt: BaseHookEvent, kinds: frozenset[str]) -> list[str]:
+    return [
+        posted_text(values)
+        for call in evt.command.calls("cci")
+        if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and kinds & set(values.get("kind", ()))
+    ]
+
+
+def citing_lines(evt: BaseHookEvent) -> list[str]:
+    return CITING_LINE.findall(inbox_text(evt)) + posted(evt, CITING_KINDS)
+
+
+def captures(register: dict) -> Path:
+    return Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
+
+
+def launches(evt: BaseHookEvent) -> list[tuple[Call, tuple[str, ...]]]:
+    return [(call, run) for call in evt.command.calls() if (run := program((call.name, *call.args))) and Path(run[0]).name in BRIEF_LAUNCHERS]
+
+
+def key_moment(evt: BaseHookEvent) -> str | None:
+    if evt.tool_name == "Agent" or launches(evt):
+        return "spawn"
+    if GO_LINE.search(inbox_text(evt)) or posted(evt, GO_KINDS):
+        return "GO"
+    if any(call.args[:1] and call.args[0] in BOARD_WRITES for call in evt.command.calls("cc-present")):
+        return "board push"
+    return None
+
+
+def incident_fix_spawn(evt: BaseHookEvent) -> bool:
+    call = evt.as_input(TaskCall)
+    return call is not None and incident_spawn(call, prose(call)[:1])
+
+
+def register_files(register: dict, pattern: str) -> list[tuple[Path, dict]]:
+    return [(path, json.loads(path.read_text())) for path in sorted((Path(register["state_dir"]) / "register").glob(pattern))]
+
+
+def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
+    prompts = captures(register)
+    if not prompts.is_file():
+        return
+    classified = set(register["classified"])
+    for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip()):
+        if capture["digest"] not in classified:
+            excerpt = " ".join(capture["text"].split())[:EXCERPT]
+            text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt)
+            blocker(evt, f"unclassified:{capture['digest']}", text)
+
+
+def open_repeats(register: dict) -> list[str]:
+    return [repeat["key"] for _, repeat in register_files(register, "repeat-*.json") if repeat.get("posted") is None]
+
+
+def is_answer(evt: BaseHookEvent, token: str) -> bool:
+    done = ccn(str(evt.cwd), "answer", "show", token, "--json")
+    if done.returncode == NOT_FOUND:
+        return False
+    done.check_returncode()
+    return True
+
+
+def unrowed(evt: BaseHookEvent, lines: list[str], register: dict) -> list[str]:
+    rowed = {found[:SHORT] for row in register["rows"].values() for found in ANSWER_ID.findall(str(row.get("answer") or ""))}
+    cited = dict.fromkeys(token for line in lines for token in ANSWER_ID.findall(line))
+    return [token for token in cited if token[:SHORT] not in rowed and is_answer(evt, token)]
+
+
+def go(text: str, kind: str = "go") -> str:
+    return f"cci post --lane root --kind {kind} --to walker --text '{text}'"
+
+
+def register_case(command: str | None = None, state: str = "quiet", *answers: tuple[str, str | tuple[int, str]], **extra: object) -> Input:
+    fields = {"command": command} if command is not None else {}
+    return Input(**(fields | extra), state=ACTIVE, cwd=CWD, commands=readings(state, *answers))
+
+
+def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Input:
+    return register_case(None, state, tool="Agent", tool_input={"name": name, "prompt": prompt}, **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
+    skip_if=[FromSubagent(), Annotated("raw")],
+    tests={
+        register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
+        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(
+            pattern=r"^A GO or DECIDE cites only owner answers the register holds, and `1dfd09d` has no row in register `brook`\."
+        ),
+        register_case(go(f"lanes stop until {UNROWED[:7]} lands", "decide"), "quiet", (UNROWED[:7], shown(UNROWED))): Block(pattern=r"`1dfd09d` has no row"),
+        register_case(
+            f'echo "GO root (4:50 AM) walker: cut web under {UNROWED}" >> /s/inbox/deploy-go.md', "quiet", (UNROWED, shown(UNROWED))
+        ): Block(pattern=r"has no row in register"),
+        register_case(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
+        register_case(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"`1234567` has no row"),
+        register_case(f"cci post --lane root --kind go --to walker --path {GO_PATH}", "quiet", (UNROWED[:7], shown(UNROWED))): Block(
+            pattern=r"`1dfd09d` has no row"
+        ),
+        register_case(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
+        register_case(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
+        register_case(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
+        register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], (1, "ccn: store locked"))): Allow(),
+        register_case(go("cut web"), "repeat"): Block(pattern=r"^The owner repeated `rule/0a1b2c3`, and its sweep hit list is not posted\..* before this GO\.$"),
+        spawn("lane-x", "Lane lane-x: build the slice verb.", "repeat"): Block(pattern=r"before this spawn\.$"),
+        register_case("codex-ask -m sol /s/briefs/lane-x.md", "repeat"): Block(pattern=r"before this spawn\.$"),
+        register_case("cc-present push /tmp/board.json", "repeat"): Block(pattern=r"before this board push\.$"),
+        register_case("cc-present update-block --id c7-timers /tmp/block.json", "repeat"): Block(pattern=r"board push"),
+        spawn("incident-api-500s-fix", "Fix the api 500s.", "repeat"): Allow(),
+        register_case("cc-present reply --block r3 --body 'Done.'", "repeat"): Allow(),
+        register_case("ls", "repeat"): Allow(),
+        spawn("lane-x", "Lane lane-x: build the slice verb."): Allow(),
+        Input(command=go("cut web"), state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+        Input(command=go("cut web"), cwd=CWD, commands=readings("repeat")): Allow(),
+        register_case(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
+    },
+)
+def register_gate(evt: BaseHookEvent) -> HookResult | None:
+    citing = citing_lines(evt)
+    moment = key_moment(evt)
+    if not (citing or moment) or not (which := drive_args(evt)) or incident_fix_spawn(evt):
+        return None
+    try:
+        register = read_register(evt, which)
+        report_unclassified(evt, register)
+        repeated = open_repeats(register) if moment else []
+        missing = [] if repeated else unrowed(evt, citing, register)
+    except READ_ERRORS as error:
+        failed_open(evt, "register_gate", error)
+        return None
+    if repeated:
+        return evt.block(REPEAT_OPEN.format(keys=", ".join(repeated), moment=moment))
+    return evt.block(UNROWED_ANSWER.format(ids=", ".join(missing), program=register["program"])) if missing else None
+
+
+def option(args: tuple[str, ...], name: str) -> list[str]:
+    values = [value for flag, value in zip(args, args[1:], strict=False) if flag == name]
+    return values + [arg.removeprefix(f"{name}=") for arg in args if arg.startswith(f"{name}=")]
+
+
+def replies(evt: BaseHookEvent) -> list[tuple[str, ...]]:
+    return [call.args for call in evt.command.calls("cc-present") if call.args[:1] == ("reply",)]
+
+
+def brief_files(evt: BaseHookEvent) -> list[Path]:
+    return [path for call, run in launches(evt) for arg in run[1:] if (path := Path(call.cwd or evt.cwd) / Path(arg).expanduser()).is_file()]
+
+
+def answer_text(evt: BaseHookEvent) -> tuple[str, str]:
+    if (call := evt.as_input(TaskCall)) is not None:
+        return call.raw.get("prompt") or "", ""
+    briefs = "\n".join(path.read_text() for path in brief_files(evt))
+    return "\n".join([*(body for args in replies(evt) for body in option(args, "--body")), briefs]).strip(), briefs
+
+
+def open_questions(register: dict) -> list[dict]:
+    return [question for _, question in register_files(register, "question-*.json") if not question.get("closed")]
+
+
+def quotes(text: str, question: dict) -> bool:
+    return any(folded(needle) in folded(text) for needle in (question["text"], question["term"]) if needle.strip())
+
+
+def asked(question: dict, rows: dict) -> str:
+    bearing = [f'{key}: "{" ".join(rows[key]["words"].split())[:WORDS_SHOWN]}"' for key in question["rows"] if key in rows]
+    return "\n".join(
+        [
+            f'- The owner asked: "{question["text"]}"',
+            f'  Sentence under question: "{question["sentence"]}"',
+            *(f"  Row {row}" for row in bearing),
+        ]
+    )
+
+
+def fenced(text: str) -> str:
+    return f"{REGISTER_FENCE}\n{text}\n{REGISTER_FENCE}"
+
+
+def question(text: str, state: str, **extra: object) -> Input:
+    return Input(command=text, state=ACTIVE, cwd=CWD, commands=readings(state), **extra)
+
+
+def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
+    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt}, state=ACTIVE, cwd=CWD, commands=readings(state), **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[DriveActive(), Tool("Bash", "Agent")],
+    skip_if=[Annotated("raw")],
+    tests={
+        asks("reply-lookup", fixture("brief-158585"), "question-lookup", decide=CONFIRMED): Block(
+            pattern=r'^An owner question is open, .*\n~{12}\n- The owner asked: "why does it need this lookup\?"\n  Sentence under question: "6\. How does'
+            r' the export learn a report\'s owner\?"\n  Row rule/4d5e6f7: "The export never needs to know about laptop-only reports\."\n~{12}$'
+        ),
+        asks("timers-writer", TIMERS, "question-timers", decide=CONFIRMED): Block(pattern=r'"what is a relay slot\? why is this here\?"'),
+        question(reply("c7-timers", fixture("correction-1244")), "question-timers", decide=UNCONFIRMED): Allow(),
+        asks("timers-writer", TIMERS, "question-timers", decide=UNCONFIRMED): Allow(),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the open owner question below\."),
+        question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Block(pattern=r"does not quote"),
+        question(f"orca-launch.sh timers-writer standard xhigh {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(
+            pattern=r"relay slot"
+        ),
+        question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(pattern=r"relay slot"),
+        question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=UNCONFIRMED): Allow(),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-closed"): Allow(),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "quiet"): Allow(),
+        asks("incident-api-500s-fix", "Fix the api 500s.", "question-timers"): Allow(),
+        question("cc-present push /tmp/board.json", "question-timers"): Allow(),
+        question("ls", "question-timers"): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, cwd=CWD, commands=readings("question-timers")): Allow(),
+    },
+)
+def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
+    if incident_fix_spawn(evt) or not (which := drive_args(evt)):
+        return None
+    try:
+        text, briefs = answer_text(evt)
+        if not text:
+            return None
+        register = read_register(evt, which)
+        if not (questions := open_questions(register)):
+            return None
+        shown = [fenced("\n".join(asked(question, register["rows"]) for question in questions)), *([fenced(briefs.strip())] if briefs else [])]
+        quoted = all(quotes(text, question) for question in questions)
+    except READ_ERRORS as error:
+        failed_open(evt, "owner_question_gate", error)
+        return None
+    if quoted:
+        return evt.block("\n".join([QUESTION_OPEN, *shown]), confirm=QUESTION_JUDGE)
+    return evt.block("\n".join([UNQUOTED, *shown]))
+
+
+def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: str) -> None:
+    if not (which := drive_args(evt)):
+        return
+    try:
+        for path, found in register_files(read_register(evt, which), "question-*.json"):
+            if not found.get("closed") and answered(found):
+                path.write_text(json.dumps(found | {"closed": how}))
+    except READ_ERRORS as error:
+        failed_open(evt, hook, error)
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[DriveActive(), Tool("Bash")],
+    tests={
+        question(reply("c7-repair", "Done."), "question-timers"): Allow(),
+        question("cc-present push /tmp/board.json", "question-timers"): Allow(),
+    },
+)
+def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
+    if blocks := {block for args in replies(evt) for block in option(args, "--block")}:
+        close(evt, "close_replied_questions", lambda found: bool(blocks & set(found.get("blocks") or ())), f"reply {' '.join(sorted(blocks))}")
+    return None
+
+
+@on(
+    Event.Stop,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(state=ACTIVE, cwd=CWD, commands=readings("question-timers")): Allow(),
+        Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
+    },
+)
+def close_chat_questions(evt: BaseHookEvent) -> HookResult | None:
+    close(evt, "close_chat_questions", lambda found: not found.get("blocks"), "turn end")
+    return None
+
+
+def note_words(call: Call) -> list[str]:
+    words: list[str] = []
+    skip = False
+    for arg in call.args:
+        if skip:
+            skip = False
+        elif arg in REPO_FLAGS:
+            skip = True
+        elif not arg.startswith(("--repo=", "-R")):
+            words.append(arg)
+    return words
+
+
+def names_ledger(token: str, register: dict) -> bool:
+    return token == f"register: {register['program']}" or (len(token) >= SHORTEST_PREFIX and register["ledger"].startswith(token))
+
+
+def ledger_targets(evt: BaseHookEvent) -> list[str]:
+    targets = [
+        token
+        for call in evt.command.calls()
+        if call.name in NOTE_CLIS
+        for words in [note_words(call)]
+        if words[:1] == ["ledger"]
+        for verb in LEDGER_VERBS
+        if tuple(words[1 : 1 + len(verb)]) == verb
+        for token in [next((word for word in words[1 + len(verb) :] if not word.startswith("-")), "")]
+    ]
+    tool = evt.tool_name or ""
+    if tool.startswith("mcp__") and tool.endswith(tuple(LEDGER_TOOLS)):
+        targets.append(str(evt._tool_input.get("id") or ""))
+    return targets
+
+
+def labels(args: tuple[str, ...]) -> list[str]:
+    paired = [value for flag, value in zip(args, args[1:], strict=False) if flag in LABEL_FLAGS]
+    return paired + [arg.split("=", 1)[1] for arg in args if arg.split("=", 1)[0] in LABEL_FLAGS and "=" in arg]
+
+
+def writes_authorizes(evt: BaseHookEvent) -> bool:
+    written = [
+        label
+        for call in evt.command.calls()
+        if call.name in NOTE_CLIS
+        for words in [note_words(call)]
+        if words[:1] == ["answer"] and words[1:2] in (["add"], ["edit"])
+        for label in labels(tuple(words))
+    ]
+    tool = evt.tool_name or ""
+    written += [
+        str(label)
+        for suffix, field in ANSWER_TOOLS.items()
+        if tool.startswith("mcp__") and tool.endswith(suffix)
+        for label in evt._tool_input.get(field) or ()
+    ]
+    return any(label.startswith(AUTHORIZES) for label in written)
+
+
+def seated(verb: str, lane: str | None) -> bool:
+    root, lanes = SEATS[verb]
+    return root if lane is None else lane.startswith(lanes)
+
+
+def unseated_verbs(evt: BaseHookEvent) -> list[str]:
+    lane = lane_name(evt)
+    return [
+        run[1]
+        for call in evt.command.calls()
+        if (run := program((call.name, *call.args)))[1:] and Path(run[0]).name == "rulings.py" and run[1] in SEATS and not seated(run[1], lane)
+    ]
+
+
+def lane_label(lane: str | None) -> str:
+    return "the root" if lane is None else f"lane `{lane or 'unnamed'}`"
+
+
+def lane(name: str) -> dict[str, str]:
+    return {"CLAUDE_LONG_RUNNING_LANE": name}
+
+
+@on(
+    Event.PreToolUse,
+    tests={
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Block(
+            pattern=r"^Only `rulings\.py` writes the register ledger of `brook`"
+        ),
+        register_case(f"ccn -R /repo ledger sync {LEDGER} --file -"): Block(pattern=r"`brook`"),
+        register_case("ccn ledger archive 'register: brook'"): Block(pattern=r"`brook`"),
+        register_case(f"ccn -R/repo ledger rm {LEDGER[:7]}"): Block(pattern=r"`brook`"),
+        register_case("ccn ledger edit 9f8e7d6 --body 'register: brook'"): Allow(),
+        register_case("ccn ledger row set 9f8e7d6 rule/0a1b2c3 --field status=met"): Allow(),
+        register_case(f"ccn ledger show {LEDGER[:7]}"): Allow(),
+        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_row_set", tool_input={"id": LEDGER[:7], "key": "rule/0a1b2c3"}): Block(
+            pattern=r"`brook`"
+        ),
+        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_show", tool_input={"id": LEDGER[:7]}): Allow(),
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Block(pattern=r"`brook`"),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Block(
+            pattern=r"^`rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
+        ),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD): Block(pattern=r"this session is the root\."),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Block(pattern=r"anchor and register-seed lanes"),
+        Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
+        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(
+            pattern=r"^An `authorizes:` label is written only by `rulings\.py authorize`\."
+        ),
+        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(pattern=r"authorizes:"),
+        Input(command="ccn answer add 'Ship it?' --label scope:durable", state=ACTIVE, cwd=CWD): Allow(),
+        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, cwd=CWD): Block(
+            pattern=r"authorizes:"
+        ),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env=lane("p1-hooks")): Allow(),
+        Input(command=f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3", state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+    },
+)
+def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    if verbs := unseated_verbs(evt):
+        return evt.block(SEAT_REFUSED.format(verb=verbs[0], seats=SEAT_NAMES[verbs[0]], lane=lane_label(lane_name(evt))))
+    if writes_authorizes(evt):
+        return evt.block(AUTHORIZES_LABEL)
+    if not (targets := ledger_targets(evt)):
+        return None
+    try:
+        register = read_register(evt, drive_args(evt) or [])
+    except READ_ERRORS as error:
+        failed_open(evt, "register_write_guard", error)
+        return None
+    return evt.block(LEDGER_WRITE.format(program=register["program"])) if any(names_ledger(token, register) for token in targets) else None
+
+
+def plugin_cache() -> Path:
+    return Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / "plugins" / "cache" / "skills" / "long-running"
+
+
+def absolute(raw: str, cwd: Path) -> Path:
+    return Path(os.path.abspath(cwd / Path(raw).expanduser()))
+
+
+def bash_writes(evt: BaseHookEvent) -> list[Path]:
+    found: list[Path] = []
+    for call in evt.command.calls():
+        cwd = Path(call.cwd or evt.cwd)
+        found += [absolute(redirect.target.strip("'\""), cwd) for redirect in call.redirects if redirect.op in FILE_WRITES]
+        operands = [absolute(target.value, cwd) for target in call.targets if target.value is not None]
+        if call.name in DESTINATION_WRITERS:
+            found += operands[-1:]
+        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(in_place(arg) for arg in call.args)):
+            found += operands
+    return found
+
+
+def in_place(arg: str) -> bool:
+    return arg.startswith("--in-place") or (arg.startswith("-") and not arg.startswith("--") and "i" in arg[1:])
+
+
+def written_paths(evt: BaseHookEvent) -> list[Path]:
+    if evt.tool_name == "Bash":
+        return bash_writes(evt)
+    return [absolute(str(evt.file.path), Path(evt.cwd))] if evt.file is not None else []
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
+    tests={
+        Input(tool="Edit", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(
+            pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into `/cfg/plugins/cache/skills/long-running/0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
+        ),
+        Input(command="sed -i '' s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/skills/long-running/scripts/rulings.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"rulings\.py` is refused"),
+        Input(command="echo x >> /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/board_text_gate.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="cp /tmp/x.py /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="cp /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(command="cat /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(command="mv /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="perl -pi -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="sed -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/x.py", "content": "x"}, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+    },
+)
+def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    cache = plugin_cache()
+    inside = next((path for path in written_paths(evt) if path.is_relative_to(cache)), None)
+    return evt.block(HOOK_EDIT.format(path=inside)) if inside else None

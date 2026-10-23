@@ -9,13 +9,20 @@
 The register holds at most 30 owner-approved rules with answer ids linking to the full
 rulings in cc-notes. Generation never builds or writes a register doc or file.
 The progress record's ``## Standing owner rules`` section names the register doc and its
-rule count; the register itself arrives verbatim after compaction. Live standing rules
-come from cci on the drive named by ``--program``. Each follows as ``- #<seq> [<source>]``,
-where the source is ``ccn <answer id>`` or ``cci #<seq>``. Retired rules follow.
-With no register doc, the section says so.
+rule count; the register itself arrives verbatim after compaction. Once the register
+ledger exists, read through ``rulings.py rows --json``, the section prints every scope
+row's words, each implication with its state, and its names, verbatim; then every row
+touched in the last 24 hours, the owed gates by key, the rows not in force with their
+evidence, and the unconfirmed implication lines. That section is exempt from the
+:data:`progress.CAP` measure, since the owner's words are never trimmed. Live standing
+rules come from cci on the drive named by ``--program``. Each follows as
+``- #<seq> [<source>]``, where the source is ``ccn <answer id>`` or ``cci #<seq>``.
+Retired rules follow. With neither a register doc nor a register ledger, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
-drive registry. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
+drive registry. Generation removes each inbox cursor file written before the drive's
+``started_at`` that no line sits past, and lists it under ``## Inboxes``; a cursor with
+a line past it stays. ``## Incident lanes`` lists each `inc-`, `incident-`, or `outage-` lane that
 posted on the drive in the last six hours with its newest record's kind and age, waiting
 mechanisms first: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since. ``## Open tasks`` ends with one line per plan from :func:`plans.read`: its done
 and blocked counts over the drive's cc-notes tasks and each step still open. Generation
@@ -110,6 +117,12 @@ class Inbox:
     head: str | None
     cursor: str | None
     last: str | None
+    count: int = 0
+    tail: str | None = None
+
+    def read_through(self) -> bool:
+        """Whether no line sits past the cursor: a line count at the stream's, or the ruling id of the stream's final line."""
+        return self.cursor is not None and (int(self.cursor) >= self.count if self.cursor.isdigit() else self.cursor == self.tail)
 
 
 @dataclass(frozen=True)
@@ -128,6 +141,7 @@ class Handoff:
     at: datetime
     registry: dict | None = None
     register: dict | None = None
+    rows: standing.Rows | None = None
     standing: dict[str, str] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
@@ -151,6 +165,7 @@ class Handoff:
     retitle: bool = True
     fresh: bool = False
     stale: list[str] = field(default_factory=list)
+    cleared: list[str] = field(default_factory=list)
 
     @property
     def stamp(self) -> str:
@@ -193,7 +208,18 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
         rulings = [(match[1], line.strip()) for line in lines if (match := RULING.match(line))]
         cursor = path.with_name(f"{path.name}.cursor")
         head, last = rulings[-1] if rulings else (None, None)
-        handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last))
+        tail = match[1] if lines and (match := RULING.match(lines[-1])) else None
+        handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last, count=len(lines), tail=tail))
+
+
+def clear_stale_cursors(handoff: Handoff, started: datetime) -> None:
+    """Remove each inbox cursor written before the drive started that no line sits past, and name it in the handoff; a cursor with a line past it stays."""
+    for inbox in handoff.inboxes:
+        cursor = handoff.inbox_dir / f"{inbox.name}.cursor"
+        if inbox.read_through() and datetime.fromtimestamp(cursor.stat().st_mtime, timezone.utc) < started:
+            cursor.unlink()
+            handoff.cleared.append(f"{cursor.name} at {inbox.cursor}, written before the drive started at {started:%Y-%m-%dT%H:%M:%SZ}")
+            inbox.cursor = None
 
 
 def minutes_ago(at: str, now: datetime) -> int:
@@ -350,6 +376,10 @@ def dashboard_line(registry: dict) -> str:
     return f"- Dashboard: not running; `live-dashboard start --dir {Path(registry['state_dir']) / drive.DASHBOARD_SERVER.parent}` starts it and prints the link for the owner"
 
 
+def standing_section(handoff: Handoff) -> str:
+    return standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative, handoff.rows)
+
+
 def render(handoff: Handoff) -> str:
     registry = handoff.registry or {}
     out = [
@@ -358,7 +388,7 @@ def render(handoff: Handoff) -> str:
         f"{GENERATED_LINE}{handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
         f"Every section above `{NARRATIVE}` is rebuilt at each handoff; change the sources, never this doc.",
         "",
-        standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative),
+        standing_section(handoff),
         "## Read first",
         f"- Plan: `{handoff.plan}`",
         *(f"{READ_FIRST}`{ref}`: {title}" for ref, title in handoff.read_first),
@@ -392,6 +422,7 @@ def render(handoff: Handoff) -> str:
         ],
         "inboxes",
     ) or ["- no inbox directory"]
+    out += [f"- cleared stale cursor {cleared}" for cleared in handoff.cleared]
     out += ["", FINDINGS] + ([f"- {line}" for line in handoff.findings + handoff.plan_findings] or ["- none"])
     out += ["", NARRATIVE, ""]
     out.append(
@@ -485,6 +516,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     inbox_dir = Path(args.inbox_dir).expanduser() if args.inbox_dir else Path.home() / ".claude" / "scratch" / args.program / "inbox"
     if inbox_dir.is_dir():
         read_inboxes(handoff, inbox_dir)
+        if started := (registry or {}).get("started_at"):
+            clear_stale_cursors(handoff, datetime.fromisoformat(started.replace("Z", "+00:00")))
     if args.folder:
         records, last = folder_records(plan)
         previous = last.read_text() if last else None
@@ -494,7 +527,9 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
         return handoff, previous
     read_standing(handoff, shell)
     read_incident_lanes(handoff, shell)
-    handoff.register = rulings.register(shell, args.repo, args.program)
+    handoff.register = rulings.register(shell, args.repo, drive.program_of(registry) if registry else args.program)
+    which = ["--drive", registry["drive"]] if registry else ["--program", args.program]
+    handoff.rows = standing.register_rows(shell.run, args.repo, which, drive.cci_drive(registry) if registry else args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
@@ -524,7 +559,7 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print("\n".join(handoff.findings))
         return standing.VIOLATIONS
     markdown = render(handoff)
-    if refusal := progress.oversized(markdown.partition(f"\n{NARRATIVE}\n")[0]):
+    if refusal := progress.oversized(markdown.partition(f"\n{NARRATIVE}\n")[0].replace(standing_section(handoff), "")):
         print(refusal)
         return OVERSIZED
     path = progress_file(Path(handoff.plan), handoff.stamp)
@@ -580,7 +615,8 @@ def cmd_lint(args: argparse.Namespace, shell: ledger.Shell) -> int:
         else doc_body(shell, args.repo, args.previous_doc) if args.previous_doc else None
     )
     live = live_answer_ids(shell, args.repo)
-    problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live)
+    rows = standing.register_rows(shell.run, args.repo, ["--program", args.program], args.program)
+    problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live, rows)
     if args.plan:
         problems += uncited_plan_lines(Path(args.plan).expanduser(), live)
     for problem in problems:

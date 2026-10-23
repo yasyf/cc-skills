@@ -75,8 +75,9 @@ RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
-SWEEP_FIRST = "Run `rulings.py sweep --program {slug}` before the first plan or card edit."
+SWEEP_FIRST = "Run `rulings.py sweep --drive {drive}` before the first plan or card edit."
 ROOT_LANE = "root"
+ROOT_SLICE_BLOCKERS = "root-slice-blockers"
 DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
 PROGRESS_TITLE = re.compile(r"\bprogress\b|\bpre-compact\b", re.IGNORECASE)
 CCN_DOC_ADD = CommandSchema(
@@ -110,9 +111,10 @@ def script(name: str) -> Path:
 NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
 ROOT_SLICE = NO_REGISTER | {
     f"{sys.executable} {script('rulings.py')} slice": (
-        "scope `1e9a64d`: “I fcking told you starting one in teh cloud then wrtiing on mac is not in scope”\nslice-hash: 0123456789ab\n"
+        "scope `1e9a64d`: a Mac never writes to a chat started in the cloud\nslice-hash: 0123456789ab\n"
     )
 }
+DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 
 
 @workflow_state("long_running_compaction")
@@ -307,7 +309,7 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
 
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd).stdout
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:
@@ -335,7 +337,7 @@ def post_blocker(evt: BaseHookEvent, text: str) -> None:
     drive = entry.get("cci_drive") or Path(entry["state_dir"]).name
     argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
     try:
-        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired):
         return
 
@@ -347,16 +349,20 @@ def failure_of(failed: subprocess.CalledProcessError | subprocess.TimeoutExpired
 
 
 def queue_root_slice(state: CompactionState, evt: BaseHookEvent) -> None:
-    if not (state.store == "ccn" and state.slug):
+    if not (state.store == "ccn" and (entry := drive_entry(evt))):
         return
     try:
-        state.root_slice = rulings(str(evt.cwd), "slice", "--root", "--program", state.slug).rstrip("\n") or None
+        sliced = rulings(str(evt.cwd), "slice", "--root", "--drive", entry["drive"]).rstrip("\n")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
+        if not evt.ctx.s.once(f"root-slice:{entry['drive']}", scope=ROOT_SLICE_BLOCKERS):
+            return
         post_blocker(
             evt,
             f"The root's register slice did not load at SessionStart {evt.source}: {failure_of(failed)}. "
-            f"Run `rulings.py slice --root --program {state.slug}` and read it before the first plan or card edit.",
+            f"Run `rulings.py slice --root --drive {entry['drive']}` and read it before the first plan or card edit.",
         )
+        return
+    state.root_slice = f"{sliced}\n{SWEEP_FIRST.format(drive=entry['drive'])}" if sliced else None
 
 
 def handoff_nudge(state: CompactionState) -> str:
@@ -667,11 +673,12 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
         Input(
-            source="compact", commands=ROOT_SLICE, state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
+            source="compact", commands=ROOT_SLICE, env=DRIVE_ENV, state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: "),
         Input(
             source="resume",
             commands={**ROOT_SLICE, "ccn": "[]"},
+            env=DRIVE_ENV,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")],
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: .*they supersede the conversation so far\.$"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
@@ -746,8 +753,8 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"^Standing rules register `eeeeeee` is over the injection budget and binds this session; "
             r"read it in full with `ccn doc show eeeeeee` before acting\.$"
         ),
-        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, slug="brook", root_slice="scope `1e9a64d`: rule")]): Warn(
-            pattern=r"^scope `1e9a64d`: rule\nRun `rulings\.py sweep --program brook` before the first plan or card edit\.$"
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, root_slice="scope `1e9a64d`: rule\nRun the sweep.")]): Warn(
+            pattern=r"^scope `1e9a64d`: rule\nRun the sweep\.$"
         ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
         Input(
@@ -764,8 +771,8 @@ def deliver_register(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
         body, state.register_body = state.register_body, None
         root, state.root_slice = state.root_slice, None
-        name, slug = state.register_doc or "", state.slug
-    parts = (*(register_parts({"id": name, "body": body}) if body else ()), *((root, SWEEP_FIRST.format(slug=slug)) if root else ()))
+        name = state.register_doc or ""
+    parts = (*(register_parts({"id": name, "body": body}) if body else ()), *((root,) if root else ()))
     return evt.context(*parts) if parts else None
 
 

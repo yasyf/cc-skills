@@ -80,13 +80,16 @@ never a PR URL. Every such draft passes
   The executor asks the root once, and `incident.py grant` lets the next pass
   proceed.
 - The executor launches the fix and evidence lanes with
-  `scripts/orca-launch.sh <lane> incident xhigh <brief>`. Both run on
+  `orca-launch.sh <lane> incident xhigh <brief>`. Both run on
   `gpt-6.1-sol` with the fast tier at `xhigh`; only the `incident` alias runs
   fast, and plain `sol` is the standard tier. If 15 minutes pass without a
   mechanism or a PR, it launches an Opus 5.5 backup in Claude fast mode on the
   same brief, passing `--settings '{"fastMode":true}'` through
   `ORCA_LAUNCH_CLAUDE_ARGS`. It refuses any other model for the fix or evidence
-  role and never uses fable or astra.
+  role and never uses fable or astra. When the owner asks for a smarter lane on
+  the incident, that Opus 5.5 fast lane is the escalation, launched at once, and
+  the root names it in its reply; it is never Fable, astra, or a model the owner
+  did not name.
 - A fix lane the orca desk launched is also on the desk runner's clock from its
   launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to `ready`.
   Past the mechanism or PR limit the runner launches `<lane>-opus` in Claude
@@ -316,7 +319,11 @@ Do:
      the two and why. A brief that names no such reason is a fix forward; never
      read a rollback into it.
   1. Start at the named code path now, while evidence is still arriving.
-     Never wait for a diagnosis verdict before starting the fix. Read the
+     Never wait for a diagnosis verdict before starting the fix. Your first
+     deliverable, before any fix, is the whole failing path: every stage from the
+     user's action to the error that can fail, one line each with the telemetry
+     that shows whether it failed, attached with `--path` to your `MECHANISM`
+     record. A fix to one stage of a path you have not mapped is not the fix. Read the
      reporter's case from telemetry first: the client versions of their team
      from the metrics, the run, session, or thread record and which component
      served the failing request, server logs and Sentry by user and team id,
