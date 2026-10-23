@@ -14,6 +14,7 @@ from .compaction_handoff import CompactionState
 from .lane_landing import DRIVE_ENV, LANDERS, drive_entry, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
     CITED,
+    FAILS_OPEN,
     HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
@@ -64,9 +65,10 @@ BUDGET = re.compile(
     re.IGNORECASE,
 )
 REFUSAL_HINT = re.compile(
-    r"""\breturn\b[^\n]*\berr[A-Z]\w*|["']cause:\w+|\b(?P<name>refus\w*|reject\w*|quarantin\w*|re(?:convert|attempt|queue|dispatch)\w*|read-only|fallback)\b""",
-    re.IGNORECASE,
+    r"""\breturn\b[^\n]*\b(?P<sentinel>err[A-Z]\w*)|["'](?P<cause>cause:\w+)"""
+    r"""|(?i:\b(?P<name>refus\w*|reject\w*|quarantin\w*|re(?:convert|attempt|queue|dispatch)\w*|read-only|fallback)\b)"""
 )
+NAME_GROUPS = ("name", "sentinel", "cause")
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 UNREADABLE = ""
@@ -212,13 +214,16 @@ def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
     if not base:
         return
     span = ["--merge-base", base] if req.worktree else [f"{base}...HEAD"]
-    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--unified=0", *span], req.cwd) or "")
+    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or "")
     if req.worktree:
         yield from untracked(req.cwd)
 
 
 def named(text: str, match: re.Match[str]) -> str:
-    return found["name"] if (found := ASSIGNED.match(text)) else (match.group("name") or match.group(0)).strip("\"'` ")
+    if found := ASSIGNED.match(text):
+        return found["name"]
+    groups = match.groupdict()
+    return next((value for key in NAME_GROUPS if (value := groups.get(key))), match.group(0)).strip("\"'` ")
 
 
 def kind_of(name: str) -> str:
@@ -332,6 +337,8 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(pattern=r"open\.go:127 .* errReadOnly"),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Block(),

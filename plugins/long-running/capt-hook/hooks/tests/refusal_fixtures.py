@@ -77,6 +77,15 @@ diff --git a/plugins/long-running/skills/long-running/scripts/drive.py b/plugins
 +    log.info("UPLOAD-STARTED")
 """
 
+FAILS_OPEN = """\
+diff --git a/plugins/long-running/capt-hook/hooks/register_gate.py b/plugins/long-running/capt-hook/hooks/register_gate.py
+--- a/plugins/long-running/capt-hook/hooks/register_gate.py
++++ b/plugins/long-running/capt-hook/hooks/register_gate.py
+@@ -80,0 +81,2 @@ def register_gate(evt):
++    except OSError as error:
++        return failed_open(evt, "register_gate", error)
+"""
+
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
 
