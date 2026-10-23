@@ -69,15 +69,16 @@ SYSD_CTM_JS = """new Promise(res=>requestAnimationFrame(()=>requestAnimationFram
 })))"""
 SYSTEM_MAP_SIZES = ((1440, 900), (1024, 768), (768, 1024), (390, 844))
 SYSTEM_MAP_AUDIT_JS = """(async()=>{
+ const failed=[...document.querySelectorAll("[data-component][data-cmpt-failed]")].map(h=>({id:h.dataset.component,problems:[{view:"home",text:"it never mounted"}]}));
  const hosts=[...document.querySelectorAll("[data-smap]")].filter(h=>!h.smap.problems.length);
  hosts.forEach(h=>{for(let d=h.closest("details");d;d=d.parentElement.closest("details"))d.open=true});
  const late=ms=>new Promise(r=>setTimeout(()=>r("late"),ms));
- return Promise.all(hosts.map(async h=>{
+ return failed.concat(await Promise.all(hosts.map(async h=>{
   const id=h.closest("[data-component]").dataset.component;
   if(await Promise.race([h.smap.ready,late(%(ms)d)])==="late")return {id,problems:[{view:"home",text:"it never finished drawing"}]};
   const problems=await Promise.race([h.smap.audit({all:true}),late(%(ms)d)]);
   return {id,problems:problems==="late"?[{view:"every view",text:"its audit never finished"}]:problems};
- }));
+ })));
 })()"""
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
