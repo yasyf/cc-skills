@@ -23,6 +23,18 @@ until a `slack-revoke:<channel id>` answer, and lanes in the root's session tree
 no id. The root never asks the owner again for a reply in that channel, and is told
 about replies, not asked.
 
+During an incident, the owner's standing reply grant for error and incident threads
+(answers 763620a and a4bd071) holds over radio silence. The moment a lane names an
+affected user who spoke in a thread, the comms desk records that thread's grant itself,
+before its first reply there:
+
+```bash
+ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <user id> reported <incident>?" --body "Reply grant for error and incident threads, answers 763620a and a4bd071" --label slack-grant:<channel id>
+```
+
+The desk then replies only in that thread. Every other thread, and every top-level post
+in that channel, stays silent unless the owner names it.
+
 The Slack watch lane relays human messages in this channel to the comms desk, not the
 root. The root addresses the desk over the cci bus,
 `cci post --drive <drive> --lane root --kind go --to comms-desk --text "<ruling>"`,

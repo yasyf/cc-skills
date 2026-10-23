@@ -2463,6 +2463,10 @@ PR body: beside `## Rulings`, a `## Regression tests` section lists each test id
   change adds or edits and links one CI run where that test failed against the old tree.
   Nothing checks the link; the fidelity desk reads each named test against the failure
   it claims (784f1ab). The `## Risk profile` states Load and Data in prose.
+Deletion: a change that deletes a code path, proposed or in a PR, carries its caller
+  trace before the root GOs it: every caller of the removed path, each one read, and what
+  the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
+  fidelity desk grades what the deletion does to each caller, never the diff's shape.
 GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
   per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
