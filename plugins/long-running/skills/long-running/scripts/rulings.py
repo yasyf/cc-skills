@@ -144,7 +144,7 @@ TEST_DEFINITION = re.compile(
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
-LANE_KINDS = ("head", "opened")
+LANE_KINDS = ("head", "report")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
