@@ -415,6 +415,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -553,6 +554,8 @@ QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEATS = drive.HEARTBEATS
+WATCHDOG = "drive-watchdog"
+ALIVE_EVERY = timedelta(minutes=1)
 DESKS = tuple(HEARTBEATS)
 PINNED_REF_PID = re.compile(r"(refs/rulings/[0-9a-f]+)-[0-9]+")
 RUNNING_VERSION = drive.plugin_manifest()["version"]
@@ -1274,6 +1277,9 @@ class Runner:
         self.unreachable_passes = 0
         self.pr_silent_skipped: set[str] = set()
         self.release_polled = datetime.min.replace(tzinfo=timezone.utc)
+        self.passes: Counter[str] = Counter()
+        self.raised: dict[str, tuple[str, int]] = {}
+        self.alive_posted: dict[str, datetime] = {}
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1379,7 +1385,22 @@ class Runner:
         env = "".join(f"{name}={shlex.quote(value)} " for name, value in self.config.desk_env[desk].items())
         return f"nohup {f'env {env}' if env else ''}desk-runner.py run --config {self.config.source} --desk {desk} >> {self.runner_log(desk)} 2>&1 < /dev/null &"
 
+    def pass_raised(self, desk: str, error: Exception) -> bool:
+        """Log a pass's traceback and post one blocker to the root naming the desk and the exception; true when the pass before raised the same, and the runner then exits."""
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
+        raised = f"{type(error).__name__}: {error}"
+        again = self.raised.get(desk) == (raised, self.passes[desk] - 1)
+        self.raised[desk] = (raised, self.passes[desk])
+        then = "it raised the same on the pass before, so the runner exited; restart it with its heartbeat's restart line" if again else "the runner goes on with its next pass"
+        self.cci_post("blocker", f"{desk} runner pass raised {raised[:240]}; {then}", ROOT, desk, f"pass-raised:{desk}")
+        return again
+
     def beat(self, desk: str) -> None:
+        """Write the desk's heartbeat file every pass, and post it to the drive watchdog as a cci `state` record at most once a minute."""
+        self.passes[desk] += 1
+        if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) >= ALIVE_EVERY:
+            self.alive_posted[desk] = self.now()
+            self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {self.passes[desk]}", WATCHDOG, desk, f"alive:{desk}")
         inbox = self.config.desk_inbox.parent
         beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "version": RUNNING_VERSION}
         inbox.mkdir(parents=True, exist_ok=True)
@@ -5150,6 +5171,9 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.release_coupling()
         except OrcaUnreachable as down:
             runner.orca_down(down)
+        except Exception as error:
+            if runner.pass_raised("orca", error):
+                return 1
         else:
             runner.orca_back()
         runner.aged_holds()
@@ -5222,6 +5246,9 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.tail_failed(failure)
         except OrcaUnreachable as down:
             runner.orca_down(down)
+        except Exception as error:
+            if runner.pass_raised("landing", error):
+                return 1
         behind = runner.stale("landing")
         runner.flush()
         runner.beat("landing")

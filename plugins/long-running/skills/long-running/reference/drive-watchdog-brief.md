@@ -40,7 +40,7 @@ Loop, forever, in the foreground:
   printed, then rerun. Run it as the Bash call itself and never filter or discard
   its output: the `MAILBOX` text is your only copy of that mail.
 
-For every record, judge five things:
+For every record, judge six things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
@@ -50,6 +50,10 @@ For every record, judge five things:
       with no owner and no clock.
   (e) ROOT DRIFT: the root answering acknowledgments, reading logs, or reopening
       decided items.
+  (f) DEAD RUNNER: with each digest, `cci state --drive <drive> --lane desk-runner`
+      shows each desk runner's newest `<desk> alive <time> pass <n>` record. One
+      older than 10 minutes, or a `blocker` from desk-runner saying a pass raised,
+      goes to root at once with the desk's heartbeat restart line.
 
 For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \

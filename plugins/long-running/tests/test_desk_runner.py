@@ -126,6 +126,7 @@ class FakeShell(runner_module.Shell):
         self.generation = 3
         self.run_use_error: dict | None = None
         self.posts: list[dict] = []
+        self.alive: list[str] = []
         self.records: list[dict] = []
         self.tail_error = ""
         self.tail_failures = 0
@@ -347,6 +348,9 @@ class FakeShell(runner_module.Shell):
             assert flags["--drive"] in self.drives and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if (flags["--kind"], flags["--to"]) == ("state", runner_module.WATCHDOG):
+                self.alive.append(flags["--text"])
+                return runner_module.Done(0, "#0\n", "")
             if stored := self.post_ids.get(flags.get("--id", "")):
                 return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
@@ -4123,15 +4127,19 @@ def test_a_root_resolves_on_the_release_record_closes_the_landings_cut_clock(she
     assert cut_silent(shell) == [] and incident(tmp_path, "desk-runner").facts["cut-clocks"]["release:36642"]["ended"] == "#36642 settled"
 
 
+class Killed(BaseException):
+    pass
+
+
 def test_a_release_record_posted_just_before_a_crash_is_never_posted_twice(shell, config, tmp_path, monkeypatch):
     land_fast(shell, config)
     save = runner_module.release_posted
 
     def killed(*args):
-        raise RuntimeError("killed after the post")
+        raise Killed("killed after the post")
 
     monkeypatch.setattr(runner_module, "release_posted", killed)
-    with pytest.raises(RuntimeError, match="killed after the post"):
+    with pytest.raises(Killed, match="killed after the post"):
         cli(shell, config, "run", "--desk", "landing", "--once")
     assert len(shell.posts) == 1 and release_action(tmp_path).status == "accepted"
     monkeypatch.setattr(runner_module, "release_posted", save)
@@ -5051,10 +5059,30 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
 
 def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
     landing_pass(shell, config)
+    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1"]
     beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())
     assert beat["pid"] == os.getpid()
     assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert not (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).exists()
+
+
+def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_same_raise_twice_in_a_row(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    raises = iter([UnicodeDecodeError("utf-8", b"\xb5", 0, 1, "invalid start byte"), None, KeyError("base"), KeyError("base")])
+
+    def run(landing):
+        if error := next(raises):
+            raise error
+
+    monkeypatch.setattr(runner_module.Landing, "run", run)
+    monkeypatch.setattr(runner, "rest", lambda seconds: False)
+
+    assert runner_module.run_landing(runner, False) == 1
+    assert [(post["to"], post["text"]) for post in blockers(shell)] == [
+        ("root", "landing runner pass raised UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb5 in position 0: invalid start byte; the runner goes on with its next pass"),
+        ("root", "landing runner pass raised KeyError: 'base'; the runner goes on with its next pass"),
+        ("root", "landing runner pass raised KeyError: 'base'; it raised the same on the pass before, so the runner exited; restart it with its heartbeat's restart line"),
+    ]
 
 
 def test_the_landing_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):

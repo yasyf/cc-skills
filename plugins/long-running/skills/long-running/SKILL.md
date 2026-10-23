@@ -1918,6 +1918,11 @@ session, so the check holds however the command spells the inbox path, such as
 `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
 Each landing pass writes `landing-runner.heartbeat.json` in the same directory, which
 `handoff --desk landing` reads; no hook watches it.
+Each runner also posts a cci `state` record to `drive-watchdog`, at most once a minute,
+reading `<desk> alive <time> pass <n>`, so the watchdog alarms within 10 minutes of
+silence. A pass that raises logs its traceback, posts one `blocker` to the root naming
+the desk and the exception, and the runner goes on with its next pass. When the next
+pass raises the same exception, the runner posts that too and exits.
 
 The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 `inbox-rotate.py` records time and stream-end marks and archives through the newest
