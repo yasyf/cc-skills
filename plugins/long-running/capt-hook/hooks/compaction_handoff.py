@@ -41,6 +41,8 @@ SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
+POINTED = re.compile(r"(?:ccn doc show |docs/)([0-9a-f]{7,40})\b")
+PACKAGED = re.compile(r"`((?:[\w.-]+/)+)[0-9a-f]{7,40}\.md` in the package")
 VERSION = re.compile(r"\d+(?:\.\d+)+")
 ORPHANED = ".orphaned_at"
 SCRIPTS = Path("skills") / "long-running" / "scripts"
@@ -136,10 +138,24 @@ def has_cc_notes(cwd: str) -> bool:
     return shutil.which("ccn") is not None and ccn(cwd, "doc", "list", "--limit", "1", "--json").returncode == 0
 
 
-def slug_of(plan: Path) -> str:
+def pointer_of(plan: Path) -> str:
     text = plan.read_text() if plan.exists() else ""
-    pointer = next((line for line in text.splitlines() if line.startswith(POINTER_PREFIX)), "")
-    return match[1] if (match := SLUG.search(pointer)) else plan.stem
+    return next((line for line in text.splitlines() if line.startswith(POINTER_PREFIX)), "")
+
+
+def labelled_slug(cwd: str, doc_id: str) -> str | None:
+    shown = ccn(cwd, "doc", "show", doc_id, "--json")
+    tags = json.loads(shown.stdout).get("tags", []) if shown.returncode == 0 else []
+    return next((tag.removeprefix("progress:") for tag in tags if tag.startswith("progress:")), None)
+
+
+def slug_of(plan: Path, cwd: str, store: str) -> str:
+    pointer = pointer_of(plan)
+    if match := SLUG.search(pointer):
+        return match[1]
+    if store == "ccn" and (named := POINTED.search(pointer)) and (slug := labelled_slug(cwd, named[1])):
+        return slug
+    return plan.stem
 
 
 def progress_folder(plan: Path) -> Path:
@@ -148,8 +164,8 @@ def progress_folder(plan: Path) -> Path:
 
 def resolve_record(state: CompactionState, cwd: str) -> None:
     if state.plan_path and state.slug is None:
-        state.slug = slug_of(Path(state.plan_path).expanduser())
         state.store = "ccn" if has_cc_notes(cwd) else "folder"
+        state.slug = slug_of(Path(state.plan_path).expanduser(), cwd, state.store)
 
 
 def progress_docs(state: CompactionState, cwd: str) -> list[dict] | None:
@@ -316,10 +332,14 @@ def point_plan(plan: Path, line: str) -> None:
 
 
 def point_doc(state: CompactionState, doc_id: str) -> None:
+    plan, short = Path(state.plan_path or "").expanduser(), doc_id[:8]
+    if short in (pointer := pointer_of(plan)):
+        return
+    packaged = f"; `{folder[1]}{short}.md` in the package" if (folder := PACKAGED.search(pointer)) else ""
     point_plan(
-        Path(state.plan_path or ""),
-        f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
-        f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). It is the only "
+        plan,
+        f"{POINTER_PREFIX} the latest execution state is the active cc-notes progress doc `{short}` "
+        f"(`ccn doc show {short}`{packaged}). It is the only "
         "active one: the newest hand-written progress doc written for the coming compaction gains the generated sections "
         "in place and names the earlier ones to read first, else the active generated doc is edited in place; "
         "only this line's id changes.",

@@ -154,7 +154,7 @@ if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != 
             d["supersedes"] = d.get("supersedes", []) + [args[2]]
     json.dump(docs, open(listed, "w"))
 if args[:2] == ["doc", "show"]:
-    entry = next((d for d in json.load(open(listed)) if d["id"] == args[2]), {})
+    entry = next((d for d in json.load(open(listed)) if d["id"].startswith(args[2])), {})
     path = os.path.join(state, args[2] + ".md")
     body = open(path).read() if os.path.exists(path) else GENERATED + "## Standing owner rules\\n- none\\n"
     fields = {key: entry.get(key, []) for key in ("tags", "supersedes")} | {"title": entry.get("title", "")}
@@ -255,6 +255,82 @@ def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, doc
     assert "--label progress:release-v3" in pending(session)[0]
 
 
+BREEZY = "users-yasyf-claude-plans-pasted-content-breezy-harbor"
+PACKAGED_DOC = "43c2142b5ca45cc79800f9a829083b4d961ebbc4"
+NEWER_DOC = "5ee0d1a2" + "0" * 32
+LABELLED_POINTER = "- **Progress (read first after any compaction):** the latest execution state is the active cc-notes doc labelled `progress:users-yasyf-claude-plans-pasted-content-breezy-harbor` (`ccn doc list --label progress:users-yasyf-claude-plans-pasted-content-breezy-harbor`, now `43c2142b`; `ccn doc show <id>`). It is the only active one: the newest hand-written progress doc written for the coming compaction gains the generated sections in place and names the earlier ones to read first, else the active generated doc is edited in place; only this line's id changes."
+PACKAGED_POINTER = "- **Progress (read first after any compaction):** the latest execution state is the planning session's progress doc, `records/docs/43c2142b.md` in the package; the fresh agent then keeps its own progress doc in cc-notes under the program slug it chooses (`ccn doc list --label progress:<program slug>`; `ccn doc show <id>`). It is the only active one: the newest hand-written progress doc written for the coming compaction gains the generated sections in place and names the earlier ones to read first, else the active generated doc is edited in place; only this line's id changes."
+POINTER_RULE = (
+    "It is the only active one: the newest hand-written progress doc written for the coming compaction gains the generated "
+    "sections in place and names the earlier ones to read first, else the active generated doc is edited in place; "
+    "only this line's id changes."
+)
+
+
+def breezy_plan(home: Path, pointer: str) -> tuple[Path, str]:
+    path = home / ".claude" / "plans" / f"{BREEZY}.md"
+    path.parent.mkdir(parents=True)
+    text = f"# Durable agents\n\n{pointer}\n- **Register (read with progress):** every owner ruling is a register row.\n"
+    path.write_text(text)
+    return path, text
+
+
+def breezy_doc(doc_id: str, updated: str) -> dict:
+    return {"id": doc_id, "title": f"drive: progress {updated}", "tags": [f"progress:{BREEZY}"], "updated_at": updated}
+
+
+@pytest.mark.parametrize("pointer", [LABELLED_POINTER, PACKAGED_POINTER], ids=["labelled", "packaged"])
+def test_a_compaction_leaves_a_pointer_naming_the_active_doc_byte_identical(home: Path, docs: Path, pointer: str) -> None:
+    session = home / "session"
+    plan, text = breezy_plan(home, pointer)
+    (docs / "docs.json").write_text(json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z")]))
+    (docs / f"{PACKAGED_DOC}.md").write_text("## Root's next actions\n1. hand off the package\n")
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+
+    assert (state(session).slug, state(session).active_doc) == (BREEZY, PACKAGED_DOC)
+    assert plan.read_text() == text
+
+
+@pytest.mark.parametrize(
+    ("pointer", "packaged"),
+    [(LABELLED_POINTER, ""), (PACKAGED_POINTER, "; `records/docs/5ee0d1a2.md` in the package")],
+    ids=["labelled", "packaged"],
+)
+def test_a_new_active_doc_rewrites_the_pointer_without_a_drive_label(home: Path, docs: Path, pointer: str, packaged: str) -> None:
+    session = home / "session"
+    plan, text = breezy_plan(home, pointer)
+    (docs / "docs.json").write_text(
+        json.dumps([breezy_doc(PACKAGED_DOC, "2026-10-22T22:33:44Z"), breezy_doc(NEWER_DOC, "2026-10-23T04:00:00Z")])
+    )
+    (docs / f"{NEWER_DOC}.md").write_text("## Root's next actions\n1. resume the rebuild\n")
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+
+    assert state(session).active_doc == NEWER_DOC
+    assert plan.read_text() == text.replace(
+        pointer,
+        f"{handoff.POINTER_PREFIX} the latest execution state is the active cc-notes progress doc `5ee0d1a2` "
+        f"(`ccn doc show 5ee0d1a2`{packaged}). {POINTER_RULE}",
+    )
+    assert "progress:" not in plan.read_text() and BREEZY not in plan.read_text()
+
+
+def test_a_label_free_pointer_takes_the_slug_from_the_doc_it_names(home: Path, docs: Path) -> None:
+    session = home / "session"
+    plan = home / ".claude" / "plans" / "brook.md"
+    plan.parent.mkdir(parents=True)
+    plan.write_text(f"# brook\n\n{handoff.POINTER_PREFIX} the active cc-notes progress doc `d473abdd` (`ccn doc show d473abdd`).\n")
+    (docs / "docs.json").write_text(json.dumps([doc("d473abdd" + "0" * 32, "2026-10-22T22:00:00Z") | {"tags": ["progress:release-v3"]}]))
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+
+    handoff.nudge_at_threshold(bash(session))
+
+    assert state(session).slug == "release-v3"
+
+
 def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_every_other(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
@@ -281,7 +357,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     assert (state(session).active_doc, state(session).read_first, state(session).narrative) == ("b" * 40, [], "bbbbbbb")
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
-    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
+    assert lines[2].startswith(handoff.POINTER_PREFIX) and "`ccn doc show bbbbbbbb`" in lines[2]
 
     with handoff.CompactionState.mutate(bash(session)) as saved:
         saved.phase, saved.prior = "due", ["b" * 40]
@@ -289,7 +365,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     (docs / ("c" * 40 + ".md")).write_text("## Root's next actions\n1. land l12\n")
     handoff.compact_when_idle(stop_event(session))
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `cccccccc`" in pointer
+    assert "`ccn doc show cccccccc`" in pointer
     assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
     assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert (docs / ("c" * 40 + ".md")).read_text().endswith("_From doc ccccccc._\n\n## Root's next actions\n1. land l12\n")
@@ -653,7 +729,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
         "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
     )
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `66666666`" in pointer and "It is the only active one" in pointer
+    assert "`ccn doc show 66666666`" in pointer and "It is the only active one" in pointer
 
     handoff.reground(session_start(session, "compact"))
     with handoff.CompactionState.mutate(bash(session)) as saved:
@@ -720,7 +796,7 @@ def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home:
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
     assert active(docs) == ["b" * 40]
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `bbbbbbbb`" in pointer
+    assert "`ccn doc show bbbbbbbb`" in pointer
     assert handoff.reground(session_start(session, "resume")).message.startswith(
         "Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`"
     )
@@ -832,4 +908,4 @@ def test_a_stop_handoff_whose_state_was_lost_still_points_the_compaction_at_the_
     assert "read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show ccccccc`, then " in restored
     assert "not written" not in restored
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `cccccccc`" in pointer
+    assert "`ccn doc show cccccccc`" in pointer
