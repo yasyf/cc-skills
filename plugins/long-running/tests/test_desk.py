@@ -2389,6 +2389,17 @@ def test_unadmit_withdraws_a_pr_so_no_refresh_admits_it_again_and_pulls_the_labe
     assert [row["ours"] for row in json.loads(capsys.readouterr().out)] == [True]
 
 
+def test_unadmit_of_a_pr_below_a_labelled_tip_pulls_the_label_from_the_tip(capsys):
+    shell = desk_shell()
+    for pr in ("24081", PR):
+        shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:00:00Z", "label_stack": f"24081,{PR}"}})
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "24081") == 0
+
+    assert shell.unlabelled == [f"{PR}:merge"]
+    assert shell.fields(PR)["label_pull_reason"] == "unadmitted #24081 from the drive"
+
+
 def test_unadmit_of_an_unlabelled_pr_pulls_nothing_and_refuses_a_row_the_ledger_lacks(capsys):
     shell = FakeShell(rows=[{"key": "24070", "fields": {"lane": LANE, "registered": LANE}}])
 

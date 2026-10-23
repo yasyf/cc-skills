@@ -745,6 +745,22 @@ def test_generate_clears_a_cursor_from_before_the_drive_that_no_line_sits_past_a
         assert line in body
 
 
+def test_generate_keeps_an_old_cursor_at_the_newest_ruling_when_a_line_follows_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))
+    inbox = drive_home / ".claude/scratch/brook/inbox"
+    (inbox / "landing-desk.md").write_text("- L1 (root) → desk: hold #1\nMONITOR alert fired: queue stalled\n")
+    cursor = inbox / "landing-desk.md.cursor"
+    cursor.write_text("L1\n")
+    written = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    os.utime(cursor, (written, written))
+    shell = shell_with()
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    assert cursor.read_text() == "L1\n" and "cleared stale cursor" not in body
+
+
 def test_generate_keeps_a_read_through_cursor_written_after_the_drive_started(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     registry = drive_home / ".claude/long-running/drives/d1.json"
     registry.write_text(json.dumps(json.loads(registry.read_text()) | {"started_at": "2026-10-20T00:00:00Z"}))

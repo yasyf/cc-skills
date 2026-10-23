@@ -113,10 +113,11 @@ class Inbox:
     cursor: str | None
     last: str | None
     count: int = 0
+    tail: str | None = None
 
     def read_through(self) -> bool:
-        """Whether no line sits past the cursor: a line count at the stream's, or the newest ruling id."""
-        return self.cursor is not None and (int(self.cursor) >= self.count if self.cursor.isdigit() else self.cursor == self.head)
+        """Whether no line sits past the cursor: a line count at the stream's, or the ruling id of the stream's final line."""
+        return self.cursor is not None and (int(self.cursor) >= self.count if self.cursor.isdigit() else self.cursor == self.tail)
 
 
 @dataclass(frozen=True)
@@ -201,7 +202,8 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
         rulings = [(match[1], line.strip()) for line in lines if (match := RULING.match(line))]
         cursor = path.with_name(f"{path.name}.cursor")
         head, last = rulings[-1] if rulings else (None, None)
-        handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last, count=len(lines)))
+        tail = match[1] if lines and (match := RULING.match(lines[-1])) else None
+        handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last, count=len(lines), tail=tail))
 
 
 def clear_stale_cursors(handoff: Handoff, started: datetime) -> None:
