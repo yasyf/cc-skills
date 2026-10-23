@@ -400,7 +400,7 @@ footer a{cursor:pointer}
 .xs-panel>.xs-text{min-width:0}
 .xs-panel>figure{margin:0;min-width:0;--figcap:min(70vh,calc(100svh - 260px))}
 .xs-panel[data-wide]>figure{--figcap:min(40svh,calc(100svh - 520px))}
-.xs-panel>figure svg:not(.xs-connect){display:block;width:100%;height:auto;max-width:min(100%,calc(var(--figcap) * var(--ar,2.4)));max-height:var(--figcap)}
+.xs-panel>figure svg:not(.xs-connect):not(.smap svg){display:block;width:100%;height:auto;max-width:min(100%,calc(var(--figcap) * var(--ar,2.4)));max-height:var(--figcap)}
 .xs-panel>figure .mmd-host{overflow:auto;max-height:var(--figcap);max-width:100%;min-width:0}
 .xs-panel>figure .mmd-host svg.mmd{width:100%;max-width:100%;max-height:none;margin:0 auto}
 .xs-panel figcaption{font-size:14px;color:var(--hero-ink2);margin-top:12px;max-width:60ch}
@@ -1041,7 +1041,7 @@ function termify(root){
 
 function fitSvgs(root){
  root.querySelectorAll("svg").forEach(s=>{
-  if(!s.getAttribute("viewBox")||s.classList.contains("xs-connect"))return;
+  if(!s.getAttribute("viewBox")||s.classList.contains("xs-connect")||s.closest(".smap"))return;
   s.removeAttribute("width");s.removeAttribute("height");
   s.classList.add("fit");
   setAspect(s);
@@ -2926,6 +2926,7 @@ async function prepPrint(){
  unveil();
  await rerenderDiagrams();
  document.querySelectorAll(".xs-poster").forEach(drawConnectors);
+ await resetSystemMaps();
 }
 function endPrint(){
  if(!printing)return;
@@ -3041,7 +3042,7 @@ function resetComponentsForPrint(){
   r.dispatchEvent(new Event("input"));
  });
 }
-new MutationObserver(()=>{if(HTML.dataset.print)resetComponentsForPrint()}).observe(HTML,{attributeFilter:["data-print"]});
+new MutationObserver(()=>{if(HTML.dataset.print){resetComponentsForPrint();resetSystemMaps()}}).observe(HTML,{attributeFilter:["data-print"]});
 JOBS.push(mountRegisterComponents());
 
 window.designDocReady=Promise.allSettled(JOBS).then(async()=>{

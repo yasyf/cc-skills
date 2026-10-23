@@ -147,6 +147,201 @@
     }
   ],
   "components": {
+    "tinyq-map": {
+      "kind": "dd.system",
+      "title": "Only the log is durable; the dispatcher and workers rebuild from it",
+      "groups": [
+        {
+          "id": "fleet",
+          "kind": "zone",
+          "label": "Worker fleet"
+        },
+        {
+          "id": "storage",
+          "kind": "zone",
+          "label": "Object storage"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "producers",
+          "kind": "actor",
+          "name": "Producers",
+          "role": "Send jobs with idempotency keys"
+        },
+        {
+          "id": "log",
+          "kind": "log",
+          "medium": "disk",
+          "tag": "SQLite",
+          "name": "Job log",
+          "role": "One file per tenant",
+          "critical": true,
+          "about": "Each tenant's queues live in their own database file, so one busy tenant cannot slow down another. A job is safe once the log accepts it.",
+          "contents": [
+            {
+              "text": "Jobs and their leases",
+              "note": "one SQLite file per tenant"
+            }
+          ]
+        },
+        {
+          "id": "dispatcher",
+          "kind": "service",
+          "name": "Dispatcher",
+          "role": "Leases a job, pushes it",
+          "about": "Holds nothing the log cannot rebuild, so an expired lease simply re-queues its job.",
+          "parts": [
+            {
+              "id": "lease",
+              "shape": "gate",
+              "name": "Lease",
+              "role": "One holder per job"
+            },
+            {
+              "id": "parked",
+              "shape": "queue",
+              "name": "Parked polls",
+              "role": "Workers waiting on HTTP"
+            },
+            {
+              "id": "expiry",
+              "shape": "timer",
+              "name": "Lease timer",
+              "role": "Re-queues an expired lease"
+            }
+          ]
+        },
+        {
+          "id": "workers",
+          "kind": "worker",
+          "name": "Workers",
+          "role": "Run jobs, renew leases",
+          "group": "fleet"
+        },
+        {
+          "id": "archive",
+          "kind": "store",
+          "medium": "bucket",
+          "name": "Archive",
+          "role": "Finished jobs after a day",
+          "group": "storage"
+        }
+      ],
+      "links": [
+        {
+          "from": "producers",
+          "to": "log",
+          "label": "enqueue"
+        },
+        {
+          "from": "log",
+          "to": "lease",
+          "label": "lease"
+        },
+        {
+          "from": "lease",
+          "to": "parked",
+          "label": "leased job"
+        },
+        {
+          "from": "parked",
+          "to": "workers",
+          "label": "deliver"
+        },
+        {
+          "from": "expiry",
+          "to": "log",
+          "style": "async",
+          "label": "re-queue"
+        },
+        {
+          "from": "log",
+          "to": "archive",
+          "style": "copy",
+          "label": "after a day"
+        }
+      ],
+      "path": {
+        "title": "An enqueued job",
+        "steps": [
+          {
+            "from": "producers",
+            "to": "log",
+            "say": "append the job"
+          },
+          {
+            "from": "log",
+            "to": "producers",
+            "say": "ack, the job is safe",
+            "waitsFor": 1
+          },
+          {
+            "from": "log",
+            "to": "dispatcher",
+            "say": "lease it"
+          },
+          {
+            "from": "dispatcher",
+            "to": "workers",
+            "say": "push to a parked poll"
+          }
+        ]
+      },
+      "stories": [
+        {
+          "id": "worker-dies",
+          "label": "A worker dies",
+          "title": "A worker dies holding a lease",
+          "steps": [
+            {
+              "from": "dispatcher",
+              "to": "workers",
+              "say": "push the job"
+            },
+            {
+              "from": "expiry",
+              "to": "log",
+              "say": "the lease expires, re-queue"
+            },
+            {
+              "from": "log",
+              "to": "dispatcher",
+              "say": "lease it again"
+            },
+            {
+              "from": "dispatcher",
+              "to": "workers",
+              "say": "another worker runs it"
+            }
+          ]
+        },
+        {
+          "id": "duplicate",
+          "label": "A duplicate",
+          "title": "A producer sends the same job twice",
+          "steps": [
+            {
+              "from": "producers",
+              "to": "log",
+              "say": "same idempotency key"
+            },
+            {
+              "from": "dispatcher",
+              "to": "workers",
+              "say": "delivered at least once",
+              "mark": "risk"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        {
+          "on": "log",
+          "text": "Ack in about 2 ms (estimated)"
+        }
+      ]
+    },
     "backlog-cost": {
       "kind": "dd.whatif",
       "title": "What a backlog costs per second",

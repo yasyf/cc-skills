@@ -604,7 +604,7 @@ a.lv-card:hover{border-color:var(--accent);text-decoration:none}
 .xs-panel a:hover{text-decoration-color:currentColor}
 .xs-panel .cite,.xs-panel .term{text-decoration-color:var(--hero-line)}
 .xs-panel figure{margin:var(--s-5) 0 0;min-width:0}
-.xs-panel figure svg{display:block;width:100%;height:auto}
+.xs-panel figure svg:not(.smap svg){display:block;width:100%;height:auto}
 .xs-panel figcaption{font-size:var(--t-sm);color:var(--hero-ink2);margin-top:var(--s-2)}
 .xs-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:var(--s-4) var(--s-6);margin:var(--s-6) 0 0}
 
@@ -4244,7 +4244,7 @@ function resetComponentsForPrint(){
   r.dispatchEvent(new Event("input"));
  });
 }
-new MutationObserver(()=>{if(HTML.dataset.print)resetComponentsForPrint()}).observe(HTML,{attributeFilter:["data-print"]});
+new MutationObserver(()=>{if(HTML.dataset.print){resetComponentsForPrint();resetSystemMaps()}}).observe(HTML,{attributeFilter:["data-print"]});
 JOBS.push(renderAll());
 setupStatusBar();
 
@@ -4659,6 +4659,7 @@ async function prepPrint(){
  document.querySelectorAll(".ir-msg[hidden]").forEach(m=>{m.hidden=false;m.dataset.printShown="1"});
  TL_VIEWS.forEach(v=>v.toHome());
  if(uplotP&&window.uPlot)redrawCharts();
+ await resetSystemMaps();
  await document.fonts.ready;
 }
 function endPrint(){

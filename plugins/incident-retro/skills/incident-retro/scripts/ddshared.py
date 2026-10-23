@@ -1,4 +1,4 @@
-# built by plugins/_shared/build.py from py/ddshared.py sha256:bf531a739ca8 — do not edit
+# built by plugins/_shared/build.py from py/ddshared.py sha256:22378739f772 — do not edit
 """Names design.py and retro.py share: the check report, link normalisation and GitHub state,
 the ai.json validator, the component schema validator, the plain-twin and capitalisation lints,
 the summary-fragment text extractor, and the file digest. Lifted verbatim from design.py.
@@ -281,7 +281,10 @@ def check_case(rep, where, label, acronyms, sentence_case=True):
                      "capitalisation (name a product that is also an ordinary word in meta.acronyms to lint it)")
 
 
-def schema_errors(value, schema, where: str) -> list:
+def schema_errors(value, schema, where: str, root=None) -> list:
+    root = root or schema
+    if "$ref" in schema:
+        schema = root["$defs"][schema["$ref"].removeprefix("#/$defs/")]
     if "const" in schema:
         return [] if value == schema["const"] else [f"{where} must be {schema['const']!r}"]
     if "enum" in schema and value not in schema["enum"]:
@@ -302,7 +305,7 @@ def schema_errors(value, schema, where: str) -> list:
                     out.append(f"{where} has an unknown property {key!r}")
         for key, sub in props.items():
             if key in value:
-                out.extend(schema_errors(value[key], sub, f"{where}.{key}"))
+                out.extend(schema_errors(value[key], sub, f"{where}.{key}", root))
     elif kind == "array":
         if "minItems" in schema and len(value) < schema["minItems"]:
             out.append(f"{where} needs at least {schema['minItems']} entries")
@@ -310,10 +313,12 @@ def schema_errors(value, schema, where: str) -> list:
             out.append(f"{where} takes at most {schema['maxItems']} entries")
         if "items" in schema:
             for i, item in enumerate(value):
-                out.extend(schema_errors(item, schema["items"], f"{where}[{i}]"))
+                out.extend(schema_errors(item, schema["items"], f"{where}[{i}]", root))
     elif kind == "string":
         if len(value.strip()) < schema.get("minLength", 0):
             out.append(f"{where} must not be empty")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            out.append(f"{where} is {len(value)} characters; it takes at most {schema['maxLength']}")
         if "pattern" in schema and not re.fullmatch(schema["pattern"].strip("^$"), value):
             out.append(f"{where} must match {schema['pattern']}")
     elif kind in ("number", "integer"):

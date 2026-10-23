@@ -1,12 +1,8 @@
 <section class="xs-panel" data-kind="thesis">
   <h1>One log per tenant holds every job</h1>
   <p class="xs-lede">A job is safe once the log acks it. A parked worker gets the next job pushed, not polled.</p>
-  <figure>
-    <pre class="mermaid" aria-label="Producers enqueue into a per-tenant job log; the dispatcher leases each job and pushes it to a parked worker; completed jobs archive to object storage after 24 hours.">flowchart LR
-  producers["Producers"] -->|enqueue| log[("Job log<br/>one file per tenant")]
-  log -->|lease| dispatcher["Dispatcher"]
-  dispatcher -->|push| workers["Workers<br/>parked long-poll"]
-  log -.->|after a day| archive[("Object storage")]</pre>
+  <figure aria-label="Producers enqueue into a per-tenant job log; the dispatcher leases each job and pushes it to a parked worker; completed jobs archive to object storage after a day.">
+    <div data-component="tinyq-map"></div>
     <figcaption>Only the log is durable (DQ1); dispatcher and workers rebuild from it.</figcaption>
   </figure>
 </section>

@@ -72,7 +72,9 @@ idempotency-key lookup and the lease timer wheel, which are steps inside a
 part. Labels: Producers, Job log, Dispatcher, Workers, Object storage.
 
 **Thesis, the path.** Point: one durable thing, and a worker already waiting.
-Decision: DQ1. View: the same path, one line per flow. Leaves out: the
+Decision: DQ1. View: the `tinyq-map` system map, the enqueue-to-push path as
+its main path, with a dead worker and a duplicate as stories and the
+dispatcher's lease, parked polls, and lease timer inside it. Leaves out: the
 restore path from the archive. Labels: enqueue, lease, push, after a day.
 
 **Compare, the two lanes.** Point: the poll becomes a push and the table

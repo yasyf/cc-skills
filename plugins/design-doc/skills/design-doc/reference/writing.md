@@ -192,6 +192,7 @@ Every panel has a figure, and every figure is drawn for this design: a diagram o
 
 - Mermaid (`<pre class="mermaid">`) for flows and request paths.
 - `dd.flow` or `dd.lanes`, from the Components table, for the compare panel.
+- `dd.system`, the hand-drawn system map, for a thesis or compare panel whose story is a running system: where a request goes, what it waits for, and what happens on a retry or a crash.
 - The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure on a poster.
 - Inline SVG when none fits.
 
@@ -201,7 +202,7 @@ The compare panel's figure is a kit component, declared in `components` and plac
 
 `dd.lanes` draws today beside proposed as two framed stacks of boxes; it fits a change whose story is which parts become which. Both measure their labels in the page and lay themselves out, so a column widens to its callouts and a lane to its boxes, and nothing overlaps at 390 px or 1440 px. A hand-drawn SVG is for a shape neither kind draws; `check` warns on a compare figure drawn by hand with eight or more boxes and names the kind it should be.
 
-Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries both: an `aria-label` that says what is drawn, for the reader who cannot see it, and a `<figcaption>` that states the claim the figure makes and cites the decision it serves. `check` warns on a deck figure with no `aria-label`, on one with no caption, and on a caption that cites nothing.
+Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose thesis panel hosts a `dd.system` map, whose compare panel hosts a `dd.lanes`, and whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries both: an `aria-label` that says what is drawn, for the reader who cannot see it, and a `<figcaption>` that states the claim the figure makes and cites the decision it serves. `check` warns on a deck figure with no `aria-label`, on one with no caption, and on a caption that cites nothing.
 
 ## Components
 
@@ -217,8 +218,45 @@ A figure moves when a number or a sequence earns it: a number the reader would w
 | options against criteria | `dd.matrix` | a decision's rejected alternatives; a compare with more than two lanes |
 | stages in columns, with what each one leaks or fixes hanging off it | `dd.flow` | the compare panel of a change whose story is where the path breaks |
 | today beside proposed, as two stacks of boxes | `dd.lanes` | the compare panel of a change whose story is which parts change |
+| a running system: its processes and stores, the path a request takes, other journeys to walk, and blocks a reader opens to see their parts | `dd.system` | the thesis panel in place of the Mermaid hero; a compare panel; an arch card |
 
-`dd.flow` and `dd.lanes` are figures that lay themselves out, not widgets, so they sit outside the one-or-two ceiling above. A doc with a compare panel has one of them, plus one or two of the others where a number or a sequence earns it.
+`dd.flow`, `dd.lanes`, and `dd.system` are figures that lay themselves out, not widgets, so they sit outside the one-or-two ceiling above. A doc with a compare panel has one of them, plus one or two of the others where a number or a sequence earns it.
+
+A `dd.system` map takes no positions. List `blocks` in the order a request meets them and the map lays out its columns, routes the arrows, and places every caption clear of every box. Write it in this order: `title`, the one claim the map makes; `blocks`, four to eight of them and ten at most, each a running thing or a store with a three-word `name` and a six-word `role`; `parts` for the blocks a reader will open, each one a glyph by what it does (a gate, a queue, a pool, a watcher); `links`, part to part where you know them, which the map rolls up into one arrow per pair of blocks; `path`, the one journey the map exists to explain, in three to five steps; `stories`, two to four other journeys worth walking, such as a retry, a crash, or a recovery; and `notes`, at most three, each carrying one number. Mark the store the path must reach before it replies with `critical: true`, and put `waitsFor` on the reply step so the map draws the barrier. A store's `medium` picks its shape (`memory`, `disk`, `bucket`, `keys`, `pages`) and its `tag` carries the product (`EBS`, `S3`, `KMS`); the tag is not linted, while an acronym in a `name` needs `meta.acronyms` like any label. Every name, role, and label comes from the registers, and the figure's caption cites the decisions the map draws, because the Markdown export and print carry the blocks and the path as text and the stories only as lists.
+
+```json
+"orders-map": {
+  "kind": "dd.system",
+  "title": "An order is on disk before the shopper hears yes",
+  "groups": [{"id": "vm", "kind": "machine", "label": "Orders VM"}, {"id": "cloud", "label": "Our AWS account"}],
+  "blocks": [
+    {"id": "app", "kind": "app", "name": "Shop app", "role": "Places and retries orders"},
+    {"id": "api", "kind": "service", "name": "Orders API", "role": "Checks, logs, then replies", "group": "vm",
+     "parts": [{"id": "dedupe", "shape": "gate", "name": "Retry gate", "role": "Drops repeated order ids"},
+               {"id": "seen", "shape": "store", "medium": "memory", "tag": "RAM", "name": "Seen ids", "role": "Last hour of order ids"}]},
+    {"id": "wal", "kind": "log", "medium": "disk", "tag": "EBS", "name": "Order log", "role": "Append, fsync per order", "group": "vm", "critical": true},
+    {"id": "bucket", "kind": "store", "medium": "bucket", "tag": "S3", "name": "Backup bucket", "role": "Keeps every segment", "group": "cloud"}
+  ],
+  "links": [
+    {"from": "app", "to": "dedupe", "label": "POST /orders"},
+    {"from": "dedupe", "to": "seen", "label": "seen before?"},
+    {"from": "dedupe", "to": "wal", "label": "append + fsync"},
+    {"from": "wal", "to": "bucket", "style": "copy", "label": "closed segment"}
+  ],
+  "path": {"title": "A placed order", "steps": [
+    {"from": "app", "to": "api", "say": "send the order"},
+    {"from": "api", "to": "wal", "say": "append and fsync"},
+    {"from": "api", "to": "app", "say": "reply 201", "waitsFor": 2}
+  ]},
+  "stories": [{"id": "retry", "label": "A retry", "title": "The app retries after a timeout", "steps": [
+    {"from": "app", "to": "api", "say": "same order id again"},
+    {"from": "dedupe", "to": "seen", "say": "found in memory"}
+  ]}],
+  "notes": [{"on": "wal", "text": "fsync adds about 2 ms per order"}]
+}
+```
+
+In the thesis panel the map shares the width with the headline, so most maps draw there as names only, with their story chips and an "Open the map" button, and the full-screen copy carries the detail. That is the intended shape: the panel states the claim, and the reader opens the map to check it. A compare panel is full width and usually draws the map in full.
 
 The declaration sits in `registers.json`; the deck places it with `<div data-component="id"></div>` inside a panel's `<figure>`, and the registers place it through `arch[].component`, `numbers[].component`, or `meta.ceilingsComponent`. A `dd.whatif` for the gallery deck's numbers panel:
 
