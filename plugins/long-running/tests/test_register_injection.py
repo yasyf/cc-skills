@@ -86,7 +86,7 @@ def test_a_session_outside_any_drive_injects_nothing(tools: Path) -> None:
 def test_an_orca_worker_receives_the_register_once_at_start(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     drives = tools / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "state_dir": str(tools / ".claude" / "scratch" / "brook")}))
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "program": "brook", "state_dir": str(tools / ".claude" / "scratch" / "brook")}))
     monkeypatch.setenv(injection.DRIVE_ENV, "d1")
 
     started = injection.brief_drive_worker(SessionStartEvent(_raw=raw(source="startup"), ctx=ctx(tools / "worker")))

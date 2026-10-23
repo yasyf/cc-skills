@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import ledger
@@ -17,6 +19,47 @@ SEED = {"id": "8075b46" + "0" * 33, "title": "How does a seed converge?", "body"
 
 
 DURABLE = ["answer", "list", "--label", "scope:durable", "--limit", "0"]
+REGISTER_LEDGER = "f" * 40
+STAMP = "2026-10-23T12:00:00Z"
+AT = "2026-10-23T12:30:00Z"
+PROMPT_KEY = "prompt/1023-053000"
+RELAY = [
+    ("No relay code lands in relay-server.", "removes"),
+    ("relay-server gains no plug-in point for relay code.", "removes"),
+    ("Relay cleanup may live in the desktop app.", "permits"),
+]
+PLAN = """# Plan
+
+### Step 1. Tooling
+
+9. **Register**: cards quote the words; a parked worker is never kept.
+   - Nothing of ours lands in relay-server (aaaaaaa).
+
+10. Next item.
+
+### Step 6. Pools
+
+2. Drain on close.
+"""
+DIFF = """diff --git a/src/relay/pool.rs b/src/relay/pool.rs
+index 1111111..2222222 100644
+--- a/src/relay/pool.rs
++++ b/src/relay/pool.rs
+@@ -1,3 +1,3 @@
+ fn close() {
+-    retry_forever(relay-server);
++    self.drain();
+ }
+"""
+CARD_TS = "1790000000.000100"
+TAP_TS = "1790000100.000200"
+OWNER_TAP = {
+    "id": "1111111" + "0" * 33,
+    "title": "Merge #12?",
+    "body": "Owner tapped Merge on https://acme.slack.com/archives/D1/p1790000000000100; merge also authorizes rule/aaaaaaa.",
+    "tags": ["from:owner", "program:brook"],
+}
+QUOTING_CARD = "rule/aaaaaaa: “Relay code lives in relay-journal.” Merge also authorizes rule/aaaaaaa."
 
 
 class FakeShell(ledger.Shell):
@@ -54,6 +97,7 @@ class FakeShell(ledger.Shell):
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return tmp_path
 
 
@@ -120,8 +164,8 @@ def test_a_drive_worker_resolves_its_program_from_the_registry(
 ) -> None:
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    state = home / "state" / "brook"
-    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "state_dir": str(state)}))
+    state = home / "state" / "d1-scratch"
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "program": "brook", "state_dir": str(state)}))
     shell = FakeShell(["1984bf6"], [])
 
     monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
@@ -142,3 +186,710 @@ def test_match_reads_only_the_drives_program_and_branch_answers(
     out = match(FakeShell(["8075b46", "1984bf6"], [], branch="HEAD"), "brief", monkeypatch, capsys)
     assert out == "- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n"
     assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "ec2881e.md"]
+
+
+def implied(items: list[tuple[str, str]]) -> str:
+    return json.dumps([{"n": n, "text": text, "direction": direction, "state": "proposed", "proof": "aaaaaaa"} for n, (text, direction) in enumerate(items, 1)])
+
+
+def seeded(package: Path) -> dict[str, dict[str, str]]:
+    return {
+        "rule/aaaaaaa": {
+            "kind": "scope",
+            "status": "in-force",
+            "global": "yes",
+            "words": "Relay code lives in relay-journal. Never in relay-server.",
+            "answer": '["aaaaaaa"]',
+            "at": "Oct 21 9:15 PM PT",
+            "said": "1",
+            "implications": implied(RELAY),
+            "names": '["relay-server", "parked worker"]',
+            "surfaces": '["relay-server", "relay-journal"]',
+            "steps": '["all"]',
+            "lanes": '["all"]',
+            "tests": '["C01"]',
+            "paths": "none",
+            "evidence": "census",
+        },
+        "rule/bbbbbbb": {
+            "kind": "pick",
+            "status": "in-force",
+            "global": "no",
+            "words": "Drain the pool when a run closes.",
+            "answer": '["bbbbbbb"]',
+            "at": "Oct 20 3:00 PM PT",
+            "said": "1",
+            "steps": '["6.2"]',
+            "lanes": '["all"]',
+            "paths": '["src/relay/pool.rs:42 @ 1234567abc"]',
+            "symbols": '["Pool.drain"]',
+            "tests": '["C02"]',
+            "evidence": "landed in acme/app#12",
+        },
+        "rule/ccccccc": {
+            "kind": "pick",
+            "status": "in-force",
+            "global": "no",
+            "words": "Cards quote the words they ask about.",
+            "answer": '["ccccccc"]',
+            "at": "Oct 22 1:00 PM PT",
+            "said": "1",
+            "steps": '["1.9"]',
+            "lanes": '["all"]',
+            "paths": "none",
+            "symbols": "none",
+            "proof": "proof:board:fedcba9876543210",
+        },
+        "rule/ddddddd": {
+            "kind": "order",
+            "status": "superseded",
+            "global": "no",
+            "words": "Retry every failed upload forever.",
+            "answer": '["ddddddd"]',
+            "steps": "all",
+            "lanes": '["all"]',
+            "paths": "none",
+            "superseded_by": '["rule/bbbbbbb"]',
+        },
+        "rule/eeeeeee": {
+            "kind": "gate",
+            "status": "at-risk",
+            "global": "no",
+            "words": "Two outages stop the drive.",
+            "answer": '["eeeeeee"]',
+            "at": "Oct 18 9:03 PM PT",
+            "steps": "all",
+            "lanes": '["all"]',
+            "paths": "none",
+        },
+        "exception/E1": {
+            "kind": "exception",
+            "status": "pending-owner",
+            "global": "yes",
+            "words": "The pass hands out work.",
+            "answer": "[]",
+            "steps": '["8.1"]',
+            "lanes": '["all"]',
+            "paths": "none",
+        },
+        "no/0123456789abcdef": {"no": "chatter", "at": STAMP},
+        "corpus/b-tests": {"kind": "corpus", "path": str(package / "plan" / "B-tests.md"), "status": "in-force"},
+    }
+
+
+class RegisterShell(ledger.Shell):
+    def __init__(self, rows: dict[str, dict[str, str]], answers: list[dict] | None = None, diff: str = "", lanes: list[str] | None = None, records: list[dict] | None = None) -> None:
+        self.rows = {key: dict(fields) for key, fields in rows.items()}
+        self.answers = [dict(answer, tags=list(answer["tags"])) for answer in answers or []]
+        self.diff = diff
+        self.lanes = lanes or []
+        self.records = records or []
+        self.calls: list[list[str]] = []
+
+    def writes(self) -> list[list[str]]:
+        return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
+
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        self.calls.append(argv)
+        match argv:
+            case ["ccn", "-R", "/repo", "ledger", "list", "--label", "register", "--label", label, "--json"]:
+                return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
+            case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
+                return json.dumps({"id": REGISTER_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
+            case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, *flags] if identity == REGISTER_LEDGER:
+                for flag, value in zip(flags[::2], flags[1::2], strict=True):
+                    assert flag == "--field"
+                    name, _, text = value.partition("=")
+                    self.rows.setdefault(key, {})[name] = text
+                return ""
+            case ["ccn", "-R", "/repo", "doc", "list", "--label", "standing-rules:brook", "--json"]:
+                return "[]"
+            case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
+                wanted = set(labels[1::2])
+                return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
+            case ["ccn", "-R", "/repo", "answer", "edit", identity, "--add-label", label]:
+                next(answer for answer in self.answers if answer["id"] == identity)["tags"].append(label)
+                return ""
+            case ["ccn", "-R", "/repo", "answer", "supersede", _, "--by", _]:
+                return ""
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
+                return self.diff
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
+                return json.dumps({"baseRefName": "main"})
+            case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
+                return "git@github.com:acme/app.git\n"
+            case ["cci", "state", "--drive", "brook-cci", "--json", "--budget", _]:
+                return "".join(json.dumps({"lane": lane, "kind": "head"}) + "\n" for lane in self.lanes)
+            case ["cci", "post", *_]:
+                return "#1\n"
+            case ["cci", "grep", "--drive", "brook-cci", "--json", *_]:
+                return "".join(json.dumps(record) + "\n" for record in self.records)
+        raise AssertionError(argv)
+
+
+@pytest.fixture
+def package(home: Path) -> Path:
+    root = home / "package"
+    (root / "plan").mkdir(parents=True)
+    (root / "plan" / "plan.md").write_text(PLAN)
+    (root / "plan" / "B-tests.md").write_text("# Tests\n")
+    (root / "boards").mkdir()
+    (root / "boards" / "card-confirm.json.pre-spikes").write_text(json.dumps({"options": [{"label": "Keep the parked worker"}]}))
+    (root / "designs" / "relay").mkdir(parents=True)
+    (root / "designs" / "relay" / "design.md").write_text("The relay-server stays small.\n")
+    return root
+
+
+@pytest.fixture
+def state(home: Path) -> Path:
+    path = home / ".claude" / "scratch" / "brook"
+    path.mkdir(parents=True)
+    return path
+
+
+@pytest.fixture
+def registered(home: Path, state: Path) -> Path:
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci"}
+    (drives / "brook-drive.json").write_text(json.dumps(entry))
+    return drives
+
+
+def captured(state: Path, *entries: dict) -> None:
+    (state / "owner-prompts.jsonl").write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+
+
+def capture(item: str, text: str, source: str = "prompt", block: str | None = None) -> dict:
+    return {"digest": item * 16, "at": AT, "session": "s-root", "source": source, "text": text} | ({"block": block} if block else {})
+
+
+def ran(capsys: pytest.CaptureFixture[str], shell: ledger.Shell, verb: str, *argv: str) -> tuple[int, str]:
+    code = rulings.main([verb, "--program", "brook", "--repo", REPO, *argv], shell)
+    return code, capsys.readouterr().out
+
+
+def classify(tmp_path: Path, capsys: pytest.CaptureFixture[str], shell: RegisterShell, *entries: dict) -> tuple[int, str]:
+    path = tmp_path / "classified.json"
+    path.write_text(json.dumps(list(entries)))
+    return ran(capsys, shell, "classify", str(path))
+
+
+def hashed_correctly(text: str) -> bool:
+    body, _, last = text.rstrip("\n").rpartition("\n")
+    return last == f"slice-hash: {hashlib.sha256((body + chr(10)).encode()).hexdigest()[:12]}"
+
+
+def test_rows_prints_every_row_with_its_update_time_and_the_classified_digests(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package)), "rows", "--json")
+
+    printed = json.loads(out)
+    assert code == 0
+    assert (printed["ledger"], printed["program"], printed["state_dir"]) == (REGISTER_LEDGER, "brook", str(state))
+    assert printed["rows"]["rule/aaaaaaa"]["updated_at"] == STAMP
+    assert printed["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal. Never in relay-server."
+    assert printed["classified"] == ["0123456789abcdef", "fedcba9876543210"]
+
+
+def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("1", "keep the uploader in relay-journal and out of the shell"))
+    shell = RegisterShell(seeded(package))
+    two = [{"text": "The shell gains no uploader.", "direction": "removes"}, {"text": "The journal keeps the uploader.", "direction": "permits"}]
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "1" * 16, "kind": "scope", "words": "keep the uploader in relay-journal", "implications": two})
+
+    assert code == 1
+    assert out.splitlines() == [
+        f"SCOPE-IMPLICATIONS {'1' * 16}: a scope row carries 3 to 6 implications, not 2",
+        f"SCOPE-NAMES {'1' * 16}: a scope row lists every name the thing has in the plan, the boards and the code",
+    ]
+    assert shell.writes() == []
+
+
+def test_classify_refuses_an_order_for_repeat_or_placement_words(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("2", "I told you the uploader goes in relay-journal"), capture("3", "the uploader goes in relay-journal"))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "2" * 16, "kind": "order", "words": "I told you the uploader goes in relay-journal"},
+        {"digest": "3" * 16, "kind": "order", "words": "the uploader goes in relay-journal"},
+    )
+
+    assert code == 1
+    refused = out.splitlines()
+    assert refused[0].startswith(f"ORDER-IS-SCOPE {'2' * 16}: the words carry I told you;")
+    assert refused[1].startswith(f"REPEAT {'2' * 16}: the words carry I told you;")
+    assert refused[2] == f"ORDER-IS-SCOPE {'3' * 16}: the words carry a placement rule (goes in); a repeat extends its row and a placement is a scope row"
+    assert shell.writes() == []
+
+
+def test_classify_refuses_words_that_are_not_in_the_capture(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("3", "the uploader goes in relay-journal"))
+
+    code, out = classify(tmp_path, capsys, RegisterShell(seeded(package)), {"digest": "3" * 16, "kind": "pick", "words": "the uploader belongs to the journal"})
+
+    assert code == 1
+    assert out.startswith(f"NOT-VERBATIM {'3' * 16}: ")
+
+
+def test_classify_refuses_a_repeat_that_adds_a_second_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("6", "how many times do I have to say no parked worker"))
+    three = [{"text": f"Line {n}.", "direction": "removes"} for n in range(3)]
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        RegisterShell(seeded(package)),
+        {"digest": "6" * 16, "kind": "scope", "words": "how many times do I have to say no parked worker", "implications": three, "names": ["parked worker"]},
+    )
+
+    assert code == 1
+    assert out.strip() == f"REPEAT {'6' * 16}: the words carry how many times; extend rule/aaaaaaa with extends=<key>, never a second row"
+
+
+def test_classify_refuses_a_pick_that_widens_a_scope_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("a", "run the uploader beside relay-server too"))
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        RegisterShell(seeded(package)),
+        {"digest": "a" * 16, "kind": "pick", "words": "run the uploader beside relay-server too", "names": ["relay-server"], "surfaces": ["desktop app"]},
+    )
+
+    assert code == 1
+    assert out.strip() == f"PICK-WIDENS {'a' * 16}: the pick adds desktop app to rule/aaaaaaa; pass supersedes=rule/aaaaaaa with owner words naming each surface"
+
+
+def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    (state / "briefs").mkdir()
+    (state / "briefs" / "lane-a.md").write_text("Brief.\nThe desktop shell keeps its uploads.\n")
+    captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
+    shell = RegisterShell(seeded(package), lanes=["lane-a", "root", "lane-b"])
+    three = [
+        {"text": "The desktop shell gains no uploader.", "direction": "removes"},
+        {"text": "Shell upload code is deleted.", "direction": "removes"},
+        {"text": "The journal may keep an upload queue.", "direction": "permits"},
+    ]
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "4" * 16, "kind": "scope", "words": "uploads stay out of the desktop shell.", "implications": three, "names": ["desktop shell"], "surfaces": ["desktop app"]},
+    )
+
+    assert code == 0
+    result = json.loads(out)
+    assert (result["key"], result["how"], result["kind"], result["status"]) == (PROMPT_KEY, "new", "scope", "in-force")
+    assert result["hits"] == [f"open {PROMPT_KEY} {state / 'briefs' / 'lane-a.md'}:2 desktop shell"]
+    row = shell.rows[PROMPT_KEY]
+    assert (row["words"], row["global"], row["steps"], row["proof"], row["at"]) == ("uploads stay out of the desktop shell.", "yes", '["all"]', f"proof:prompt:{'4' * 16}", "Oct 23 5:30 AM PT")
+    assert [item["state"] for item in json.loads(row["implications"])] == ["proposed"] * 3
+    card = json.loads((state / "cards" / "prompt:1023-053000.json").read_text())
+    assert card == {
+        "status": "needs_you",
+        "title": "“uploads stay out of the desktop shell.”",
+        "body": "This also means:\n1. The desktop shell gains no uploader.\n2. Shell upload code is deleted.\n3. The journal may keep an upload queue.",
+        "options": ["Right", "Some wrong", "Open board"],
+        "waits": "prompt:1023-053000",
+    }
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    assert post[post.index("--text") + 1] == f"Register new {PROMPT_KEY} (scope), the owner's words: uploads stay out of the desktop shell."
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+
+
+def test_a_repeat_extends_its_row_counts_it_and_opens_a_sweep_until_the_hits_are_posted(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+) -> None:
+    (state / "briefs").mkdir()
+    (state / "briefs" / "lane-a.md").write_text("Run a parked worker on the relay hook.\n")
+    captured(state, capture("5", "how many times: no parked worker on relay-server, and no relay hook either"))
+    shell = RegisterShell(seeded(package))
+    entry = {
+        "digest": "5" * 16,
+        "extends": "rule/aaaaaaa",
+        "words": "no parked worker on relay-server, and no relay hook either",
+        "names": ["relay hook"],
+        "implications": [{"text": "relay-server exposes no relay hook.", "direction": "removes"}],
+    }
+
+    code, out = classify(tmp_path, capsys, shell, entry)
+
+    assert code == 0
+    assert set(shell.rows) == set(seeded(package))
+    row = shell.rows["rule/aaaaaaa"]
+    assert row["said"] == "2"
+    assert json.loads(row["names"]) == ["relay-server", "parked worker", "relay hook"]
+    assert [(item["n"], item["text"]) for item in json.loads(row["implications"])][-1] == (4, "relay-server exposes no relay hook.")
+    assert json.loads(row["repeats"]) == [
+        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": entry["words"], "proof": f"proof:prompt:{'5' * 16}"}
+    ]
+    opened = json.loads((state / "register" / "repeat-rule:aaaaaaa.json").read_text())
+    brief = state / "briefs" / "lane-a.md"
+    assert (opened["key"], opened["posted"]) == ("rule/aaaaaaa", None)
+    assert f"open rule/aaaaaaa {brief}:1 parked worker" in opened["hits"]
+    assert f"open rule/aaaaaaa {brief}:1 relay hook" in opened["hits"]
+    assert json.loads(out)["hits"] == opened["hits"]
+
+    assert ran(capsys, shell, "sweep", "rule/aaaaaaa", "--posted", "110500") == (0, "posted 110500 for rule/aaaaaaa\n")
+    assert json.loads((state / "register" / "repeat-rule:aaaaaaa.json").read_text())["posted"] == "110500"
+
+
+def test_an_exception_without_owner_words_naming_its_mechanism_waits_for_the_owner(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("7", "the cleaner may run nightly"))
+    shell = RegisterShell(seeded(package))
+
+    code, _ = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "7" * 16, "key": "exception/E9", "kind": "exception", "words": "the cleaner may run nightly", "names": ["sweep pass"]},
+    )
+
+    assert code == 0
+    assert shell.rows["exception/E9"]["status"] == "pending-owner"
+
+
+def test_classify_records_a_no_line_and_lists_only_unclassified_captures(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("8", "thanks"), capture("9", "the shell never uploads"), capture("0", "noted"))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "8" * 16, "no": "no ruling"})
+
+    assert (code, json.loads(out)) == (0, {"digest": "8" * 16, "no": "no ruling"})
+    assert shell.rows[f"no/{'8' * 16}"] == {"no": "no ruling", "at": AT}
+    code, out = ran(capsys, shell, "classify")
+    assert [json.loads(line)["digest"] for line in out.splitlines()] == ["9" * 16, "0" * 16]
+
+
+def test_implications_show_what_binds_now_and_what_waits_for_a_tick(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package)), "implications", "rule/aaaaaaa")
+
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            "1. [removes, proposed, binds now] No relay code lands in relay-server.",
+            "2. [removes, proposed, binds now] relay-server gains no plug-in point for relay code.",
+            "3. [permits, proposed, waits for the owner's tick] Relay cleanup may live in the desktop app.",
+        ],
+    )
+
+
+def test_confirm_takes_only_a_tap_or_reply_on_the_rows_card(home: Path, package: Path, state: Path, capsys) -> None:
+    captured(state, capture("b", "Right", source="slack-action", block="rule:aaaaaaa"), capture("c", "sounds good"))
+    shell = RegisterShell(seeded(package))
+
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "c" * 16, "--tick", "all") == (
+        1,
+        f"CAPTURE-NOT-ON-CARD {'c' * 16}: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
+    )
+    assert shell.writes() == []
+
+    code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "b" * 16, "--tick", "1,3", "--strike", "2")
+
+    assert code == 0
+    assert [(item["state"], item["proof"]) for item in json.loads(shell.rows["rule/aaaaaaa"]["implications"])] == [
+        ("ticked", "b" * 16),
+        ("struck", "b" * 16),
+        ("ticked", "b" * 16),
+    ]
+    assert out.splitlines()[2] == "3. [permits, ticked, binds now] Relay cleanup may live in the desktop app."
+
+
+def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+
+    assert code == 0
+    assert out.startswith("Register slice: lane=lane-a step=1.9\n")
+    assert hashed_correctly(out)
+    lines = out.splitlines()
+    for line in (
+        "### rule/aaaaaaa | scope | in-force | said 1 | Oct 21 9:15 PM PT",
+        "> Relay code lives in relay-journal. Never in relay-server.",
+        "This also means:",
+        "1. No relay code lands in relay-server. (removes, proposed, binds now)",
+        "3. Relay cleanup may live in the desktop app. (permits, proposed, waits for the owner's tick)",
+        "Names: relay-server, parked worker",
+        "Surfaces: relay-server, relay-journal",
+        "Tests: C01",
+        "### exception/E1 | exception | pending-owner | said 1 | ",
+        "### rule/eeeeeee | gate | at-risk | said 1 | Oct 18 9:03 PM PT",
+        "### rule/ccccccc | pick | in-force | said 1 | Oct 22 1:00 PM PT",
+        "> Cards quote the words they ask about.",
+        "9. **Register**: cards quote the words; a parked worker is never kept.",
+        f"open rule/aaaaaaa {package / 'plan' / 'plan.md'}:5 parked worker",
+        f"authorized aaaaaaa rule/aaaaaaa {package / 'plan' / 'plan.md'}:6 relay-server",
+    ):
+        assert line in lines
+    assert "10. Next item." not in lines
+    assert "rule/bbbbbbb" not in out
+    assert "rule/ddddddd" not in out
+
+
+def test_a_lane_slice_matches_anchored_rows_by_the_lanes_paths(home: Path, package: Path, state: Path, capsys) -> None:
+    _, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-b", "--step", "2", "--paths", "src/relay/*")
+
+    assert out.startswith("Register slice: lane=lane-b step=2 paths=src/relay/*\n")
+    assert "### rule/bbbbbbb | pick | in-force | said 1 | Oct 20 3:00 PM PT" in out.splitlines()
+
+
+def test_the_root_slice_carries_every_scope_row(home: Path, package: Path, state: Path, capsys) -> None:
+    _, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--root")
+
+    assert out.startswith("Register slice: lane=root step=all\n")
+    assert hashed_correctly(out)
+    assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
+    assert "exception/E1" not in out
+    assert "rule/ccccccc" not in out
+
+
+def test_an_incident_slice_carries_every_global_row_and_the_unclassified_captures(home: Path, package: Path, state: Path, capsys) -> None:
+    captured(state, capture("9", "the shell never uploads"), capture("0", "chatter"))
+    shell = RegisterShell(seeded(package) | {"no/" + "0" * 16: {"no": "chatter", "at": AT}})
+
+    _, out = ran(capsys, shell, "slice", "--lane", "fix-relay", "--step", "incident")
+
+    lines = out.splitlines()
+    assert lines[0] == "Register slice: lane=fix-relay step=incident"
+    assert "### rule/aaaaaaa | scope | in-force | said 1 | Oct 21 9:15 PM PT" in lines
+    assert "## Owner captures not yet classified (1)" in lines
+    assert "> the shell never uploads" in lines
+    assert "rule/ccccccc" not in out
+    assert "rule/eeeeeee" not in out
+
+
+def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: Path, package: Path, state: Path, capsys) -> None:
+    brief = state / "briefs" / "lane-a.md"
+    brief.parent.mkdir()
+    brief.write_text("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n\nDo the work.\n")
+    rows = seeded(package)
+
+    code, out = ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief))
+    first = brief.read_text()
+    fresh = rulings.SLICE_HASH.search(first)["hash"]
+
+    assert (code, out) == (0, f"refreshed {brief} slice-hash none -> {fresh}\n")
+    assert first.startswith("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n")
+    assert first.endswith(f"slice-hash: {fresh}\n\nDo the work.\n")
+    assert ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief)) == (0, f"fresh {brief} slice-hash {fresh}\n")
+
+    rows["rule/ccccccc"]["words"] = "Cards quote the words they ask about, verbatim."
+    code, out = ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief))
+    second = brief.read_text()
+
+    assert out == f"refreshed {brief} slice-hash {fresh} -> {rulings.SLICE_HASH.search(second)['hash']}\n"
+    assert second.count("Register slice:") == 1
+    assert second.count("slice-hash:") == 1
+    assert "> Cards quote the words they ask about, verbatim." in second.splitlines()
+
+
+def test_the_required_slice_lists_every_global_pending_and_touched_row_with_its_names(home: Path, package: Path, state: Path, capsys) -> None:
+    rows = seeded(package) | {"rule/1234567": {"kind": "order", "status": "in-force", "words": "Log every retry.", "paths": "pending", "lanes": '["all"]'}}
+
+    code, out = ran(capsys, RegisterShell(rows, diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert out.splitlines()[:-1] == ["exception/E1\t", "rule/1234567\t", "rule/aaaaaaa\trelay-server|parked worker", "rule/bbbbbbb\t"]
+
+
+def test_sweep_prints_each_hit_open_deleted_or_authorized(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    artifact = tmp_path / "card.md"
+    artifact.write_text(
+        "A parked worker waits on the relay-server.\n"
+        "[STRUCK by the owner] parked workers are gone.\n"
+        "Nothing of ours lands in relay-server (aaaaaaa).\n"
+        "relay-servers2 is another word.\n"
+    )
+
+    code, out = ran(capsys, RegisterShell(seeded(package)), "sweep", "--artifact", str(artifact))
+
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            f"open rule/aaaaaaa {artifact}:1 relay-server",
+            f"open rule/aaaaaaa {artifact}:1 parked worker",
+            f"deleted rule/aaaaaaa {artifact}:2 parked worker",
+            f"authorized aaaaaaa rule/aaaaaaa {artifact}:3 relay-server",
+        ],
+    )
+
+
+def test_sweep_hits_every_line_naming_a_scope_row_across_the_plan_boards_designs_and_briefs(home: Path, package: Path, state: Path, capsys) -> None:
+    (package / "plan" / "plan.md").write_text("".join(f"relay-server line {n}\n" if n % 3 else f"plain line {n}\n" for n in range(1, 62)))
+    (state / "briefs").mkdir()
+    (state / "briefs" / "lane-a.md").write_text("Keep the parked worker.\n")
+
+    _, out = ran(capsys, RegisterShell(seeded(package)), "sweep")
+
+    hits = out.splitlines()
+    assert len([hit for hit in hits if hit.endswith(" relay-server") and "plan.md" in hit]) == 41
+    assert f"open rule/aaaaaaa {package / 'boards' / 'card-confirm.json.pre-spikes'}:1 parked worker" in hits
+    assert f"open rule/aaaaaaa {package / 'designs' / 'relay' / 'design.md'}:1 relay-server" in hits
+    assert f"open rule/aaaaaaa {state / 'briefs' / 'lane-a.md'}:1 parked worker" in hits
+
+
+def test_sweep_of_a_diff_marks_removed_lines_deleted_and_added_lines_open(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    patch = tmp_path / "pr.diff"
+    patch.write_text(DIFF.replace("+    self.drain();", "+    park(parked_worker, \"parked worker\");"))
+
+    _, out = ran(capsys, RegisterShell(seeded(package)), "sweep", "--diff", str(patch))
+
+    assert out.splitlines() == ["open rule/aaaaaaa src/relay/pool.rs:2 parked worker", "deleted rule/aaaaaaa src/relay/pool.rs:2 relay-server"]
+
+
+def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    current = rulings.SLICE_HASH.search(sliced)["hash"]
+    hits = [line for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
+    rows = ["rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone"]
+
+    def read_back(*lines: str) -> RegisterShell:
+        body = tmp_path / "readback.md"
+        body.write_text("\n".join(lines) + "\n")
+        return RegisterShell(seeded(package), records=[{"seq": 501, "text": "read-back"}, {"seq": 500, "text": "read-back", "refs": {"path": str(body)}}])
+
+    marked = [f"{hit} - keep: the line states the ban" for hit in hits]
+    header = ["Register slice: lane=lane-a step=1.9", f"slice-hash: {current}"]
+    assert ran(capsys, read_back(*header, *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (
+        0,
+        f"readback request lane-a {current}: 4 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n",
+    )
+    code, out = ran(capsys, read_back(*header, *rows[:2], *hits), "readback", "--lane", "lane-a", "--contract", "500")
+    assert code == 1
+    assert "READBACK-ROW-MISSING rule/eeeeeee: no read-back line names it" in out.splitlines()
+    assert f"READBACK-HIT-UNMARKED {hits[0]}" in out.splitlines()
+    code, out = ran(capsys, read_back("Register slice: lane=lane-a step=1.9", "slice-hash: 000000000000", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500")
+    assert (code, out) == (1, f"READBACK-STALE lane-a: the read-back covers slice-hash 000000000000; the lane's slice is now {current}\n")
+
+
+def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "pr-block", "--pr", "12", "--head", "cafef00d", "--lane", "lane-b")
+
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            "## Rulings",
+            "",
+            "- rule/bbbbbbb: met by Pool.drain at src/relay/pool.rs:2",
+            "",
+            "### In your words",
+            "",
+            "- On Oct 20 you said “Drain the pool when a run closes.”; this change does it.",
+        ],
+    )
+
+
+def test_table_prints_one_plain_row_per_ruling(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package)), "table")
+
+    lines = out.splitlines()
+    assert code == 0
+    assert lines[0] == "| What you said | Times said | What it means for us | Where it stands | PRs landed under it | Record |"
+    assert lines[2] == "| “Two outages stop the drive.” (Oct 18) | 1 | nothing beyond your words | at risk | none yet | rule/eeeeeee |"
+    assert (
+        "| “Relay code lives in relay-journal.” (Oct 21) | 1 | 1 unconfirmed: No relay code lands in relay-server.; "
+        "2 unconfirmed: relay-server gains no plug-in point for relay code.; 3 unconfirmed: Relay cleanup may live in the desktop app. "
+        "| in force | none yet | rule/aaaaaaa |"
+    ) in lines
+    assert "| “Drain the pool when a run closes.” (Oct 20) | 1 | nothing beyond your words | in force | acme/app#12 | rule/bbbbbbb |" in lines
+    assert "rule/ddddddd" not in out
+    _, full = ran(capsys, RegisterShell(seeded(package)), "table", "--full")
+    assert "| superseded on 2026-10-23 by rule/bbbbbbb | none yet | rule/ddddddd |" in full
+
+
+def test_the_table_delta_names_changes_trouble_and_lines_unconfirmed_for_four_hours(home: Path, package: Path, state: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(rulings, "utc_now", lambda: datetime(2026, 10, 23, 18, 0, tzinfo=UTC))
+
+    _, first = ran(capsys, RegisterShell(seeded(package)), "table", "--since-last-update")
+    _, second = ran(capsys, RegisterShell(seeded(package)), "table", "--since-last-update")
+
+    assert "rule/aaaaaaa" in first.split("**In trouble**")[0]
+    sections = second.split("**")
+    assert sections[1:3] == ["Changed since the last update", "\n\nNone.\n\n"]
+    assert "rule/eeeeeee" in sections[4]
+    assert "rule/aaaaaaa" in sections[6]
+    assert json.loads((state / "register" / "table-cursor.json").read_text()) == {"at": "2026-10-23T18:00:00Z"}
+
+
+def test_glossary_prints_the_product_nouns_then_the_owners_words(home: Path, package: Path, state: Path, capsys) -> None:
+    captured(state, capture("9", "the shell never uploads"))
+
+    _, out = ran(capsys, RegisterShell(seeded(package)), "glossary")
+
+    lines = out.splitlines()
+    assert lines[:12] == list(rulings.PRODUCT_NOUNS)
+    assert {"relay-journal", "relay-server", "uploads", "drain"} <= set(lines[12:])
+    assert "chat" not in lines[12:]
+
+
+def transcript(home: Path, *entries: dict) -> None:
+    path = home / ".claude" / "projects" / "-acme" / "s-root.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+
+
+def card_posted(body: str) -> list[dict]:
+    tool = {"type": "tool_use", "id": "toolu_1", "name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "input": {"card": {"title": "Merge #12?", "body": body}}}
+    result = {"type": "tool_result", "tool_use_id": "toolu_1", "content": json.dumps({"ok": True, "ts": CARD_TS})}
+    action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": "Merge", "id": "merge-12"}
+    channel = f'<channel source="plugin:cc-slack:cc-slack" type="slack.action">\n{json.dumps(action, separators=(",", ":"))}\n</channel>'
+    return [
+        {"type": "assistant", "message": {"content": [tool]}},
+        {"type": "user", "message": {"content": [result]}},
+        {"type": "queue-operation", "operation": "enqueue", "content": channel},
+    ]
+
+
+def test_authorize_labels_the_answer_for_a_tap_on_a_card_quoting_the_row(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    transcript(home, *card_posted(QUOTING_CARD))
+    shell = RegisterShell(seeded(package), answers=[OWNER_TAP])
+
+    assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (0, "authorized rule/aaaaaaa by 1111111\n")
+    assert shell.answers[0]["tags"] == ["from:owner", "program:brook", "authorizes:rule/aaaaaaa"]
+
+
+def test_authorize_refuses_a_go_with_no_tap_a_card_or_answer_naming_no_row_and_an_unrelated_prompt(
+    home: Path, package: Path, state: Path, registered: Path, capsys
+) -> None:
+    transcript(
+        home,
+        *card_posted(QUOTING_CARD),
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "The pool drains on close now."}]}},
+        {"type": "user", "message": {"content": "yes go ahead"}},
+    )
+    captured(state, capture("d", "yes go ahead"))
+    silent = dict(OWNER_TAP, body="Owner tapped Merge on https://acme.slack.com/archives/D1/p1790000000000100.")
+
+    def refused(answers: list[dict], *argv: str) -> str:
+        shell = RegisterShell(seeded(package), answers=answers)
+        code, out = ran(capsys, shell, "authorize", *argv)
+        assert code == 1
+        assert all("authorizes:" not in tag for answer in shell.answers for tag in answer["tags"])
+        return out.split(" ", 1)[0]
+
+    assert refused([OWNER_TAP], "--row", "rule/aaaaaaa", "--action", "1790000999.000000") == "AUTHORIZE-NO-TAP"
+    assert refused([OWNER_TAP], "--row", "rule/bbbbbbb", "--action", TAP_TS) == "AUTHORIZE-CARD-NAMES-NO-ROW"
+    assert refused([silent], "--row", "rule/aaaaaaa", "--action", TAP_TS) == "AUTHORIZE-ANSWER-NAMES-NO-ROW"
+    assert refused([OWNER_TAP], "--row", "rule/aaaaaaa", "--prompt", "d" * 16) == "AUTHORIZE-PROMPT-NAMES-NO-ROW"
+
+
+def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package))
+
+    assert ran(capsys, shell, "status", "rule/aaaaaaa", "broken", "--evidence", "#110600")[0] == 0
+    assert ran(capsys, shell, "anchor", "rule/ccccccc", "--paths", "src/cards.py", "--symbols", "quote_words")[0] == 0
+    assert ran(capsys, shell, "supersede", "rule/bbbbbbb", "--by", "rule/ccccccc")[0] == 0
+
+    assert (shell.rows["rule/aaaaaaa"]["status"], shell.rows["rule/aaaaaaa"]["evidence"]) == ("broken", "#110600")
+    assert (shell.rows["rule/ccccccc"]["paths"], shell.rows["rule/ccccccc"]["symbols"]) == ('["src/cards.py"]', '["quote_words"]')
+    assert ["ccn", "-R", REPO, "answer", "supersede", "bbbbbbb", "--by", "ccccccc"] in shell.calls
+    assert (shell.rows["rule/bbbbbbb"]["status"], shell.rows["rule/bbbbbbb"]["superseded_by"]) == ("superseded", '["rule/ccccccc"]')
+    assert shell.rows["rule/bbbbbbb"]["evidence"] == "superseded by rule/ccccccc: “Cards quote the words they ask about.”"
+    assert shell.rows["rule/ccccccc"]["supersedes"] == '["rule/bbbbbbb"]'

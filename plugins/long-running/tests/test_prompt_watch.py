@@ -115,6 +115,7 @@ def register(home: Path, **fields) -> dict:
         "git_common_dir": "/Users/dev/work/app/.git",
         "checkout": "/Users/dev/work/app",
         "state_dir": str(home / "scratch" / "release-v3"),
+        "program": "release-v3",
         "cci_drive": None,
         "root_terminal": ROOT,
     } | fields
