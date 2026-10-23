@@ -87,12 +87,14 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
+from functools import cache
+from itertools import batched
 from pathlib import Path
 from statistics import median
 from urllib.parse import urlencode
@@ -169,8 +171,9 @@ QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
-SQUASH_DEPTH = 3000
 SETTLE_WORKERS = 8
+REFRESH_BATCH = 25
+REFRESH_WORKERS = 4
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 REOPEN_WINDOW = timedelta(hours=24)
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
@@ -1533,6 +1536,20 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def batched_pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[str]) -> dict:
+    """`pr_state` over `REFRESH_BATCH` PRs or prefixes a call, `REFRESH_WORKERS` calls at once, merged into one answer.
+
+    One call naming a whole drive's ledger outlives its timeout once the cache falls back to a REST read per record.
+    """
+    batches = [(list(chunk), []) for chunk in batched(prs, REFRESH_BATCH)] + [([], list(chunk)) for chunk in batched(prefixes, REFRESH_BATCH)]
+    try:
+        with ThreadPoolExecutor(REFRESH_WORKERS) as pool:
+            answers = list(pool.map(lambda batch: pr_state(shell, ccx, repo, *batch), batches))
+    except subprocess.CalledProcessError as failure:
+        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+    return {"lanes": {prefix: prs for answer in answers for prefix, prs in answer["lanes"].items()}, "prs": {pr: record for answer in answers for pr, record in answer["prs"].items()}}
+
+
 def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: dict[str, dict[str, str]], named: list[str], lanes: dict[str, str], moment: str) -> list[dict]:
     """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns the graded rows under their stored keys."""
     every = {key: fields for key, fields in scope.view(stored).items() if key.isdigit()}
@@ -1540,13 +1557,11 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
-    stacks = {lane["lane"]: lane_stack(shell, args.ccx, lane) for lane in registrations}
+    with ThreadPoolExecutor(REFRESH_WORKERS) as pool:
+        stacks = dict(zip((lane["lane"] for lane in registrations), pool.map(lambda lane: lane_stack(shell, args.ccx, lane), registrations), strict=True))
     prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
     wanted = sorted((set(known) | set(named)) - settled, key=int)
-    try:
-        state = pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
-    except subprocess.CalledProcessError as failure:
-        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+    state = batched_pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
     for lane, branches in stacks.items():
         for pr in (pr for branch in branches for pr in prefix_prs(state, branch)):
@@ -2008,16 +2023,6 @@ def absent_heads(shell: Shell, checkout: Path, heads: list[str]) -> frozenset[st
     return frozenset(line.split()[0] for line in out.splitlines() if line.endswith(" missing"))
 
 
-def trunk_messages(shell: Shell, checkout: Path, trunk: str) -> list[tuple[str, str, str]]:
-    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", "-400", "--format=%x00%H %cI%n%B"])
-    messages = []
-    for entry in log.split("\0")[1:]:
-        header, _, message = entry.partition("\n")
-        sha, committed = header.split(" ")
-        messages.append((sha, committed, message))
-    return messages
-
-
 def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
     """Each PR's REST read in the ccx record's shape, so settling a landing never waits on the GraphQL quota."""
     try:
@@ -2025,29 +2030,12 @@ def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
             pulls = list(pool.map(lambda pr: gh.api(f"pulls/{pr}"), prs))
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"gh api pulls: {(failure.stderr or '').strip() or failure}") from failure
-    return {pr: {"state": pull["state"].upper(), "headRefOid": pull["head"]["sha"], "baseRefName": pull["base"]["ref"]} for pr, pull in zip(prs, pulls, strict=True)}
+    return {
+        pr: {"state": pull["state"].upper(), "headRefOid": pull["head"]["sha"], "baseRefName": pull["base"]["ref"], "createdAt": pull["created_at"]} for pr, pull in zip(prs, pulls, strict=True)
+    }
 
 
-def squash_on_base(messages: list[tuple[str, str, str]], pr: str) -> tuple[str, str] | None:
-    """The squash the base log names for this PR, if there is one.
-
-    Asked only when content cannot tell, which is whenever the base moved on one of the
-    PR's files after the squash.
-
-    Nothing the forge asserts about itself is admissible here. The closing actor proves
-    nothing, because the queue's bot also closes a stacked child when its base branch is
-    deleted, landing nothing. The queue's own `externally-merged` label proves nothing
-    either: it is applied to OPEN pull requests whose content never reached the trunk —
-    two carried it while their trees still differed and no commit named them. Only the
-    trunk answers, through its tree or through a commit it names.
-    """
-    return next(
-        ((sha, stamp(parse_iso(committed).astimezone(timezone.utc))) for sha, committed, message in messages if (match := SQUASH_SUBJECT.search(message.partition("\n")[0])) and match[1] == pr),
-        None,
-    )
-
-
-def settle_row(shell: Shell, checkout: Path, trunk: str, pr: str, record: dict, read: Future, messages: list) -> tuple[dict[str, str], str]:
+def settle_row(trunk: str, pr: str, record: dict, read: Future, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
     """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone."""
     if record["state"] == "OPEN":
         ejected = read.result()
@@ -2058,9 +2046,7 @@ def settle_row(shell: Shell, checkout: Path, trunk: str, pr: str, record: dict, 
     if (payload := read.result()):
         sha, landed_at = payload
         return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr}, payload delivered by {sha[:9]} on {trunk} at {landed_at}"
-    if not messages:
-        messages += trunk_messages(shell, checkout, trunk)
-    if (squash := squash_on_base(messages, pr)):
+    if (squash := squashes().get(pr)):
         sha, landed_at = squash
         return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since"
     return (
@@ -2069,10 +2055,11 @@ def settle_row(shell: Shell, checkout: Path, trunk: str, pr: str, record: dict, 
     )
 
 
-def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict[str, dict]) -> int:
+def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict[str, dict], searched: dict[str, tuple[str, str]] | None = None) -> int:
     """Settle every row in one trunk fetch, one object check, one ledger write, and the per-PR forge reads in parallel.
 
     A head this clone lacks is fetched before any diff, one at a time, so no two fetches race for the clone's locks.
+    A row content cannot settle takes its squash from `searched`, else from one trunk search since its PRs opened.
     """
     if not records:
         return 0
@@ -2090,7 +2077,11 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
                 except subprocess.CalledProcessError as failure:
                     failures[pr] = failure
     updates: dict[str, dict[str, str]] = {}
-    messages: list[tuple[str, str, str]] = []
+
+    @cache
+    def squashes() -> dict[str, tuple[str, str]]:
+        return trunk_squashes(shell, checkout, trunk, closed, min(record["createdAt"] for record in closed.values())) if searched is None else searched
+
     moved = 0
     with ThreadPoolExecutor(SETTLE_WORKERS) as pool:
         reads = {
@@ -2102,7 +2093,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
             try:
                 if pr in failures:
                     raise failures[pr]
-                fields, line = settle_row(shell, checkout, trunk, pr, records[pr], reads[pr], messages)
+                fields, line = settle_row(trunk, pr, records[pr], reads[pr], squashes)
             except subprocess.CalledProcessError as failure:
                 reason = (failure.stderr or str(failure)).strip()
                 updates[pr] = {"settle_error": reason, "settle_failed_at": utc_stamp()}
@@ -2240,13 +2231,29 @@ def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
         time.sleep(args.interval)
 
 
-def trunk_squashes(shell: Shell, checkout: Path, trunk: str) -> dict[str, tuple[str, str]]:
-    """Every squash in the trunk's recent history, keyed by the PR number its subject ends with."""
-    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", f"-{SQUASH_DEPTH}", "--format=%H %cI %s"])
+def trunk_squashes(shell: Shell, checkout: Path, trunk: str, prs: Collection[str], since: str = "") -> dict[str, tuple[str, str]]:
+    """The squash on the trunk whose subject ends with each PR's ``(#n)``, newest first.
+
+    Searched by number, never to a fixed depth: a busy trunk takes hundreds of squashes
+    a day, so a PR closed days ago falls past any depth. ``since`` bounds the walk at a
+    moment no squash of these PRs predates, such as the earliest one's creation.
+
+    Nothing the forge asserts about itself is admissible here. The closing actor proves
+    nothing, because the queue's bot also closes a stacked child when its base branch is
+    deleted, landing nothing. The queue's own `externally-merged` label proves nothing
+    either: it is applied to OPEN pull requests whose content never reached the trunk —
+    two carried it while their trees still differed and no commit named them. Only the
+    trunk answers, through its tree or through a commit it names.
+    """
+    if not prs:
+        return {}
+    bound = [f"--since={since}"] if since else []
+    grep = [f"--grep=(#{pr})" for pr in sorted(prs, key=int)]
+    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", *bound, "--fixed-strings", *grep, "--format=%H %cI %s"])
     squashes: dict[str, tuple[str, str]] = {}
     for line in log.splitlines():
         sha, committed, subject = line.split(" ", 2)
-        if match := SQUASH_SUBJECT.search(subject):
+        if (match := SQUASH_SUBJECT.search(subject)) and match[1] in prs:
             squashes.setdefault(match[1], (sha, stamp(parse_iso(committed).astimezone(timezone.utc))))
     return squashes
 
@@ -2267,7 +2274,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
         return 0
     trunk = gh.default_branch()
     sync_trunk(shell, args.checkout, trunk)
-    squashes = trunk_squashes(shell, args.checkout, trunk)
+    squashes = trunk_squashes(shell, args.checkout, trunk, pending)
     landed = [pr for pr in pending if pr in squashes]
     unsquashed = [pr for pr in pending if pr not in squashes]
     records: dict[str, dict] | None
@@ -2289,7 +2296,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     else:
         if landed:
             notes.sync([{"key": pr, "fields": {"state": LANDED, "landed_sha": squashes[pr][0], "landed_at": squashes[pr][1], "base": trunk, "settle_error": "", "settle_failed_at": ""}} for pr in landed])
-        settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed})
+        settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed}, squashes)
     unsettled = f"{len(unsquashed)} unread" if records is None else f"{len(unsquashed) - len(closed)} open"
     print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {unsettled}")
     return 0

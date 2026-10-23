@@ -303,7 +303,7 @@ def test_a_failed_write_names_the_ledger_and_the_command_to_run(repo, capsys):
 
 
 def closed_pull(shell: FakeShell, pr: str) -> None:
-    shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": HEAD, "ref": "lane/x"}, "base": {"ref": "dev"}}
+    shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": HEAD, "ref": "lane/x"}, "base": {"ref": "dev"}, "created_at": "2026-10-06T00:00:00Z"}
     shell.pull_heads[pr] = HEAD
     shell.pr_files[pr] = ["go/ci/release.go"]
     shell.delivered[HEAD] = ("f2f8393f0000", "2026-10-07T03:53:00+00:00")
