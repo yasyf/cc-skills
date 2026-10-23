@@ -6,6 +6,7 @@ BODIES = Path(__file__).parent / "fixtures" / "refusal-kinds"
 CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
+NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
 ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approve: start the drive"}'
 
 LAUNCH_STALLED = """\

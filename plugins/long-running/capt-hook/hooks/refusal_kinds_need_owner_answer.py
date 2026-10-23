@@ -17,6 +17,7 @@ from .tests.refusal_fixtures import (
     HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
+    NO_DRIVE,
     PLAIN,
     RETIRE_AND_RECONVERT,
     TEST_ONLY,
@@ -69,6 +70,7 @@ REFUSAL_HINT = re.compile(
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 UNREADABLE = ""
+CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 UNCITED_KINDS = (
@@ -256,10 +258,11 @@ def body_text(req: Request, view: dict) -> str | None:
 
 
 def owner_answer(evt: BaseHookEvent, req: Request, rulings: str) -> str | None:
-    entry = drive_entry(evt)
-    repo = entry["checkout"] if entry else str(req.cwd or ".")
+    if (entry := drive_entry(evt)) is None:
+        return UNREADABLE
     for answer in dict.fromkeys(ANSWER_ID.findall(rulings)):
-        if (done := run(["ccn", "-R", repo, "answer", "show", answer, "--json"], req.cwd)) is None:
+        done = run(["ccn", "-R", entry["checkout"], "answer", "show", answer, "--json"], req.cwd)
+        if done is None or done.returncode not in (0, CCN_NOT_FOUND):
             return UNREADABLE
         if done.returncode == 0 and parsed(done.stdout).get("id"):
             return answer
@@ -331,6 +334,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Block(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id=LANE, commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },
