@@ -1,0 +1,134 @@
+"""board_text_gate.py: one refusal names every problem in order, a failed read lets the board through with one blocker, and the recorder starts once per board."""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+from pathlib import Path
+
+import pytest
+from captain_hook.events import PostToolUseEvent, PreToolUseEvent
+from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_commands
+
+from hooks import board_text_gate as gate
+from hooks import compaction_handoff
+from hooks.compaction_handoff import CompactionState
+from hooks.tests.board_fixtures import GLOSSARY, ROWS, SWEEPS_LOG, board, held_copy_hit, sha12, sweeps
+
+SESSION = "0123456789abcdef"
+RULINGS = gate.RULINGS
+
+
+class Root:
+    def __init__(self, home: Path) -> None:
+        self.home = home
+        self.session_dir = home / "state"
+        seed = PostToolUseEvent(_raw={"session_id": SESSION, "tool_name": "Bash"}, ctx=build_context(session_dir=self.session_dir))
+        CompactionState(active=True, slug="brook").save(seed)
+
+    def event(self, cls, command: str, llm: dict | None = None):
+        raw = {"session_id": SESSION, "cwd": str(self.home), "tool_name": "Bash", "tool_input": {"command": command}}
+        return cls(_raw=raw, ctx=StubbedContext.wrapping(build_context(session_dir=self.session_dir), llm=llm or {}))
+
+    def reads(self, *, sweep: str = "", reviewed: str = "", rows: str = ROWS) -> dict[str, str]:
+        return {
+            f"{RULINGS} rows": rows,
+            f"{RULINGS} sweep": sweep,
+            f"{RULINGS} glossary": GLOSSARY,
+            "cci tail": reviewed,
+            f"ccn -R {self.home} log list": SWEEPS_LOG,
+            f"ccn -R {self.home} log show": sweeps(5),
+            "cc-present outcomes": json.dumps({"revising": {"blockIds": []}}),
+        }
+
+
+@pytest.fixture
+def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    return Root(tmp_path)
+
+
+@pytest.fixture
+def posts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    log = tmp_path / "cci-posts.jsonl"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "cci").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {shlex.quote(str(log))}\necho '#1'\n")
+    (bin_dir / "cci").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "brook.json").write_text(json.dumps({"drive": "brook", "sessions": [SESSION], "state_dir": str(tmp_path / "scratch"), "cci_drive": "brook-bus"}))
+    return log
+
+
+def test_one_refusal_names_every_problem_in_stage_order(root: Root) -> None:
+    name = "r3-confirm-loops-v1.json"
+    with stubbed_commands(root.reads(sweep=held_copy_hit(name))):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}"))
+
+    message = result.message
+    assert message.startswith(gate.REFUSAL)
+    stages = ["has no none option", 'names "held copy"', 'a drive word, "mount lease"', "text grade: no fidelity desk review"]
+    assert [message.index(stage) for stage in stages] == sorted(message.index(stage) for stage in stages)
+
+
+def test_the_reader_test_names_terms_the_owner_would_need_defined(root: Root) -> None:
+    name = "clean-card.json"
+    reviewed = json.dumps({"seq": 1, "lane": "fidelity-desk", "kind": "review", "text": f"fidelity: ok text {sha12(name)}"}) + "\n"
+    with stubbed_commands(root.reads(reviewed=reviewed)):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}", llm={"terms": ["read-only"]}))
+
+    assert 'the owner would need "read-only" defined' in result.message
+
+
+def test_a_reply_in_drive_words_is_refused(root: Root) -> None:
+    body = "The slice for this lane is done."
+    with stubbed_commands(root.reads()):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present reply --block share-open --body {shlex.quote(body)}"))
+
+    assert 'the reply on share-open has a drive word, "slice"' in result.message
+    assert 'a drive word, "lane"' in result.message
+
+
+def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Root, posts: Path) -> None:
+    with stubbed_commands(root.reads(rows="no register for brook")):
+        assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}")) is None
+
+    [post] = posts.read_text().splitlines()
+    assert post.startswith("post --drive brook-bus --lane root --kind blocker --to root --text board_text_gate: rulings.py rows: ")
+    assert " --id board_text_gate:" in post
+
+
+def test_the_recorder_starts_once_per_board_session(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
+    spawned = []
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))
+
+    for command in (
+        "cc-present start --session b1 && cc-present push doc.json --session b1",
+        "cc-present push doc.json --session b1",
+        "cc-present push doc.json --session b2 --dry-run",
+        "cc-present update-block card.json --session b3",
+        "cc-present push doc.json",
+    ):
+        gate.start_board_watch(root.event(PostToolUseEvent, command))
+
+    start = ["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session"]
+    assert spawned == [([*start, "b1", "--program", "brook"], True), ([*start, SESSION, "--program", "brook"], True)]
+    assert compaction_handoff.script("board_watch.py").is_file()
+
+
+def test_a_worker_recorder_names_its_drive(root: Root, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    spawned = []
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda argv, **kw: spawned.append(argv))
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "900424b6")
+    worker = Root(tmp_path / "worker")
+    seed = PostToolUseEvent(_raw={"session_id": SESSION, "tool_name": "Bash"}, ctx=build_context(session_dir=worker.session_dir))
+    CompactionState(active=False).save(seed)
+
+    gate.start_board_watch(worker.event(PostToolUseEvent, "cc-present push doc.json --session b1"))
+
+    assert spawned == [["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session", "b1", "--drive", "900424b6"]]

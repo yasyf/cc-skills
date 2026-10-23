@@ -1,0 +1,32 @@
+{
+  "id": "r2-card-r1",
+  "type": "card",
+  "title": "N3, N11, N12. What runs on a laptop: one database server and one upload process; how fresh a live shared note is",
+  "children": [
+    {
+      "id": "r2-r1-n11",
+      "type": "markdown",
+      "md": "**N11, decided by you.** One upload process for the whole laptop, at most."
+    },
+    {
+      "id": "r2-r1-n3-confirm",
+      "type": "approval",
+      "prompt": "N3, decided by you: no reader process on the laptop; shared notes open in the browser. Confirm as written."
+    },
+    {
+      "id": "r2-r1",
+      "type": "choice",
+      "prompt": "N12. How fresh should a note watched live be?",
+      "options": [
+        {
+          "id": "slow",
+          "label": "About 8 s: measure it, then decide"
+        },
+        {
+          "id": "fast",
+          "label": "2 s: tighten both timers"
+        }
+      ]
+    }
+  ]
+}

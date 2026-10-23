@@ -1,0 +1,13 @@
+{
+  "id": "r2-card-r1",
+  "type": "card",
+  "title": "Do your words on uploads still hold?",
+  "summary": "Your words on uploads, quoted with nothing added.",
+  "children": [
+    {
+      "id": "r2-r1-n11-confirm",
+      "type": "approval",
+      "prompt": "Confirm as written: one upload process for the whole laptop, never one per note"
+    }
+  ]
+}

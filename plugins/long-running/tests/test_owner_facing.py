@@ -13,6 +13,7 @@ from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_
 from fire import fire
 from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
+from hooks.tests.board_fixtures import GLOSSARY, ROWS
 from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
 
 MISFIRES = {
@@ -276,3 +277,45 @@ def test_lane_probes_and_root_routing_pass(root: Root, incidents: Path, command:
     incident(incidents, "sand-not-migrated", "open", target="sand")
 
     assert root.tool("Bash", {"command": command}, **raw) == []
+
+
+PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY}
+
+
+@pytest.fixture
+def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    root = Root(tmp_path)
+    seed = PostToolUseEvent(_raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=root.session_dir))
+    CompactionState(active=True, slug="brook").save(seed)
+    return root
+
+
+def test_a_status_card_in_drive_words_is_refused_and_its_pr_options_pass(drive_root: Root) -> None:
+    card = {"status": "needs_you", "title": "Merge the slice?", "body": "The desk graded it.", "options": ["Merge #42301", "Hold"]}
+    payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
+    evt = PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir)))
+
+    with stubbed_commands(PLAIN_READS):
+        message = owner_facing.plain_words_in_owner_questions(evt).message
+
+    assert message.startswith(owner_facing.PLAIN_WORDS)
+    assert 'card title has a drive word, "slice"' in message
+    assert 'card body has a drive word, "desk"' in message
+    assert "#42301" not in message
+
+
+def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root) -> None:
+    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", "The slice for lane p1a is done.")) + "\n")
+    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
+    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
+    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context))
+
+    with stubbed_commands(PLAIN_READS):
+        assert owner_facing.plain_words_on_reply(evt) is None
+
+    with nudges.NudgeState.mutate(evt) as state:
+        pending, state.pending = state.pending, []
+    [nudge] = pending
+    assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
+    assert 'your reply has a drive word, "slice"' in nudge

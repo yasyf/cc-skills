@@ -1,0 +1,19 @@
+{
+  "id": "r3-confirm-loops",
+  "type": "choice",
+  "prompt": "Which of these timed checks may stay?",
+  "options": [
+    {
+      "id": "renew",
+      "label": "The server renews its hold on an open note every 90 seconds"
+    },
+    {
+      "id": "changes",
+      "label": "The laptop asks for new changes every 30 seconds"
+    },
+    {
+      "id": "none",
+      "label": "None of them; the server sends each change as it happens"
+    }
+  ]
+}

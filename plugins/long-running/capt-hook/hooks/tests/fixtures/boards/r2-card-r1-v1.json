@@ -1,0 +1,25 @@
+{
+  "id": "r2-card-r1",
+  "type": "card",
+  "title": "N3, N11, N12. Keep the first release small: the reader, upload processes and refresh",
+  "summary": "Three questions with one shape: change it inside the first release, or ship what works and measure first.",
+  "children": [
+    {
+      "id": "r2-r1",
+      "type": "choice",
+      "prompt": "Your pick",
+      "options": [
+        {
+          "id": "ship",
+          "label": "Ship what works first; tune after, on measurements",
+          "hint": "Moving the reader's work is its own lane after the first release"
+        },
+        {
+          "id": "all",
+          "label": "Do all three inside the first release",
+          "hint": "Move the reader's work and speed up both timers before shipping"
+        }
+      ]
+    }
+  ]
+}

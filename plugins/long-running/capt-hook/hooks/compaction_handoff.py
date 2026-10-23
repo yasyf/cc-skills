@@ -335,11 +335,12 @@ def bus_name(entry: dict) -> str:
     return entry.get("cci_drive") or Path(entry["state_dir"]).name
 
 
-def post_blocker(evt: BaseHookEvent, text: str) -> None:
+def post_blocker(evt: BaseHookEvent, text: str, *, lane: str = ROOT_LANE, key: str | None = None) -> None:
     if not (entry := drive_entry(evt)):
         return
     drive = bus_name(entry)
-    argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
+    argv = ["cci", "post", "--drive", drive, "--lane", lane, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
+    argv += ["--id", key] if key else []
     try:
         subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired):

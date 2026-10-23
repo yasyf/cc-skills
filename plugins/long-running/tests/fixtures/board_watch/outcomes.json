@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "doc": {
+    "version": 1,
+    "title": "Share links",
+    "blocks": [
+      {
+        "id": "share-open",
+        "type": "card",
+        "title": "Should a shared note open in the browser?",
+        "children": [
+          {
+            "id": "share-open-pick",
+            "type": "choice",
+            "prompt": "Should a shared note open in the browser?",
+            "options": [
+              {"id": "yes", "label": "Yes, read-only"},
+              {"id": "none", "label": "Nothing opens it"}
+            ]
+          }
+        ]
+      },
+      {
+        "id": "update-confirm",
+        "type": "card",
+        "title": "Confirm your words as written?",
+        "children": [
+          {"id": "update-confirm-ok", "type": "approval", "prompt": "download the update in the background, show the banner, and only restart when i click it"}
+        ]
+      },
+      {"id": "banner-ok", "type": "approval", "prompt": "Keep the update banner as it is."}
+    ]
+  }
+}

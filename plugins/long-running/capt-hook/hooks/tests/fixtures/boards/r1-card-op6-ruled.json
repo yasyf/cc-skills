@@ -1,0 +1,19 @@
+{
+  "id": "card-n6",
+  "type": "card",
+  "title": "N6. Updates: decided by you",
+  "summary": "You ruled: the app downloads each update in the background and restarts when you click the banner.",
+  "children": [
+    {
+      "id": "n6-confirm",
+      "type": "approval",
+      "prompt": "Confirm your ruling as written: an update is saved without a click and shown in the banner; nothing restarts until you click; below the minimum version the forced update stays.",
+      "pros": [
+        "It restores the click-to-update flow; the banner is still in the app."
+      ],
+      "cons": [
+        "A laptop that stays busy after the click shows Updating until every note is between edits."
+      ]
+    }
+  ]
+}

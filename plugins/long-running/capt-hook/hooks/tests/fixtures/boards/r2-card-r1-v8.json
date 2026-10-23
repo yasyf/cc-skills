@@ -1,0 +1,18 @@
+{
+  "id": "r2-card-r1",
+  "type": "card",
+  "title": "Confirm: one reader, no upload process of ours, and live sync both ways?",
+  "summary": "All three are settled by your answers.",
+  "children": [
+    {
+      "id": "r2-r1-n11",
+      "type": "markdown",
+      "md": "**N11, decided by you.** No upload process of ours at all; the database's own replication copies every note."
+    },
+    {
+      "id": "r2-r1-n3-confirm",
+      "type": "approval",
+      "prompt": "N3, decided by you: the reader and the writer are one library, rewritten from scratch, and it only reads and writes rows."
+    }
+  ]
+}
