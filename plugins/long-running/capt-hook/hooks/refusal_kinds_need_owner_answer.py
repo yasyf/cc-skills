@@ -321,7 +321,7 @@ def answer_texts(evt: BaseHookEvent, req: Request, ids: list[str]) -> dict[str, 
             continue
         if (record := parsed(done.stdout)) is None:
             return None
-        if record.get("id"):
+        if record.get("id") and not record.get("superseded_by"):
             found[answer] = f"{record.get('title') or ''}\n{record.get('body') or ''}"
     return found
 
@@ -381,6 +381,9 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="not json")): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER[:-1] + ', "superseded_by": ["b7c0d2e900"]}')): Block(
+            pattern=r"cites an owner answer"
+        ),
         ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
         ship(f"gh pr edit 1 --body-file - < {UNCITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="")): Block(pattern=r"cites an owner answer"),
