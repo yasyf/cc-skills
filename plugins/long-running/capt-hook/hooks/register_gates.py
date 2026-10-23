@@ -140,8 +140,10 @@ TARGET_FLAGS = frozenset({"--targets", "--target", "--groups"})
 RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
 GO_WAITS = "A GO naming `{tokens}` waits while gate row `{key}` is owed. Meet the gate first, then post the GO."
 CUT_REFUSED = "This {verb} is refused while the register's cut rules below hold. Clear each one, then run it again."
+CACHE_ENV = {"CLAUDE_CONFIG_DIR": DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]}
+CACHE = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / "plugins" / "cache" / "skills" / "long-running" / "0.7.217"
 HOOK_EDIT = (
-    "The installed long-running plugin changes only through a reviewed pull request, so this write into `{path}` is refused."
+    "The installed long-running plugin changes only through a reviewed pull request, so this write into its `{path}` is refused."
     " Fix the check in a worktree and ship it as a pull request."
 )
 TIMERS = fixture("brief-158695")
@@ -244,7 +246,7 @@ def go(text: str, kind: str = "go") -> str:
 
 def register_case(command: str | None = None, state: str = "quiet", *answers: tuple[str, str | tuple[int, str]], **extra: object) -> Input:
     fields = {"command": command} if command is not None else {}
-    return Input(**(fields | extra), state=ACTIVE, cwd=CWD, commands=readings(state, *answers))
+    return Input(**({"env": DRIVE_CONFIG} | fields | extra), state=ACTIVE, cwd=CWD, commands=readings(state, *answers))
 
 
 def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Input:
@@ -282,7 +284,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         register_case("cc-present reply --block r3 --body 'Done.'", "repeat"): Allow(),
         register_case("ls", "repeat"): Allow(),
         spawn("lane-x", "Lane lane-x: build the slice verb."): Allow(),
-        Input(command=go("cut web"), state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+        Input(command=go("cut web"), state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
         Input(command=go("cut web"), cwd=CWD, commands=readings("repeat")): Allow(),
         register_case(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
     },
@@ -349,11 +351,11 @@ def fenced(text: str) -> str:
 
 
 def question(text: str, state: str, **extra: object) -> Input:
-    return Input(command=text, state=ACTIVE, cwd=CWD, commands=readings(state), **extra)
+    return Input(**({"env": DRIVE_CONFIG} | extra), command=text, state=ACTIVE, cwd=CWD, commands=readings(state))
 
 
 def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
-    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt}, state=ACTIVE, cwd=CWD, commands=readings(state), **extra)
+    return Input(**({"env": DRIVE_CONFIG} | extra), tool="Agent", tool_input={"name": name, "prompt": prompt}, state=ACTIVE, cwd=CWD, commands=readings(state))
 
 
 @on(
@@ -380,7 +382,7 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
         asks("incident-api-500s-fix", "Fix the api 500s.", "question-timers"): Allow(),
         question("cc-present push /tmp/board.json", "question-timers"): Allow(),
         question("ls", "question-timers"): Allow(),
-        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, cwd=CWD, commands=readings("question-timers")): Allow(),
     },
 )
@@ -434,7 +436,7 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
     tests={
-        Input(state=ACTIVE, cwd=CWD, commands=readings("question-timers")): Allow(),
+        Input(state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("question-timers")): Allow(),
         Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
     },
 )
@@ -520,7 +522,7 @@ def lane_label(lane: str | None) -> str:
 
 
 def lane(name: str) -> dict[str, str]:
-    return {"CLAUDE_LONG_RUNNING_LANE": name}
+    return DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": name}
 
 
 @on(
@@ -540,26 +542,26 @@ def lane(name: str) -> dict[str, str]:
         ),
         register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_show", tool_input={"id": LEDGER[:7]}): Allow(),
         register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Block(pattern=r"`brook`"),
-        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Block(
             pattern=r"^`rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
         ),
-        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD): Block(pattern=r"this session is the root\."),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(pattern=r"this session is the root\."),
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Block(pattern=r"anchor and register-seed lanes"),
         Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
-        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(
+        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(
             pattern=r"^An `authorizes:` label is written only by `rulings\.py authorize`\."
         ),
-        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(pattern=r"authorizes:"),
-        Input(command="ccn answer add 'Ship it?' --label scope:durable", state=ACTIVE, cwd=CWD): Allow(),
-        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, cwd=CWD): Block(
+        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(pattern=r"authorizes:"),
+        Input(command="ccn answer add 'Ship it?' --label scope:durable", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Allow(),
+        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(
             pattern=r"authorizes:"
         ),
-        Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env=lane("p1-hooks")): Allow(),
-        Input(command=f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3", state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}): Allow(),
+        Input(command=f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
     },
 )
 def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
@@ -614,19 +616,19 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
     Event.PreToolUse,
     only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
     tests={
-        Input(tool="Edit", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(
-            pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into `/cfg/plugins/cache/skills/long-running/0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
+        Input(tool="Edit", tool_input={"file_path": f"{CACHE}/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(
+            pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into its `0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
         ),
-        Input(command="sed -i '' s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/skills/long-running/scripts/rulings.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"rulings\.py` is refused"),
-        Input(command="echo x >> /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/board_text_gate.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
-        Input(command="cp /tmp/x.py /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
-        Input(command="cp /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
-        Input(command="cat /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
-        Input(command="mv /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
-        Input(command="perl -pi -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
-        Input(command="sed -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
-        Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
-        Input(tool="Write", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/x.py", "content": "x"}, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(command=f"sed -i '' s/a/b/ {CACHE}/skills/long-running/scripts/rulings.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"rulings\.py` is refused"),
+        Input(command=f"echo x >> {CACHE}/capt-hook/hooks/board_text_gate.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"is refused"),
+        Input(command=f"cp /tmp/x.py {CACHE}/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"is refused"),
+        Input(command=f"cp {CACHE}/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
+        Input(command=f"cat {CACHE}/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
+        Input(command=f"mv {CACHE}/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"is refused"),
+        Input(command=f"perl -pi -e s/a/b/ {CACHE}/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(pattern=r"is refused"),
+        Input(command=f"sed -e s/a/b/ {CACHE}/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
+        Input(tool="Write", tool_input={"file_path": f"{CACHE}/x.py", "content": "x"}, cwd=CWD, env=CACHE_ENV): Allow(),
     },
 )
 def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
@@ -634,7 +636,7 @@ def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
         return None
     cache = plugin_cache()
     inside = next((path for path in written_paths(evt) if path.is_relative_to(cache)), None)
-    return evt.block(HOOK_EDIT.format(path=inside)) if inside else None
+    return evt.block(HOOK_EDIT.format(path=inside.relative_to(cache))) if inside else None
 
 
 def flag_targets(flag: str, value: str) -> list[str]:

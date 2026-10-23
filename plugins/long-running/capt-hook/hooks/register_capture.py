@@ -16,7 +16,7 @@ from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
 from .root_context import PACIFIC, DriveActive, OwnerPrompt, message_label
-from .tests.register_fixtures import ACTIVE, CWD, ROWS, readings
+from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
 
 STAMP = "%Y-%m-%d %-I:%M %p PT"
 TRIGGERS = (
@@ -56,7 +56,7 @@ def digest_of(evt: BaseHookEvent) -> str:
     only_if=[DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     tests={
-        Input(prompt="keep the nightly report", state=ACTIVE): Allow(),
+        Input(prompt="keep the nightly report", env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt="keep the nightly report"): Allow(),
     },
 )
@@ -89,11 +89,11 @@ def capture(prompt: dict) -> dict:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(command="ls", state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
-        Input(state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
+        Input(command="ls", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
+        Input(env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(
             command="ls",
-            state=[*ACTIVE, PendingPrompts(prompts=[{"digest": "629293ae14388dc9", "session": "s", "source": "prompt", "text": "keep the nightly report"}])],
+            env=DRIVE_CONFIG, state=[*ACTIVE, PendingPrompts(prompts=[{"digest": "629293ae14388dc9", "session": "s", "source": "prompt", "text": "keep the nightly report"}])],
             cwd=CWD,
             commands={ROWS: (1, "boom"), "cci post": "#1"},
             transcript=[{"type": "user", "message": {"role": "user", "content": "keep the nightly report"}}],
@@ -216,8 +216,8 @@ def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(prompt="that is fine, ship it", state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
-        Input(prompt="waht is a relay slot? why is this here?", state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
+        Input(prompt="that is fine, ship it", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
+        Input(prompt="waht is a relay slot? why is this here?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
         Input(prompt="what is a relay slot?", state=[CompactionState(active=True)], cwd=CWD): Allow(),
         Input(prompt="what is a relay slot?", cwd=CWD, commands=readings("quiet")): Allow(),
     },

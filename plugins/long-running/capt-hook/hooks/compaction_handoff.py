@@ -316,8 +316,8 @@ def register_of(cwd: str, *which: str) -> dict | None:
     return json.loads(rulings(cwd, "register", *which))
 
 
-def queue_register(state: CompactionState, cwd: str) -> None:
-    if state.store == "ccn" and state.slug and (register := register_of(cwd, "--program", state.slug)):
+def queue_register(state: CompactionState, evt: BaseHookEvent) -> None:
+    if state.store == "ccn" and (entry := drive_entry(evt)) and (register := register_of(str(evt.cwd), "--drive", entry["drive"])):
         state.register_doc, state.register_body = register["id"], register["body"]
 
 
@@ -726,7 +726,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-        queue_register(state, evt.cwd)
+        queue_register(state, evt)
         queue_root_slice(state, evt)
     if digest:
         return evt.context(digest + pending)

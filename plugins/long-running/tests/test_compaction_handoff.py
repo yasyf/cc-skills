@@ -218,8 +218,8 @@ def active(docs: Path) -> list[str]:
 REGISTER_ID = "9" * 40
 
 
-def add_register(docs: Path, body: str) -> None:
-    entry = {"id": REGISTER_ID, "title": "brook register", "tags": ["standing-rules:brook"], "updated_at": "2026-10-04T00:00:00Z"}
+def add_register(docs: Path, body: str, program: str = "brook") -> None:
+    entry = {"id": REGISTER_ID, "title": f"{program} register", "tags": [f"standing-rules:{program}"], "updated_at": "2026-10-04T00:00:00Z"}
     (docs / "docs.json").write_text(json.dumps(json.loads((docs / "docs.json").read_text()) + [entry]))
     (docs / (REGISTER_ID + ".md")).write_text(body)
 
@@ -647,13 +647,14 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     assert state(session).digest is None
 
 
-def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Path, docs: Path) -> None:
+def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session = home / "session"
     body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 150}\n" for n in range(1, 31))
     add_register(docs, body)
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
+    register_drive(home, monkeypatch, state_dir=str(home / ".claude" / "scratch" / "brook"))
     handoff.reground(session_start(session, "compact"))
     delivered = handoff.deliver_register(bash(session))
 
@@ -665,6 +666,18 @@ def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Pa
     assert handoff.deliver_register(bash(session, agent_id="a1")) is None
     assert standing.pointer({"id": REGISTER_ID, "body": body}) in (docs / ("d" * 40 + ".md")).read_text()
     assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
+
+
+def test_a_drive_whose_plan_stem_differs_from_its_program_queues_the_program_register(
+    home: Path, docs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_drive(home, monkeypatch)
+    add_register(docs, "# durable-program register\n\n1. Pulumi state is the only truth.\n", program="durable-program")
+    queued = handoff.CompactionState(active=True, slug="brook")
+
+    handoff.queue_register(queued, bash(home / "session"))
+
+    assert queued.register_doc == REGISTER_ID
 
 
 def session_start(session: Path, source: str) -> SessionStartEvent:
@@ -738,6 +751,7 @@ def register_drive(home: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) ->
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     entry = {"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "durable-program")} | extra
+    entry["program"] = Path(entry["state_dir"]).name
     (drives / "b7.json").write_text(json.dumps(entry))
     for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
         monkeypatch.delenv(key, raising=False)
@@ -766,7 +780,7 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
     sliced = root_slice(24)
     asked = stub_slice(monkeypatch, lambda args: sliced)
     register_drive(home, monkeypatch)
-    add_register(docs, register)
+    add_register(docs, register, program="durable-program")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.reground(session_start(session, source))

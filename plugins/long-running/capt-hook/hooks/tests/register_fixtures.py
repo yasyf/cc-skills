@@ -14,7 +14,7 @@ GO_PATH = FIXTURES / "register-records" / "go.md"
 DRIVE_CONFIG = {"CLAUDE_CONFIG_DIR": str(FIXTURES / "register-config"), "CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
 CWD = "/repo"
 ACTIVE = [CompactionState(active=True, slug="brook")]
-ROWS = f"{sys.executable} {script('rulings.py')} rows --program brook"
+ROWS = f"{sys.executable} {script('rulings.py')} rows --drive brook-drive"
 LEDGER = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
 ROWED = "8b1048a2f5ba37d1580a1db0848e6e8f13447cc3"
 UNROWED = "1dfd09d6b2c4e8f0a1b3c5d7e9f1a2b4c6d8e0f2"
