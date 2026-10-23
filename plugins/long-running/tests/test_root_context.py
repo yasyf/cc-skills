@@ -230,7 +230,7 @@ def test_a_directory_listing_passes(root: Root, command: str) -> None:
     "command",
     [
         "head -c 4001 src/app.py",
-        "head -n 41 src/app.py",
+        "head -n 151 src/app.py",
         "tail -n +2 src/app.py",
         "grep -m 21 import src/app.py",
         "grep -n import src/app.py",

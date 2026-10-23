@@ -180,6 +180,9 @@ def runs_verb(schema: CommandSchema, *prefixes: tuple[str, ...]) -> CommandMatch
     return CommandMatches(schema, only_if=(verb(*prefixes),))
 
 
+CODE_READS = verb(("code",), ("repo",), ("vcs", "diff"), ("vcs", "show"), ("vcs", "history"), ("vcs", "log"))
+
+
 class DriveActive:
     def check(self, evt: BaseHookEvent) -> bool:
         return CompactionState.load(evt).active
@@ -200,13 +203,18 @@ class OwnerPrompt:
 
 class OversizedTool:
     def check(self, evt: BaseHookEvent) -> bool:
-        return (evt.tool_name or "") in RootContextState.load(evt).oversized
+        return (evt.tool_name or "") in RootContextState.load(evt).oversized and not bounded_code_tool(evt)
 
 
 class ReadsCodeTool:
     def check(self, evt: BaseHookEvent) -> bool:
-        name = evt.tool_name or ""
-        return name.startswith(CCX_MCP_READS) and not (name == CCX_MCP_CODE_READ and section_window(evt.input.raw.get("section")))
+        return (evt.tool_name or "").startswith(CCX_MCP_READS) and not bounded_code_tool(evt)
+
+
+class ReadsCode:
+    def check(self, evt: BaseHookEvent) -> bool:
+        reads = [arguments for call in evt.command.calls("ccx") if CODE_READS(arguments := CCX.bind(call))]
+        return bool(reads) and not (len(reads) == 1 and reads_one_window(reads[0]))
 
 
 def setting(name: str, default: int) -> int:
@@ -223,6 +231,13 @@ def fits(first: str, last: str | None) -> bool:
 
 def section_window(section: object) -> bool:
     return isinstance(section, str) and (found := SECTION_WINDOW.fullmatch(section)) is not None and fits(found[1], found[2])
+
+
+def bounded_code_tool(evt: BaseHookEvent) -> bool:
+    if evt.tool_name != CCX_MCP_CODE_READ:
+        return False
+    raw = evt.input.raw
+    return not raw.get("full") and section_window(raw.get("section"))
 
 
 def reads_one_window(arguments: Arguments) -> bool:
@@ -406,7 +421,7 @@ def bounded_read(call: Call, calls: Sequence[Call], raw: str) -> bool:
         return False
     match operands(call, arguments):
         case [target] if not target.has_glob and target.path is not None and target.path.is_file():
-            return caps_output(call.name, arguments.values) or capped_by_pipe(call, calls)
+            return caps_output(call.name, arguments.values) or (call.name != "sed" and capped_by_pipe(call, calls))
     return False
 
 
@@ -527,6 +542,7 @@ root_warning(
         Input(command=f"sed '1,60p' {SOURCE}", state=ACTIVE): Warn(),
         Input(command=f"sed -n '1,60p' {SOURCE} {SOURCE}", state=ACTIVE): Warn(),
         Input(command=f"cat {SOURCE} | sed -n '1,60p'", state=ACTIVE): Allow(),
+        Input(command=f"sed -n 'w /dev/stderr' {SOURCE} | head -n 1", state=ACTIVE): Warn(),
         Input(command=f"tail -n +40 {SOURCE}", state=ACTIVE): Warn(),
         Input(command=f"tail -f {SOURCE}", state=ACTIVE): Warn(),
         Input(command="grep -c line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
@@ -585,14 +601,7 @@ root_warning(
 root_warning(
     message="Warning, nothing was blocked: Code and repo reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[
-        Or(
-            CommandMatches(
-                CCX,
-                only_if=(verb(("code",), ("repo",), ("vcs", "diff"), ("vcs", "show"), ("vcs", "history"), ("vcs", "log")),),
-                skip_if=(reads_one_window,),
-            ),
-            ReadsCodeTool(),
-        )
+        Or(ReadsCode(), ReadsCodeTool())
     ],
     tests={
         Input(command="ccx code read hooks/x.py", state=ACTIVE): Warn(pattern=r"Code and repo reads"),
@@ -602,6 +611,8 @@ root_warning(
         Input(command="ccx code read hooks/x.py --section '## Setup'", state=ACTIVE): Warn(),
         Input(command="ccx code read hooks/x.py --section 1-90 --full", state=ACTIVE): Warn(),
         Input(command="ccx code search 'who reads x' --section 1-90", state=ACTIVE): Warn(),
+        Input(command="ccx code read a.py --section 1-60; ccx code read b.py --section 1-60", state=ACTIVE): Warn(),
+        Input(tool=CCX_MCP_CODE_READ, tool_input={"path": "x.py", "section": "1-60", "full": True}, state=ACTIVE): Warn(),
         Input(tool=CCX_MCP_CODE_READ, tool_input={"path": "x.py", "section": "1-60"}, state=ACTIVE): Allow(),
         Input(command="ccx vcs diff", state=ACTIVE): Warn(),
         Input(tool=CCX_MCP_CODE_READ, tool_input={"path": "x.py"}, state=ACTIVE): Warn(),
@@ -711,7 +722,7 @@ root_warning(
 )
 def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
     name = evt.tool_name or ""
-    if not name.startswith("mcp__") or name.startswith(MCP_EXEMPT):
+    if not name.startswith("mcp__") or name.startswith(MCP_EXEMPT) or bounded_code_tool(evt):
         return None
     response = evt.tool_response
     size = len(response if isinstance(response, str) else json.dumps(response))

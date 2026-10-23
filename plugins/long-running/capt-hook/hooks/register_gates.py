@@ -505,7 +505,7 @@ def seated(verb: str, lane: str | None, register: str | None) -> bool:
     root, lanes = SEATS[verb]
     if lane is None:
         return root
-    return lane.startswith(lanes) or (SEED in lanes and lane == register)
+    return lane.startswith(lanes) or (root and lane == register)
 
 
 def unseated_verbs(evt: BaseHookEvent) -> list[str]:
@@ -555,6 +555,7 @@ def lane(name: str) -> dict[str, str]:
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Warn(pattern=r"anchor and register-seed lanes"),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("capture-desk")): Warn(pattern=r"anchor and register-seed lanes"),
         Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
         Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(
             pattern=r"^Warning, nothing was blocked: An `authorizes:` label is written only by `rulings\.py authorize`\."

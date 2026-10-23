@@ -682,7 +682,7 @@ def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READE
 
 
 def term_of(problem: str) -> str:
-    return found[1] if (found := QUOTED_TERM.search(problem)) else problem
+    return (found[1] if (found := QUOTED_TERM.search(problem)) else problem).casefold()
 
 
 def unsaid(evt: BaseHookEvent, problems: list[str]) -> list[str]:
