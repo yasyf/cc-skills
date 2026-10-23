@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Keep a retro current while the incident is still running.
 
-  retro.py live init     <incident-dir> --docs <design-docs checkout> [--slug S]
-  retro.py live sync     <incident-dir> --docs <design-docs checkout> [--no-push] [--notebook-snapshot PATH]
-  retro.py live finalize <incident-dir> --docs <design-docs checkout> [--push]
+  retro.py live init     <incident-dir> --docs <design-docs checkout> [--slug S] [--dir D]
+  retro.py live sync     <incident-dir> --docs <design-docs checkout> [--dir D] [--no-push] [--notebook-snapshot PATH]
+  retro.py live finalize <incident-dir> --docs <design-docs checkout> [--dir D] [--push]
 
 The inputs are the incident skill's `state.json` and `slack-log.jsonl`. Every
 field is derived from them, so a sync calls no model and produces the same
@@ -18,6 +18,9 @@ names, snapshots each paging monitor's state and, for a metric monitor, the
 value it evaluates over its window since an hour before onset, runs `check`, and force-pushes retro.json and the Slack and Datadog
 snapshots to `live/<slug>`. `finalize` drops `live.source` and
 moves the retro to `draft`, where the existing prose and publish flow takes it.
+`--dir` puts the retro under another top-level directory of the checkout, such
+as `incident-retros-test`; `init` then records it as `live.source.dir` and
+leaves both index pages alone.
 Stdlib only.
 """
 import argparse, datetime, json, os, re, subprocess, sys, tempfile, urllib.parse
@@ -47,6 +50,7 @@ SERIES_LEAD = datetime.timedelta(hours=1)
 TEMPLATE_VAR = re.compile(r"\{\{\s*([\w.-]+?)\.name\s*\}\}")
 TEMPLATE_LEFT = re.compile(r"\s*[\u2014\u2013:-]?\s*\{\{[^}]*\}\}")
 WORD = re.compile(r"\S+")
+FOLDER = re.compile(r"[\w-]+")
 
 
 def utc_now() -> datetime.datetime:
@@ -115,8 +119,15 @@ def slug_of(state: dict, given, retro) -> str:
     return retro.retro_slug(given or state.get("retro_slug"), state.get("title") or "", date)
 
 
-def retro_root(docs: Path, slug: str) -> Path:
-    return docs / RETRO_DIR / slug
+def retro_root(docs: Path, folder: str, slug: str) -> Path:
+    return docs / folder / slug
+
+
+def live_source(args, slug: str) -> dict:
+    source = {"repo": args.repo, "branch": LIVE_BRANCH.format(slug=slug)}
+    if args.dir != RETRO_DIR:
+        source["dir"] = args.dir
+    return source
 
 
 def issue_number(issue_id) -> str:
@@ -518,7 +529,7 @@ def init(args) -> int:
     retro, incident, docs = args.retro, Path(args.incident_dir), Path(args.docs)
     state = read_state(incident)
     slug = slug_of(state, args.slug, retro)
-    root = retro_root(docs, slug)
+    root = retro_root(docs, args.dir, slug)
     if root.exists() and any(root.iterdir()):
         print(f"live init: {root} exists; run retro.py live sync to bring it current", file=sys.stderr)
         return 1
@@ -529,14 +540,15 @@ def init(args) -> int:
     (root / retro.SUMMARY_PAGE).unlink()
     R = retro.load_retro(root, "live init")
     R["meta"]["timezone"] = args.timezone
-    branch = LIVE_BRANCH.format(slug=slug)
-    shell(state, R, retro, utc_now(), {"repo": args.repo, "branch": branch})
+    source = live_source(args, slug)
+    shell(state, R, retro, utc_now(), source)
     retro.write_retro(root, R)
     state["retro_slug"] = slug
     (incident / STATE).write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
-    sync_cards(docs)
-    print(f"live init: {root} is ongoing, polling {args.repo}@{branch}")
-    print(f"sync:  retro.py live sync {incident} --docs {docs}")
+    if args.dir == RETRO_DIR:
+        sync_cards(docs)
+    print(f"live init: {root} is ongoing, polling {args.repo}@{source['branch']}")
+    print(f"sync:  retro.py live sync {incident} --docs {docs} --dir {args.dir}")
     return run_check(retro, root)
 
 
@@ -544,7 +556,7 @@ def sync(args) -> int:
     retro, incident, docs = args.retro, Path(args.incident_dir), Path(args.docs)
     prose = retro.sibling_module("retro_prose")
     slug = slug_of(read_state(incident), args.slug, retro)
-    root = retro_root(docs, slug)
+    root = retro_root(docs, args.dir, slug)
     if not (root / "retro.json").exists():
         print(f"live sync: {root} has no retro.json; run retro.py live init first", file=sys.stderr)
         return 1
@@ -564,7 +576,7 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     R = retro.load_retro(root, "live sync")
     if R is None:
         return 1
-    source = (R.get("live") or {}).get("source") or {"repo": args.repo, "branch": LIVE_BRANCH.format(slug=slug)}
+    source = (R.get("live") or {}).get("source") or live_source(args, slug)
     messages = read_slack(incident)
     rebuild(state, messages, R, retro, now, source)
     snapshots = slack_snapshots(messages, now, retro.sibling_module("retro_evidence").SLACK_MAX_MESSAGES)
@@ -597,13 +609,13 @@ def write_sync(args, retro, prose, incident: Path, docs: Path, slug: str, root: 
     if args.no_push:
         print(f"live sync: {root} is current as of {R['live']['updatedAt']} (not pushed)")
         return 0
-    return publish(docs, slug, source["branch"], R["live"]["updatedAt"])
+    return publish(docs, args.dir, slug, source["branch"], R["live"]["updatedAt"])
 
 
-def publish(docs: Path, slug: str, branch: str, at: str) -> int:
+def publish(docs: Path, folder: str, slug: str, branch: str, at: str) -> int:
     message = f"live: {slug} as of {at}"
-    commit = build_commit(docs, [f"{RETRO_DIR}/{slug}/retro.json", f"{RETRO_DIR}/{slug}/{SLACK_DIR}",
-                                 f"{RETRO_DIR}/{slug}/{DATADOG_DIR}"], message)
+    commit = build_commit(docs, [f"{folder}/{slug}/retro.json", f"{folder}/{slug}/{SLACK_DIR}",
+                                 f"{folder}/{slug}/{DATADOG_DIR}"], message)
     push_commit(docs, branch, commit)
     print(f"live sync: pushed {branch} as of {at}")
     return 0
@@ -614,7 +626,7 @@ def finalize(args) -> int:
     prose = retro.sibling_module("retro_prose")
     state = read_state(incident)
     slug = slug_of(state, args.slug, retro)
-    root = retro_root(docs, slug)
+    root = retro_root(docs, args.dir, slug)
     R = retro.load_retro(root, "live finalize")
     if R is None:
         return 1
@@ -635,7 +647,13 @@ def finalize(args) -> int:
         return 1
     if not args.push:
         return 0
-    return publish(docs, slug, branch, stamp(utc_now()))
+    return publish(docs, args.dir, slug, branch, stamp(utc_now()))
+
+
+def retro_folder(value: str) -> str:
+    if not FOLDER.fullmatch(value):
+        raise argparse.ArgumentTypeError(f"{value!r} is not one top-level directory name")
+    return value
 
 
 def add_live_parser(sub, retro):
@@ -650,6 +668,9 @@ def add_live_parser(sub, retro):
         p.add_argument("--slug", help="override the slug state.json carries")
         p.add_argument("--repo", default="Forge-AI/design-docs", help="the owner/repo the page polls")
         p.add_argument("--timezone", default="America/Los_Angeles", help="the zone the page displays times in")
+        p.add_argument("--dir", default=RETRO_DIR, type=retro_folder,
+                       help=f"the checkout's top-level directory the retro lives in; only {RETRO_DIR} is "
+                            f"listed on the index pages")
         if name == "sync":
             p.add_argument("--no-push", action="store_true", help="write and check the retro without pushing it")
             p.add_argument("--notebook-snapshot", metavar="PATH",

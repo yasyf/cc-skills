@@ -4,7 +4,7 @@
   python3 scripts/test_retro_live.py
 """
 import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.parse, urllib.request
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -98,7 +98,7 @@ def incident_dir() -> Path:
 def args(incident: Path, docs: Path, **extra):
     base = {"incident_dir": str(incident), "docs": str(docs), "slug": None,
             "repo": "Forge-AI/design-docs", "timezone": "America/Los_Angeles",
-            "retro": retro, "no_push": True, "push": False, "notebook_snapshot": None,
+            "retro": retro, "dir": retro_live.RETRO_DIR, "no_push": True, "push": False, "notebook_snapshot": None,
             "tags": "browser-pool,executors,deploy"}
     base.update(extra)
     return argparse.Namespace(**base)
@@ -628,6 +628,43 @@ class LivePush(unittest.TestCase):
         staged = subprocess.run(["git", "-C", str(self.docs), "diff", "--cached", "--name-only"],
                                 capture_output=True, text=True, check=True).stdout
         self.assertEqual(staged.strip(), "")
+
+
+class TestDir(unittest.TestCase):
+    """A test page publishes under its own directory, which neither index page lists."""
+
+    FOLDER = "incident-retros-test"
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), git_docs()
+        self.indexes = {page: (self.docs / page).read_text() for page in retro_live.CARD_PAGES}
+        self.code = run(retro_live.init, args(self.incident, self.docs, dir=self.FOLDER))
+        self.root = self.docs / self.FOLDER / SLUG
+
+    def test_init_scaffolds_under_the_directory_and_names_it_for_the_page(self):
+        self.assertEqual(self.code, 0)
+        R = json.loads((self.root / "retro.json").read_text())
+        self.assertEqual(R["live"]["source"],
+                         {"repo": "Forge-AI/design-docs", "branch": f"live/{SLUG}", "dir": self.FOLDER})
+        self.assertFalse((self.docs / retro_live.RETRO_DIR / SLUG).exists())
+
+    def test_init_leaves_both_index_pages_alone(self):
+        for page, before in self.indexes.items():
+            self.assertEqual((self.docs / page).read_text(), before)
+
+    def test_sync_pushes_the_directory_the_page_polls(self):
+        self.assertEqual(run(retro_live.sync, args(self.incident, self.docs, dir=self.FOLDER, no_push=False)), 0)
+        pushed = pushed_ref(self.docs, f"live/{SLUG}").split()[0]
+        tree = subprocess.run(["git", "-C", str(self.docs), "ls-tree", "-r", "--name-only", pushed],
+                              capture_output=True, text=True, check=True).stdout.split()
+        self.assertIn(f"{self.FOLDER}/{SLUG}/retro.json", tree)
+        self.assertFalse([path for path in tree if path.startswith(f"{retro_live.RETRO_DIR}/")])
+
+    def test_a_nested_directory_is_refused(self):
+        parser = argparse.ArgumentParser()
+        retro_live.add_live_parser(parser.add_subparsers(), retro)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["live", "init", str(self.incident), "--docs", str(self.docs), "--dir", "a/b"])
 
 
 class FinalizePush(unittest.TestCase):

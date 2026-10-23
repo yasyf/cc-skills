@@ -681,6 +681,12 @@ them: `identifiedAt` is carried forward from the previous record, and a
 `history` entry is appended only when the derived state differs from the last
 one. Rerunning a sync against unchanged state therefore leaves both alone.
 
+`--dir <name>` on all three commands puts the retro under
+`<checkout>/<name>/<slug>/` instead of `incident-retros/`. `init` records the
+name as `live.source.dir`, which the page reads to poll the right path, and
+skips `sync-index.sh`, so no index page lists the retro; a held test page
+publishes under `incident-retros-test` this way.
+
 `init` chooses the slug as `<local date of started_at>-<slug of title>`,
 writes it back to `state.retro_slug`, scaffolds
 `<checkout>/incident-retros/<slug>/` with `status: "ongoing"` and

@@ -984,14 +984,16 @@ def check_live(rep, R, status: str):
         rep.err(f"live.source still names a branch on a {status} retro; retro.py live finalize drops it when the "
                 f"page stops polling")
     if not isinstance(source, dict):
-        rep.err("live.source must be {repo, branch}")
+        rep.err("live.source must be {repo, branch, dir?}")
         return
     if not (isinstance(source.get("repo"), str) and REPO_SLUG.match(source["repo"])):
         rep.err(f"live.source.repo {source.get('repo')!r} is not an owner/repo slug")
     if not (isinstance(source.get("branch"), str) and GIT_REF.fullmatch(source.get("branch") or "")):
         rep.err(f"live.source.branch {source.get('branch')!r} is not a branch name")
-    for extra in sorted(set(source) - {"repo", "branch"}):
-        rep.err(f"live.source.{extra} is not one of repo, branch")
+    if "dir" in source and not (isinstance(source["dir"], str) and re.fullmatch(r"[\w-]+", source["dir"])):
+        rep.err(f"live.source.dir {source['dir']!r} is not one top-level directory name")
+    for extra in sorted(set(source) - {"repo", "branch", "dir"}):
+        rep.err(f"live.source.{extra} is not one of repo, branch, dir")
 
 
 def check_sessions(rep, sessions):

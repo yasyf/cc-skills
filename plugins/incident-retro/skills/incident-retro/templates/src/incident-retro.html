@@ -4450,7 +4450,7 @@ const liveWatchable=()=>ongoing()&&!!liveSource();
 function liveContents(path,token){
  const src=liveSource();
  if(!src)return Promise.reject(new Error("no live source"));
- const url=`${GH_API}/repos/${src.repo}/contents/incident-retros/${encodeURIComponent(SLUG)}/`+
+ const url=`${GH_API}/repos/${src.repo}/contents/${encodeURIComponent(src.dir||"incident-retros")}/${encodeURIComponent(SLUG)}/`+
   path.split("/").map(encodeURIComponent).join("/")+`?ref=${encodeURIComponent(src.branch)}`;
  return fetch(url,{headers:{Accept:"application/vnd.github.raw","X-GitHub-Api-Version":"2022-11-28",
   ...(token?{Authorization:"Bearer "+token}:{})}}).then(r=>r.ok?r.text():Promise.reject(new Error("GitHub "+r.status)));
