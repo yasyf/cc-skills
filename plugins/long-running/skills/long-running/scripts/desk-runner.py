@@ -1405,7 +1405,6 @@ class Runner:
         return True
 
     def handoff(self, desk: str) -> int:
-        """Stop the desk's live runner at the end of its pass, then start its successor on the newest installed plugin with the same config, its output appended to the desk's runner log."""
         beat = self.config.desk_inbox.parent / HEARTBEATS[desk]
         pid = json.loads(beat.read_text())["pid"] if beat.is_file() else None
         if pid is not None and self.alive(pid):

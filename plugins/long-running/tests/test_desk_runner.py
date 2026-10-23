@@ -2437,7 +2437,6 @@ def ruling_card(cards: Path, key: str, title: str) -> Path:
 
 
 def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_cards_queue(shell, config, tmp_path):
-    """About 30 per-ruling confirmation cards queued in two minutes on Oct 23 (#111804 to #111866), each its own RULING-ASK."""
     cards = tmp_path / "cards"
     cards.mkdir()
     for index in range(3):
@@ -4842,7 +4841,6 @@ def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_its_pass(shell, config, tmp_path, desk):
-    """Three releases in eight minutes on Oct 23 each needed the root to rotate both runners by hand (0.7.245 to 0.7.247)."""
     installed(tmp_path, newer(runner_module.RUNNING_VERSION))
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     with pytest.raises(Reexeced):
@@ -4870,7 +4868,6 @@ def successor(config: Path, tmp_path: Path, desk: str) -> tuple[list[str], Path,
 
 
 def test_handoff_waits_for_the_runner_to_remove_the_stop_marker_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
-    """Six rotations before 10:20 AM on Oct 23 each took two commands typed by the root, the handoff and then the restart."""
     orca_pass(shell, config)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     started = []
