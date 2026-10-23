@@ -25,7 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, CompactionState, ccn, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, CompactionState, ccn, drive_entry, post_blocker, rulings, script
 from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
@@ -98,10 +98,10 @@ SEATS = {
     "anchor": (False, ("anchor", SEED)),
 }
 SEAT_NAMES = {
-    "classify": "the root and the register-seed lane",
-    "names": "the root and the register-seed lane",
-    "authorize": "the root and the register-seed lane",
-    "supersede": "the root and the register-seed lane",
+    "classify": "the root, the register-seed lane and the drive's register lane",
+    "names": "the root, the register-seed lane and the drive's register lane",
+    "authorize": "the root, the register-seed lane and the drive's register lane",
+    "supersede": "the root, the register-seed lane and the drive's register lane",
     "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
     "anchor": "the anchor and register-seed lanes",
 }
@@ -153,9 +153,14 @@ def cause(error: Exception) -> str:
     return " ".join(str(detail).split())[:200]
 
 
-def blocker(evt: BaseHookEvent, key: str, text: str) -> None:
+def blocker(evt: BaseHookEvent, key: str, text: str, to: str = ROOT_LANE) -> None:
     if evt.ctx.s.once(key, scope=BLOCKERS):
-        post_blocker(evt, text)
+        post_blocker(evt, text, to=to)
+
+
+def register_lane(evt: BaseHookEvent) -> str | None:
+    entry = drive_entry(evt)
+    return entry.get("register_lane") if entry else None
 
 
 def failed_open(evt: BaseHookEvent, hook: str, error: Exception) -> None:
@@ -210,11 +215,12 @@ def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     if not prompts.is_file():
         return
     classified = set(register["classified"])
+    to = register_lane(evt) or ROOT_LANE
     for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip()):
         if capture["digest"] not in classified:
             excerpt = " ".join(capture["text"].split())[:EXCERPT]
             text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt)
-            blocker(evt, f"unclassified:{capture['digest']}", text)
+            blocker(evt, f"unclassified:{capture['digest']}", text, to)
 
 
 def is_answer(evt: BaseHookEvent, token: str) -> bool:
@@ -495,18 +501,23 @@ def writes_authorizes(evt: BaseHookEvent) -> bool:
     return any(label.startswith(AUTHORIZES) for label in written)
 
 
-def seated(verb: str, lane: str | None) -> bool:
+def seated(verb: str, lane: str | None, register: str | None) -> bool:
     root, lanes = SEATS[verb]
-    return root if lane is None else lane.startswith(lanes)
+    if lane is None:
+        return root
+    return lane.startswith(lanes) or (root and lane == register)
 
 
 def unseated_verbs(evt: BaseHookEvent) -> list[str]:
-    lane = lane_name(evt)
-    return [
+    verbs = [
         run[1]
         for call in evt.command.calls()
-        if (run := program((call.name, *call.args)))[1:] and Path(run[0]).name == "rulings.py" and run[1] in SEATS and not seated(run[1], lane)
+        if (run := program((call.name, *call.args)))[1:] and Path(run[0]).name == "rulings.py" and run[1] in SEATS
     ]
+    if not verbs:
+        return []
+    lane, register = lane_name(evt), register_lane(evt)
+    return [verb for verb in verbs if not seated(verb, lane, register)]
 
 
 def lane_label(lane: str | None) -> str:
@@ -536,13 +547,15 @@ def lane(name: str) -> dict[str, str]:
         register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Warn(pattern=r"`brook`"),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("capture-desk")): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Warn(
-            pattern=r"^Warning, nothing was blocked: `rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
+            pattern=r"^Warning, nothing was blocked: `rulings\.py classify` runs only in the root, the register-seed lane and the drive's register lane, and this session is lane `p1-hooks`\."
         ),
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(pattern=r"this session is the root\."),
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Warn(pattern=r"anchor and register-seed lanes"),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("capture-desk")): Warn(pattern=r"anchor and register-seed lanes"),
         Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
         Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(
             pattern=r"^Warning, nothing was blocked: An `authorizes:` label is written only by `rulings\.py authorize`\."

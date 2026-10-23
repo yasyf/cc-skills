@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+from collections.abc import Iterable
+
 from captain_hook import (
     Allow,
     BaseHookEvent,
@@ -16,6 +19,7 @@ from captain_hook import (
 from . import session_tree
 
 ROOT_ACTION = "ROOT-ACTION"
+NAG_SECONDS = 60 * 60
 
 
 def root_action_key(lane: str) -> str:
@@ -33,6 +37,19 @@ def stopped_lane(evt: BaseHookEvent) -> str | None:
 @workflow_state("long_running_nudges")
 class NudgeState(WorkflowState):
     pending: list[str] = []
+
+
+@workflow_state("long_running_nag_clock")
+class NagClock(WorkflowState):
+    said: dict[str, float] = {}
+
+
+def once_per_hour(evt: BaseHookEvent, keys: Iterable[str]) -> list[str]:
+    now = time.time()
+    with NagClock.mutate(evt) as clock:
+        due = [key for key in dict.fromkeys(keys) if now - clock.said.get(key, 0.0) >= NAG_SECONDS]
+        clock.said |= dict.fromkeys(due, now)
+    return due
 
 
 def queue_nudge(evt: BaseHookEvent, text: str) -> None:

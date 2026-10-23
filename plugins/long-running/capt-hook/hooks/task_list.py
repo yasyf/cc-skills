@@ -28,7 +28,7 @@ from captain_hook.tasks import Task, Tasks
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
 from .lane_rotation import DriveActive, live_lanes
-from .nudges import queue_nudge
+from .nudges import once_per_hour, queue_nudge
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, covered, lane_of, mentions
 
 ASK_CALLS = 3
@@ -253,7 +253,7 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
         recent = now - state.created_at < ASK_GRACE_SECONDS
         if evt.event == Event.Stop:
             asked, state.pending = state.pending, False
-            return deliver(evt, [ASK_LINE] * (asked and not recent))
+            return deliver(evt, once_per_hour(evt, [ASK_LINE] * (asked and not recent)))
         if evt.tool_name in TASK_TOOLS and (
             not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted")
         ):
@@ -262,7 +262,7 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
             state.calls += 1
             if state.calls >= ASK_CALLS:
                 state.pending = False
-                return None if recent else deliver(evt, [ASK_LINE])
+                return None if recent else deliver(evt, once_per_hour(evt, [ASK_LINE]))
     return None
 
 

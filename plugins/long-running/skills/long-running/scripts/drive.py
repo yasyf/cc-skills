@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The drive registry: which long-running drive, and so which ledger, a session's pull requests belong to.
 
-    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME] [--program SLUG]
+    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME] [--program SLUG] [--register-lane NAME]
     drive.py desk    --name NAME (--terminal HANDLE [--environment NAME] [--supervisor] | --remove) [--drive ID]
     drive.py end     [--drive ID]
     drive.py context [--drive ID]
@@ -239,6 +239,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         "state_dir": state,
         "program": args.program or entry.get("program") or Path(state).name,
         "cci_drive": args.cci_drive or entry.get("cci_drive"),
+        "register_lane": args.register_lane or entry.get("register_lane"),
         "root_terminal": os.environ.get(TERMINAL_ENV) or entry.get("root_terminal"),
         "updated_at": stamp(),
     }
@@ -473,6 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
     start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
     start.add_argument("--program", metavar="SLUG", help="the plan slug workers resolve the register by; defaults to the state dir's name on a new entry")
+    start.add_argument("--register-lane", metavar="NAME", help="the lane that classifies owner captures; their blockers go to it instead of the root")
     start.set_defaults(handler=cmd_start)
 
     desk = subparsers.add_parser("desk", help="record a standing desk's Orca terminal for the prompt watch, or forget one")

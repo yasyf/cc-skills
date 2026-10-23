@@ -36,6 +36,26 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
+## Judgment first
+
+Read this before the rules, and read the rules through it.
+
+- The rules exist to protect two things: the root's context and the deliverable. Apply
+  each one for that purpose, never as a literal script.
+- No rule forbids reading the one line a decision turns on. When a decision rests on one
+  line of one file, the root reads that line and decides.
+- A finding in hand is a fix. Apply it directly; it does not become a lane, a re-audit,
+  or a workflow.
+- A workflow is for many independent units the owner asked to be thorough about. Small
+  or known work runs direct.
+- Read each owner sentence as a careful colleague would, in the context of what it is
+  about, and act on what it means rather than on the narrowest parse of its words.
+- When the owner repeats something, treat the repeat as a defect report about how the
+  root read it the first time. Find every place the earlier reading survived and fix them.
+- When tooling refuses a legitimate action, fix the tool forward in a side lane in the
+  same turn and keep going. A refusal is never an excuse, and never a question for the
+  owner.
+
 ## The twenty-four hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
@@ -63,7 +83,7 @@ rulings, dispatch, and the handoff record.
 question: "stop polluting your main context by reading PRs etc" (release-v3, 2026-09-30).*
 
 The pack's `root_context` hook enforces R1-R2 in a drive's root, and lanes and subagents
-pass it. It blocks:
+pass it. It warns, and never blocks, on:
 - A Read whose window passes 150 lines.
 - A Read of a lane artifact: anything under `audits/`, `briefs/`, `handoffs/`,
   `tool-results/`, `subagents/`, or `transcripts/`, a `matrix.md`, or a `.jsonl` transcript.
@@ -83,11 +103,11 @@ pass it. It blocks:
 The plan and its progress folder pass, as do filters over piped output
 such as `ccx vcs status | grep`, heredoc appends, `ls`, `date`, `ccn`, `ccx vcs status`,
 `ccx vcs pr status`, `cc-present`, `Agent`, `SendMessage`, the task tools, and `Monitor`.
-One bounded read of one file outside `inbox/` passes too, including `head -n`/`tail -n`
-up to 40 lines, `head -c` up to 4000 bytes, `grep -c`, `grep -m` up to 20, `wc`, or a read piped into such a
-`head` or `tail`. Any other file read, search, history read, or Slack read is shown to a
-small model first, and blocks only when the model is confident it is an investigation
-rather than a one-shot control-plane read.
+One bounded read of one named file outside `inbox/` passes too: a Read window, `head -n`,
+`tail -n`, `sed -n 'A,Bp'`, `ccx code read <file> --section A-B`, or the MCP `ccx_code_read`
+with such a section, each up to 150 lines; `head -c` up to 4000 bytes; `grep -c`, `grep -m`
+up to 20, or `wc`; or a read piped into such a `head`, `tail`, or `sed`. Reading the one
+source or test file a decision turns on is the root's own work.
 A `# ccx:raw` comment on a Bash command, or `CAPT_HOOK_CCX_RAW=1`, runs it as written. Set
 `LONG_RUNNING_ROOT_READ_LINES`, `LONG_RUNNING_ROOT_MCP_CHARS`, or
 `LONG_RUNNING_ROOT_ARTIFACT_DIRS`, a comma list, in the session's environment to change
@@ -202,7 +222,7 @@ mid-drive handoff with nothing written down to hand over.*
 The pack's `task_list` hooks enforce this. They nudge when a spawned lane has no task by
 turn end, when a lane's done report names a task still `in_progress`, and when an owner
 ask has no task after three tool calls or by turn end. The owner-ask nudge is dropped
-when a `TaskCreate` happened in the last 10 minutes. Every 20 turns they check for drift
+when a `TaskCreate` happened in the last 10 minutes, and fires at most once per hour. Every 20 turns they check for drift
 and busy lanes with no open task.
 
 All lane nags share a limit of at most one per lane per hour. A lane that has reported
@@ -1163,9 +1183,10 @@ the channel'.*
   the drive's inbox, and rename every noun they would not recognize.
 
 The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive and
-queues `owner-facing times are Pacific with no zone label (R21): restate <times> from
-your last reply in Pacific` when it carries a UTC clock time (`17:35Z`, `17:3xZ`,
-`16:52 UTC`). Its `plain_words_in_owner_questions` hook blocks a drive root's
+queues `Next reply to the owner: give times in Pacific with no zone label, never UTC`
+when it carries a UTC clock time (`17:35Z`, `17:3xZ`, `16:52 UTC`). The time nudge, and
+the plain-words nudge on each term in a reply or an owner question, fire at most once
+per hour each, so a term already flagged warns again only an hour later. Its `plain_words_in_owner_questions` hook blocks a drive root's
 `AskUserQuestion` that carries a codename, an inbox or answer id, or a proposed Slack
 reply. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
 `UNBLOCK` line appended to an `inbox/*.md` file, and a `cci post --kind go|lift|unblock`
@@ -2783,10 +2804,14 @@ loop beside it.
 
 A resumed root in a new session runs `drive.py start --drive <id> --ledger <id>`
 to join the existing drive. Run `drive.py end` only when the drive is over.
+`--register-lane <lane>` names the lane that classifies owner captures. The register gate
+sends each unclassified capture's blocker to that lane instead of the root, and the lane
+holds the `classify`, `names`, `authorize`, and `supersede` seats. With no lane named,
+the blocker goes to the root.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
-drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
+drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>] [--register-lane <lane>]
 drive.py desk --name <desk lane> --terminal <handle> [--environment <name>] [--supervisor]
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 

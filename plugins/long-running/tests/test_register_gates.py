@@ -62,6 +62,10 @@ class Root:
     def bash(self, cls, command: str) -> list[str]:
         return self.fire(cls, tool_name="Bash", tool_input={"command": command})
 
+    def configure(self, **fields: str) -> None:
+        path = self.home / "config" / "long-running" / "drives" / f"{DRIVE}.json"
+        path.write_text(json.dumps(json.loads(path.read_text()) | fields))
+
     def blockers(self) -> list[tuple[str, ...]]:
         return [call for call in self.calls if call[:2] == ("cci", "post") and "blocker" in call]
 
@@ -86,7 +90,9 @@ def option(call: tuple[str, ...], name: str) -> str:
     return call[call.index(name) + 1]
 
 
-def test_an_unclassified_owner_capture_posts_one_blocker_and_never_refuses(root):
+@pytest.mark.parametrize(("configured", "to"), [({}, "root"), ({"register_lane": "register-desk"}, "register-desk")])
+def test_an_unclassified_owner_capture_posts_one_blocker_to_the_register_lane_and_never_refuses(root, configured, to):
+    root.configure(**configured)
     captures = [
         {"digest": CLASSIFIED, "at": "Oct 23 4:12 AM", "session": SESSION, "source": "prompt", "text": "rename the export button"},
         {"digest": UNCLASSIFIED, "at": "Oct 23 4:20 AM", "session": SESSION, "source": "prompt", "text": "keep the nightly report"},
@@ -100,7 +106,7 @@ def test_an_unclassified_owner_capture_posts_one_blocker_and_never_refuses(root)
     [blocker] = root.blockers()
     assert option(blocker, "--drive") == DRIVE
     assert option(blocker, "--lane") == "root"
-    assert option(blocker, "--to") == "root"
+    assert option(blocker, "--to") == to
     assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
 
 
