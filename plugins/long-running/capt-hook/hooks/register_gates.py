@@ -113,8 +113,8 @@ SEAT_NAMES = {
     "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
     "anchor": "the anchor and register-seed lanes",
 }
-DESTINATION_WRITERS = frozenset({"cp", "mv", "rsync", "install", "ln"})
-TARGET_WRITERS = frozenset({"rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
+DESTINATION_WRITERS = frozenset({"cp", "rsync", "install", "ln"})
+TARGET_WRITERS = frozenset({"mv", "rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
 IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
 LEDGER_WRITE = (
     "Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
@@ -435,7 +435,7 @@ def note_words(call: Call) -> list[str]:
             skip = False
         elif arg in REPO_FLAGS:
             skip = True
-        elif not arg.startswith(("--repo=", "-R=")):
+        elif not arg.startswith(("--repo=", "-R")):
             words.append(arg)
     return words
 
@@ -453,8 +453,7 @@ def ledger_targets(evt: BaseHookEvent) -> list[str]:
         if words[:1] == ["ledger"]
         for verb in LEDGER_VERBS
         if tuple(words[1 : 1 + len(verb)]) == verb
-        for token in words[1 + len(verb) :]
-        if not token.startswith("-")
+        for token in [next((word for word in words[1 + len(verb) :] if not word.startswith("-")), "")]
     ]
     tool = evt.tool_name or ""
     if tool.startswith("mcp__") and tool.endswith(tuple(LEDGER_TOOLS)):
@@ -516,6 +515,8 @@ def lane(name: str) -> dict[str, str]:
         ),
         register_case(f"ccn -R /repo ledger sync {LEDGER} --file -"): Block(pattern=r"`brook`"),
         register_case("ccn ledger archive 'register: brook'"): Block(pattern=r"`brook`"),
+        register_case(f"ccn -R/repo ledger rm {LEDGER[:7]}"): Block(pattern=r"`brook`"),
+        register_case("ccn ledger edit 9f8e7d6 --body 'register: brook'"): Allow(),
         register_case("ccn ledger row set 9f8e7d6 rule/0a1b2c3 --field status=met"): Allow(),
         register_case(f"ccn ledger show {LEDGER[:7]}"): Allow(),
         register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_row_set", tool_input={"id": LEDGER[:7], "key": "rule/0a1b2c3"}): Block(
@@ -578,9 +579,13 @@ def bash_writes(evt: BaseHookEvent) -> list[Path]:
         operands = [absolute(target.value, cwd) for target in call.targets if target.value is not None]
         if call.name in DESTINATION_WRITERS:
             found += operands[-1:]
-        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(arg.startswith("-i") for arg in call.args)):
+        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(in_place(arg) for arg in call.args)):
             found += operands
     return found
+
+
+def in_place(arg: str) -> bool:
+    return arg.startswith("--in-place") or (arg.startswith("-") and not arg.startswith("--") and "i" in arg[1:])
 
 
 def written_paths(evt: BaseHookEvent) -> list[Path]:
@@ -601,6 +606,9 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
         Input(command="cp /tmp/x.py /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
         Input(command="cp /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
         Input(command="cat /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(command="mv /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="perl -pi -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="sed -e s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
         Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
         Input(tool="Write", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/x.py", "content": "x"}, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
     },
