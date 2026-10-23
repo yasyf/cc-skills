@@ -9,10 +9,15 @@
 The register holds at most 30 owner-approved rules with answer ids linking to the full
 rulings in cc-notes. Generation never builds or writes a register doc or file.
 The progress record's ``## Standing owner rules`` section names the register doc and its
-rule count; the register itself arrives verbatim after compaction. Live standing rules
-come from cci on the drive named by ``--program``. Each follows as ``- #<seq> [<source>]``,
-where the source is ``ccn <answer id>`` or ``cci #<seq>``. Retired rules follow.
-With no register doc, the section says so.
+rule count; the register itself arrives verbatim after compaction. Once the register
+ledger exists, read through ``rulings.py rows --json``, the section prints every scope
+row's words, each implication with its state, and its names, verbatim; then every row
+touched in the last 24 hours, the owed gates by key, the rows not in force with their
+evidence, and the unconfirmed implication lines. That section is exempt from the
+:data:`progress.CAP` measure, since the owner's words are never trimmed. Live standing
+rules come from cci on the drive named by ``--program``. Each follows as
+``- #<seq> [<source>]``, where the source is ``ccn <answer id>`` or ``cci #<seq>``.
+Retired rules follow. With neither a register doc nor a register ledger, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
 drive registry. Generation removes each inbox cursor file written before the drive's
@@ -136,6 +141,7 @@ class Handoff:
     at: datetime
     registry: dict | None = None
     register: dict | None = None
+    rows: standing.Rows | None = None
     standing: dict[str, str] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
@@ -370,6 +376,10 @@ def dashboard_line(registry: dict) -> str:
     return f"- Dashboard: not running; `live-dashboard start --dir {Path(registry['state_dir']) / drive.DASHBOARD_SERVER.parent}` starts it and prints the link for the owner"
 
 
+def standing_section(handoff: Handoff) -> str:
+    return standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative, handoff.rows)
+
+
 def render(handoff: Handoff) -> str:
     registry = handoff.registry or {}
     out = [
@@ -378,7 +388,7 @@ def render(handoff: Handoff) -> str:
         f"{GENERATED_LINE}{handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
         f"Every section above `{NARRATIVE}` is rebuilt at each handoff; change the sources, never this doc.",
         "",
-        standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative),
+        standing_section(handoff),
         "## Read first",
         f"- Plan: `{handoff.plan}`",
         *(f"{READ_FIRST}`{ref}`: {title}" for ref, title in handoff.read_first),
@@ -518,6 +528,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     read_standing(handoff, shell)
     read_incident_lanes(handoff, shell)
     handoff.register = rulings.register(shell, args.repo, args.program)
+    which = ["--drive", registry["drive"]] if registry else ["--program", args.program]
+    handoff.rows = standing.register_rows(shell.run, args.repo, which, drive.cci_drive(registry) if registry else args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
@@ -547,7 +559,7 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print("\n".join(handoff.findings))
         return standing.VIOLATIONS
     markdown = render(handoff)
-    if refusal := progress.oversized(markdown.partition(f"\n{NARRATIVE}\n")[0]):
+    if refusal := progress.oversized(markdown.partition(f"\n{NARRATIVE}\n")[0].replace(standing_section(handoff), "")):
         print(refusal)
         return OVERSIZED
     path = progress_file(Path(handoff.plan), handoff.stamp)
@@ -603,7 +615,8 @@ def cmd_lint(args: argparse.Namespace, shell: ledger.Shell) -> int:
         else doc_body(shell, args.repo, args.previous_doc) if args.previous_doc else None
     )
     live = live_answer_ids(shell, args.repo)
-    problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live)
+    rows = standing.register_rows(shell.run, args.repo, ["--program", args.program], args.program)
+    problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live, rows)
     if args.plan:
         problems += uncited_plan_lines(Path(args.plan).expanduser(), live)
     for problem in problems:

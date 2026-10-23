@@ -3344,7 +3344,13 @@ It carries one pointer line:
 Register `ccn doc show <id7>`: N owner-approved rules, delivered verbatim after every compaction.
 ```
 
-With no register doc, the section says so. `generate` reads live standing rules from
+Once the register ledger exists, `generate` reads it through `rulings.py rows --json`
+and the section prints every scope row's words, each implication with its state, and
+its names, verbatim. Then come the rows touched in the last 24 hours, the owed gates by
+key, the rows not in force with their evidence, and the unconfirmed implication lines.
+The progress size cap never measures this section. A failed read leaves a line saying
+so and posts one `blocker` to the root. With neither a register doc nor a register
+ledger, the section says so. `generate` reads live standing rules from
 cci on the drive named by `--program`. Each follows as `- #<seq> [<source>]`, where
 the source is `ccn <answer id>` when cited or `cci #<seq>` otherwise. The rule's text
 stays in cci.
@@ -3509,7 +3515,11 @@ narrative line with `(answer <id>)`. For a standing rule, post
 `cci post --drive <drive> --lane root --kind correction --re <seq> --topic standing --ccn <answer id> --text "<replacement rule>"`.
 The plan's own owner-gate lines without live answer ids appear under `## Lint findings` and count in the
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
-or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
+or file, plus the plan when `--plan` is supplied, and exits 3 on any finding. It also
+reads the register rows. A bullet that leads with a row's answer id or key must carry
+that row's words verbatim; an id alone or a reworded quotation is a finding. The
+sentence "no `standing-rules` register doc" is always a finding. These checks never
+hold a compaction, and no lint check reads sweep staleness.
 
 **Supersede and point.** Exactly one `progress:<slug>` doc is active. When the root
 wrote hand-written records since the last generated one, `generate` augments the newest
