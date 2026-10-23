@@ -75,7 +75,7 @@ CCX_MCP_READS = tuple(
 CCX_MCP_CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
 SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
 SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
-WORKFLOW_NUDGE = "Warning, nothing was blocked: owner 4ac9243: no expensive workflow sweeps when the findings are in hand; is a direct fix enough?"
+WORKFLOW_NUDGE = "Warning, nothing was blocked: the owner wants no expensive workflow sweeps when the findings are in hand. Is a direct fix enough?"
 DOC_TOOLS = (
     "mcp__claude_ai_Claude_Docs__read",
     "mcp__claude_ai_Claude_Docs__export",
@@ -702,7 +702,7 @@ root_warning(
     message=WORKFLOW_NUDGE,
     only_if=[Tool("Workflow")],
     tests={
-        Input(tool="Workflow", tool_input={"script": "sweep.js"}, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: owner 4ac9243: no expensive workflow sweeps"),
+        Input(tool="Workflow", tool_input={"script": "sweep.js"}, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: the owner wants no expensive workflow sweeps"),
         Input(tool="Workflow", tool_input={"script": "sweep.js"}): Allow(),
         Input(tool="Workflow", tool_input={"script": "sweep.js"}, agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
