@@ -104,6 +104,7 @@ READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
 CCI_TEXT = 400
 SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
 URL = re.compile(r"https?://\S+")
+LINK = re.compile(r"<https?://[^|>\s]+(?:\|[^>\n]*)?>|\[[^\]\n]*\]\(https?://[^)\s]+\)")
 PATH_CITE = re.compile(r"`?[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b`?")
 QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")
 OWNER_QUOTE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
@@ -122,15 +123,16 @@ OWNER_ANSWERS = ("answer", "list", "--label", "from:owner", "--limit", "0", "--j
 TOKEN = re.compile(r"[a-z0-9]+")
 PLAIN_ENGLISH = frozenset(
     """
-    access account admin agent alert api app approval approve auth aws backup branch break browser bucket bug build cache call
-    canary check ci claude cli cloud cluster code codex commit config container cookie cpu crash credential cron data database
-    datadog db deploy deployment dev device diff disk dns docker domain download drift email endpoint env environment error fix
-    flag flake fork git github glass grant graphite hook hotfix http iam image in incident install issue job json key kubernetes
-    latency limit linear lint linter log login logout mac machine memory merge metric migration model monitor namespace node
-    oauth on okta outage page password patch permission pipeline plugin pod pr pre preview prod production pull push queue quota
-    rate rebase release repo repository request restore retire retired retry review revert role rollback rollout run runner
-    schema script secret sentry server service session shell sign slack sso stack staging storage tag test timeout token trace
-    tracker typecheck ui update upgrade upload url version vm webhook worktree
+    access account admin agent alert api app approval approve auth aws backup batch bot branch break browser bucket bug build
+    cache call canary census change channel check ci claude cli cloud cluster code codex commit config container cookie cpu crash
+    credential cron data database datadog db deploy deployment dev device diff disk dns docker domain download drift email
+    endpoint env environment error fix flag flake fork git github glass grant graphite hook hotfix http iam image in incident
+    install issue job json key kubernetes latency limit linear lint linter log login logout mac machine memory merge metric
+    migration model monitor namespace node oauth on okta outage page password patch permission pipeline plugin pod post pr pre
+    preview prod production pull push quality queue quota rate rebase release repo repository request restore retire retired
+    retry review reviewer revert role rollback rollout run runner schema script secret sentry server service session shell sign
+    slack sprint sso stack staging storage table tag test timeout token trace tracker typecheck ui update upgrade upload url
+    version vm webhook worktree
     """.split()
 )
 UNREADABLE = (
@@ -157,7 +159,7 @@ READER = """The owner of this work reads the text after the line. He knows plain
 He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
-List each term in the text he would need defined before he could act on it. Only the drive's own names count: a lane's name, a cci or cc-notes record id, a hook, file, or function name, a codename, a bare record number, a PR number with no words beside it saying what it is, and a name from his rulings the text does not explain. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is a codename; one that labels an option, plan, or list item is not. Engineering words he knows pass, and so does any term his own words use: never list either. Return no terms when he needs nothing defined.
+List each term in the text he would need defined before he could act on it. Only the drive's own names count: a lane's name, a cci or cc-notes record id, a hook, file, or function name, a codename, a bare record number, a PR number with no words beside it saying what it is, and a name from his rulings the text does not explain. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is a codename; one that labels an option, plan, or list item is not. Engineering words he knows pass, and so does any term made only of words he has used himself: never list either. Return no terms when he needs nothing defined.
 ---
 {text}"""
 PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, everyday engineering words such as {engineering}, and the product's nouns in this glossary:
@@ -166,7 +168,7 @@ PLAN_READER = """The owner reads the plan after the line before he approves it. 
 He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
-A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Engineering words he knows pass, and so does any term his own words use: never list either. Return no terms when he needs nothing defined.
+A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Engineering words he knows pass, and so does any term made only of words he has used himself: never list either. Return no terms when he needs nothing defined.
 ---
 {text}"""
 CC_PRESENT = CommandSchema(
@@ -188,6 +190,10 @@ CC_SLACK = CommandSchema(
 RULINGS = f"{sys.executable} {script('rulings.py')}"
 PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS}
 PROGRAM_ACTIVE = [CompactionState(active=True, slug="brook")]
+OVERZEALOUS = [
+    "break-glass", "grant", "stack", "database table change", "database migration", "batch post", "sprint channel", "quality checks",
+    "reviewer bots", "census", "retired sessions", "device-code sign-in", "error-tracker", "pre-release check", "drift preview", "Sentry", "lint",
+]
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
@@ -553,7 +559,7 @@ def shown(value: object, where: str = "document", key: str = "") -> Iterator[tup
 
 def readable(text: str) -> str:
     text = IN_YOUR_WORDS.sub(lambda block: OWNER_QUOTE.sub(" ", block[0]), text)
-    for exempt in (URL, PATH_CITE, QUOTE_CITE):
+    for exempt in (LINK, URL, PATH_CITE, QUOTE_CITE):
         text = exempt.sub(" ", text)
     return text
 
@@ -657,29 +663,14 @@ class Reads:
 
         return self.read("the owner's captured words", load)
 
-    def ruled(self) -> list[str]:
-        rows = self.register()["rows"].values()
-        return [phrase(name) for row in rows if row.get("kind") == "scope" for name in json.loads(row.get("names") or "[]")]
-
     def report(self, hook: str) -> None:
         if self.failures:
             text = f"{hook}: {'; '.join(self.failures)}"[:CCI_TEXT]
             post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
 
 
-def phrase(text: str) -> str:
-    return f" {' '.join(TOKEN.findall(text.lower()))} "
-
-
-def plain(word: str) -> bool:
-    return word in PLAIN_ENGLISH or word.removesuffix("s") in PLAIN_ENGLISH
-
-
-def undefined(term: str, spoken: list[str], ruled: list[str]) -> bool:
-    words = phrase(term)
-    if any(name in words for name in ruled):
-        return True
-    return not all(plain(word) for word in words.split()) and not any(words in said for said in spoken)
+def undefined(term: str, known: frozenset[str]) -> bool:
+    return not all(word in known or word.removesuffix("s") in known for word in TOKEN.findall(term.lower()))
 
 
 def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READER) -> list[str]:
@@ -690,13 +681,13 @@ def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READE
     named = [term for term in verdict.terms if term in text] if verdict else []
     if not named or (said := reads.said()) is None:
         return []
-    spoken, ruled = [phrase(words) for words in [*said, *glossary.splitlines()]], reads.ruled()
-    return [f'plain words: the owner would need "{term}" defined' for term in named if undefined(term, spoken, ruled)]
+    known = PLAIN_ENGLISH | {word for text in [*said, *glossary.splitlines()] for word in TOKEN.findall(text.lower())}
+    return [f'plain words: the owner would need "{term}" defined' for term in named if undefined(term, known)]
 
 
 def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
     found = [problem for where, text in texts for problem in word_list(where, text, pr_block=where in pr_blocks)]
-    return found + reader_test(evt, "\n\n".join(text for _, text in texts), reads)
+    return found + reader_test(evt, "\n\n".join(readable(text) for _, text in texts), reads)
 
 
 def piped_boards(evt: BaseHookEvent) -> list[str]:
@@ -836,17 +827,25 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
             options=["Send", "Hold"],
         ): Allow(),
         status_card(
-            {"terms": ["break-glass", "grant", "stack", "drift preview", "pre-release check", "Sentry", "retired sessions", "error-tracker", "lint", "device-code sign-in"]},
-            title="Request break-glass before the drift preview?",
-            body="The pre-release check needs a grant on the stack. Sentry lists the retired sessions in its error-tracker view, lint passed, and the Mac needs a device-code sign-in.",
+            {"terms": OVERZEALOUS},
+            title="Request break-glass for the database migration?",
+            body=(
+                "The pre-release check, the drift preview and the quality checks passed, and the reviewer bots and lint are green."
+                " The stack needs a grant before the database table change. Sentry's error-tracker lists the retired sessions,"
+                " the census is done, and the Mac needs a device-code sign-in. The batch post goes to the sprint channel."
+            ),
             options=["Request", "Hold"],
         ): Allow(),
-        status_card({"terms": ["between edits", "nightly backup"]}, title="Restart only between edits?", body="The upload runs after the nightly backup.", options=["Yes", "Hold"]): Allow(),
+        status_card({"terms": ["between edits", "nightly backup", "banner restart"]}, title="Restart only between edits?", body="The banner restart waits for the nightly backup.", options=["Yes", "Hold"]): Allow(),
+        status_card({"terms": ["held copy"]}, title="Drop the held copy?", body="Nothing reads it now.", options=["Drop", "Hold"]): Allow(),
+        status_card(
+            {"terms": ["app PR #42517", "#42517"]},
+            title="Merge the chat fix?",
+            body="It is <https://github.com/acme/app/pull/42517|app PR #42517>, and [the same PR](https://github.com/acme/app/pull/42517) on GitHub.",
+            options=["Merge", "Hold"],
+        ): Allow(),
         status_card({"terms": ["night-courier"]}, title="Merge the night-courier fix?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
             pattern=r'the owner would need "night-courier" defined'
-        ),
-        status_card({"terms": ["held copy"]}, title="Drop the held copy?", body="Nothing reads it now.", options=["Drop", "Hold"]): Block(
-            pattern=r'the owner would need "held copy" defined'
         ),
         status_card({"terms": ["p1a-land"]}, title="Merge the chat fix from p1a-land?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
             pattern=r'the owner would need "p1a-land" defined'
