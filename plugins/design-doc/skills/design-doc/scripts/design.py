@@ -71,11 +71,12 @@ SYSTEM_MAP_SIZES = ((1440, 900), (1024, 768), (768, 1024), (390, 844))
 SYSTEM_MAP_AUDIT_JS = """(async()=>{
  const hosts=[...document.querySelectorAll("[data-smap]")].filter(h=>!h.smap.problems.length);
  hosts.forEach(h=>{for(let d=h.closest("details");d;d=d.parentElement.closest("details"))d.open=true});
- const late=new Promise(r=>setTimeout(()=>r("late"),%d));
+ const late=ms=>new Promise(r=>setTimeout(()=>r("late"),ms));
  return Promise.all(hosts.map(async h=>{
   const id=h.closest("[data-component]").dataset.component;
-  if(await Promise.race([h.smap.ready,late])==="late")return {id,problems:[{view:"home",text:"it never finished drawing"}]};
-  return {id,problems:await h.smap.audit({all:true})};
+  if(await Promise.race([h.smap.ready,late(%(ms)d)])==="late")return {id,problems:[{view:"home",text:"it never finished drawing"}]};
+  const problems=await Promise.race([h.smap.audit({all:true}),late(%(ms)d)]);
+  return {id,problems:problems==="late"?[{view:"every view",text:"its audit never finished"}]:problems};
  }));
 })()"""
 
@@ -727,7 +728,7 @@ def system_map_problems(builder, chrome, url, timeout) -> list:
         if state["ready"] != "1":
             out.append(f"at {width}px: " + builder.ready_problem(state, timeout))
             continue
-        audits = builder.evaluate(chrome, session, SYSTEM_MAP_AUDIT_JS % (timeout * 1000), timeout=timeout * 3)
+        audits = builder.evaluate(chrome, session, SYSTEM_MAP_AUDIT_JS % {"ms": timeout * 1000}, timeout=timeout * 3)
         for audit in audits:
             out += [f"system map {audit['id']!r} at {width}px, {p['view']}: {p['text']}" for p in audit["problems"]]
     return out
