@@ -274,8 +274,8 @@ on a PR holds it too, and the runner never adds or removes that label. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head. A grade is a cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without), read by the PR's
 `owner/repo#N` reference, whose text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the head it grades. Each
-lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, whatever another lane
-posts. An ok counts only when its whole line, read from the record's `path` once cci clipped it, lists under `checked` every key
+lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, or another lane's later ok
+of the head lists the missing row under `checked`. An ok counts only when its whole line, read from the record's `path` once cci clipped it, lists under `checked` every key
 `rulings.py slice --required` prints for the head and under `names` every name of those rows; a slice that does not read logs
 `SLICE-READ-FAILED` once per head, and no grade counts for that head that pass. A head no
 grade names carries the ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
@@ -362,14 +362,14 @@ checkout, which `run --desk landing` requires: without it the desk refuses to st
 among every missing member.
 The config requires `drive` and `orca.desk_inbox`, and `run --desk landing` requires `landing.release_owner`,
 a cci `--to` address such as `peer:<session>`, and `landing.merge_mode`, the owner's pick of `every`, `high-risk`, or `auto`,
-re-read on every use. A repository whose GitHub owner `landing.green_owners` lists lands once green under every mode (de6c88c). Otherwise,
+re-read on every use. A repository the GitHub account the runner acts as owns, which `gh api user` names, lands once green under every mode (de6c88c). Otherwise,
 under `every`, under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, and in
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue logs one `MERGE-ASK` per waiting PR and head instead, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha. The card is an ask card whose buttons are `Merge` and `Hold` beside the fixed `Explain more`
 (93037c3). A reserved touch puts the row's key and the first sentence of its words on the card, whose
 tap is the authorization: the head waits until `rulings.py authorize` labels the tap's answer `authorizes:<key>` and `check-pr` stops
-naming the row. With `landing.batch_ask` naming the standing ask that batch posts are recorded on, a PR that no `progress` entry with
+naming the row. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
@@ -3360,12 +3360,21 @@ def whole_line(record: dict) -> str:
     return next((line for line in path.read_text().splitlines() if line.startswith(text[:-1])), text)
 
 
+def checked_keys(line: str) -> set[str]:
+    found = COVERED.search(line)
+    return set(re.split(r"[,\s]+", found["checked"].strip())) if found else set()
+
+
+def missing_key(text: str) -> str:
+    """The row a `fidelity: missing <head> <key> <why>` grade names."""
+    return (text.removeprefix(FIDELITY_MISSING).split()[1:2] or [""])[0]
+
+
 def uncovered(line: str, required: dict[str, set[str]]) -> list[str]:
     """The required rows a grade's `checked <keys> names <names>` leaves out: each key it does not list, or whose names it did not all search."""
     found = COVERED.search(line)
-    checked = set(re.split(r"[,\s]+", found["checked"].strip())) if found else set()
     names = {name.strip() for name in found["names"].split("|")} if found else set()
-    return [key for key, wanted in required.items() if key not in checked or not wanted <= names]
+    return [key for key, wanted in required.items() if key not in checked_keys(line) or not wanted <= names]
 
 
 def cause(line: str) -> str:
@@ -3459,6 +3468,7 @@ class Landing:
         self.landed: set[str] = set()
         self.patch_ids: dict[tuple[str, str], str] = {}
         self.risky: dict[tuple[str, str], list[str]] = {}
+        self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
         self.slices: dict[tuple[str, str], dict[str, set[str]] | None] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
@@ -3691,13 +3701,17 @@ class Landing:
         return [grade for lane in self.fidelity_lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
 
     def fidelity(self, pr: str, sha: str, base: str) -> Grade:
-        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts. With no grade naming the head, an older head's ok carries when both patches against `base` match. An ok counts only when its whole line lists under `checked` every key `rulings.py slice --required` prints for the head, and under `names` every name of those rows."""
+        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, or another lane's later ok of the head lists the missing row under `checked`. With no grade naming the head, an older head's ok carries when both patches against `base` match. An ok counts only when its whole line lists under `checked` every key `rulings.py slice --required` prints for the head, and under `names` every name of those rows."""
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
-        if missing := [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)]:
+        oks, cited = sorted((grade for grade in newest if grade["text"].startswith(FIDELITY_OK)), key=lambda record: record["seq"], reverse=True), ""
+        if missing := [
+            grade
+            for grade in newest
+            if grade["text"].startswith(FIDELITY_MISSING) and not any(ok["seq"] > grade["seq"] and missing_key(grade["text"]) in checked_keys(whole_line(ok)) for ok in oks)
+        ]:
             grade = max(missing, key=lambda record: record["seq"])
             return Grade(False, grade, f"{grade['lane']} graded this head on cci #{grade['seq']}: {grade['text']}")
-        oks, cited = sorted(newest, key=lambda record: record["seq"], reverse=True), ""
         if not oks and sha and base and (carried := self.carried(pr, sha, base, grades)):
             oks, cited = [carried[0]], f"{FIDELITY_OK} at {sha}, patch-identical to {carried[1]}"
         if not oks:
@@ -3971,8 +3985,11 @@ class Landing:
 
     @property
     def lands_green(self) -> bool:
-        """Whether the owner lets this repository's PRs land once green with no merge card: its GitHub owner is one `landing.green_owners` lists (de6c88c)."""
-        return self.repo.split("/")[0].casefold() in {owner.casefold() for owner in self.landing_config.get("green_owners", [])}
+        """Whether this repository's PRs land once green with no merge card: the GitHub account the runner acts as owns it (de6c88c). A login that does not read is read again on the next use, and the repository follows its merge mode meanwhile."""
+        if not self.viewer:
+            done = self.shell.run(["gh", "api", "user", "--jq", ".login"])
+            self.viewer = done.out.strip() if done.code == 0 else ""
+        return bool(self.viewer) and self.repo.split("/")[0].casefold() == self.viewer.casefold()
 
     def reserved_touches(self, pr: str, sha: str, rows: dict[str, dict]) -> list[tuple[str, str]]:
         """Each reserved row `pr` touches at `sha` that no answer authorizes yet, with the first sentence of its words: `check-pr`'s `RESERVED-NO-ANSWER` lines."""
@@ -4004,30 +4021,29 @@ class Landing:
         return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr], rows)}
 
     def batch_posted(self) -> set[str] | None:
-        """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each `progress` entry carrying an artifact, the post's permalink, on the standing ask `landing.batch_ask` names (8908f83). None when runner.json names no batch ask; a ledger that does not read lists nothing and escalates once per error."""
-        if not (ask := self.landing_config.get("batch_ask")):
-            return None
+        """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
         done = self.ledger_py("show", "--ledger", self.ledger, "--json")
         if done.code:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-            self.runner.escalate(f"batch-read:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "BATCH-READ-FAILED", "landing", f"the ledger did not read for the batch posts on {ask}: {last[0]}; no MERGE-ASK goes out until it reads")
-            return set()
-        fields = next((row["fields"] for row in json.loads(done.out)["rows"] if row["key"] == ask), {})
-        entries = [json.loads(value) for name, value in sorted(fields.items()) if name.startswith("progress_")]
+            self.runner.escalate(f"batch-read:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "BATCH-READ-FAILED", "landing", f"the ledger did not read for its batch posts: {last[0]}; no MERGE-ASK goes out until it reads")
+            return None
+        entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
-        """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence on its card, whose tap is the authorization. With `landing.batch_ask` set, a PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
+        """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence on its card, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
         asking = [pr for pr in waiting if pr not in self.merged_by_owner(heads, list(waiting))]
-        if (posted := self.batch_posted()) is not None and (owed := [pr for pr in asking if pr not in posted]):
+        if not asking or (posted := self.batch_posted()) is None:
+            return
+        if owed := [pr for pr in asking if pr not in posted]:
             batch = " ".join(f"{pr}@{heads[pr]}" for pr in owed)
             self.runner.escalate(
                 f"batch-post:{hashlib.sha1(batch.encode()).hexdigest()[:12]}",
                 "BATCH-POST-OWED",
                 numbered(owed),
-                f"{numbered(owed)} are ready, and no batch post recorded on {self.landing_config['batch_ask']} lists them, so no MERGE-ASK goes out (8908f83)"
-                f" | post the batch, then run `ledger.py progress --ledger {self.ledger} --ask {self.landing_config['batch_ask']} --note \"{numbered(owed)}\" --artifact <permalink>`; the cards follow on the next pass",
+                f"{numbered(owed)} are ready, and no batch post recorded on the ledger lists them, so no MERGE-ASK goes out (8908f83)"
+                f" | post the batch, then run `ledger.py progress --ledger {self.ledger} --ask <the ask the batch answers> --note \"{numbered(owed)}\" --artifact <permalink>`; the cards follow on the next pass",
             )
             asking = [pr for pr in asking if pr not in owed]
         for pr in asking:

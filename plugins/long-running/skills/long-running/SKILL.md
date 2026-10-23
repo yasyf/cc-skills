@@ -1391,8 +1391,8 @@ The runner also requires a fidelity ok at every prefix head. It reads the cci
 which cci also matches to a post that named the bare number, and keeps those whose
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
-`missing` blocks until the same lane grades the head ok; a later ok from another
-lane never clears it. An ok counts only when its whole line lists under `checked`
+`missing` blocks until the same lane grades the head ok, or another lane's later ok
+of the head lists the missing row under `checked`; any other ok never clears it. An ok counts only when its whole line lists under `checked`
 every key `rulings.py slice --required` prints for the head and under `names` every
 name of those rows. cci keeps the first 400 characters of a longer line, so the
 runner reads the whole line from the file the record's `path` names. A slice that
@@ -1473,9 +1473,9 @@ An answer covers only the head it names, so a new head asks again. A changed-fil
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.
 
-A repository whose GitHub owner `landing.green_owners` in `runner.json` lists lands
-once green under every merge mode, with no card (de6c88c). The root lists the owner's
-own GitHub account there; a reserved touch still asks.
+A repository the runner's own GitHub account owns, the login `gh api user` prints,
+lands once green under every merge mode, with no card (de6c88c). A reserved touch
+there still asks.
 
 A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
 grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
@@ -1484,11 +1484,10 @@ authorizes it. The card quotes both, and its tap is the authorization: the root
 records it with `rulings.py authorize --row <key> --action <tap ts>`, and the head
 waits until `check-pr` stops naming the row, as well as for the root's `go`.
 
-With `landing.batch_ask` naming the standing ask that batch posts are recorded on,
-a PR goes on a merge card only once a batch post lists it (8908f83). The root posts
-each batch, then records it with `ledger.py progress --ledger <id> --ask <batch ask>
---note "#<n> #<n>" --artifact <permalink>`. A PR no such entry lists logs one
-`BATCH-POST-OWED` per batch instead of its `MERGE-ASK`.
+A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
+each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
+--note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress` entry with an
+artifact lists logs one `BATCH-POST-OWED` per batch instead of its `MERGE-ASK`.
 
 Incident fixes still land by plain squash under every mode. Before the merge, an
 approved, green fix meets only `check-pr --incident`'s `RULINGS-UNCITED`,

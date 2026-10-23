@@ -145,7 +145,8 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
-        self.ledger_outs: dict[str, tuple[int, str]] = {}
+        self.ledger_outs: dict[str, tuple[int, str]] = {"show": (0, json.dumps({"rows": []}))}
+        self.viewer = "desk-owner"
         self.cards: list[dict] = []
         self.card_error = ""
         self.check_pr: dict[str, tuple[int, str]] = {}
@@ -241,6 +242,8 @@ class FakeShell(runner_module.Shell):
             if head in self.compare_errors:
                 return runner_module.Done(1, "", self.compare_errors[head])
             return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+        if argv == ["gh", "api", "user", "--jq", ".login"]:
+            return runner_module.Done(0, f"{self.viewer}\n", "")
         if argv[:3] == ["gh", "api", "--paginate"]:
             assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[].filename"]
             if self.files_error:
@@ -2355,8 +2358,17 @@ def merge_go(shell: FakeShell, pr: str, text: str) -> None:
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text})
 
 
+POSTED = {"at": "2026-10-01T18:00:00Z", "note": "#29020 #29031", "artifacts": ["https://example.slack.com/archives/C0/p1"]}
+
+
+def batch_posts(shell: FakeShell, *entries: dict) -> None:
+    fields = {"text": "post each PR batch before its merge cards", "lane": "root"} | {f"progress_{index + 1:06d}": json.dumps(entry) for index, entry in enumerate(entries)}
+    shell.ledger_outs["show"] = (0, json.dumps({"rows": [{"key": "29020", "fields": {"state": "open"}}, {"key": "ask/000007", "fields": fields}]}))
+
+
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
+    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -2385,6 +2397,7 @@ def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(she
 
 def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, config, tmp_path):
     merge_mode(config, "high-risk")
+    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     shell.files["29020"] = ["api/src/routes/runs.ts", "api/migrations/0399_run_owner.sql"]
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -2419,6 +2432,7 @@ RESERVED = "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\
 @pytest.mark.parametrize("mode", ["every", "auto"])
 def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_authorization(shell, config, tmp_path, mode):
     merge_mode(config, mode)
+    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.check_pr["29020"] = (1, RESERVED)
@@ -2438,11 +2452,10 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_autho
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
-def test_a_repository_whose_owner_lands_green_enqueues_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
+def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)
-    raw = json.loads(config.read_text())
-    raw["landing"]["green_owners"] = ["forge-ai"]
-    config.write_text(json.dumps(raw))
+    batch_posts(shell, POSTED)
+    shell.viewer = "forge-ai"
     lone_green_pr(shell)
     shell.files["29020"] = ["api/migrations/0399_run_owner.sql"]
     grade(shell, "29020", "ok cccc333")
@@ -2454,27 +2467,31 @@ def test_a_repository_whose_owner_lands_green_enqueues_with_no_card_unless_it_to
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
 
 
-def batch_ask(config: Path, shell: FakeShell, *entries: dict) -> None:
-    raw = json.loads(config.read_text())
-    raw["landing"]["batch_ask"] = "ask/000007"
-    config.write_text(json.dumps(raw))
-    fields = {"text": "post each PR batch before its merge cards", "lane": "root"} | {f"progress_{index + 1:06d}": json.dumps(entry) for index, entry in enumerate(entries)}
-    shell.ledger_outs["show"] = (0, json.dumps({"rows": [{"key": "ask/000007", "fields": fields}]}))
-
-
-def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs(shell, config, tmp_path):
+def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_config(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_ask(config, shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
+    batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on ask/000007 lists them" in line
-    batch_ask(config, shell, {"at": "2026-10-01T18:00:00Z", "note": "#29020 #29031", "artifacts": ["https://poetic.slack.com/archives/C0/p1"]})
+    assert line.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on the ledger lists them" in line
+    batch_posts(shell, POSTED)
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED", "MERGE-ASK"]
+
+
+def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):
+    merge_mode(config, "every")
+    shell.ledger_outs["show"] = (1, "ccn: ledger unreachable\n")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("BATCH-READ-FAILED ") and "the ledger did not read for its batch posts: ccn: ledger unreachable; no MERGE-ASK goes out until it reads" in line
 
 
 def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, tmp_path):
@@ -2827,18 +2844,22 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
 
 
-def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):
+@pytest.mark.parametrize(
+    ("clearing", "lane"),
+    [("ok cccc333", "fidelity-desk-7"), ("ok cccc333 checked reserved/user-data,scope/progress names user data|progress bar", "fidelity-desk")],
+)
+def test_a_missing_from_one_fidelity_lane_clears_only_on_its_own_ok_or_a_later_ok_that_checked_its_row(shell, config, tmp_path, clearing, lane):
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     seq = grade(shell, "29020", "missing cccc333 scope/progress a second progress state is shown", lane="fidelity-desk-7")
-    grade(shell, "29020", "ok cccc333")
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data names user data")
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert f"fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing cccc333 scope/progress" in blocker["text"]
-    grade(shell, "29020", "ok cccc333", lane="fidelity-desk-7")
+    grade(shell, "29020", clearing, lane=lane)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
 
