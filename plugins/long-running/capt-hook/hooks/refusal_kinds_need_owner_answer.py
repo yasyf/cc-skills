@@ -17,6 +17,7 @@ from .tests.refusal_fixtures import (
     HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
+    NO_DRIVE,
     PLAIN,
     RETIRE_AND_RECONVERT,
     TEST_ONLY,
@@ -69,6 +70,7 @@ REFUSAL_HINT = re.compile(
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 UNREADABLE = ""
+CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 UNCITED_KINDS = (
@@ -197,8 +199,9 @@ def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
             yield from ((name, number, text) for number, text in enumerate(content.splitlines(), start=1))
 
 
-def pr_view(req: Request) -> dict:
-    return parsed(read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd))
+def pr_view(req: Request) -> dict | None:
+    found = read(["gh", "pr", "view", *req.gh, "--json", "baseRefName,body"], req.cwd)
+    return None if found is None else parsed(found)
 
 
 def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
@@ -256,10 +259,11 @@ def body_text(req: Request, view: dict) -> str | None:
 
 
 def owner_answer(evt: BaseHookEvent, req: Request, rulings: str) -> str | None:
-    entry = drive_entry(evt)
-    repo = entry["checkout"] if entry else str(req.cwd or ".")
+    if (entry := drive_entry(evt)) is None:
+        return UNREADABLE
     for answer in dict.fromkeys(ANSWER_ID.findall(rulings)):
-        if (done := run(["ccn", "-R", repo, "answer", "show", answer, "--json"], req.cwd)) is None:
+        done = run(["ccn", "-R", entry["checkout"], "answer", "show", answer, "--json"], req.cwd)
+        if done is None or done.returncode not in (0, CCN_NOT_FOUND):
             return UNREADABLE
         if done.returncode == 0 and parsed(done.stdout).get("id"):
             return answer
@@ -275,6 +279,9 @@ def evidence(findings: list[Finding], rulings: str) -> str:
 
 def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
+    if view is None and not (req.bodies or req.texts):
+        return None
+    view = view or {}
     findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
     if not findings or (body := body_text(req, view)) is None:
         return None
@@ -304,6 +311,10 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="")): Block(pattern=r"cites an owner answer"),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(3, "not-found: entity not found"))): Block(
+            pattern=r"cites an owner answer"
+        ),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
         ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET), decide=CONFIRMED): Block(
             pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
@@ -316,21 +327,23 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(
-            pattern=r"values\.go:\d+ refusal or retry"
+            pattern=r"open\.go:\d+ refusal or retry"
         ),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Block(),
         ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
             pattern=r"LAUNCH-STALLED"
         ),
-        ship(f"gh pr edit 41464 -R Forge-AI/monorepo --body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(),
-        ship("gh pr edit 41464 --add-label docs", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Allow(),
+        ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(),
+        ship("gh pr edit 101 --add-label docs", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Allow(),
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Block(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id=LANE, commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },
