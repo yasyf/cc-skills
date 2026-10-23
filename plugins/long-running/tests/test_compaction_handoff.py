@@ -712,7 +712,7 @@ SCOPE_WORDS = (
     "da49cb1: nothing is deleted from cloud storage",
     "f765046: stream paths never poll",
 )
-SWEEP_LINE = "Run `rulings.py sweep --program brook` before the first plan or card edit."
+SWEEP_LINE = "Run `rulings.py sweep --drive b7` before the first plan or card edit."
 RECORDING_CCI = """#!/usr/bin/env python3
 import json, os, sys
 with open(os.path.join(os.environ["FAKE_CCN"], "cci-calls"), "a") as calls:
@@ -732,6 +732,15 @@ def root_slice(rows: int) -> str:
         words, implications = scope_row(n)
         lines += [f"## {n:07x} scope, said 2026-10-22", f"words: “{words}”", "implications:", *implications, f"names: mac-cloud-{n}|cross-device-{n}"]
     return "\n".join([*lines, "slice-hash: 0123456789ab"]) + "\n"
+
+
+def register_drive(home: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) -> None:
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "durable-program")} | extra
+    (drives / "b7.json").write_text(json.dumps(entry))
+    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
+        monkeypatch.delenv(key, raising=False)
 
 
 def stub_slice(monkeypatch: pytest.MonkeyPatch, answer) -> list[tuple[str, ...]]:
@@ -756,6 +765,7 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
     register = "# brook register\n\n1. Pulumi state is the only truth.\n"
     sliced = root_slice(24)
     asked = stub_slice(monkeypatch, lambda args: sliced)
+    register_drive(home, monkeypatch)
     add_register(docs, register)
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
@@ -763,7 +773,7 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
     delivered = handoff.deliver_register(bash(session)).message
 
     registered = handoff.register_parts({"id": REGISTER_ID, "body": register}) if source == "compact" else ()
-    assert asked == [("slice", "--root", "--program", "brook")]
+    assert asked == [("slice", "--root", "--drive", "b7")]
     assert len(sliced) > handoff.REGISTER_CONTEXT_CHARS
     assert delivered == "\n".join([*registered, sliced.rstrip("\n"), SWEEP_LINE])
     for n in range(24):
@@ -788,13 +798,8 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
     home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch, source: str, failed: Exception, reason: str
 ) -> None:
     session = home / "session"
-    drives = home / ".claude" / "long-running" / "drives"
-    drives.mkdir(parents=True)
-    entry = {"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "brook"), "cci_drive": "brook-drive"}
-    (drives / "b7.json").write_text(json.dumps(entry))
+    register_drive(home, monkeypatch, cci_drive="brook-drive")
     (home / "bin" / "cci").write_text(RECORDING_CCI)
-    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
-        monkeypatch.delenv(key, raising=False)
 
     def fail(args: tuple[str, ...]) -> str:
         raise failed
@@ -803,6 +808,7 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, source)).message
+    handoff.reground(session_start(session, "compact"))
 
     assert restored.startswith(f"Read `{plan}` before anything else")
     assert state(session).root_slice is None
@@ -812,20 +818,16 @@ def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
         [
             "post", "--drive", "brook-drive", "--lane", "root", "--kind", "blocker", "--to", "root", "--text",
             f"The root's register slice did not load at SessionStart {source}: {reason}. "
-            "Run `rulings.py slice --root --program brook` and read it before the first plan or card edit.",
+            "Run `rulings.py slice --root --drive b7` and read it before the first plan or card edit.",
         ]
     ]
 
 
 def test_a_failed_root_slice_read_still_restores_the_drive_when_cci_cannot_run(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session = home / "session"
-    drives = home / ".claude" / "long-running" / "drives"
-    drives.mkdir(parents=True)
-    (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "brook")}))
+    register_drive(home, monkeypatch)
     (home / "bin" / "cci").unlink()
     monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
-    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
-        monkeypatch.delenv(key, raising=False)
 
     def fail(args: tuple[str, ...]) -> str:
         raise subprocess.TimeoutExpired(["rulings.py", *args], 20)
