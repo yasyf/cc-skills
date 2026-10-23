@@ -19,6 +19,8 @@ SESSION = "0123456789abcdef"
 DRIVE = "brook-drive"
 CLASSIFIED = "c4936ff0405c2d0f"
 UNCLASSIFIED = "629293ae14388dc9"
+PLUGIN = Path(__file__).parents[1]
+REGISTER_SOURCES = [*sorted((PLUGIN / "capt-hook" / "hooks").glob("register_*.py")), PLUGIN / "skills" / "long-running" / "scripts" / "rulings.py"]
 
 
 class Root:
@@ -144,3 +146,11 @@ def test_a_closed_question_no_longer_gates_a_writer_spawn(root):
 
     assert refusal.startswith("This reply or brief does not quote the open owner question below.")
     assert root.fire(PreToolUseEvent, tool_name="Agent", tool_input=spawn) == []
+
+
+
+@pytest.mark.parametrize("path", REGISTER_SOURCES, ids=lambda path: path.name)
+def test_no_register_script_or_hook_watches_slack(path):
+    text = path.read_text()
+
+    assert [call for call in ("slack_watch", "drive.py thread", "drive.py watch") if call in text] == []
