@@ -59,6 +59,12 @@ def test_the_comms_desk_answers_under_the_drive_start_channel_grant_without_the_
     assert "reference/comms-desk-brief.md" in (skill / "SKILL.md").read_text()
 
 
+def test_the_skill_names_orca_launch_by_its_stable_bin_entry_never_a_scripts_path():
+    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
+    named = {path: path.read_text() for path in skill.rglob("*.md") if "orca-launch.sh" in path.read_text()}
+    assert named and [path for path, text in named.items() if "scripts/orca-launch.sh" in text] == []
+
+
 @pytest.mark.parametrize("path", ["SKILL.md", "reference/orca-lane-brief.md"])
 def test_lane_briefs_settle_design_themselves_and_open_prs_on_an_open_parent(path):
     text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
@@ -93,6 +99,15 @@ def desk_shell(kind: type[FakeShell] = FakeShell, **pull) -> FakeShell:
     shell.pull_heads[PR] = HEAD
     shell.routes[f"checks:{HEAD}"] = "check-runs-green.json"
     shell.reviews[PR] = [review("APPROVED", HEAD)]
+    return shell
+
+
+ADMITTED = {"lane": LANE, "registered": LANE}
+
+
+def admitted(shell: FakeShell, pr: str = PR) -> FakeShell:
+    """The PR's row as a lane's registration leaves it, so `label` takes the PR as the drive's."""
+    shell.stores[LEDGER]["rows"].append({"key": pr, "fields": dict(ADMITTED)})
     return shell
 
 
@@ -264,7 +279,7 @@ def test_a_verdict_reverted_at_the_same_head_is_recorded_again(capsys):
 
 
 def test_label_with_a_checkout_grades_named_refs_so_concurrent_desks_never_share_fetch_head(tmp_path):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
 
     label(shell, "--checkout", str(tmp_path))
 
@@ -307,7 +322,7 @@ def test_held_prints_each_pr_an_open_cci_hold_names_and_skips_lifted_ones(capsys
 
 
 def test_label_re_reads_the_head_and_posts_the_label_once():
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     assert label(shell) == 0
 
     assert shell.labelled == [f"{PR}:merge"]
@@ -324,21 +339,21 @@ def test_label_re_reads_the_head_and_posts_the_label_once():
 
 def test_label_refuses_a_conflicting_or_uncomputed_head(capsys):
     for state in ("dirty", "unknown", "blocked", "unstable"):
-        shell = desk_shell(mergeable_state=state)
+        shell = admitted(desk_shell(mergeable_state=state))
         assert label(shell) == 1
         assert f"REFUSED mergeable_state {state}" in capsys.readouterr().out
         assert shell.labelled == []
 
 
 def test_label_refuses_when_the_forge_head_moved(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
 
     assert label(shell, "--expect-head", OLD_HEAD) == 1
     assert "REFUSED head moved" in capsys.readouterr().out
 
 
 def test_label_refuses_a_held_pr(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     hold(shell, PR, "--hours", "2")
 
     assert label(shell) == 1
@@ -346,26 +361,26 @@ def test_label_refuses_a_held_pr(capsys):
 
 
 def test_label_refuses_a_red_status_or_failed_check(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.routes[f"status:{HEAD}"] = "status-failure.json"
     assert label(shell) == 1
     assert "REFUSED commit status failure" in capsys.readouterr().out
 
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs.json"
     assert label(shell) == 1
     assert "REFUSED failed check runs on 3f3acff97: buildkite/test/gate-sand-build-timing" in capsys.readouterr().out
 
 
 def test_label_refuses_a_closed_pr_because_landing_is_read_from_the_base_tree(capsys):
-    shell = desk_shell(state="closed")
+    shell = admitted(desk_shell(state="closed"))
 
     assert label(shell) == 1
     assert "REFUSED #21221 is closed; a landing is read from the dev tree" in capsys.readouterr().out
 
 
 def test_label_with_a_checkout_refuses_a_head_that_conflicts_with_the_base(capsys, tmp_path):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.conflicts[HEAD] = ["infra/rows/k8s/api.ts"]
 
     assert label(shell, "--checkout", str(tmp_path)) == 1
@@ -374,7 +389,7 @@ def test_label_with_a_checkout_refuses_a_head_that_conflicts_with_the_base(capsy
 
 
 def test_label_with_a_checkout_refuses_when_the_pull_ref_disagrees_with_the_api(capsys, tmp_path):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.pull_heads[PR] = OLD_HEAD
 
     assert label(shell, "--checkout", str(tmp_path)) == 1
@@ -382,16 +397,16 @@ def test_label_with_a_checkout_refuses_when_the_pull_ref_disagrees_with_the_api(
 
 
 def test_label_dry_run_runs_every_guard_and_writes_nothing(capsys, tmp_path):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
 
     assert label(shell, "--checkout", str(tmp_path), "--dry-run") == 0
     assert capsys.readouterr().out.strip() == f"would label #{PR} {HEAD}"
     assert shell.labelled == []
-    assert shell.keys() == []
+    assert shell.keys() == [PR] and shell.fields(PR) == ADMITTED
 
 
 def test_unlabel_records_the_pull_and_blocks_a_relabel_of_the_same_head(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     label(shell)
     run(shell, "unlabel", "--repo", REPO, "--ledger", LEDGER, "--pr", PR, "--reason", "owner reversed the ruling")
 
@@ -406,7 +421,7 @@ def test_unlabel_records_the_pull_and_blocks_a_relabel_of_the_same_head(capsys):
 
 
 def test_requeue_clears_the_latch_on_a_pulled_head_so_it_may_be_labelled_once_more(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     label(shell)
     run(shell, "unlabel", "--repo", REPO, "--ledger", LEDGER, "--pr", PR, "--reason", "mq dequeue")
     capsys.readouterr()
@@ -431,7 +446,7 @@ def test_requeue_of_a_head_the_latch_does_not_name_changes_nothing(capsys):
 
 def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     shell = desk_shell()
-    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {**ADMITTED, "label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
 
     assert label(shell) == 0
     assert shell.labelled == [f"{PR}:merge"]
@@ -764,7 +779,7 @@ def test_a_repo_verb_refuses_an_origin_that_names_no_repository():
 
 def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
     """Neutral is not a failure and is absent from the combined status, so nothing else sees it."""
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
 
     assert label(shell) == 1
@@ -772,7 +787,7 @@ def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding
 
 
 def test_label_refuses_an_absent_ai_review(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
 
     assert label(shell) == 1
@@ -780,17 +795,18 @@ def test_label_refuses_an_absent_ai_review(capsys):
 
 
 def test_label_refuses_a_pr_with_no_reviews(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.reviews[PR] = []
 
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
     assert shell.labelled == []
-    assert shell.keys() == []
+    fields = shell.fields(PR)
+    assert shell.keys() == [PR] and {name: fields[name] for name in ADMITTED} == ADMITTED and fields["label_refused"].startswith("#21221 has no approval in force")
 
 
 def test_label_accepts_an_approval_of_an_earlier_head(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.reviews[PR] = [review("APPROVED", OLD_HEAD)]
 
     assert label(shell, "--expect-head", HEAD) == 0
@@ -799,7 +815,7 @@ def test_label_accepts_an_approval_of_an_earlier_head(capsys):
 
 
 def test_label_refuses_a_dismissed_approval_of_the_head(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.reviews[PR] = [review("DISMISSED", HEAD)]
 
     assert label(shell) == 1
@@ -808,7 +824,7 @@ def test_label_refuses_a_dismissed_approval_of_the_head(capsys):
 
 
 def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.reviews[PR] = [review("APPROVED", HEAD), review("CHANGES_REQUESTED", HEAD)]
 
     assert label(shell) == 1
@@ -817,7 +833,7 @@ def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
 
 
 def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.routes[f"checks:{HEAD}"] = "check-runs-ai-review-in-progress.json"
 
     assert label(shell) == 1
@@ -826,7 +842,7 @@ def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys)
 
 
 def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.reviews[PR] = [review("COMMENTED", OLD_HEAD, "bot")] * 100 + [review("APPROVED", HEAD, "yasyf"), review("APPROVED", HEAD, "octocat")]
 
     assert label(shell) == 0
@@ -837,7 +853,7 @@ def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
 
 def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
     """The forge closes the child when the parent's branch is deleted, and reopen is refused."""
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     shell.children["lightning/bake-policy"] = [{"number": 21720}]
 
     assert label(shell) == 1
@@ -1143,7 +1159,7 @@ STACK = ("24001", "24002", "24003")
 
 
 def stack_shell(tracked=STACK[:2]) -> FakeShell:
-    """dev <- 24001 <- 24002 <- 24003, each approved and green, the lower two reported by their lane."""
+    """dev <- 24001 <- 24002 <- 24003, each approved and green, the lower two reported by their lane and the tip registered, as the desk labels only a tip it gates as ours."""
     shell = FakeShell()
     base = "dev"
     for index, pr in enumerate(STACK):
@@ -1161,6 +1177,8 @@ def stack_shell(tracked=STACK[:2]) -> FakeShell:
         shell.reviews[pr] = [review("APPROVED", head)]
         if pr in tracked:
             shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {"lane": LANE, "reported_head": head, "reported_verdict": "clean"}})
+    if STACK[-1] not in tracked:
+        admitted(shell, STACK[-1])
     return shell
 
 
@@ -1246,10 +1264,10 @@ def test_expect_head_rejects_a_prefix_too_short_or_not_hex_to_pin_a_head(prefix)
 
 
 def test_label_accepts_a_short_expect_head_and_refuses_a_short_head_that_moved(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     assert label(shell, "--expect-head", HEAD[:9]) == 0
 
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     assert label(shell, "--expect-head", OLD_HEAD[:9]) == 1
     assert f"REFUSED head moved: expected {OLD_HEAD[:9]}, the forge has {HEAD[:9]}" in capsys.readouterr().out
 
@@ -1380,11 +1398,11 @@ def test_a_stack_dry_run_names_every_pr_it_would_enqueue(capsys):
     assert shell.labelled == []
 
 
-def test_a_downstack_pr_no_lane_reported_refuses_the_stack(capsys):
+def test_a_downstack_pr_no_lane_reported_or_registered_refuses_the_stack(capsys):
     shell = stack_shell(tracked=STACK[1:2])
 
     assert label_stack(shell) == 1
-    assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
+    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger" in capsys.readouterr().out
     assert shell.labelled == []
 
 
@@ -1399,6 +1417,7 @@ def test_a_downstack_pr_whose_head_moved_since_its_report_refuses_the_stack(caps
 
 def test_labelling_mid_stack_refuses_when_the_pr_above_is_untracked(capsys):
     shell = stack_shell()
+    shell.stores[LEDGER]["rows"] = [row for row in shell.stores[LEDGER]["rows"] if row["key"] != STACK[-1]]
 
     assert label_stack(shell, "24002") == 1
     out = capsys.readouterr().out
@@ -1434,30 +1453,31 @@ def test_a_stack_whose_parent_closed_without_landing_is_refused(capsys):
     assert shell.labelled == []
 
 
-def test_a_downstack_row_with_no_reported_head_is_untracked(capsys):
+def test_a_downstack_row_no_lane_reported_or_registered_is_not_the_drives(capsys):
     shell = stack_shell()
     del shell.fields("24001")["reported_head"]
 
     assert label_stack(shell) == 1
-    assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
+    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger" in capsys.readouterr().out
     assert shell.labelled == []
 
 
-def test_a_stack_holding_a_pr_no_drive_lane_opened_is_never_enqueued(capsys, tmp_path):
+def test_a_stack_holding_a_pr_only_a_cci_record_names_is_never_enqueued(capsys, tmp_path):
+    """#41141: a lane's opened record named a foreign PR, the desk admitted it from that text, and its status blocked the PR's own author."""
     shell = stack_shell(tracked=STACK)
-    shell.foreign.add("24001")
+    shell.stores[LEDGER]["rows"] = [row for row in shell.stores[LEDGER]["rows"] if row["key"] != "24001"]
+    shell.cci.append({"seq": 1, "drive": DRIVE, "lane": LANE, "kind": "opened", "to": [], "refs": {"prs": [24001]}, "text": "opened #24001"})
     script = tmp_path / ledger.STACK_ENQUEUE
     script.parent.mkdir(parents=True)
     script.write_text("")
 
     assert label_stack(shell, STACK[-1], "--checkout", str(tmp_path)) == 1
-    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger or posted an opened or head record naming it on cci" in capsys.readouterr().out
+    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label" in capsys.readouterr().out
     assert shell.labelled == [] and shell.stack_enqueues == []
 
 
 def test_a_pr_registered_in_the_ledger_is_ours_without_a_cci_record(capsys):
     shell = stack_shell(tracked=STACK)
-    shell.foreign.update(STACK)
     for pr in STACK:
         shell.fields(pr)["registered"] = LANE
 
@@ -1466,15 +1486,18 @@ def test_a_pr_registered_in_the_ledger_is_ours_without_a_cci_record(capsys):
     assert not [call for call in shell.calls if call[0] == "cci"]
 
 
-def test_list_marks_open_rows_ours_only_when_a_drive_lane_registered_or_opened_them(capsys, monkeypatch):
+def test_list_marks_an_open_row_ours_only_when_a_lane_admitted_it_and_never_for_record_text(capsys, monkeypatch):
+    """#40902 on Oct 20 waited on an opened record its lane never posted, and #41141 was admitted from one a lane did post; neither record decides now."""
     monkeypatch.setenv(ledger.DRIVE_ENV, "release-v3")
     shell = stack_shell(tracked=STACK)
-    shell.foreign.add("24002")
+    del shell.fields("24002")["reported_head"]
+    shell.cci.append({"seq": 1, "drive": "release-v3", "lane": LANE, "kind": "opened", "to": [], "refs": {"prs": [24002]}, "text": "opened #24002"})
     shell.fields("24003")["registered"] = LANE
+    shell.stores[LEDGER]["rows"].append({"key": "24004", "fields": {"lane": LANE, "registered": "", "reported_head": "4" * 40, "unadmitted": "2026-10-21T09:00:00Z"}})
 
     assert run(shell, "list", "--ledger", LEDGER, "--json") == 0
-    assert {row["pr"]: row["ours"] for row in json.loads(capsys.readouterr().out)} == {"24001": True, "24002": False, "24003": True}
-    assert ["cci", "tail", "--drive", "release-v3", "--kind", "opened", "--kind", "head", "--pr", f"{REPO}#24001", "--since", "0", "--json", "-n", "1"] in shell.calls
+    assert {row["pr"]: row["ours"] for row in json.loads(capsys.readouterr().out)} == {"24001": True, "24002": False, "24003": True, "24004": False}
+    assert not [call for call in shell.calls if call[0] == "cci"]
 
 
 def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
@@ -2081,7 +2104,7 @@ def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsy
 
 
 def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "findings"}}
     shell.store["rows"].append(review)
 
@@ -2095,7 +2118,7 @@ def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
 
 
 def test_a_head_whose_rules_review_is_pending_is_never_labelled(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "pending"}}
     shell.store["rows"].append(review)
 
@@ -2109,14 +2132,14 @@ def test_a_head_whose_rules_review_is_pending_is_never_labelled(capsys):
 
 
 def test_a_head_no_review_has_reached_is_labelled(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
 
     assert label(shell, "--expect-head", HEAD) == 0
     assert shell.labelled == [f"{PR}:merge"]
 
 
 def test_a_head_is_labelled_as_soon_as_its_gates_pass(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
 
     assert label(shell, "--expect-head", HEAD) == 0
     assert shell.labelled == [f"{PR}:merge"]
@@ -2323,6 +2346,81 @@ def test_unregister_pr_refuses_a_row_the_ledger_lacks_or_a_branch_prefix():
     with pytest.raises(SystemExit, match="pass it with --lane"):
         run(shell, "unregister", "--ledger", LEDGER, "--pr", "24070", "--branch-prefix", "lightning/")
     assert shell.keys() == ["24070"]
+
+
+def test_refresh_admits_a_lanes_prs_by_its_prefix_and_stack_with_no_cci_record(tmp_path, monkeypatch, capsys, lock):
+    """#40902 on Oct 20 was refused for want of an opened record, and #40554's stacked child sat about 75 minutes with no row; the lane's prefix and stack admit both."""
+    monkeypatch.chdir(tmp_path)
+    shell = FakeShell()
+    lane_pull(shell, "40902", "a" * 40, "durable-step-6a-detach-route")
+    stack(shell, tmp_path, "durable-step-6a-detach-route", "durable-step-6b-fork")
+    run(shell, "register", "--ledger", LEDGER, "--lane", "step-6", "--branch-prefix", "durable-step-6a-", "--repo", REPO)
+    lane_pull(shell, "40554", "b" * 40, "durable-step-6b-fork", base="durable-step-6a-detach-route")
+
+    assert refresh(shell, lock) == 0
+
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert {row["pr"]: (row["registered"], row["ours"]) for row in json.loads(capsys.readouterr().out)} == {"40554": ("step-6", True), "40902": ("step-6", True)}
+    assert not [call for call in shell.calls if call[0] == "cci"]
+
+
+def test_unadmit_withdraws_a_pr_so_no_refresh_admits_it_again_and_pulls_the_label_the_desk_set(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "41141", "a" * 40, "lightning/borrowed")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+    shell.fields("41141").update({"labelled_at": "2026-10-21T09:00:00Z", "label_head": "a" * 40})
+    capsys.readouterr()
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "41141") == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("unadmitted #41141 at ") and "only `ledger.py register --pr 41141` admits it again" in out and "pulled merge from #41141" in out
+    assert shell.unlabelled == ["41141:merge"]
+    refresh(shell, lock)
+    assert shell.fields("41141")["registered"] == ""
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert [row["ours"] for row in json.loads(capsys.readouterr().out)] == [False]
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "41141")
+    capsys.readouterr()
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert [row["ours"] for row in json.loads(capsys.readouterr().out)] == [True]
+
+
+def test_unadmit_of_a_pr_below_a_labelled_tip_pulls_the_label_from_the_tip(capsys):
+    shell = desk_shell()
+    for pr in ("24081", PR):
+        shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:00:00Z", "label_stack": f"24081,{PR}"}})
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "24081") == 0
+
+    assert shell.unlabelled == [f"{PR}:merge"]
+    assert shell.fields(PR)["label_pull_reason"] == "unadmitted #24081 from the drive"
+
+
+def test_unadmit_of_a_fork_parent_pulls_the_label_from_every_tip_above_it(capsys):
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"] += [
+        {"key": "24081", "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:05:00Z", "label_stack": "24081,24083"}},
+        {"key": "24083", "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:05:00Z", "label_stack": "24081,24083"}},
+        {"key": PR, "fields": {**ADMITTED, "labelled_at": "2026-10-21T09:00:00Z", "label_stack": f"24081,{PR}"}},
+    ]
+    shell.pulls["24083"] = {"number": 24083, "head": {"sha": "e" * 40}}
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "24081") == 0
+
+    assert sorted(shell.unlabelled) == sorted([f"{PR}:merge", "24083:merge"])
+
+
+def test_unadmit_of_an_unlabelled_pr_pulls_nothing_and_refuses_a_row_the_ledger_lacks(capsys):
+    shell = FakeShell(rows=[{"key": "24070", "fields": {"lane": LANE, "registered": LANE}}])
+
+    assert run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "24070") == 0
+    assert shell.unlabelled == [] and shell.fields("24070")["registered"] == "" and shell.fields("24070")["unadmitted"]
+    with pytest.raises(SystemExit, match="has no row for #41141"):
+        run(shell, "unadmit", "--repo", REPO, "--ledger", LEDGER, "--pr", "41141")
 
 
 def test_a_registered_row_before_its_first_refresh_is_neither_routed_nor_crashes(capsys):

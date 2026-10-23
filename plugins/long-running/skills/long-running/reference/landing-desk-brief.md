@@ -402,9 +402,9 @@ Rules that are not the tool's to enforce:
     into a message to the root.
 
 Do NOT touch: any lane's worktree or branch; any other engineer's PR; the `merge`
-  label by hand. Never enqueue, label, or land a PR no drive lane registered in the
-  ledger or named in an `opened` or `head` record on cci, even when it is green and approved; the runner and
-  `ledger.py label` refuse it, and the author login never makes a PR ours.
+  label by hand. Never enqueue, label, or land a PR the drive did not admit, by a lane's
+  registration, its branch prefix or stack, or the `drive:<drive>` label, even when it is green and approved; the runner and
+  `ledger.py label` refuse it, and neither an `opened` record nor the author login makes a PR ours.
 Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`, and
   `git log` only.
 Finish: never. If the root tells you the drive is over,

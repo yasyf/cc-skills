@@ -58,7 +58,7 @@ LABEL_APPROVAL = re.compile(r"has no approval in force|^ai-review ")
 LABEL_CI_FAILED = re.compile(r"^(?:commit status (?:failure|error)|failed check runs)")
 LABEL_CI_PENDING = re.compile(r"^(?:commit status pending|mergeable_state (?!dirty))")
 LABEL_CONFLICT = re.compile(r" conflicts with |^mergeable_state dirty:")
-LABEL_FOREIGN = re.compile(r"no drive lane registered it in the ledger or posted an opened or head record naming it on cci")
+LABEL_FOREIGN = re.compile(r"no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label")
 LABEL_ROUTED = re.compile(
     r"^(?:commit status (?:failure|error) |failed check runs |ai-review is |mergeable_state dirty:|#\d+'s branch \S+ is the base of |#\d+ is based on |#\d+ is its own ancestor )|^\S+ conflicts with \S+ on "
 )
