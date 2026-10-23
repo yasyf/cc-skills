@@ -55,6 +55,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -1480,12 +1481,24 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
     return any(acknowledges(line, key, fields) for line in head.rulings.splitlines())
 
 
+def glob_pattern(op: str) -> re.Pattern[str]:
+    core = "".join(".*?" if char == "*" else "." if char == "?" else re.escape(char) for char in op.strip("*"))
+    return re.compile(f"{'' if op.startswith('*') else '^'}{core}{'' if op.endswith('*') else '$'}", re.IGNORECASE)
+
+
+def op_counts(pattern: re.Pattern[str], lines: list[tuple[str, int, str]]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for file, _, text in lines:
+        counts[file] += len(pattern.findall(" ".join(text.split())))
+    return counts
+
+
 def op_hits(op: str, diff: Diff) -> bool:
     if "/" in op:
         return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added)
-    if any(char in op for char in "*?["):
-        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, _, text in diff.added)
-    return any(named(text, op) for _, _, text in diff.added)
+    pattern = glob_pattern(op) if any(char in op for char in "*?") else name_pattern(op)
+    removed = op_counts(pattern, diff.removed)
+    return any(count > removed[file] for file, count in op_counts(pattern, diff.added).items())
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:
