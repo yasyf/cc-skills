@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from cc_transcript.models import UserEvent
+from cc_transcript.models import AttachmentEvent, UserEvent
 from captain_hook import (
     Allow,
     BaseHookEvent,
@@ -18,6 +20,7 @@ from captain_hook import (
     Warn,
     on,
 )
+from captain_hook.transcripts import TranscriptLoadError
 
 from .compaction_handoff import CompactionState
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
@@ -28,15 +31,32 @@ REPLY_WINDOW = 256
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MINUTES_A_DAY = 24 * 60
 LABEL_SLACK_MINUTES = 1
-QUOTE_PREFIX = 30
+NEAR_ANY_TURN_MINUTES = 15
+SHARED_RUN_WORDS = 6
+NEAREST_SHOWN = 2
 NUMBERS_SHOWN = 8
 NUMBER_TEXT_SHOWN = 160
-OWNER_LABEL = re.compile(r"\bowner(?:'s)?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\b\.?(?:[^\"“\n]{0,12}[\"“]([^\"”\n]+))?", re.IGNORECASE)
+OWNER_LABEL = re.compile(r"\bowner(?:'s)?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\b\.?", re.IGNORECASE)
+QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
+WORD = re.compile(r"[\w']+")
 SYSTEM_PREFIXES = ("<", "[Request interrupted", "This session is being continued")
 MISLABELED = (
-    "Warning, nothing was blocked: an `OWNER h:mm` label below does not match the stamp of the owner turn it quotes."
-    " The transcript's time is beside each; use it in your next message or record."
+    "Warning, nothing was blocked: an `OWNER h:mm` label below is off from the owner message it quotes, or, quoting none, more than 15 minutes"
+    " from every owner message. The nearest owner message times are beside each; use the right one in your next message or record."
 )
+MID_TURN = [
+    T.user("pause the batch until the scan lands", timestamp="2026-01-15T20:09:00Z"),
+    {
+        "type": "attachment",
+        "timestamp": "2026-01-15T20:19:00Z",
+        "attachment": {"type": "queued_command", "prompt": "also fix that hook timing mismatch and stop waiting for me to ask", "commandMode": "prompt"},
+    },
+    {
+        "type": "attachment",
+        "timestamp": "2026-01-15T20:21:00Z",
+        "attachment": {"type": "queued_command", "prompt": "then post the board once the fix lands", "commandMode": "prompt"},
+    },
+]
 LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
     r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|[\w.-]:\s*(?:idle|silent|dead|stuck|empty)\b"
@@ -68,16 +88,49 @@ UNSOURCED_NUMBER = (
 )
 
 
-def owner_turns(evt: BaseHookEvent) -> list[tuple[datetime, str]]:
+def owner_text(event: object) -> str:
+    match event:
+        case UserEvent() if not event.meta.is_sidechain and not event.is_agent_injected:
+            return event.text
+        case AttachmentEvent(attachment_type="queued_command") if not event.meta.is_sidechain:
+            return event.detail.prompt or ""
+        case _:
+            return ""
+
+
+def owner_turns(evt: BaseHookEvent) -> list[tuple[datetime, list[str]]]:
     return [
-        (event.meta.timestamp.astimezone(PACIFIC), event.text)
+        (event.meta.timestamp.astimezone(PACIFIC), spoken(text))
         for event in evt.ctx.t.events
-        if isinstance(event, UserEvent)
-        and not event.meta.is_sidechain
-        and not event.is_agent_injected
-        and event.text
-        and not event.text.lstrip().startswith(SYSTEM_PREFIXES)
+        if (text := owner_text(event)) and not text.lstrip().startswith(SYSTEM_PREFIXES)
     ]
+
+
+def spoken(text: str) -> list[str]:
+    return WORD.findall(text.casefold())
+
+
+def runs(words: list[str]) -> set[tuple[str, ...]]:
+    return {tuple(words[at : at + SHARED_RUN_WORDS]) for at in range(len(words) - SHARED_RUN_WORDS + 1)}
+
+
+def says(words: list[str], quote: list[str]) -> bool:
+    return bool(quote) and f" {' '.join(quote)} " in f" {' '.join(words)} "
+
+
+def quoted_turn(segment: str, turns: list[tuple[datetime, list[str]]]) -> datetime | None:
+    quotes = [spoken(quote) for quote in QUOTED.findall(segment)]
+    latest_first = turns[::-1]
+    if source := next((at for at, words in latest_first if any(says(words, quote) for quote in quotes)), None):
+        return source
+    shared = runs(spoken(segment))
+    overlap, source = max(((len(shared & runs(words)), at) for at, words in latest_first), key=lambda pair: pair[0])
+    return source if overlap else None
+
+
+def labeled_segments(text: str) -> list[tuple[re.Match[str], str]]:
+    labels = list(OWNER_LABEL.finditer(text))
+    return [(label, text[label.start() : following.start() if following else None]) for label, following in pairwise([*labels, None])]
 
 
 def minute_of_day(hour: int, minute: int, half: str) -> int:
@@ -94,16 +147,17 @@ def stamp(at: datetime) -> str:
 
 
 def mislabeled(evt: BaseHookEvent, text: str) -> list[str]:
-    turns = owner_turns(evt) if OWNER_LABEL.search(text) else []
+    labeled = labeled_segments(text)
+    turns = owner_turns(evt) if labeled else []
     wrong = []
-    for match in OWNER_LABEL.finditer(text) if turns else ():
-        labeled = minute_of_day(int(match[1]), int(match[2]), match[3])
-        quoted = (match[4] or "").strip().casefold()[:QUOTE_PREFIX]
-        source = next((at for at, words in reversed(turns) if quoted and quoted in words.casefold()), None)
-        candidates = [source] if source else [at for at, _ in turns]
-        if any(apart(labeled, at.hour * 60 + at.minute) <= LABEL_SLACK_MINUTES for at in candidates):
+    for label, segment in labeled if turns else ():
+        minute = minute_of_day(int(label[1]), int(label[2]), label[3])
+        source = quoted_turn(segment, turns)
+        ranked = [source] if source else sorted((at for at, _ in turns), key=lambda at: apart(minute, at.hour * 60 + at.minute))
+        if apart(minute, ranked[0].hour * 60 + ranked[0].minute) <= (LABEL_SLACK_MINUTES if source else NEAR_ANY_TURN_MINUTES):
             continue
-        wrong.append(f"OWNER {match[1]}:{match[2]} {match[3].upper()}M -> OWNER {stamp(source or turns[-1][0])}")
+        nearest = " or ".join(dict.fromkeys(stamp(at) for at in ranked[:NEAREST_SHOWN]))
+        wrong.append(f"OWNER {label[1]}:{label[2]} {label[3].upper()}M -> OWNER {nearest}")
     return wrong
 
 
@@ -148,6 +202,14 @@ def replied(*events: object, reply: str) -> list[object]:
     return [*events, T.assistant(reply)]
 
 
+def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
+    try:
+        wrong = [line for text in texts() for line in mislabeled(evt, text)]
+    except TranscriptLoadError:
+        return None
+    return relabel(wrong) if wrong else None
+
+
 @on(
     Event.Stop,
     skip_if=[FromSubagent()],
@@ -173,14 +235,15 @@ def replied(*events: object, reply: str) -> list[object]:
             ),
             state=ACTIVE,
         ): Warn(pattern=r"OWNER 4:11 PM"),
+        Input(transcript=replied(*MID_TURN, reply='Recorded OWNER 12:21 PM "post the board once the fix lands".'), state=ACTIVE): Allow(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Allow(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Allow(),
     },
 )
 def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active or not (wrong := mislabeled(evt, last_reply(evt))):
+    if not CompactionState.load(evt).active or not (warning := relabeled(evt, lambda: [last_reply(evt)])):
         return None
-    return evt.warn(relabel(wrong))
+    return evt.warn(warning)
 
 
 @on(
@@ -199,14 +262,32 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             state=ACTIVE,
         ): Allow(),
         Input(command="cci post --drive d --lane root --kind hold --text 'cuts held'", transcript=[owner_said("stop", "2026-01-15T00:11:00Z")], state=ACTIVE): Allow(),
+        Input(
+            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:19 PM: \"also fix that hook timing mismatch\"'",
+            transcript=MID_TURN,
+            state=ACTIVE,
+        ): Allow(),
+        Input(
+            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:09 PM: also fix that hook timing mismatch and stop waiting'",
+            transcript=MID_TURN,
+            state=ACTIVE,
+        ): Warn(pattern=r"OWNER 12:09 PM -> OWNER 12:19 PM\n"),
+        Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:30 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Allow(),
+        Input(
+            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:21 PM \"post the board once the fix lands\"; OWNER 12:09 PM \"pause the batch until the scan lands\"'",
+            transcript=MID_TURN,
+            state=ACTIVE,
+        ): Allow(),
+        Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:51 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Warn(
+            pattern=r"OWNER 12:51 PM -> OWNER 12:21 PM or 12:19 PM"
+        ),
     },
 )
 def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     posts = [record_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
-    wrong = [line for text in posts for line in mislabeled(evt, text)]
-    return evt.context(relabel(wrong)) if wrong else None
+    return evt.context(warning) if (warning := relabeled(evt, lambda: posts)) else None
 
 
 @on(
