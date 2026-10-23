@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -57,7 +58,6 @@ FILE_READERS = frozenset({"cat", "head", "tail", "sed", "awk", "grep", "egrep", 
 SEARCHERS = frozenset({"rg", "ag", "ack"})
 GREPS = frozenset({"grep", "egrep", "fgrep"})
 BOUNDED_BYTES = 4000
-BOUNDED_LINES = 40
 BOUNDED_MATCHES = 20
 SCRIPT_FIRST = SEARCHERS | {"grep", "egrep", "fgrep", "sed", "awk", "jq", "yq"}
 SCRIPT_FLAGS = frozenset({"-e", "-f", "--regexp", "--file", "--expression"})
@@ -72,6 +72,10 @@ SLACK_READ_TOOLS = (
 CCX_MCP_READS = tuple(
     f"mcp__plugin_cc-context_cc-context__ccx_{name}" for name in ("code_", "repo_", "web_", "vcs_diff", "exec")
 )
+CCX_MCP_CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
+SECTION_WINDOW = re.compile(r"(\d+)-(\d+)(?:#\w+)?")
+SED_WINDOW = re.compile(r"(\d+)(?:,(\d+))?p")
+WORKFLOW_NUDGE = "Warning, nothing was blocked: owner 4ac9243: no expensive workflow sweeps when the findings are in hand; is a direct fix enough?"
 DOC_TOOLS = (
     "mcp__claude_ai_Claude_Docs__read",
     "mcp__claude_ai_Claude_Docs__export",
@@ -126,7 +130,7 @@ GIT = CommandSchema(
     ),
 )
 GH = CommandSchema("gh", operands=WORDS, options=(REPO_OPTION,))
-CCX = CommandSchema("ccx", operands=WORDS)
+CCX = CommandSchema("ccx", operands=WORDS, options=(Option("section", ("--section",)),))
 CC_SLACK = CommandSchema("cc-slack", operands=WORDS)
 CCN = CommandSchema("ccn", operands=WORDS, options=(REPO_OPTION,))
 CC_NOTES = CommandSchema("cc-notes", operands=WORDS, options=(REPO_OPTION,))
@@ -140,6 +144,7 @@ WC = CommandSchema(
     options=tuple(Option(name, flags, bool) for name, flags in (("l", ("-l",)), ("w", ("-w",)), ("c", ("-c",)), ("m", ("-m",)))),
 )
 CAT = CommandSchema("cat", operands=WORDS)
+SED = CommandSchema("sed", operands=WORDS, options=(Option("quiet", ("-n", "--quiet", "--silent"), bool),))
 GREP = CommandSchema(
     "grep",
     operands=WORDS,
@@ -155,7 +160,7 @@ GREP = CommandSchema(
 )
 LIST_OPERATORS = frozenset({"|", ";", "&&", "||"})
 REDIRECT_HEADS = frozenset("<>&0123456789")
-READ_SCHEMAS = {"head": HEAD, "tail": TAIL, "wc": WC, "cat": CAT} | dict.fromkeys(GREPS, GREP)
+READ_SCHEMAS = {"head": HEAD, "tail": TAIL, "wc": WC, "cat": CAT, "sed": SED} | dict.fromkeys(GREPS, GREP)
 
 
 @workflow_state("long_running_root_context")
@@ -193,21 +198,37 @@ class OwnerPrompt:
         return not text.startswith(self.prefixes) and "<teammate-message" not in text
 
 
-class ToolStartsWith:
-    def __init__(self, *prefixes: str) -> None:
-        self.prefixes = prefixes
-
-    def check(self, evt: BaseHookEvent) -> bool:
-        return (evt.tool_name or "").startswith(self.prefixes)
-
-
 class OversizedTool:
     def check(self, evt: BaseHookEvent) -> bool:
         return (evt.tool_name or "") in RootContextState.load(evt).oversized
 
 
+class ReadsCodeTool:
+    def check(self, evt: BaseHookEvent) -> bool:
+        name = evt.tool_name or ""
+        return name.startswith(CCX_MCP_READS) and not (name == CCX_MCP_CODE_READ and section_window(evt.input.raw.get("section")))
+
+
 def setting(name: str, default: int) -> int:
     return int(reqenv.getenv(f"LONG_RUNNING_ROOT_{name}", default))
+
+
+def read_lines() -> int:
+    return setting("READ_LINES", READ_LINES)
+
+
+def fits(first: str, last: str | None) -> bool:
+    return int(first) <= int(last or first) < int(first) + read_lines()
+
+
+def section_window(section: object) -> bool:
+    return isinstance(section, str) and (found := SECTION_WINDOW.fullmatch(section)) is not None and fits(found[1], found[2])
+
+
+def reads_one_window(arguments: Arguments) -> bool:
+    words = arguments.values.get("words", ())
+    sections = arguments.values.get("section", ())
+    return arguments.complete and len(words) == 3 and words[:2] == ("code", "read") and len(sections) == 1 and section_window(sections[0])
 
 
 def artifact_dirs() -> frozenset[str]:
@@ -300,7 +321,7 @@ class ReadsOversizeWindow:
             return False
         read = evt.as_input(ReadCall)
         window = min(read.limit or READ_DEFAULT_LIMIT, line_count(path) - max((read.offset or 1) - 1, 0))
-        return window > setting("READ_LINES", READ_LINES)
+        return window > read_lines()
 
 
 class SearchesRepo:
@@ -331,9 +352,12 @@ def within(values: tuple[Scalar | None, ...], limit: int) -> bool:
 def caps_output(name: str, values: dict[str, tuple[Scalar | None, ...]]) -> bool:
     match name:
         case "head":
-            return within(values.get("bytes", ()), BOUNDED_BYTES) and within(values.get("lines", ()), BOUNDED_LINES)
+            return within(values.get("bytes", ()), BOUNDED_BYTES) and within(values.get("lines", ()), read_lines())
         case "tail":
-            return within(values.get("lines", ()), BOUNDED_LINES)
+            return within(values.get("lines", ()), read_lines())
+        case "sed":
+            script = values.get("words", ())[:1]
+            return bool(values.get("quiet")) and bool(script) and (found := SED_WINDOW.fullmatch(str(script[0]))) is not None and fits(found[1], found[2])
         case "wc":
             return True
         case "grep" | "egrep" | "fgrep":
@@ -349,7 +373,7 @@ def bound(call: Call) -> Arguments | None:
 
 def operands(call: Call, arguments: Arguments) -> tuple[Target, ...]:
     targets = arguments.paths("words").targets
-    return targets[1:] if call.name in GREPS and "pattern" not in arguments.values else targets
+    return targets[1:] if call.name == "sed" or (call.name in GREPS and "pattern" not in arguments.values) else targets
 
 
 def simple_list(raw: str, calls: Sequence[Call]) -> bool:
@@ -494,9 +518,15 @@ root_warning(
         Input(command=f"sed -n '3,$p' {SOURCE} | ccn doc edit 91b9194 --body -", state=ACTIVE): Allow(),
         Input(command="head -c 1200 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command=f"head -c 4001 {SOURCE}", state=ACTIVE): Warn(),
-        Input(command="head -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"head -n 41 {SOURCE}", state=ACTIVE): Warn(),
-        Input(command="tail -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="head -n 150 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command=f"head -n 151 {SOURCE}", state=ACTIVE): Warn(),
+        Input(command="tail -n 150 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command=f"sed -n '1,150p' {SOURCE}", state=ACTIVE): Allow(),
+        Input(command=f"sed -n 200,260p {SOURCE}", state=ACTIVE): Allow(),
+        Input(command=f"sed -n '1,151p' {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"sed '1,60p' {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"sed -n '1,60p' {SOURCE} {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"cat {SOURCE} | sed -n '1,60p'", state=ACTIVE): Allow(),
         Input(command=f"tail -n +40 {SOURCE}", state=ACTIVE): Warn(),
         Input(command=f"tail -f {SOURCE}", state=ACTIVE): Warn(),
         Input(command="grep -c line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
@@ -556,16 +586,25 @@ root_warning(
     message="Warning, nothing was blocked: Code and repo reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[
         Or(
-            runs_verb(CCX, ("code",), ("repo",), ("vcs", "diff"), ("vcs", "show"), ("vcs", "history"), ("vcs", "log")),
-            ToolStartsWith(*CCX_MCP_READS),
+            CommandMatches(
+                CCX,
+                only_if=(verb(("code",), ("repo",), ("vcs", "diff"), ("vcs", "show"), ("vcs", "history"), ("vcs", "log")),),
+                skip_if=(reads_one_window,),
+            ),
+            ReadsCodeTool(),
         )
     ],
     tests={
-        Input(command="ccx code read hooks/x.py --section 1-90", state=ACTIVE): Warn(pattern=r"Code and repo reads"),
+        Input(command="ccx code read hooks/x.py", state=ACTIVE): Warn(pattern=r"Code and repo reads"),
+        Input(command="ccx code read hooks/x.py --section 1-150", state=ACTIVE): Allow(),
+        Input(command="ccx code read hooks/x.py --section 120-180#k2fa", state=ACTIVE): Allow(),
+        Input(command="ccx code read hooks/x.py --section 1-151", state=ACTIVE): Warn(),
+        Input(command="ccx code read hooks/x.py --section '## Setup'", state=ACTIVE): Warn(),
+        Input(command="ccx code read hooks/x.py --section 1-90 --full", state=ACTIVE): Warn(),
+        Input(command="ccx code search 'who reads x' --section 1-90", state=ACTIVE): Warn(),
+        Input(tool=CCX_MCP_CODE_READ, tool_input={"path": "x.py", "section": "1-60"}, state=ACTIVE): Allow(),
         Input(command="ccx vcs diff", state=ACTIVE): Warn(),
-        Input(
-            tool="mcp__plugin_cc-context_cc-context__ccx_code_read", tool_input={"path": "x.py"}, state=ACTIVE
-        ): Warn(),
+        Input(tool=CCX_MCP_CODE_READ, tool_input={"path": "x.py"}, state=ACTIVE): Warn(),
         Input(command="ccx vcs status", state=ACTIVE): Allow(),
         Input(command="ccx vcs pr status 28797 28756", state=ACTIVE): Allow(),
     },
@@ -645,6 +684,16 @@ root_warning(
         Input(tool="mcp__linear__get_issue", tool_input={"id": "ENG-1"}, state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-notes_cc-notes__doc_show", tool_input={"id": "4ffc9a5"}, state=ACTIVE): Allow(),
         Input(tool="SendMessage", tool_input={"to": "orca-desk", "message": "go"}, state=ACTIVE): Allow(),
+    },
+)
+
+root_warning(
+    message=WORKFLOW_NUDGE,
+    only_if=[Tool("Workflow")],
+    tests={
+        Input(tool="Workflow", tool_input={"script": "sweep.js"}, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: owner 4ac9243: no expensive workflow sweeps"),
+        Input(tool="Workflow", tool_input={"script": "sweep.js"}): Allow(),
+        Input(tool="Workflow", tool_input={"script": "sweep.js"}, agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
 )
 

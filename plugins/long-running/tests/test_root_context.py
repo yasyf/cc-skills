@@ -138,6 +138,20 @@ def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) 
     assert root.read(root.file("notes.md")) is None
 
 
+@pytest.mark.parametrize(
+    "read",
+    [
+        lambda root, path: root.read(path, offset=1, limit=60),
+        lambda root, path: root.bash(f"sed -n '1,60p' {path}"),
+        lambda root, path: root.bash(f"head -n 60 {path}"),
+        lambda root, path: root.bash(f"ccx code read {path} --section 1-60"),
+    ],
+    ids=["Read", "sed", "head", "ccx"],
+)
+def test_the_root_reads_sixty_lines_of_a_named_test_file(root: Root, read) -> None:
+    assert read(root, root.file("src/tests/test_app.py")) is None
+
+
 def test_reads_of_inbox_files_go_to_the_digest_and_repo_files_warn(root: Root) -> None:
     root.file("scratch/inbox/orca-desk.md")
     root.file("src/app.py")

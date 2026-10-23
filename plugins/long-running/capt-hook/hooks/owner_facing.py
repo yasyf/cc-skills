@@ -35,7 +35,7 @@ from captain_hook.util import reqenv
 from pydantic import BaseModel
 
 from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script
-from .nudges import queue_nudge
+from .nudges import once_per_hour, queue_nudge
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
@@ -67,7 +67,7 @@ LOAD_REFUSAL = "LAUNCH-FAILED desk-lane-api-1n80-fix/R474 api-1n80-fix: R474 ref
 REFUSAL_TIMEOUT_SECONDS = 20
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
-UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
+UTC_IN_REPLY = "Next reply to the owner: give times in Pacific with no zone label, never UTC."
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
 PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
@@ -86,7 +86,8 @@ PLAIN_WORDS = (
     "Warning, nothing was blocked: Owner-facing text must read in plain words."
     " Replace each term below, or gloss it in the owner's own words, then post again."
 )
-REPLY_IN_PLAIN_WORDS = "Your last reply to the owner used terms he may not know. Restate them in plain words in your next reply."
+REPLY_IN_PLAIN_WORDS = "Next reply to the owner: say each term below in plain words."
+QUOTED_TERM = re.compile(r'"([^"\n]+)"')
 SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
 READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
 CCI_TEXT = 400
@@ -452,7 +453,7 @@ def last_reply(evt: BaseHookEvent) -> str:
     },
 )
 def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
-    if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)):
+    if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)) and once_per_hour(evt, [UTC_IN_REPLY]):
         queue_nudge(evt, UTC_IN_REPLY)
     return None
 
@@ -680,6 +681,15 @@ def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READE
     return [f'plain words: the owner would need "{term}" defined' for term in named if undefined(term, known)]
 
 
+def term_of(problem: str) -> str:
+    return found[1] if (found := QUOTED_TERM.search(problem)) else problem
+
+
+def unsaid(evt: BaseHookEvent, problems: list[str]) -> list[str]:
+    due = set(once_per_hour(evt, map(term_of, problems)))
+    return [problem for problem in problems if term_of(problem) in due]
+
+
 def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
     found = [problem for where, text in texts for problem in word_list(where, text, pr_block=where in pr_blocks)]
     return found + reader_test(evt, "\n\n".join(readable(text) for _, text in texts), reads)
@@ -891,7 +901,9 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     texts = owner_strings(evt, reads)
     problems = plain_words(evt, texts, reads, pr_blocks=frozenset({"card option"})) if texts else []
     reads.report("plain_words_in_owner_questions")
-    return evt.context(fenced(PLAIN_WORDS, problems)) if problems and not reads.failures else None
+    if reads.failures or not (problems := unsaid(evt, problems)):
+        return None
+    return evt.context(fenced(PLAIN_WORDS, problems))
 
 
 @on(
@@ -909,7 +921,7 @@ def plain_words_on_reply(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (which := drive_args(evt)) or not (reply := last_reply(evt)):
         return None
     reads = Reads(evt, which)
-    if problems := plain_words(evt, [("your reply", reply)], reads):
+    if problems := unsaid(evt, plain_words(evt, [("your reply", reply)], reads)):
         queue_nudge(evt, fenced(REPLY_IN_PLAIN_WORDS, problems))
     reads.report("plain_words_on_reply")
     return None

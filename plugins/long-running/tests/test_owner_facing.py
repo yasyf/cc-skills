@@ -85,6 +85,17 @@ class Root:
             pending, state.pending = state.pending, []
         return pending
 
+    def plain_reply(self, text: str, terms: list[str] | None = None) -> list[str]:
+        self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
+        payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
+        context = build_context(transcript=Session.from_path(self.transcript), session_dir=self.session_dir)
+        evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": terms} if terms else None))
+        with stubbed_commands(PLAIN_READS):
+            assert owner_facing.plain_words_on_reply(evt) is None
+        with nudges.NudgeState.mutate(evt) as state:
+            pending, state.pending = state.pending, []
+        return pending
+
     def publish(self, text: str) -> str | None:
         self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
         with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": []})}):
@@ -134,6 +145,13 @@ def question(text: str) -> dict:
 )
 def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
     assert root.reply(entry("user", "status?"), entry("assistant", text)) == [owner_facing.UTC_IN_REPLY]
+
+
+def test_the_utc_nudge_fires_at_most_once_an_hour(root: Root) -> None:
+    said = (entry("user", "status?"), entry("assistant", "Red since 16:52 UTC."))
+
+    assert root.reply(*said) == [owner_facing.UTC_IN_REPLY]
+    assert root.reply(*said) == []
 
 
 @pytest.mark.parametrize(
@@ -297,51 +315,30 @@ def test_a_status_card_in_drive_words_is_warned_and_its_pr_options_pass(drive_ro
 
 
 def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root) -> None:
-    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", "The slice for lane p1a is done.")) + "\n")
-    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
-    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
-    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context))
+    [nudge] = drive_root.plain_reply("The slice for lane p1a is done.")
 
-    with stubbed_commands(PLAIN_READS):
-        assert owner_facing.plain_words_on_reply(evt) is None
-
-    with nudges.NudgeState.mutate(evt) as state:
-        pending, state.pending = state.pending, []
-    [nudge] = pending
     assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
     assert 'your reply has a drive word, "slice"' in nudge
 
 
+def test_a_term_already_flagged_this_hour_is_not_nudged_again(drive_root: Root) -> None:
+    assert len(drive_root.plain_reply("The slice for lane p1a is done.")) == 1
+    assert drive_root.plain_reply("The slice for lane p1a is done.") == []
+
+
 def test_the_root_reply_is_not_nudged_for_terms_the_reader_names_that_the_reply_does_not_contain(drive_root: Root) -> None:
-    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", "The chat-list fix is live for every team.")) + "\n")
-    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
-    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
-    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": ["REPLY_IN_PLAIN_WORDS", "claude-haiku-5-5", "chat-list"]}))
+    [nudge] = drive_root.plain_reply("The chat-list fix is live for every team.", ["REPLY_IN_PLAIN_WORDS", "claude-haiku-5-5", "chat-list"])
 
-    with stubbed_commands(PLAIN_READS):
-        assert owner_facing.plain_words_on_reply(evt) is None
-
-    with nudges.NudgeState.mutate(evt) as state:
-        pending, state.pending = state.pending, []
-    [nudge] = pending
     assert 'the owner would need "chat-list" defined' in nudge
     assert "REPLY_IN_PLAIN_WORDS" not in nudge and "claude-haiku" not in nudge
 
 
 def test_the_root_reply_is_nudged_for_a_lane_name_and_never_for_engineering_words(drive_root: Root) -> None:
     reply = "Break-glass is granted on the stack; the drift preview and the pre-release check passed, and p1a-land is merged."
-    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", reply)) + "\n")
-    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
-    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
     terms = ["Break-glass", "stack", "drift preview", "pre-release check", "p1a-land"]
-    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": terms}))
 
-    with stubbed_commands(PLAIN_READS):
-        assert owner_facing.plain_words_on_reply(evt) is None
+    [nudge] = drive_root.plain_reply(reply, terms)
 
-    with nudges.NudgeState.mutate(evt) as state:
-        pending, state.pending = state.pending, []
-    [nudge] = pending
     assert 'the owner would need "p1a-land" defined' in nudge
     assert [term for term in terms[:-1] if f'"{term}"' in nudge] == []
 

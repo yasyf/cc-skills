@@ -293,6 +293,14 @@ def test_mid_turn_owner_ask_is_flagged_at_turn_end(drive: Drive) -> None:
     assert drive.stop() == [ASK_LINE]
 
 
+def test_a_second_owner_ask_within_the_hour_is_not_flagged_again(drive: Drive) -> None:
+    drive.queue("also sweep every monitor so only outages page")
+    assert drive.stop() == [ASK_LINE]
+
+    drive.queue("and fix the ledger hook")
+    assert drive.stop() == []
+
+
 @pytest.mark.parametrize(
     "text",
     [
