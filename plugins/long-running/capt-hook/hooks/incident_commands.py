@@ -84,7 +84,7 @@ def names_target(text: str, target: str) -> bool:
     return bool(ANSWER_REF.fullmatch(target)) and any(target.startswith(ref) or ref.startswith(target) for ref in ANSWER_REF.findall(text))
 
 
-def owner_order(evt: BaseHookEvent, ref: str, act: re.Pattern[str], targets: tuple[str, ...], every: bool) -> bool | None:
+def order_text(evt: BaseHookEvent, ref: str, act: re.Pattern[str]) -> str | bool | None:
     if (entry := drive_entry(evt)) is None:
         return None
     done = run(["ccn", "-R", entry["checkout"], "answer", "show", ref, "--json"])
@@ -93,12 +93,17 @@ def owner_order(evt: BaseHookEvent, ref: str, act: re.Pattern[str], targets: tup
     if done.returncode == CCN_NOT_FOUND:
         return False
     answer = json.loads(done.stdout)
-    if answer.get("superseded_by"):
-        return False
     body = answer.get("body") or ""
     text = f"{answer.get('title') or ''}\n{body}"
-    named = (all if every else any)(names_target(text, target) for target in targets) if targets else True
-    return bool(act.search(text)) and not DECLINED.match(body) and named
+    return text if act.search(text) and not answer.get("superseded_by") and not DECLINED.match(body) else True
+
+
+def owner_order(evt: BaseHookEvent, ref: str, act: re.Pattern[str], targets: tuple[str, ...], every: bool) -> bool | None:
+    if (text := order_text(evt, ref, act)) is None:
+        return None
+    if not isinstance(text, str):
+        return False
+    return (all if every else any)(names_target(text, target) for target in targets) if targets else True
 
 
 def latest_record(evt: BaseHookEvent) -> str | None:
@@ -112,12 +117,13 @@ def order_cited(evt: BaseHookEvent, text: str, act: re.Pattern[str], targets: tu
 
 
 def text_order_cited(evt: BaseHookEvent, text: str) -> bool:
-    prs, hexes = dict.fromkeys(PR_REF.findall(text)), dict.fromkeys(ANSWER_REF.findall(text))
-    for ref in hexes:
-        targets = (*prs, *(other for other in hexes if other != ref))
-        if (check := owner_order(evt, ref, REVERT, targets, every=False)) is None or check:
-            return True
-    return False
+    hexes = dict.fromkeys(ANSWER_REF.findall(text))
+    found = {ref: order_text(evt, ref, REVERT) for ref in hexes}
+    if None in found.values():
+        return True
+    orders = [order for order in found.values() if isinstance(order, str)]
+    targets = [*dict.fromkeys(PR_REF.findall(text)), *(ref for ref, order in found.items() if order is False)]
+    return bool(orders) and all(any(names_target(order, target) for order in orders) for target in targets)
 
 
 def cause_cited(text: str, target: str | None) -> bool:
@@ -241,8 +247,8 @@ def revert(command: str = "", **extra: object) -> Input:
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": REVERT_ANSWER}): Allow(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": PLAN_ANSWER}): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": SUPERSEDED_REVERT}): Block(),
-        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": REVERT_ANSWER}, decide=CONFIRMED): Block(),
         revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": OTHER_REVERT_ANSWER}, decide=CONFIRMED): Allow(),
+        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert #1201 and #1202 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": OTHER_REVERT_ANSWER}): Block(),
         revert("gh pr revert 1201 -R acme/service  # owner a9e1075b", commands={"ccn": PR_REVERT_ANSWER}): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201 per owner a9e1075b."}, commands={"ccn": PLAN_ANSWER}, decide=CONFIRMED): Block(),
