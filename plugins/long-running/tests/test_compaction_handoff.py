@@ -706,6 +706,117 @@ def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, 
     )
 
 
+SCOPE_WORDS = (
+    "I fcking told you starting one in teh cloud then wrtiing on mac is not in scope",
+    "tehre shouldnt ever be a syncing state bc that jsut happens behind the scene",
+    "no deletion from R2, no cloud deletion at all",
+    "so we said xplicitly not to poll and stream instad",
+)
+SWEEP_LINE = "Run `rulings.py sweep --program brook` before the first plan or card edit."
+RECORDING_CCI = """#!/usr/bin/env python3
+import json, os, sys
+with open(os.path.join(os.environ["FAKE_CCN"], "cci-calls"), "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
+"""
+
+
+def scope_row(n: int) -> tuple[str, list[str]]:
+    words = SCOPE_WORDS[n % len(SCOPE_WORDS)]
+    implications = [f"{i}. removes: surface {n}.{i} carries nothing the words rule out, verbatim from row {n:07x} (ticked)" for i in range(1, 6)]
+    return words, implications
+
+
+def root_slice(rows: int) -> str:
+    lines = []
+    for n in range(rows):
+        words, implications = scope_row(n)
+        lines += [f"## {n:07x} scope, said 2026-10-22", f"words: “{words}”", "implications:", *implications, f"names: mac-cloud-{n}|cross-device-{n}"]
+    return "\n".join([*lines, "slice-hash: 0123456789ab"]) + "\n"
+
+
+def stub_slice(monkeypatch: pytest.MonkeyPatch, answer) -> list[tuple[str, ...]]:
+    asked: list[tuple[str, ...]] = []
+    real = handoff.rulings
+
+    def rulings(cwd: str, *args: str, **kwargs) -> str:
+        if args[:1] != ("slice",):
+            return real(cwd, *args, **kwargs)
+        asked.append(args)
+        return answer(args)
+
+    monkeypatch.setattr(handoff, "rulings", rulings)
+    return asked
+
+
+@pytest.mark.parametrize("source", ["compact", "resume"])
+def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verbatim_past_the_budget(
+    home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    session = home / "session"
+    register = "# brook register\n\n1. Pulumi state is the only truth.\n"
+    sliced = root_slice(24)
+    asked = stub_slice(monkeypatch, lambda args: sliced)
+    add_register(docs, register)
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    handoff.reground(session_start(session, source))
+    delivered = handoff.deliver_register(bash(session)).message
+
+    registered = handoff.register_parts({"id": REGISTER_ID, "body": register}) if source == "compact" else ()
+    assert asked == [("slice", "--root", "--program", "brook")]
+    assert len(sliced) > handoff.REGISTER_CONTEXT_CHARS
+    assert delivered == "\n".join([*registered, sliced.rstrip("\n"), SWEEP_LINE])
+    for n in range(24):
+        words, implications = scope_row(n)
+        assert f"\nwords: “{words}”\n" in delivered
+        assert all(f"\n{line}\n" in delivered for line in implications)
+    assert handoff.deliver_register(bash(session)) is None
+
+
+@pytest.mark.parametrize(
+    ("source", "failed", "reason"),
+    [
+        (
+            "compact",
+            subprocess.CalledProcessError(2, ["rulings.py", "slice"], stderr="usage: rulings.py\nrulings.py: error: no register ledger for brook\n"),
+            "rulings.py: error: no register ledger for brook",
+        ),
+        ("resume", subprocess.TimeoutExpired(["rulings.py", "slice"], 20), "timed out after 20s"),
+    ],
+)
+def test_a_failed_root_slice_read_passes_and_posts_one_blocker(
+    home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch, source: str, failed: Exception, reason: str
+) -> None:
+    session = home / "session"
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "brook"), "cci_drive": "brook-drive"}
+    (drives / "b7.json").write_text(json.dumps(entry))
+    (home / "bin" / "cci").write_text(RECORDING_CCI)
+    for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
+        monkeypatch.delenv(key, raising=False)
+
+    def fail(args: tuple[str, ...]) -> str:
+        raise failed
+
+    stub_slice(monkeypatch, fail)
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    restored = handoff.reground(session_start(session, source)).message
+
+    assert restored.startswith(f"Read `{plan}` before anything else")
+    assert state(session).root_slice is None
+    assert handoff.deliver_register(bash(session)) is None
+    posts = [json.loads(line) for line in (docs / "cci-calls").read_text().splitlines()]
+    assert posts == [
+        [
+            "post", "--drive", "brook-drive", "--lane", "root", "--kind", "blocker", "--to", "root", "--text",
+            f"The root's register slice did not load at SessionStart {source}: {reason}. "
+            "Run `rulings.py slice --root --program brook` and read it before the first plan or card edit.",
+        ]
+    ]
+
+
 def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_it(
     home: Path, plan: Path, docs: Path
 ) -> None:

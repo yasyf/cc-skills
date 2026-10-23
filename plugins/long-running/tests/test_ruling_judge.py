@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from cc_transcript import Session
-from captain_hook.events import PreToolUseEvent
+from captain_hook.events import PreToolUseEvent, SessionStartEvent
 from captain_hook.testing.helpers import build_context
 
 from hooks import compaction_handoff as handoff
@@ -15,9 +15,14 @@ FIXTURES = Path(handoff.__file__).parent / "tests" / "fixtures"
 TRANSCRIPT = str(FIXTURES / "usage-460k.jsonl")
 
 
-def pre(tmp_path: Path, tool_name: str, tool_input: dict) -> PreToolUseEvent:
-    raw = {"session_id": "s1", "transcript_path": TRANSCRIPT, "cwd": str(tmp_path), "tool_name": tool_name, "tool_input": tool_input}
+def pre(tmp_path: Path, tool_name: str, tool_input: dict, **raw) -> PreToolUseEvent:
+    raw = {"session_id": "s1", "transcript_path": TRANSCRIPT, "cwd": str(tmp_path), "tool_name": tool_name, "tool_input": tool_input} | raw
     return PreToolUseEvent(_raw=raw, ctx=build_context(transcript=Session.from_path(Path(TRANSCRIPT)), session_dir=tmp_path / "s"))
+
+
+def session_start(tmp_path: Path, source: str) -> SessionStartEvent:
+    raw = {"session_id": "s1", "transcript_path": TRANSCRIPT, "cwd": str(tmp_path), "source": source}
+    return SessionStartEvent(_raw=raw, ctx=build_context(transcript=Session.from_path(Path(TRANSCRIPT)), session_dir=tmp_path / "s"))
 
 
 @pytest.mark.parametrize(
@@ -88,3 +93,37 @@ def test_a_match_that_times_out_fails_open_without_a_model_call(tmp_path: Path, 
 
     assert judge.judge_key_moment(judged.evt) is None
     assert judged.model_calls == []
+
+
+@pytest.mark.parametrize(
+    ("source", "kept"),
+    [
+        ("compact", ["a1b2c3:1984bf6", "a1b2c3:2e7c0aa"]),
+        ("resume", ["main:1984bf6", "a1b2c3:1984bf6", "main:2e7c0aa", "a1b2c3:2e7c0aa"]),
+        ("startup", ["main:1984bf6", "a1b2c3:1984bf6", "main:2e7c0aa", "a1b2c3:2e7c0aa"]),
+    ],
+)
+def test_a_compaction_forgets_the_roots_judged_answers_and_keeps_each_lanes(tmp_path: Path, source: str, kept: list[str]) -> None:
+    started = session_start(tmp_path, source)
+    with judge.JudgedAnswers.mutate(started) as state:
+        state.injected = ["main:1984bf6", "a1b2c3:1984bf6", "main:2e7c0aa", "a1b2c3:2e7c0aa"]
+
+    assert judge.forget_root_answers_after_compaction(started) is None
+    assert judge.JudgedAnswers.load(started).injected == kept
+
+
+def test_after_a_compaction_the_root_is_judged_again_on_an_answer_it_already_saw(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    judged = Judged(tmp_path, monkeypatch, "Agent", {"prompt": "Add a --skip-tenant flag."})
+    lane = pre(tmp_path, "Agent", {"prompt": "Add a --skip-tenant flag."}, agent_id="a1b2c3")
+    with judge.JudgedAnswers.mutate(lane) as state:
+        state.injected.append("a1b2c3:1984bf6")
+
+    judge.forget_root_answers_after_compaction(session_start(tmp_path, "compact"))
+    judge.judge_key_moment(judged.evt)
+    judge.judge_key_moment(lane)
+
+    assert judged.searches == [
+        ("match", "--program", "brook", "-k", "5", "--budget", "6000"),
+        ("match", "--program", "brook", "-k", "5", "--budget", "6000", "--exclude", "1984bf6"),
+    ]
+    assert len(judged.model_calls) == 1

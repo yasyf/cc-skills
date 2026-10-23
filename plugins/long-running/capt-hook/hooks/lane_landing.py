@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -9,7 +8,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, drive_entry
 from .owner_facing import INCIDENT_NAME
 from .session_tree import nearest_name
 
@@ -105,16 +104,6 @@ def lane_name(evt: BaseHookEvent) -> str | None:
             return match["name"]
         return nearest_name(evt) or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or ""
     return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")
-
-
-def drive_entry(evt: BaseHookEvent) -> dict | None:
-    drives = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
-    drive = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
-    for path in sorted(drives.glob("*.json")):
-        entry = json.loads(path.read_text())
-        if entry["drive"] == drive or (not drive and evt.session_id in entry["sessions"]):
-            return entry
-    return None
 
 
 def named_repo(call: Call) -> str | None:
