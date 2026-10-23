@@ -188,6 +188,15 @@ diff --git a/go/sand/internal/macharness/run.go b/go/sand/internal/macharness/ru
 +var errStalled = errors.New("stalled")
 """
 
+REFUSED_IDENTIFIERS = """\
+diff --git a/dashboard/src/iris/chat/send.ts b/dashboard/src/iris/chat/send.ts
+--- a/dashboard/src/iris/chat/send.ts
++++ b/dashboard/src/iris/chat/send.ts
+@@ -40,0 +41,2 @@ export function send() {
++  const refusedChat = response.status === 409;
++  let refuseNext = false;
+"""
+
 DESK_RUNNER_ON_BASE = 'ESCALATION_KINDS = {"MERGE-ASK": "report", "RULING-ASK": "report"}\n'
 
 
