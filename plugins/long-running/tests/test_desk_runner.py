@@ -308,7 +308,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"labels": [{"name": name} for name in self.pr_labels.get(argv[3], [])]}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
-            return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
+            return runner_module.Done(0, json.dumps({"body": self.bodies.get(argv[3], "")}), "")
         if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
             return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -1672,6 +1672,19 @@ def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [("hj-rows-fixture", "#39050 bbbb222222: graphite FAILING_REQUIRED")]
 
 
+def test_a_red_by_design_pr_gets_no_failing_required_blocker(shell, config, tmp_path):
+    shell.combined_statuses["bbbb222222"] = [{"context": "buildkite/test", "state": "failure"}]
+    shell.bodies["39050"] = "**Red by design, per owner tap b61a053.** The rows fail until the fix lands.\n\n## Context\n"
+    shell.rows = [
+        {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+    ]
+    shell.gates["39050"] = [gate("#39007 GREEN aaaa111111 graphite READY", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert blockers(shell) == []
+
+
 def test_a_held_prefix_is_never_routed_and_stack_enqueue_gets_no_hold_flag(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\nlane:d4 ships whole\n")
@@ -2986,6 +2999,15 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     [blocker] = blockers(shell)
     assert blocker["to"] == LANE and blocker["topic"] == "29020"
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+
+
+def test_a_restack_with_the_finder_ok_heads_patch_carries_the_finder_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    finder_verdict(shell, "29020", "ok bbbb222 no findings")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
 
 
 def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shell, config, tmp_path):

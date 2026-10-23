@@ -39,6 +39,10 @@ UNCAUSED_UNDO = (
     "Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record naming this build; a rollback, or a cancel during an incident, also needs an owner answer ordering it."
     " Cite them, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
 )
+UNORDERED_ROLLBACK = (
+    "A release rollback runs only on an owner answer that orders it, and a suspected regression is fixed forward."
+    " Cite the answer, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
+)
 UNORDERED_REVERT = (
     "A revert runs only on an owner answer that orders this revert; suspected regressions are fixed forward."
     " Ship the forward fix, or cite the ordering answer id in the command or brief."
@@ -141,11 +145,14 @@ def undos(evt: BaseHookEvent) -> list[Call]:
     return [call for call in evt.command.calls() if call.name == "ci" and call.args[:1] == ("release",) and call.args[1:2] and call.args[1] in UNDO_ACTS]
 
 
-def undo_settled(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
+def undo_ordered(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
     targets, verb = undo_targets(call), call.args[1]
-    build = targets[0] if targets else None
-    needs_order = verb == "rollback" or bool(open_incidents(evt))
-    return any(cause_cited(text, build) for text in texts) and (not needs_order or any(order_cited(evt, text, UNDO_ACTS[verb], targets) for text in texts))
+    return not (verb == "rollback" or open_incidents(evt)) or any(order_cited(evt, text, UNDO_ACTS[verb], targets) for text in texts)
+
+
+def undo_settled(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
+    targets = undo_targets(call)
+    return any(cause_cited(text, targets[0] if targets else None) for text in texts) and undo_ordered(evt, call, texts)
 
 
 def cancel(command: str, *stored: dict, **extra: object) -> Input:
@@ -158,7 +165,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
     only_if=[Tool("Bash")],
     tests={
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Warn(pattern=r"^Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record"),
-        cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Warn(),
+        cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Block(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Allow(),
         cancel("tools/ci release cancel 4135  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Warn(),
         cancel("tools/ci release cancel 41200  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Warn(),
@@ -167,17 +174,17 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": PLAN_ANSWER}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", CLOSED_0820, commands={"cci grep": BUILD_CAUSE}): Allow(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Allow(),
-        cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Warn(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": DECLINED_ROLLBACK}): Warn(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": CANCEL_ANSWER}): Warn(),
+        cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": DECLINED_ROLLBACK}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": CANCEL_ANSWER}): Block(),
         cancel("tools/ci release rollback sand --to 905  # owner a9e1075b", commands={"cci grep": "", "ccn": ROLLBACK_ANSWER}): Warn(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210", commands={"cci grep": SAND_CAUSE}): Warn(),
-        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found")}): Warn(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210", commands={"cci grep": SAND_CAUSE}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found")}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (2, "not a git repository")}): Allow(),
         cancel(
             "tools/ci release rollback web --to 77 && tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b",
             commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER},
-        ): Warn(),
+        ): Block(pattern=r"^A release rollback runs only on an owner answer that orders it"),
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": (1, "cci: daemon unavailable")}): Allow(),
         cancel(
             "tools/ci release cancel 2026-01-05/7",
@@ -186,7 +193,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         cancel(
             "tools/ci release rollback 2026-01-05/7",
             commands={"cci grep": '{"seq": 500220, "kind": "mechanism", "lane": "root", "text": "MECHANISM #500210 build 2026-01-05/7 is the cause"}'},
-        ): Warn(),
+        ): Block(),
         cancel(
             "tools/ci release rollback 2026-01-05/7",
             commands={
@@ -207,6 +214,8 @@ def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
     if (latest := latest_record(evt)) is None:
         return None
     texts.append(latest)
+    if any(call.args[1] == "rollback" and not undo_ordered(evt, call, texts) for call in calls):
+        return evt.block(UNORDERED_ROLLBACK)
     return None if all(undo_settled(evt, call, texts) for call in calls) else evt.context(UNCAUSED_UNDO)
 
 
