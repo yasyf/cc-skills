@@ -68,7 +68,8 @@ GH_EDIT_VALUES = frozenset(
     }
 )
 TRUNK = ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
-UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
+UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
+TOPLEVEL = ["git", "rev-parse", "--show-toplevel"]
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 EXEMPT = re.compile(
     r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__)/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec)\.\w+$"
@@ -269,9 +270,14 @@ def removed(diff: str) -> Iterator[tuple[str, str]]:
             yield path, raw[1:]
 
 
-def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
+def toplevel(req: Request) -> Path | None:
+    found = (read(TOPLEVEL, req.cwd) or "").strip() if req.worktree else ""
+    return Path(found) if found else None
+
+
+def untracked(cwd: Path | None, root: Path) -> Iterator[tuple[str, int, str]]:
     for name in filter(None, (read(UNTRACKED, cwd) or "").split("\0")):
-        if not EXEMPT.search(name) and (content := text_of(Path(cwd or ".") / name)) is not None:
+        if not EXEMPT.search(name) and (content := text_of(root / name)) is not None:
             yield from ((name, number, text) for number, text in enumerate(content.splitlines(), start=1))
 
 
@@ -296,10 +302,11 @@ def revision(req: Request) -> str | None:
     return (read(["gh", "pr", "view", *req.edit, *req.gh, "--json", "headRefOid", "--jq", ".headRefOid"], req.cwd) or "").strip() or None
 
 
-def source(req: Request, path: str) -> str | None:
+def new_sides(req: Request, root: Path | None, paths: set[str]) -> dict[str, str | None]:
     if req.worktree:
-        return text_of(Path(req.cwd or ".") / path)
-    return read(["git", "show", f"{rev}:{path}"], req.cwd) if (rev := revision(req)) else None
+        return {path: text_of(root / path) if root else None for path in paths}
+    rev = revision(req) if paths else None
+    return {path: read(["git", "show", f"{rev}:{path}"], req.cwd) if rev else None for path in paths}
 
 
 def callee(func: ast.expr) -> str | None:
@@ -328,10 +335,12 @@ def fixture_lines(text: str | None) -> frozenset[int]:
 def new_findings(req: Request, view: dict) -> list[Finding]:
     if (diff := diff_text(req, view)) is None:
         return []
-    lines = [*added(diff), *(untracked(req.cwd) if req.worktree and req.edit is None else ())]
+    root = toplevel(req)
+    lines = [*added(diff), *(untracked(req.cwd, root) if root else ())]
     kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
     found = [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
-    fixtures = {path: fixture_lines(source(req, path)) for path in {finding.path for finding in found if finding.path.endswith(".py")}}
+    sides = new_sides(req, root, {finding.path for finding in found if finding.path.endswith(".py")})
+    fixtures = {path: fixture_lines(text) for path, text in sides.items()}
     return [finding for finding in found if finding.line not in fixtures.get(finding.path, ())]
 
 
@@ -527,8 +536,23 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS_KIND), decide=CONFIRMED): Block(
             pattern=r"\A(?![\s\S]*card_terms\.py:1[34] )[\s\S]*card_terms\.py:3 refusal kind CARD-STALE"
         ),
-        ship(f"gh pr create --base main --title 'card terms' --body-file {UNCITED}", commands=sources(CARD_TERMS, show=CARD_TERMS_SOURCE), decide=CONFIRMED): Allow(),
-        ship(f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=CARD_TERMS_SOURCE), decide=CONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS), cwd=str(TREE / "hooks"), decide=CONFIRMED): Allow(),
+        ship(
+            f"gh pr create --base main --title 'card terms' --body-file {UNCITED}",
+            commands=sources(CARD_TERMS, show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)),
+            decide=CONFIRMED,
+        ): Allow(),
+        ship(
+            f"gh pr create --base main --head card-terms --title 'card terms' --body-file {UNCITED}",
+            commands=sources(CARD_TERMS, show=("card-terms:hooks/card_terms.py", CARD_TERMS_SOURCE)),
+            decide=CONFIRMED,
+        ): Allow(),
+        ship(
+            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("9f1c2e3:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
+        ): Allow(),
+        ship(
+            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
+        ): Block(pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"),
         ship(f"gh pr create --base main --title 'card terms' --body-file {UNCITED}", commands=sources(CARD_TERMS), decide=CONFIRMED): Block(
             pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"
         ),

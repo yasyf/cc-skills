@@ -156,11 +156,15 @@ HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bod
 EOF"""
 
 
-def sources(diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str | tuple[int, str] = "", show: str = "") -> dict[str, str | tuple[int, str]]:
+def sources(
+    diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str | tuple[int, str] = "", show: tuple[str, str] | None = None
+) -> dict[str, str | tuple[int, str]]:
     return {
         "git symbolic-ref": "origin/main\n",
+        "git rev-parse": f"{TREE}\n",
         "git diff": diff,
-        "git show": show,
+        "git show": (128, "fatal: invalid object name"),
+        **({f"git show {show[0]}": show[1]} if show else {}),
         "git ls-files": "",
         "gh pr view": pr,
         "gh pr diff": diff,
