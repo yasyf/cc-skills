@@ -911,11 +911,14 @@ def test_confirm_takes_an_owner_chat_capture_classified_onto_the_row_and_refuses
     shell = RegisterShell(seeded(package))
     assert classify(tmp_path, capsys, shell, {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "i mesnt anout the regressikn tests"})[0] == 0
 
-    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "fedcba9876543210", "--strike", "3") == (
-        1,
-        "CAPTURE-NOT-ON-CARD fedcba9876543210: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
-    )
-    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "1" * 16, "--implication", "Only test cleanup.")[1].startswith(f"CONFIRM-NARROW {'1' * 16}: ")
+    for row in ("rule/ccccccc", "rule/aaaaaaa"):
+        shell.rows[row]["proof"] = "proof:prompt:fedcba9876543210"
+        assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "fedcba9876543210", "--strike", "3") == (
+            1,
+            "CAPTURE-NOT-ON-CARD fedcba9876543210: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
+        )
+    for strike in ([], ["--strike", "4"]):
+        assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "1" * 16, *strike, "--implication", "Only test cleanup.")[1].startswith(f"CONFIRM-NARROW {'1' * 16}: ")
 
     narrowed = "Only relay test cleanup may live in the desktop app."
     code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "1" * 16, "--strike", "3", "--implication", narrowed)

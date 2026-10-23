@@ -44,8 +44,8 @@ on either wins. A row the
 owner's own pick, tap or reply on a card produced gets no confirmation; its card leaves the queue unsent. Every card the
 round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue holds only what no round has read.
 
-``confirm`` ticks or strikes a row's implications from a tap or reply on the row's card, or from an owner chat capture
-``classify`` already put on that row, with the capture's words as the proof. ``--implication`` adds the narrowed line
+``confirm`` ticks or strikes a row's implications from a tap or reply on the row's card, or from a later owner chat
+capture ``classify`` already put on that row as a repeat, with the capture's words as the proof. ``--implication`` adds the narrowed line
 that replaces the one line ``--strike`` names, in that line's direction.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
@@ -351,9 +351,12 @@ def binding(implication: dict) -> str:
     return "waits for the owner's tick"
 
 
+def repeat_digests(fields: dict[str, str]) -> set[str]:
+    return {match for repeat in listed(fields.get("repeats")) for match in DIGEST_PROOF.findall(str(repeat.get("proof") or ""))}
+
+
 def proof_digests(fields: dict[str, str]) -> set[str]:
-    proofs = [fields.get("proof") or "", *(str(repeat.get("proof") or "") for repeat in listed(fields.get("repeats")))]
-    return {match for proof in proofs for match in DIGEST_PROOF.findall(proof)}
+    return set(DIGEST_PROOF.findall(fields.get("proof") or "")) | repeat_digests(fields)
 
 
 def captures(state: Path) -> dict[str, dict]:
@@ -1146,14 +1149,15 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     card = card_id(key)
     text = (capture or {}).get("text", "")
     block = (capture or {}).get("block") or ""
-    classified = args.capture in proof_digests(fields)
+    classified = (capture or {}).get("source") == "prompt" and args.capture in repeat_digests(fields)
     on_card = capture and (classified or block in (card, answer_id(card)) or key in text or card in text)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
         print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
-    if args.implication and len(strikes) != 1:
+    struck = [item for item in implications if item["n"] in strikes]
+    if args.implication and len(struck) != 1:
         print(f"CONFIRM-NARROW {args.capture}: a narrowed implication replaces the one line --strike names")
         return 1
     picked = text.strip().lower().removesuffix(RECOMMENDED_MARK.lower())
@@ -1171,8 +1175,7 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
         elif item["n"] in ticks:
             item |= {"state": "ticked", "proof": args.capture, "words": text}
     if args.implication:
-        narrowed = next(item for item in implications if item["n"] in strikes)
-        implications += numbered([{"text": args.implication, "direction": narrowed["direction"]}], len(implications) + 1, args.capture)
+        implications += numbered([{"text": args.implication, "direction": struck[0]["direction"]}], len(implications) + 1, args.capture)
     loaded.write(key, implications=implications)
     print("\n".join(implication_lines(loaded.rows[key])))
     return 0
