@@ -4169,9 +4169,9 @@ class Landing:
                 "MERGE-ASK",
                 f"#{pr}",
                 f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers: {why}{touched}"
-                f" | send a needs_you ask card with waits `{waits}` and options `Merge #{pr} {short} (Recommended)`, `Hold #{pr}` and `Other`, which cc-slack draws beside its fixed `Explain more` (93037c3), never listed as an option;"
+                f" | send a needs_you ask card with waits `{waits}`, options `Merge #{pr} {short}` and `Hold #{pr}`, and recommended `Merge #{pr} {short}`, which cc-slack draws first, beside its built-in `Other` and `Explain more` (93037c3), neither listed as an option;"
                 f" Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, Other waits for the owner's reply in the card's thread and merges nothing,"
-                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and reply in the card's thread in plain words",
+                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and reply in the card's thread in plain words, starting with a Slack link to the card, `<permalink|this card>`",
             )
 
     def admit(self, heads: dict[str, str]) -> set[str]:
@@ -4934,8 +4934,8 @@ class Landing:
                 "RULING-ASK",
                 card.stem,
                 f"{fields['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
-                " a tap or a reply on it is a capture: Right (Recommended) ticks every line with `rulings.py confirm`, and Some wrong and Other wait for the owner's reply naming the lines;"
-                f" an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {fields['waits']}\"` and reply in the card's thread in plain words",
+                " a tap or a reply on it is a capture: Right, the card's recommended option, ticks every line with `rulings.py confirm`, and Some wrong and the built-in Other wait for the owner's reply naming the lines;"
+                f" an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {fields['waits']}\"` and reply in the card's thread in plain words, starting with a Slack link to the card, `<permalink|this card>`",
             )
 
     def gate_pass(self) -> None:

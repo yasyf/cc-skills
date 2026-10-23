@@ -1436,11 +1436,11 @@ Under `every`, and under `high-risk` for a PR whose changed files match a glob i
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
 owner in the turn it arrives as a `needs_you` ask card through `slack_dm_status(card)`,
-with the `waits` id `merge:<n>:<short sha>` and the options `Merge #<n> <short sha>
-(Recommended)`, `Hold #<n>` and `Other`, beside the fixed `Explain more` cc-slack draws on a waiting card
+with the `waits` id `merge:<n>:<short sha>`, the options `Merge #<n> <short sha>` and
+`Hold #<n>`, and `recommended` set to the `Merge` option, beside the built-in `Other` and `Explain more` cc-slack draws on a waiting card
 (93037c3), never as an `AskUserQuestion`, so the drive keeps working while the card
 waits. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
-the line names and replies in the card's thread in plain words.
+the line names and replies in the card's thread in plain words, starting with a Slack link to the card, `<permalink|this card>`.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,

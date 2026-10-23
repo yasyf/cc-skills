@@ -89,9 +89,8 @@ UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
 DIRECTIONS = ("removes", "permits")
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board"})
-RECOMMENDED = " (Recommended)"
-OTHER = "Other"
-CARD_OPTIONS = [f"Right{RECOMMENDED}", "Some wrong", "Open board", OTHER]
+RECOMMENDED_MARK = " (Recommended)"
+CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
@@ -824,7 +823,7 @@ def union(left: list, right: list) -> list:
 def card_of(key: str, fields: dict[str, str]) -> dict:
     lines = [f"{item['n']}. {item['text']}" for item in listed(fields.get("implications"))]
     body = "\n".join(["This also means:", *lines]) if lines else f"You said: {fields['words']}"
-    return {"status": "needs_you", "title": f"“{first_sentence(fields['words'])}”", "body": body, "options": CARD_OPTIONS, "waits": card_id(key)}
+    return {"status": "needs_you", "title": f"“{first_sentence(fields['words'])}”", "body": body, "options": CARD_OPTIONS, "recommended": CARD_OPTIONS[0], "waits": card_id(key)}
 
 
 def write_cards(loaded: Register, key: str, confirms: list[str]) -> list[Path]:
@@ -834,7 +833,7 @@ def write_cards(loaded: Register, key: str, confirms: list[str]) -> list[Path]:
     for index, line in enumerate(confirms, start=1):
         ident = f"confirms:{card_id(key)}:{index}"
         path = cards / f"{ident}.json"
-        write_atomic(path, json.dumps({"status": "needs_you", "title": line, "body": f"Your words: {loaded.rows[key]['words']}", "options": CONFIRMS_OPTIONS, "waits": ident}, ensure_ascii=False, indent=2) + "\n")
+        write_atomic(path, json.dumps({"status": "needs_you", "title": line, "body": f"Your words: {loaded.rows[key]['words']}", "options": CONFIRMS_OPTIONS, "recommended": CONFIRMS_OPTIONS[0], "waits": ident}, ensure_ascii=False, indent=2) + "\n")
         written.append(path)
     return written
 
@@ -1005,7 +1004,7 @@ def confirmed(args: argparse.Namespace, loaded: Register) -> int:
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
-    if capture["source"] == "slack-action" and (text.strip().lower().removesuffix(RECOMMENDED.lower()) != RIGHT or args.tick != "all" or strikes):
+    if capture["source"] == "slack-action" and (text.strip().lower().removesuffix(RECOMMENDED_MARK.lower()) != RIGHT or args.tick != "all" or strikes):
         print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong and Other wait for the owner's reply naming the lines")
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
