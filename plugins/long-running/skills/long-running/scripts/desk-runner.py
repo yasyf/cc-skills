@@ -4133,7 +4133,10 @@ class Landing:
         owner = landing["owner_thread"]
         argv = [*checkout_argv(self.checkout, landing["card_cli"]), "--pr", pr, "--user", owner["user"], "--thread", owner["ts"], "--waits", waits, "--question", question, "--recommended", "Merge", "--option", "Hold"]
         token = self.shell.run(["gh", "auth", "token"])
-        done = self.shell.run([*argv, *(["--ts", posted["ts"]] if posted else [])], env={"GITHUB_TOKEN": token.out.strip()})
+        try:
+            done = self.shell.run([*argv, *(["--ts", posted["ts"]] if posted else [])], env={"GITHUB_TOKEN": token.out.strip()})
+        except OSError as error:
+            done = Done(127, "", f"{argv[0]} did not start: {error}")
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             self.runner.escalate(f"merge-card:{pr}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")

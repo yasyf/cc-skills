@@ -154,6 +154,7 @@ class FakeShell(runner_module.Shell):
         self.refresh_error = ""
         self.pr_cards: list[dict] = []
         self.pr_card_error = ""
+        self.pr_card_missing = False
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -202,6 +203,8 @@ class FakeShell(runner_module.Shell):
         name = Path(argv[0]).name
         if argv[0] == str(self.root / "checkout/tools/ci") and argv[1:3] == ["slack", "pr-card"]:
             flags = dict(zip(argv[3::2], argv[4::2]))
+            if self.pr_card_missing:
+                raise FileNotFoundError(2, "No such file or directory", argv[0])
             self.pr_cards.append({"flags": flags, "token": (env or {}).get("GITHUB_TOKEN")})
             if self.pr_card_error:
                 return runner_module.Done(1, "", self.pr_card_error)
@@ -2559,6 +2562,20 @@ def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell,
     shell.pr_card_error = ""
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
+
+
+def test_a_card_command_that_does_not_start_warns_and_the_desk_keeps_running(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.pr_card_missing = True
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "tools/ci did not start" in line
+    shell.pr_card_missing = False
+    landing_pass(shell, config)
+    assert len(shell.pr_cards) == 1 and [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
 
 
 def test_a_runner_with_no_owner_thread_posts_no_merge_card_and_says_what_to_set(shell, config, tmp_path):
