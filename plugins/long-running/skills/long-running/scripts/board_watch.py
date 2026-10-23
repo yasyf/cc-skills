@@ -17,7 +17,8 @@ time in UTC:
     verdict    decision.created: an approval's exact prompt, or `rejected` or `cleared`
 
 A write-in a later pick replaces survives as its own capture. A capture already in the file is
-not written again. The state directory resolves as `rulings.py` resolves it; `--state-dir`
+not written again. A pick or approval whose block is missing from the board's document gets no
+capture, so no option id or bare verdict stands in for the owner's words; its event line stays. The state directory resolves as `rulings.py` resolves it; `--state-dir`
 overrides it. A second watch of the same board exits at once.
 """
 
@@ -75,25 +76,43 @@ def digest(session: str, text: str, block: str) -> str:
     return hashlib.sha256("\0".join([session, text, block]).encode()).hexdigest()[:16]
 
 
-def picked(options: list[dict], ids: list[str]) -> str:
-    labels = {option.get("id"): option.get("label") or option.get("id") for option in options}
-    return "; ".join(str(labels.get(option, option)) for option in ids)
+def picked(found: dict | None, ids: list[str]) -> str | None:
+    labels = {option.get("id"): option.get("label") for option in (found or {}).get("options") or []}
+    return "; ".join(labels[option] for option in ids) if all(labels.get(option) for option in ids) else None
+
+
+def unread(session: str, block: str) -> None:
+    print(f"board-watch {session}: {block} is not in the board's document, so its event stays only in the events file", flush=True)
+
+
+def rendered(event: dict, session: str, shell: Shell) -> str | None:
+    block = event.get("blockId", "")
+    match event:
+        case {"type": "choice.selected", "optionIds": [_, *_] as ids}:
+            text = picked(shell.block(session, block), ids)
+        case {"type": "decision.created", "verdict": "approved"}:
+            text = (shell.block(session, block) or {}).get("prompt")
+        case {"type": "decision.created", "verdict": str() as verdict}:
+            return verdict
+        case _:
+            return None
+    if text is None:
+        unread(session, block)
+    return text
 
 
 def texts(event: dict, session: str, shell: Shell) -> list[str]:
-    block = event.get("blockId", "")
     match event.get("type"):
         case "choice.selected":
-            ids = event.get("optionIds") or []
-            options = (shell.block(session, block) or {}).get("options") or [] if ids else []
-            return [*([event["other"]] if event.get("other") else []), *([picked(options, ids)] if ids else [])]
+            written = [event["other"]] if event.get("other") else []
         case "input.submitted" | "feedback.created":
-            return [event["text"]] if event.get("text") else []
+            written = [event["text"]] if event.get("text") else []
         case "decision.created":
-            verdict = event.get("verdict", "")
-            prompt = (shell.block(session, block) or {}).get("prompt") if verdict == "approved" else None
-            return [prompt or verdict, *([event["note"]] if event.get("note") else [])]
-    return []
+            written = [event["note"]] if event.get("note") else []
+        case _:
+            written = []
+    verdict = rendered(event, session, shell)
+    return [*([verdict] if verdict else []), *written] if event.get("type") == "decision.created" else [*written, *([verdict] if verdict else [])]
 
 
 def captures(event: dict, session: str, shell: Shell, moment: datetime) -> list[dict]:
@@ -123,11 +142,11 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str]) -
         events.write(line if line.endswith("\n") else f"{line}\n")
     if not line.strip():
         return
-    fresh = [capture for capture in captures(json.loads(line), session, shell, shell.now()) if capture["digest"] not in seen]
     with (state / CAPTURES).open("a") as sink:
-        for capture in fresh:
-            sink.write(json.dumps(capture, ensure_ascii=False) + "\n")
-            seen.add(capture["digest"])
+        for capture in captures(json.loads(line), session, shell, shell.now()):
+            if capture["digest"] not in seen:
+                sink.write(json.dumps(capture, ensure_ascii=False) + "\n")
+                seen.add(capture["digest"])
 
 
 def cmd_start(args: argparse.Namespace, shell: Shell) -> int:

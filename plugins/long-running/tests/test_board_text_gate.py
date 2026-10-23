@@ -1,4 +1,4 @@
-"""board_text_gate.py: one refusal names every problem in order, a failed read lets the board through with one blocker, and the recorder starts once per board."""
+"""board_text_gate.py: one refusal names every problem in order, a failed read lets the board through with one blocker, and the recorder starts with each board."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Roo
     assert " --id board_text_gate:" in post
 
 
-def test_the_recorder_starts_once_per_board_session(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_recorder_starts_with_each_board_and_once_per_pushed_session(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
     spawned = []
     monkeypatch.setattr(gate.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))
 
@@ -113,11 +113,12 @@ def test_the_recorder_starts_once_per_board_session(root: Root, monkeypatch: pyt
         "cc-present push doc.json --session b2 --dry-run",
         "cc-present update-block card.json --session b3",
         "cc-present push doc.json",
+        "cc-present start --session b1 --new",
     ):
         gate.start_board_watch(root.event(PostToolUseEvent, command))
 
     start = ["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session"]
-    assert spawned == [([*start, "b1", "--program", "brook"], True), ([*start, SESSION, "--program", "brook"], True)]
+    assert spawned == [([*start, "b1", "--program", "brook"], True), ([*start, SESSION, "--program", "brook"], True), ([*start, "b1", "--program", "brook"], True)]
     assert compaction_handoff.script("board_watch.py").is_file()
 
 

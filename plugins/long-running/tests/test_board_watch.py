@@ -103,3 +103,17 @@ def test_the_state_dir_resolves_as_rulings_resolves_it(tmp_path: Path, monkeypat
 
     assert board_watch.main(["start", "--session", SESSION, "--program", "brook"], RecordedShell()) == 0
     assert (run_state / "owner-prompts.jsonl").is_file()
+
+
+class MissingBlockShell(RecordedShell):
+    def watch(self, session: str):
+        yield '{"blockId":"gone","optionIds":["yes"],"schemaVersion":1,"type":"choice.selected"}\n'
+        yield '{"blockId":"gone","note":"ship it","schemaVersion":1,"type":"decision.created","verdict":"approved"}\n'
+        yield '{"blockId":"banner-ok","note":"rejected","schemaVersion":1,"type":"decision.created","verdict":"rejected"}\n'
+
+
+def test_a_block_missing_from_the_document_gets_no_stand_in_capture(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    captured = run(tmp_path, MissingBlockShell())
+
+    assert [(capture["block"], capture["text"]) for capture in captured] == [("gone", "ship it"), ("banner-ok", "rejected")]
+    assert "gone is not in the board's document" in capsys.readouterr().out

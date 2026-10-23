@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, Tool, WorkflowState, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, WorkflowState, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
-from .owner_facing import CC_PRESENT, OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, Reads, board_bytes, fenced, plain_words, shown
+from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, shown
 from .register_injection import drive_args
 from .tests.board_fixtures import (
     BREACHES,
@@ -85,11 +85,10 @@ def first(values: dict[str, tuple], name: str) -> str | None:
     return next(iter(values.get(name, ())), None)
 
 
-def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[object, dict[str, tuple]]]:
-    for call in evt.command.calls("cc-present"):
-        values = CC_PRESENT.bind(call).values
+def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, dict[str, tuple], str | None, int]]:
+    for call, values, source, piped in board_sources(evt):
         if first(values, "verb") in verbs and not values.get("dry-run"):
-            yield call, values
+            yield call, values, source, piped
 
 
 def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:
@@ -106,14 +105,13 @@ def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
         data = reads.read("the plan file", lambda: Path(plan).expanduser().read_bytes()) if plan else None
         return [] if data is None else [as_text("plan", data, "", Path(plan).expanduser(), "the plan")]
     found = []
-    for call, values in calls(evt, GATED):
+    for call, values, source, piped in calls(evt, GATED):
         session = first(values, "session") or evt.session_id
         if first(values, "verb") == "reply":
             found.append(as_text("reply", (first(values, "body") or "").encode(), session, None, f"the reply on {first(values, 'block')}"))
             continue
-        source = first(values, "words")
-        if source and (loaded := reads.read(f"the board {source}", lambda: parsed(board_bytes(evt, call.cwd, source)))):
-            path = None if source == "-" else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
+        if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call.cwd, source, piped)))):
+            path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
             found.append(Published(first(values, "verb"), *loaded, session, path, source))
     return found
 
@@ -270,8 +268,10 @@ def graded_texts(reads: Reads, register: dict) -> set[str] | None:
         flags = [arg for lane in ([lanes] if isinstance(lanes, str) else lanes) for arg in ("--lane", lane)]
         shas: set[str] = set()
         last = 0
-        while page := [record for record in reviews(runner["drive"], max(last, 1), flags) if record["seq"] > last]:
-            shas |= {hit["sha"] for record in page if (hit := FIDELITY_TEXT.match(record["text"]))}
+        named = set(flags[1::2])
+        while page := [record for record in reviews(runner["drive"], last, flags) if record["seq"] > last]:
+            graded = [record for record in page if record.get("kind") == "review" and record.get("lane") in named]
+            shas |= {hit["sha"] for record in graded if (hit := FIDELITY_TEXT.match(record["text"]))}
             last = max(record["seq"] for record in page)
         return shas
 
@@ -304,8 +304,14 @@ def text_grade(item: Published, reads: Reads, register: dict) -> list[str]:
     return problems
 
 
+def envelope(doc: object) -> list[tuple[dict, dict | None]]:
+    if not isinstance(doc, dict) or "type" in doc:
+        return []
+    return [({"type": "document", "id": "the document", **{key: value for key, value in doc.items() if isinstance(value, str)}}, None)]
+
+
 def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
-    found = list(blocks(item.doc))
+    found = [*envelope(item.doc), *blocks(item.doc)]
     register = reads.register()
     words = said(reads, register) if register else None
     problems = [
@@ -384,9 +390,18 @@ def exits(name: str, **extra: object) -> Input:
         gate(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Block(pattern=r"r3-build: the title does not end"),
         update("r3-titles.pre-grade.json", state=[]): Allow(),
-        update("clean-card.json", commands={f"{RULINGS} rows": (1, "no register for brook")}): Allow(),
-        update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": (1, "no register for brook")}): Block(pattern=r"the title does not end"),
-        update("clean-card.json", commands={"cci tail": (1, "no drive brook")}): Allow(),
+        update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
+        update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
+        update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Block(
+            pattern=r"no fidelity desk review names"
+        ),
+        gate(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Block(
+            pattern=r"the document: decision text outside a choice or approval, \"Answer only to change\""
+        ),
+        gate(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Block(
+            pattern=r"share-open: the title does not end"
+        ),
         gate("ls -la"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
         exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
@@ -402,7 +417,7 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     items = published(evt, reads)
     problems = [problem for item in items for problem in graded(evt, reads, item)]
     reads.report("board_text_gate")
-    return evt.block(fenced(REFUSAL, problems)) if problems else None
+    return evt.block(fenced(REFUSAL, problems)) if problems and not reads.failures else None
 
 
 @on(
@@ -419,11 +434,12 @@ def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
     started = BoardWatches.load(evt).sessions
-    fresh = [session for session in dict.fromkeys(first(values, "session") or evt.session_id for _, values in calls(evt, WATCHED)) if session not in started]
+    boards = [(first(values, "verb"), first(values, "session") or evt.session_id) for _, values, _, _ in calls(evt, WATCHED)]
+    fresh = list(dict.fromkeys(session for verb, session in boards if verb == "start" or session not in started))
     for session in fresh:
         argv = ["python3", str(script("board_watch.py")), "start", "--session", session, *which]
         subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    if fresh:
+    if unseen := [session for session in fresh if session not in started]:
         with BoardWatches.mutate(evt) as state:
-            state.sessions = [*state.sessions, *fresh]
+            state.sessions = [*state.sessions, *unseen]
     return None

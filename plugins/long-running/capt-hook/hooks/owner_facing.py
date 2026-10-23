@@ -21,6 +21,7 @@ from captain_hook import (
     Annotated,
     BaseHookEvent,
     Block,
+    Call,
     CommandSchema,
     Confirm,
     Event,
@@ -211,6 +212,8 @@ PR_REF = re.compile(r"#\d{3,}")
 PR_TAIL = re.compile(r"\d{3,}$")
 ROUTING = re.compile(r"(?i)\brout(?:e|es|ed|ing)\b|\bcluster (?:assignment|move)\b|\bcutover\b")
 BOARD_VERBS = ("push", "start", "update-block", "reply")
+BOARD_DOCS = ("push", "start", "update-block")
+STDIN = "-"
 AUTHORIZED_BESIDE_A_QUESTION = (
     "A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
     " Wait for the answer, then write it in a later turn."
@@ -606,12 +609,27 @@ def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, 
     return found + reader_test(evt, "\n\n".join(text for _, text in texts), reads)
 
 
-def board_bytes(evt: BaseHookEvent, cwd: Path | None, source: str) -> bytes:
-    if source != "-":
+def piped_boards(evt: BaseHookEvent) -> list[str]:
+    statements = [statement.text for statement in ast_grep.find_kinds(evt.command.raw, "bash", frozenset({"redirected_statement"}))]
+    named = [text for text in statements if [name.text for name in ast_grep.find_kinds(text, "bash", frozenset({"command_name"}))][:1] == ["cc-present"]]
+    bodies = [body for text in named if (body := next(ast_grep.find_kinds(text, "bash", frozenset({"heredoc_body"})), None))]
+    return [body.text if body.text.endswith("\n") else f"{body.text}\n" for body in bodies]
+
+
+def board_bytes(evt: BaseHookEvent, cwd: Path | None, source: str, piped: int) -> bytes:
+    if source != STDIN:
         return Path(str(cwd or evt.cwd), Path(source).expanduser()).read_bytes()
-    if (body := next(ast_grep.find_kinds(evt.command.raw, "bash", frozenset({"heredoc_body"})), None)) is None:
-        raise ValueError("the document arrives on stdin with no heredoc to read")
-    return body.text.encode() if body.text.endswith("\n") else f"{body.text}\n".encode()
+    return piped_boards(evt)[piped].encode()
+
+
+def board_sources(evt: BaseHookEvent) -> Iterator[tuple[Call, dict[str, tuple], str | None, int]]:
+    piped = 0
+    for call in evt.command.calls("cc-present"):
+        values = CC_PRESENT.bind(call).values
+        verb = next(iter(values.get("verb", ())), None)
+        source = next(iter(values.get("doc" if verb == "start" else "words", ())), None) if verb in BOARD_DOCS else None
+        yield call, values, source, piped
+        piped += source == STDIN
 
 
 def slack_card(evt: BaseHookEvent) -> dict | None:
@@ -627,11 +645,9 @@ def slack_card(evt: BaseHookEvent) -> dict | None:
 
 def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
     docs = [
-        reads.read(f"the started board {source}", lambda: json.loads(board_bytes(evt, call.cwd, source)))
-        for call in evt.command.calls("cc-present")
-        if (values := CC_PRESENT.bind(call).values).get("verb", ())[:1] == ("start",)
-        and not values.get("dry-run")
-        and (source := next(iter(values.get("doc", ())), None))
+        reads.read(f"the started board {source} {piped}", lambda: json.loads(board_bytes(evt, call.cwd, source, piped)))
+        for call, values, source, piped in board_sources(evt)
+        if values.get("verb", ())[:1] == ("start",) and not values.get("dry-run") and source
     ]
     return [pair for doc in docs if doc for pair in shown(doc)]
 
@@ -739,7 +755,7 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
             tool=SLACK_CARD,
             tool_input={"card": {"title": "Merge the chat-list fix?", "body": "Its checks passed.", "options": ["Merge"]}},
             state=PROGRAM_ACTIVE,
-            commands={f"{RULINGS} rows": (1, "no register for brook"), f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"},
+            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"},
         ): Allow(),
         Input(command="ls", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands=PLAIN_READS): Allow(),
@@ -757,7 +773,7 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     texts = owner_strings(evt, reads)
     problems = plain_words(evt, texts, reads, pr_blocks=frozenset({"card option"})) if texts else []
     reads.report("plain_words_in_owner_questions")
-    return evt.block(fenced(PLAIN_WORDS, problems)) if problems else None
+    return evt.block(fenced(PLAIN_WORDS, problems)) if problems and not reads.failures else None
 
 
 @on(
