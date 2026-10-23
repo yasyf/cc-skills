@@ -2573,6 +2573,21 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
+def test_a_go_naming_the_reserved_key_covers_the_row_though_its_card_never_posted(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    shell.pr_card_error = "ci slack: SSM GetParameter: RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    merge_go(shell, "29020", "merge #29020 at cccc333, reserved/user-data allowed")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
 def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)

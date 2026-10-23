@@ -165,6 +165,7 @@ TEST_DEFINITION = re.compile(
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
+TEST_FAKES = ("*_test.go", "*/*test/*")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
@@ -1594,12 +1595,17 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
     return any(acknowledges(line, key, fields) for line in head.rulings.splitlines())
 
 
+def test_fake(file: str) -> bool:
+    return any(fnmatch.fnmatchcase(file, glob) for glob in TEST_FAKES)
+
+
 def op_hits(op: str, diff: Diff) -> bool:
+    added = [(file, text) for file, _, text in diff.added if not test_fake(file)]
     if "/" in op:
-        return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added)
+        return any(fnmatch.fnmatchcase(file, op) for file, _ in added)
     if any(char in op for char in "*?["):
-        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, _, text in diff.added)
-    return any(named(text, op) for _, _, text in diff.added)
+        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, text in added)
+    return any(named(text, op) for _, text in added)
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:

@@ -157,6 +157,24 @@ def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: P
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[tapped])) == (0, [])
 
 
+def test_a_test_fake_that_names_a_reserved_op_is_no_reserved_touch(package: Path, state: Path, registered: Path, capsys) -> None:
+    fake = DIFF + """diff --git a/go/sand/internal/hostblobtest/faults.go b/go/sand/internal/hostblobtest/faults.go
+--- a/go/sand/internal/hostblobtest/faults.go
++++ b/go/sand/internal/hostblobtest/faults.go
+@@ -1,1 +1,2 @@
+ package hostblobtest
++var cleanup = "aws s3api delete-bucket --bucket old"
+diff --git a/go/sand/corpus_test.go b/go/sand/corpus_test.go
+--- a/go/sand/corpus_test.go
++++ b/go/sand/corpus_test.go
+@@ -1,1 +1,2 @@
+ package sand
++var cleanup = "aws s3api delete-bucket --bucket old"
+"""
+
+    assert check(capsys, CheckShell(pinned(package), diff=fake)) == (0, [])
+
+
 def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     plan = tmp_path / "plan.md"
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")

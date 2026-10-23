@@ -380,7 +380,7 @@ waiting PR and its head by a short sha. The card is the PR card `landing.card_cl
 into the owner's DM thread `landing.owner_thread` (`{"user": <Slack id>, "ts": <the root's DM status thread>}`), waiting on `merge:<pr>:<short sha>` with
 `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. A reserved touch puts the row's key and the first sentence of its words in the card's question, whose
-tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row, covers it (4236611), and so
+tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
 does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
@@ -3524,6 +3524,10 @@ def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     return named
 
 
+def names_key(text: str, key: str) -> bool:
+    return re.search(rf"(?<![\w/]){re.escape(key)}(?![\w/])", text) is not None
+
+
 def names_pr(record: dict, pr: str) -> bool:
     return pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])} or re.search(rf"#{pr}\b", record["text"]) is not None
 
@@ -4111,15 +4115,14 @@ class Landing:
             self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
         return self.risky[(pr, sha)]
 
-    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
-        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
+    def head_gos(self, pr: str, head: str) -> list[dict]:
         drive = self.runner.config.drive
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
-        answered = {}
-        for pr in prs:
-            if stamps := [actions.parse_stamp(record["at"]) for record in gos if names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"]))]:
-                answered[pr] = max(stamps)
-        return answered
+        return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
+
+    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
+        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
+        return {pr: max(actions.parse_stamp(record["at"]) for record in gos) for pr in prs if (gos := self.head_gos(pr, heads[pr]))}
 
     def carded(self, pr: str, head: str) -> dict[str, datetime]:
         """Each reserved row a merge card the runner logged for `pr` at `head` named, with the time of the first card naming it."""
@@ -4133,9 +4136,10 @@ class Landing:
         return named
 
     def unauthorized(self, pr: str, head: str, answered: datetime) -> list[tuple[str, str]]:
-        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers and no merge card named before the owner's Merge answer at `answered` (4236611)."""
+        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers, no go at the head names by key, and no merge card named before the owner's Merge answer at `answered` (4236611)."""
         carded = self.carded(pr, head)
-        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if key not in carded or carded[key] > answered]
+        named = " ".join(record["text"] for record in self.head_gos(pr, head))
+        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if not names_key(named, key) and (key not in carded or carded[key] > answered)]
 
     def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
         """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that the answer does not cover, because no card named the row before it."""
