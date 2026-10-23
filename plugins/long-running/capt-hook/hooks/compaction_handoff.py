@@ -110,7 +110,7 @@ def script(name: str) -> Path:
 NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
 ROOT_SLICE = NO_REGISTER | {
     f"{sys.executable} {script('rulings.py')} slice": (
-        "scope `1e9a64d`: “I fcking told you starting one in teh cloud then wrtiing on mac is not in scope”\nslice-hash: 0123456789ab\n"
+        "scope `1e9a64d`: a Mac never writes to a chat started in the cloud\nslice-hash: 0123456789ab\n"
     )
 }
 
