@@ -179,6 +179,9 @@ class FakeShell(runner_module.Shell):
     def cores(self):
         return 8
 
+    def adopt(self, values):
+        self.environ.update(values)
+
     def reexec(self, argv):
         self.reexeced.append(list(argv))
         raise Reexeced
@@ -4891,7 +4894,8 @@ def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and
     source = config.resolve()
     assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == [
         f"RUNNER-STALE stale:{desk}:{running}<{version} {desk}: {running} < {version}: this {desk} runner, pid {os.getpid()},"
-        f" re-executes into {version} at the end of this pass; nothing to do"
+        f" re-executes into {version} at the end of this pass; nothing to do; a hand restart is"
+        f" `nohup desk-runner.py run --config {source} --desk {desk} >> {tmp_path / f'{desk}-runner.log'} 2>&1 < /dev/null &`"
         for version in (newer(running), newer(running, 2))
         for desk in ("orca", "landing")
     ]
@@ -4942,6 +4946,27 @@ def test_handoff_waits_for_the_runner_to_remove_the_stop_marker_and_then_starts_
     assert started == [[]]
     assert shell.successors == [successor(config, tmp_path, "orca")]
     assert runner_module.RUNNER_BIN.parent.name == "bin" and (runner_module.RUNNER_BIN.parent.parent / ".claude-plugin").is_dir()
+
+
+def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_handoff_successor(shell, config, tmp_path, monkeypatch):
+    """release-cards #112958 on Oct 23: the landing runner's `ci slack pr-card` needs AWS_PROFILE=release-operator, set only on the nohup line, so a RUNNER-STALE restart or a hand restart dropped it."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["env"] = {"AWS_PROFILE": "release-operator"}
+    config.write_text(json.dumps(raw))
+    installed(tmp_path, newer(runner_module.RUNNING_VERSION))
+    landing_pass(shell, config)
+    restart = f"nohup env AWS_PROFILE=release-operator desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
+    assert shell.environ["AWS_PROFILE"] == "release-operator"
+    assert json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())["restart"] == restart
+    assert any(line.startswith("RUNNER-STALE") and line.endswith(f"a hand restart is `{restart}`") for line in escalations(shell))
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
+    assert cli(shell, config, "handoff", "--desk", "landing") == 0
+    assert shell.successors == [successor(config, tmp_path, "landing")]
+    assert shell.spawned_env["desk-runner.py"] == {"AWS_PROFILE": "release-operator"}
+    del shell.environ["AWS_PROFILE"]
+    orca_pass(shell, config)
+    assert "AWS_PROFILE" not in shell.environ
 
 
 def test_a_handoff_whose_runner_writes_no_exit_mark_starts_no_successor(shell, config, tmp_path):
