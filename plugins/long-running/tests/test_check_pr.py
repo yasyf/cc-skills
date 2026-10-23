@@ -157,6 +157,42 @@ def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: P
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[tapped])) == (0, [])
 
 
+def bucket_diff(*lines: str) -> str:
+    removed = sum(line.startswith("-") for line in lines)
+    added = sum(line.startswith("+") for line in lines)
+    return DIFF + f"""diff --git a/scripts/clean.sh b/scripts/clean.sh
+--- a/scripts/clean.sh
++++ b/scripts/clean.sh
+@@ -1,{removed + 1} +1,{added + 1} @@
+ set -e
+""" + "".join(f"{line}\n" for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("lines", "touched"),
+    [
+        (("-aws s3api delete-bucket --bucket old", "+aws  s3api delete-bucket   --bucket old"), False),
+        (("-echo 'by hand: aws s3api delete-bucket removes the old bucket'", "+echo 'by hand: aws s3api delete-bucket'", "+echo 'removes the old bucket'"), False),
+        (("-aws s3api delete-bucket --bucket old", "+aws s3api delete-bucket --bucket old", "+aws s3api delete-bucket --bucket older"), True),
+        (("+aws s3api delete-bucket --bucket old",), True),
+    ],
+)
+def test_a_reserved_op_matches_only_tokens_the_diff_adds_to_a_file(package: Path, state: Path, registered: Path, capsys, lines: tuple[str, ...], touched: bool) -> None:
+    refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."])
+    assert check(capsys, CheckShell(pinned(package), diff=bucket_diff(*lines))) == (refused if touched else (0, []))
+
+
+def test_a_reserved_op_moved_to_another_file_is_net_new_there(package: Path, state: Path, registered: Path, capsys) -> None:
+    moved = bucket_diff("-aws s3api delete-bucket --bucket old") + """diff --git a/scripts/purge.sh b/scripts/purge.sh
+--- a/scripts/purge.sh
++++ b/scripts/purge.sh
+@@ -1,1 +1,2 @@
+ set -e
++aws s3api delete-bucket --bucket old
+"""
+    assert check(capsys, CheckShell(pinned(package), diff=moved)) == (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."])
+
+
 def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     plan = tmp_path / "plan.md"
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")

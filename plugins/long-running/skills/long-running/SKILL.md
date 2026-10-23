@@ -1459,8 +1459,10 @@ lands once green under every merge mode, with no card (de6c88c). A reserved touc
 there still asks.
 
 A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
-grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
-the row's key and the first sentence of its words, and says the merge also
+grader's `touches <key>`, waits for the owner in every mode. An `ops` text match counts
+only where the diff adds more matches to a file than it removes from that file, after
+folding whitespace, so a rewrap or a reindent of text the base already carries touches
+nothing. Its `MERGE-ASK` names the row's key and the first sentence of its words, and says the merge also
 authorizes it. The card quotes both, and its tap is the authorization: the root
 records it with `rulings.py authorize --row <key> --action <tap ts>`, and the head
 waits until `check-pr` stops naming the row, as well as for the root's `go`.
