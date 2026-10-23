@@ -23,6 +23,7 @@ DECLINED_ROLLBACK = '{"id": "a9e1075b00", "title": "Roll back sand to 905?", "bo
 REVERT_ANSWER = '{"id": "a9e1075b00", "title": "Revert 5d0c9e1?", "body": "Yes, revert it."}'
 OTHER_REVERT_ANSWER = '{"id": "a9e1075b00", "title": "Revert 7aa0e21?", "body": "Yes, revert it."}'
 DECLINED_REVERT = '{"id": "a9e1075b00", "title": "Revert #1201?", "body": "No, fix forward."}'
+SUPERSEDED_REVERT = '{"id": "a9e1075b00", "title": "Revert 5d0c9e1?", "body": "Yes, revert it.", "superseded_by": ["b7c0d2e900"]}'
 PR_REVERT_ANSWER = '{"id": "a9e1075b00", "title": "Revert #1201?", "body": "Yes."}'
 READ_TIMEOUT_SECONDS = 20
 CCN_NOT_FOUND = 3
@@ -92,6 +93,8 @@ def owner_order(evt: BaseHookEvent, ref: str, act: re.Pattern[str], targets: tup
     if done.returncode == CCN_NOT_FOUND:
         return False
     answer = json.loads(done.stdout)
+    if answer.get("superseded_by"):
+        return False
     body = answer.get("body") or ""
     text = f"{answer.get('title') or ''}\n{body}"
     named = (all if every else any)(names_target(text, target) for target in targets) if targets else True
@@ -106,6 +109,15 @@ def latest_record(evt: BaseHookEvent) -> str | None:
 def order_cited(evt: BaseHookEvent, text: str, act: re.Pattern[str], targets: tuple[str, ...], every: bool = True) -> bool:
     refs = (ref for ref in dict.fromkeys(ANSWER_REF.findall(text)) if not any(target.startswith(ref) or ref.startswith(target) for target in targets))
     return any(check is None or check for check in (owner_order(evt, ref, act, targets, every) for ref in refs))
+
+
+def text_order_cited(evt: BaseHookEvent, text: str) -> bool:
+    prs, hexes = dict.fromkeys(PR_REF.findall(text)), dict.fromkeys(ANSWER_REF.findall(text))
+    for ref in hexes:
+        targets = (*prs, *(other for other in hexes if other != ref))
+        if (check := owner_order(evt, ref, REVERT, targets, every=False)) is None or check:
+            return True
+    return False
 
 
 def cause_cited(text: str, target: str | None) -> bool:
@@ -228,6 +240,9 @@ def revert(command: str = "", **extra: object) -> Input:
         revert("gh pr revert 1201 -R acme/service"): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": REVERT_ANSWER}): Allow(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": PLAN_ANSWER}): Block(),
+        revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": SUPERSEDED_REVERT}): Block(),
+        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": REVERT_ANSWER}, decide=CONFIRMED): Block(),
+        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": OTHER_REVERT_ANSWER}, decide=CONFIRMED): Allow(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": OTHER_REVERT_ANSWER}): Block(),
         revert("gh pr revert 1201 -R acme/service  # owner a9e1075b", commands={"ccn": PR_REVERT_ANSWER}): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201 per owner a9e1075b."}, commands={"ccn": PLAN_ANSWER}, decide=CONFIRMED): Block(),
@@ -251,7 +266,7 @@ def reverts_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
         unordered = [call for call in calls if not order_cited(evt, command, REVERT, tuple(filter(None, [revert_target(call)])))]
         return evt.block(UNORDERED_REVERT) if unordered else None
     text = ordered_text(evt)
-    if not REVERT.search(text) or order_cited(evt, text, REVERT, tuple(dict.fromkeys(PR_REF.findall(text))), every=False):
+    if not REVERT.search(text) or text_order_cited(evt, text):
         return None
     return evt.block(UNORDERED_REVERT, confirm=REVERT_JUDGE)
 
