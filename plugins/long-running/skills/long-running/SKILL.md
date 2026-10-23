@@ -1436,8 +1436,8 @@ Under `every`, and under `high-risk` for a PR whose changed files match a glob i
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
 owner in the turn it arrives as a `needs_you` ask card through `slack_dm_status(card)`,
-with the `waits` id `merge:<n>:<short sha>` and the options `Merge #<n> <short sha>`
-and `Hold #<n>`, beside the fixed `Explain more` cc-slack draws on a waiting card
+with the `waits` id `merge:<n>:<short sha>` and the options `Merge #<n> <short sha>
+(Recommended)`, `Hold #<n>` and `Other`, beside the fixed `Explain more` cc-slack draws on a waiting card
 (93037c3), never as an `AskUserQuestion`, so the drive keeps working while the card
 waits. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
 the line names and replies in the card's thread in plain words.
@@ -1445,7 +1445,8 @@ the line names and replies in the card's thread in plain words.
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
 and the runner enqueues the prefix on its next pass once a root `go` names every
-waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`.
+waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`. An `Other` tap merges nothing: the
+root waits for the owner's reply in the card's thread and classifies it as a capture.
 An answer covers only the head it names, so a new head asks again. A changed-files
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.

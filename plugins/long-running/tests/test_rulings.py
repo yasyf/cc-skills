@@ -580,7 +580,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
         "status": "needs_you",
         "title": "“uploads stay out of the desktop shell.”",
         "body": "This also means:\n1. The desktop shell gains no uploader.\n2. Shell upload code is deleted.\n3. The journal may keep an upload queue.",
-        "options": ["Right", "Some wrong", "Open board"],
+        "options": ["Right (Recommended)", "Some wrong", "Open board", "Other"],
         "waits": "prompt:1023-053000",
     }
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
@@ -679,6 +679,8 @@ def test_confirm_takes_only_a_right_tap_or_a_reply_naming_the_lines_on_the_rows_
         capture("c", "sounds good"),
         capture("e", "Some wrong", source="slack-action", block="rule:aaaaaaa"),
         capture("f", "2 is wrong, 1 and 3 stand", source="slack-reply", block="rule:aaaaaaa"),
+        capture("7", "Right (Recommended)", source="slack-action", block="rule:aaaaaaa"),
+        capture("8", "Other", source="slack-action", block="rule:aaaaaaa"),
     )
     shell = RegisterShell(seeded(package))
 
@@ -702,6 +704,8 @@ def test_confirm_takes_only_a_right_tap_or_a_reply_naming_the_lines_on_the_rows_
     assert out.splitlines()[2] == "3. [permits, ticked, binds now] Relay cleanup may live in the desktop app."
 
     assert ran(capsys, RegisterShell(seeded(package)), "confirm", "rule/aaaaaaa", "--capture", "b" * 16, "--tick", "all")[0] == 0
+    assert ran(capsys, RegisterShell(seeded(package)), "confirm", "rule/aaaaaaa", "--capture", "7" * 16, "--tick", "all")[0] == 0
+    assert ran(capsys, RegisterShell(seeded(package)), "confirm", "rule/aaaaaaa", "--capture", "8" * 16, "--tick", "all")[1].startswith(f"CONFIRM-TAP {'8' * 16}: ")
 
 
 def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(home: Path, package: Path, state: Path, capsys) -> None:

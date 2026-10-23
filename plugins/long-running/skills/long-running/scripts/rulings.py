@@ -89,7 +89,9 @@ UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
 DIRECTIONS = ("removes", "permits")
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board"})
-CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
+RECOMMENDED = " (Recommended)"
+OTHER = "Other"
+CARD_OPTIONS = [f"Right{RECOMMENDED}", "Some wrong", "Open board", OTHER]
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
@@ -1003,8 +1005,8 @@ def confirmed(args: argparse.Namespace, loaded: Register) -> int:
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
-    if capture["source"] == "slack-action" and (text.strip().lower() != RIGHT or args.tick != "all" or strikes):
-        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines")
+    if capture["source"] == "slack-action" and (text.strip().lower().removesuffix(RECOMMENDED.lower()) != RIGHT or args.tick != "all" or strikes):
+        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong and Other wait for the owner's reply naming the lines")
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
     if capture["source"] != "slack-action" and (args.tick == "all" or not (ticks | strikes) <= named_lines):
