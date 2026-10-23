@@ -97,15 +97,13 @@ reports READY, or when the runner's `blocker` names it ungraded.
 3. Grade every required row.
 4. Post `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, or
    one `fidelity: missing <head7> <key> <one line>` per failing row. The runner
-   counts an ok only when `checked` lists every key the slice printed and `names`
-   lists every name it printed for them. Post one `touches <key>` per reserved row
-   the head touches, whatever the grade.
+   counts an ok as posted, whatever rows the register gains after it (4236611). Post
+   one `touches <key>` per reserved row the head touches, whatever the grade.
 
 A restack whose patch is identical to a head already graded ok gets the same line
 the minute it is asked, without a re-read of the diff ([SKILL.md](../SKILL.md), "A
-restack carries its grade"), only while `slice --required` at the restacked head
-prints no key and no name the earlier grade left out of `checked` and `names`.
-When it prints one, the desk reads the head against that row before any ok.
+restack carries its grade"). Rows the register gained since the earlier grade
+never hold it; the lane reads them back in its next PR (4236611).
 
 An incident fix is never graded before it merges and never held. Both grades
 follow within 30 minutes after the merge (d968e1d, option (a)); the runner escalates a merged head still
@@ -134,9 +132,12 @@ match a chunk the desk already graded is not re-read before a push; its earlier 
   `rulings.py sweep` hit. `rulings.py readback --lane <lane> --contract <seq>`
   prints the grade request. Accept with `readback: ok <lane> <slice-hash>`, or
   return `readback: missing <lane> <key> <one line>`. The runner refuses the lane's
-  READY, its first PR, and its first new branch until one is accepted. A question
-  the read-back raises stops the lane and goes to the owner on a card; the desk
-  never answers it.
+  READY, its first PR, and its first new branch until one is accepted. A grade stands
+  until a desk posts a newer one: rows added to the register never void it or
+  hold a READY PR, and the lane reads them back in its next PR (4236611). The request
+  prints a row the read-back leaves out or a hit it leaves unmarked as a `WARNING`
+  line above it; weigh them and grade. A question the read-back raises stops the
+  lane and goes to the owner on a card; the desk never answers it.
 
 ## Sweep mode
 

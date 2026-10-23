@@ -150,7 +150,6 @@ class FakeShell(runner_module.Shell):
         self.cards: list[dict] = []
         self.card_error = ""
         self.check_pr: dict[str, tuple[int, str]] = {}
-        self.slices: dict[str, tuple[int, str]] = {}
         self.refreshes: list[list[str]] = []
         self.refresh_error = ""
 
@@ -331,10 +330,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1 if self.refresh_error else 0, "", self.refresh_error)
         repo, _, pr = flags[flags.index("--pr") + 1].rpartition("#")
         assert repo == "Forge-AI/monorepo"
-        if verb == "check-pr":
-            return runner_module.Done(*self.check_pr.get(pr + (" --incident" if "--incident" in flags else ""), (0, "")), "")
-        assert verb == "slice" and flags[4] == "--required" and "--base" not in flags
-        return runner_module.Done(*self.slices.get(flags[flags.index("--head") + 1], (0, "slice-hash: 000000000000\n")), "")
+        assert verb == "check-pr", argv
+        return runner_module.Done(*self.check_pr.get(pr + (" --incident" if "--incident" in flags else ""), (0, "")), "")
 
     def graphql(self, query: str) -> runner_module.Done:
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
@@ -2365,7 +2362,7 @@ def merge_mode(config: Path, mode: str) -> None:
 
 
 def merge_go(shell: FakeShell, pr: str, text: str) -> None:
-    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text})
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text, "at": actions.stamp(shell.clock)})
 
 
 POSTED = {"at": "2026-10-01T18:00:00Z", "note": "#29020 #29031", "artifacts": ["https://example.slack.com/archives/C0/p1"]}
@@ -2460,7 +2457,7 @@ RESERVED = "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\
 
 
 @pytest.mark.parametrize("mode", ["every", "auto"])
-def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_authorization(shell, config, tmp_path, mode):
+def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers_it_authorizes_the_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
@@ -2472,27 +2469,30 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_autho
     assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
     message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
     assert 'reserved row reserved/user-data: "User data stays where it is.". Merge also authorizes reserved/user-data' in message
-    assert "`rulings.py authorize --row reserved/user-data --action <ts>`" in message
+    assert "the card quotes reserved/user-data and its words, and the Merge go authorizes it" in message
+    shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
 
 
-def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row(shell, config, tmp_path):
+def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_waits_for_a_go_after_it(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     merge_go(shell, "29020", "merge #29020 at cccc333")
+    shell.clock += timedelta(minutes=1)
     shell.check_pr["29020"] = (1, RESERVED)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and "Merge also authorizes reserved/user-data" in line
+    shell.clock += timedelta(minutes=1)
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
@@ -2849,30 +2849,23 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(blockers(shell)) == 1
 
 
-def test_a_head_check_pr_refuses_is_held_with_one_blocker_naming_each_cause(shell, config, tmp_path):
+@pytest.mark.parametrize(
+    "out",
+    [
+        "RULINGS-UNCITED rule/abc1234\nTEST-REMOVED TestAnOpenOldChatReadsItsRows\nCONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n",
+        "TESTS-CORPUS plan/B-tests.md sha256 differs from corpus/b-tests\n",
+    ],
+)
+def test_a_head_check_pr_names_findings_for_is_enqueued_with_one_warning_naming_them(shell, config, tmp_path, out):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    shell.check_pr["29020"] = (1, "RULINGS-UNCITED rule/abc1234\nTEST-REMOVED TestAnOpenOldChatReadsItsRows\n")
+    shell.check_pr["29020"] = (1, out)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert shell.enqueues() == []
-    [blocker] = blockers(shell)
-    assert blocker["to"] == LANE
-    assert blocker["text"].endswith("`rulings.py check-pr` refuses cccc333333: RULINGS-UNCITED rule/abc1234; TEST-REMOVED TestAnOpenOldChatReadsItsRows")
-    shell.check_pr["29020"] = (0, "")
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
-
-
-def test_an_unreadable_test_corpus_holds_the_head_and_escalates_once(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    shell.check_pr["29020"] = (1, "TESTS-CORPUS plan/B-tests.md sha256 differs from corpus/b-tests\n")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and [post["to"] for post in blockers(shell)] == ["root"]
-    [line] = escalations(shell)
-    assert line.startswith("TESTS-CORPUS ") and "cannot read the pinned test corpus at cccc333333: TESTS-CORPUS plan/B-tests.md" in line
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
+    [note] = [post for post in shell.posts if post["kind"] == "note"]
+    assert note["to"] == LANE
+    assert note["text"].endswith(f"WARNING `rulings.py check-pr` warns at cccc333333, and the head is not held for it: {'; '.join(out.splitlines())}")
 
 
 @pytest.mark.parametrize(
@@ -2924,47 +2917,11 @@ def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_an
     assert len(shell.enqueues()) == 1
 
 
-REQUIRED = "reserved/user-data\tuser data|bucket purge\nscope/progress\tprogress bar|Progress\nslice-hash: 0123456789ab\n"
-
-
-def test_an_ok_counts_only_when_its_checked_set_covers_every_required_row_and_its_names(shell, config, tmp_path):
+def test_an_ok_counts_whatever_rows_its_checked_set_lists_and_the_register_gains_after_it(shell, config, tmp_path):
     lone_green_pr(shell)
-    shell.slices["cccc333333"] = (0, REQUIRED)
-    seq = grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|bucket purge|progress bar")
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data names user data")
     landing_pass(shell, config)
-    assert shell.enqueues() == []
-    [blocker] = blockers(shell)
-    assert blocker["text"].endswith(f"fidelity-desk's ok on cci #{seq} leaves out 1 required row(s) under `checked` or `names`: scope/progress")
-    grade(shell, "29020", "ok cccc333 checked reserved/user-data, scope/progress names user data|bucket purge|progress bar|Progress")
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
-
-
-def test_a_clipped_ok_is_read_whole_from_the_file_its_record_names(shell, config, tmp_path):
-    lone_green_pr(shell)
-    shell.slices["cccc333333"] = (0, REQUIRED)
-    finder_verdict(shell, "29020", "ok cccc333 no findings")
-    line = "fidelity: ok cccc333 checked reserved/user-data,scope/progress," + ",".join(f"rule/{n:07x}" for n in range(40)) + " names user data|bucket purge|progress bar|Progress"
-    blob = tmp_path / "grade.txt"
-    blob.write_text(line + "\n")
-    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": [29020], "path": str(blob)}, "text": line[:399] + "…"})
-    landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
-
-
-def test_a_slice_that_does_not_read_counts_no_grade_and_escalates_once_per_head(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    shell.slices["cccc333333"] = (1, "slice: GitHub refused the compare dev...cccc333333\n")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    assert [line for line in escalations(shell) if line.startswith("SLICE-READ-FAILED")] == [
-        "SLICE-READ-FAILED slice:29020:cccc333333 #29020: `rulings.py slice --required` exited 1 for cccc333333: slice: GitHub refused the compare dev...cccc333333; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass"
-    ]
-    shell.slices.clear()
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
 
 
 def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, config, tmp_path):
@@ -3177,7 +3134,6 @@ QUIET_WHY = ["hold pass", "rules-review pass", "rulings pass", "fidelity pass", 
         ("hold", "hold fail the holds-file line `#29020 owner review`"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
         ("finder", "finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"),
-        ("rulings", "rulings fail `rulings.py check-pr` refuses cccc333333: RULINGS-UNCITED rule/abc1234"),
         ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
     ],
 )
@@ -3189,8 +3145,6 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
         grade(shell, "29020", "ok cccc333", finder=False)
     else:
         grade_gated_heads_ok(shell)
-    if blocked == "rulings":
-        shell.check_pr["29020"] = (1, "RULINGS-UNCITED rule/abc1234\n")
     if blocked == "hold":
         (tmp_path / "holds.md").write_text("#29020 owner review\n")
     if blocked == "rules-review":
@@ -3523,15 +3477,17 @@ def test_a_held_incident_fix_is_not_merged(shell, config, tmp_path):
     assert merges(shell) == []
 
 
-def test_an_incident_fix_check_pr_refuses_is_never_merged_and_escalates_once(shell, config, tmp_path):
+def test_an_incident_fix_check_pr_names_findings_for_merges_and_warns_once(shell, config, tmp_path):
     incident_pr(shell)
     shell.check_pr["36650 --incident"] = (1, "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert merges(shell) == []
-    [line] = escalations(shell)
-    assert line.startswith(f"RULINGS-REFUSED rulings-refused:36650@{INCIDENT_HEAD}:")
-    assert "`rulings.py check-pr --incident` refuses the approved, green incident fix at ffff666666, so the runner does not merge it: RESERVED-NO-ANSWER reserved/user-data" in line
+    assert len(merges(shell)) == 1
+    [note] = [post for post in shell.posts if post["kind"] == "note"]
+    assert note["text"] == f"#36650 {INCIDENT_HEAD[:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not hold it for them (4236611): RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is."
+    [landed] = [post for post in shell.posts if post["kind"] == "landed"]
+    assert landed["id"] == f"land:36650@{INCIDENT_HEAD}"
+    assert incident(tmp_path, "desk-landing").actions[f"land:36650@{INCIDENT_HEAD}"].status == "completed"
 
 
 def test_an_incident_fix_merges_past_every_cause_but_the_three_it_must_meet_before_merge(shell, config, tmp_path):

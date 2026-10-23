@@ -286,17 +286,15 @@ enqueues only when every PR in it has a fidelity ok at its current head. A grade
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without), read by the PR's
 `owner/repo#N` reference, whose text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the head it grades. Each
 lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, whatever another lane
-posts. An ok counts only when its whole line, read from the record's `path` once cci clipped it, lists under `checked` every key
-`rulings.py slice --required` prints for the head and under `names` every name of those rows; a slice that does not read logs
-`SLICE-READ-FAILED` once per head, and no grade counts for that head that pass. A head no
-grade names carries the counted ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
+posts, and an ok counts as posted, whatever rows the register gained since (4236611). A head no
+grade names carries the ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. The `finder` check needs the newest `finder:` review record naming the head, from any lane, to read
 `finder: ok`; a head with none, or whose newest is `finder: major`, gets one `FINDER-PENDING` blocker per head to its lane (E4.1).
-The `rulings` check runs `rulings.py check-pr` once per head a pass and fails a head on any cause it prints but `RESERVED-NO-ANSWER`,
-with one blocker per head and set of causes; `TESTS-CORPUS` alone holds the head and escalates once. A run that exits with a code other than 0 or 1 or
+The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
+which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head and logs `RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
@@ -307,10 +305,11 @@ stay on cci, so both run on the first pass after the reset. A quota read that fa
 ends that pass before it gates or enqueues further; it logs `CCI-TAIL-FAILED` and the runner keeps running.
 An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `outage-` lane or a fix lane the runner clocks, or whose
 number an open executor incident names as its `repair_pr`, is never enqueued: in the pass its head reads `APPROVED` and every
-required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`
-(each logs `RULINGS-REFUSED` once per head and causes instead), and the holds file, read again just before, holds no line over it,
+required check passes and the holds file, read again just before, holds no line over it,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
-`land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. Neither grade
+`land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. What
+`rulings.py check-pr --incident` names of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED` is a warning, one `note` to the PR's
+lane per head and set of causes, and the fix merges anyway (4236611). Neither grade
 gates the merge: a landed fix whose head has no counted fidelity ok or no finder ok 30 minutes on logs `UNGRADED-30` once (d968e1d). A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, a PR this runner
 merged by plain squash among them however its incident reads by then, sends one cci `release` record to `landing.release_owner` and the root in the pass
@@ -351,8 +350,8 @@ does at once for a terminal Orca shows closed. Everything else is kept and named
 Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD, RULINGS-REFUSED,
-RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD,
+RULINGS-UNREAD, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -379,8 +378,8 @@ every mode for a head `check-pr` reads as touching a reserved row no answer auth
 that would enqueue logs one `MERGE-ASK` per waiting PR and head instead, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha. The card is an ask card whose `waits` id is `merge:<pr>:<short sha>`, so cc-slack draws its
 fixed `Explain more` beside `Merge` and `Hold` in place of Ack and Pause (93037c3). A reserved touch puts the row's key and the first sentence of its words on the card, whose
-tap is the authorization: the head waits until `rulings.py authorize` labels the tap's answer `authorizes:<key>` and `check-pr` stops
-naming the row. A PR that no ledger `progress` entry with
+tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row, covers it (4236611), and so
+does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
@@ -432,7 +431,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-UNREAD": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -457,13 +456,10 @@ FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
 FINDER_OK = "finder: ok"
 FINDER_GRADES = (FINDER_OK, "finder: major")
-COVERED = re.compile(r"\bchecked (?P<checked>.*?) names (?P<names>.*)$")
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
-INCIDENT_REFUSALS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
+INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
-TESTS_CORPUS = "TESTS-CORPUS"
 CHECK_PR_BLOCKER = "BLOCKER"
-SLICE_HASH = "slice-hash:"
 UNGRADED_AFTER = timedelta(minutes=30)
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -3465,23 +3461,6 @@ def newest_naming(grades: list[dict], sha: str) -> dict | None:
     return max((record for record in grades if (head := graded_head(record["text"])) and names_head(head, sha)), key=lambda record: record["seq"], default=None)
 
 
-def whole_line(record: dict) -> str:
-    """A record's whole line: cci keeps the first 400 characters of a longer one and appends `…`, and the line in full is in the file its `path` names."""
-    text = record["text"]
-    path = Path(record.get("refs", {}).get("path") or "")
-    if not text.endswith("…") or not path.is_file():
-        return text
-    return next((line for line in path.read_text().splitlines() if line.startswith(text[:-1])), text)
-
-
-def uncovered(line: str, required: dict[str, set[str]]) -> list[str]:
-    """The required rows a grade's `checked <keys> names <names>` leaves out: each key it does not list, or whose names it did not all search."""
-    found = COVERED.search(line)
-    checked = set(re.split(r"[,\s]+", found["checked"].strip())) if found else set()
-    names = {name.strip() for name in found["names"].split("|")} if found else set()
-    return [key for key, wanted in required.items() if key not in checked or not wanted <= names]
-
-
 def cause(line: str) -> str:
     return line.split(" ", 1)[0]
 
@@ -3574,7 +3553,6 @@ class Landing:
         self.risky: dict[tuple[str, str], list[str]] = {}
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
-        self.slices: dict[tuple[str, str], dict[str, set[str]] | None] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
@@ -3804,54 +3782,31 @@ class Landing:
         """Each fidelity lane's newest grade naming `sha`."""
         return [grade for lane in self.fidelity_lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
 
-    def counted(self, oks: list[dict], required: dict[str, set[str]]) -> dict | None:
-        """The newest ok of `oks` whose whole line covers every row of `required`."""
-        return max((ok for ok in oks if not uncovered(whole_line(ok), required)), key=lambda record: record["seq"], default=None)
-
     def fidelity(self, pr: str, sha: str, base: str) -> Grade:
-        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts. An ok counts only when its whole line lists under `checked` every key `rulings.py slice --required` prints for the head, and under `names` every name of those rows. With no grade naming the head, the counted ok of an older head whose lanes all stand at ok carries when both patches against `base` match."""
+        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts; an ok counts as posted (4236611). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when both patches against `base` match."""
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
         if missing := max((grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)), key=lambda record: record["seq"], default=None):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
+        if newest:
+            return Grade(True, max(newest, key=lambda record: record["seq"]), "")
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
-        if not newest and not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
+        if not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
-        if (required := self.required(pr, sha)) is None:
-            return Grade(False, max(newest, key=lambda record: record["seq"], default=None), "`rulings.py slice --required` did not read for this head, so no grade counts as ok this pass")
-        if not newest:
-            carried = self.carried(pr, sha, base, grades, required)
-            return Grade(True, carried[0], f"{FIDELITY_OK} at {sha}, patch-identical to {carried[1]}") if carried else none
-        if counted := self.counted(newest, required):
-            return Grade(True, counted, "")
-        grade = max(newest, key=lambda record: record["seq"])
-        left = uncovered(whole_line(grade), required)
-        return Grade(False, grade, f"{grade['lane']}'s ok on cci #{grade['seq']} leaves out {len(left)} required row(s) under `checked` or `names`: {', '.join(left[:8])}{' and more' if len(left) > 8 else ''}")
+        carried = self.carried(pr, sha, base, grades)
+        return Grade(True, carried[0], f"{FIDELITY_OK} at {sha}, patch-identical to {carried[1]}") if carried else none
 
-    def required(self, pr: str, sha: str) -> dict[str, set[str]] | None:
-        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against the PR's own base branch, read once per head a pass; None when it does not read, which escalates once per head."""
-        if (pr, sha) not in self.slices:
-            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha)
-            if done.code:
-                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                self.runner.escalate(f"slice:{pr}:{sha}", "SLICE-READ-FAILED", f"#{pr}", f"`rulings.py slice --required` exited {done.code} for {sha[:10]}: {last[0]}; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass")
-                self.slices[(pr, sha)] = None
-            else:
-                rows = [line.split("\t", 1) for line in done.out.splitlines() if line.strip() and not line.startswith(SLICE_HASH)]
-                self.slices[(pr, sha)] = {row[0].strip(): {name.strip() for name in row[1].split("|") if name.strip()} if len(row) > 1 else set() for row in rows}
-        return self.slices[(pr, sha)]
-
-    def carried(self, pr: str, sha: str, base: str, grades: list[dict], required: dict[str, set[str]]) -> tuple[dict, str] | None:
-        """The counted ok of an older head whose fidelity lanes all stand at ok, with that head, when its patch against `base` is identical to `sha`'s."""
+    def carried(self, pr: str, sha: str, base: str, grades: list[dict]) -> tuple[dict, str] | None:
+        """The newest ok of an older head whose fidelity lanes all stand at ok, with that head, when its patch against `base` is identical to `sha`'s."""
         graded = dict.fromkeys(
             head
             for record in sorted(grades, key=lambda record: record["seq"], reverse=True)
             if record["text"].startswith(FIDELITY_OK) and (head := graded_head(record["text"])) and not names_head(head, sha)
         )
         oks = {
-            named: counted
+            named: max(stand, key=lambda record: record["seq"])
             for named in graded
-            if (stand := self.standing(grades, named)) and all(grade["text"].startswith(FIDELITY_OK) for grade in stand) and (counted := self.counted(stand, required))
+            if (stand := self.standing(grades, named)) and all(grade["text"].startswith(FIDELITY_OK) for grade in stand)
         }
         if not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
             return None
@@ -4023,23 +3978,21 @@ class Landing:
         owner = self.owner(pr, graded.rows.get(pr, {}))
         self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: nothing in {numbered(list(graded.heads))} was enqueued; {why}", pr)
 
+    def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
+        """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
+        if self.book.known(LANDING, key):
+            return
+        owner = self.owner(pr, graded.rows.get(pr, {}))
+        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head `rulings.py check-pr` refuses fails, with one blocker to its lane per head and set of causes. A head whose only cause is `TESTS-CORPUS` waits, escalated once. A reserved touch alone passes here: merge mode sends the card whose tap authorizes it, and holds the head until then."""
-        states = {}
-        for pr, sha in graded.heads.items():
-            causes = self.rulings_report(pr, sha)
-            if refusals := [line for line in causes if cause(line) not in (RESERVED_TOUCH, TESTS_CORPUS)]:
-                states[pr] = merge_queue.State(merge_queue.FAIL, f"`rulings.py check-pr` refuses {sha[:10]}: {'; '.join(refusals)}")
-            elif corpus := [line for line in causes if cause(line) == TESTS_CORPUS]:
-                states[pr] = merge_queue.State(merge_queue.PENDING, f"`rulings.py check-pr` cannot read the pinned test corpus at {sha[:10]}: {'; '.join(corpus)}")
+        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
         if graded.act:
-            for pr, state in states.items():
-                digest = hashlib.sha1(state.reason.encode()).hexdigest()[:8]
-                if state.state == merge_queue.FAIL:
-                    self.refuse_head(f"rulings:{pr}:{graded.heads[pr]}:{digest}", pr, graded, state.reason)
-                else:
-                    self.runner.escalate(f"tests-corpus:{digest}", TESTS_CORPUS, f"#{pr}", f"{state.reason}; every head waits until the corpus file reads at its pinned sha256")
-        return states
+            for pr, sha in graded.heads.items():
+                if warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]:
+                    text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
+                    self.warn_head(f"rulings:{pr}:{sha}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
+        return {}
 
     def finder(self, pr: str, sha: str) -> dict | None:
         """The newest `finder:` review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
@@ -4116,18 +4069,38 @@ class Landing:
             self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
         return self.risky[(pr, sha)]
 
-    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> set[str]:
-        """The PRs of `prs` with an owner Merge answer at their head: a root `go` record on this drive that names the PR and its head by a short sha."""
+    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
+        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
         drive = self.runner.config.drive
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
-        return {pr for pr in prs if any(names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"])) for record in gos)}
+        answered = {}
+        for pr in prs:
+            if stamps := [actions.parse_stamp(record["at"]) for record in gos if names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"]))]:
+                answered[pr] = max(stamps)
+        return answered
+
+    def carded(self, pr: str, head: str) -> dict[str, datetime]:
+        """Each reserved row a merge card the runner logged for `pr` at `head` named, with the time of the first card naming it."""
+        prefix = f"escalation:merge-ask:{pr}@{head}"
+        named: dict[str, datetime] = {}
+        for action in self.book.actions(RUNNER, kind="escalation"):
+            if action.action_id.startswith(prefix):
+                at = actions.parse_stamp(action.accepted_at)
+                for key in action.action_id.removeprefix(prefix).split(":")[1:]:
+                    named[key] = min(named.get(key, at), at)
+        return named
+
+    def unauthorized(self, pr: str, head: str, answered: datetime) -> list[tuple[str, str]]:
+        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers and no merge card named before the owner's Merge answer at `answered` (4236611)."""
+        carded = self.carded(pr, head)
+        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if key not in carded or carded[key] > answered]
 
     def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
-        """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that no answer labeled `authorizes:<key>` covers, which `rulings.py authorize` writes from the card's tap."""
+        """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that the answer does not cover, because no card named the row before it."""
         if not asks:
             return {}
         merged = self.merged_by_owner(heads, list(asks))
-        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr])}
+        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.unauthorized(pr, heads[pr], merged[pr])}
 
     def batch_posted(self) -> set[str] | None:
         """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
@@ -4143,7 +4116,7 @@ class Landing:
         """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence on its card, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
         merged = self.merged_by_owner(heads, list(waiting))
-        asking = [pr for pr in waiting if pr not in merged or self.reserved_touches(pr, heads[pr])]
+        asking = [pr for pr in waiting if pr not in merged or self.unauthorized(pr, heads[pr], merged[pr])]
         if not asking or (posted := self.batch_posted()) is None:
             return
         if owed := [pr for pr in asking if pr not in posted]:
@@ -4163,7 +4136,7 @@ class Landing:
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"it touches {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}" if paths else "every PR waits for the owner" if mode == "every" and not self.lands_green else "it touches a reserved row"
             touched = "".join(f"; reserved row {key}: \"{sentence}\". Merge also authorizes {key}" for key, sentence in reserved)
-            authorize = "".join(f"; the card quotes {key} and its words, and the tap's `rulings.py authorize --row {key} --action <ts>` records the authorization" for key, _ in reserved)
+            authorize = "".join(f"; the card quotes {key} and its words, and the Merge go authorizes it" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}",
                 "MERGE-ASK",
@@ -4388,15 +4361,12 @@ class Landing:
             return
         if not required or any(check["bucket"] != SQUASH_PASS for check in required):
             return
-        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_REFUSALS]:
-            text = "; ".join(refusals)
-            self.runner.escalate(
-                f"rulings-refused:{pr}@{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
-                "RULINGS-REFUSED",
-                f"#{pr}",
-                f"`rulings.py check-pr --incident` refuses the approved, green incident fix at {view['headRefOid'][:10]}, so the runner does not merge it: {text}; a head that clears them merges the pass it is approved and green (d968e1d)",
-            )
-            return
+        if warnings := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_CHECKS]:
+            text = f"#{pr} {view['headRefOid'][:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not hold it for them (4236611): {'; '.join(warnings)}"
+            warning = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+            if not self.book.known(LANDING, warning):
+                owner = self.owner(pr, row)
+                self.post_record("note", warning, ",".join(self.reach(owner) if owner else [ROOT]), text, pr)
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
         self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
@@ -4887,9 +4857,12 @@ class Landing:
             self.post_blocker(key, ",".join(self.reach(lane)), text, pr)
 
     def post_blocker(self, key: str, to: str, text: str, pr: str) -> None:
+        self.post_record("blocker", key, to, text, pr)
+
+    def post_record(self, kind: str, key: str, to: str, text: str, pr: str) -> None:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text}), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        done = self.runner.cci_post("blocker", text, to, pr, key)
+        done = self.runner.cci_post(kind, text, to, pr, key)
         if done.code == 0:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:
@@ -4943,7 +4916,7 @@ class Landing:
             )
 
     def gate_pass(self) -> None:
-        self.reported, self.slices = {}, {}
+        self.reported = {}
         if self.quota_low():
             return
         advanced = self.advance()
