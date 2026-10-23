@@ -332,9 +332,8 @@ After `deadlines.hold_minutes` (default 15), the runner writes once per hold:
 DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
 ```
 
-The root resolves it with the named lane before or instead of any open
-`AskUserQuestion` on another subject. That unrelated question goes to a
-non-blocking board or waits. The line reaches the root over the `cci` channel as
+The root resolves it with the named lane ahead of any open owner card on another
+subject; that card keeps waiting for its tap. The line reaches the root over the `cci` channel as
 soon as the runner writes it. The hold verb records
 a decision clock; it does not change the landing holds file or authorize a release.
 

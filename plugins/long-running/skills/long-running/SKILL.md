@@ -334,9 +334,8 @@ After `deadlines.hold_minutes` (default 15), the runner writes one decision:
 DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
 ```
 
-The root resolves it with that lane before or instead of an open
-`AskUserQuestion` on another subject. The unrelated owner question goes to a
-non-blocking board or waits. The line reaches the root over the `cci` channel as
+The root resolves it with that lane ahead of any open owner card on another
+subject; that card keeps waiting for its tap. The line reaches the root over the `cci` channel as
 soon as the runner writes it.
 
 *Prevents the 2026-10-03 api/runtime-v2/restate-worker catch-up staying held while
@@ -834,11 +833,11 @@ down; a running copy never sees the `SendMessage`.
 opening #28594 29 s after its stand-down (2026-10-01).*
 
 **R19. A settled question is applied, never asked.**
-Before an owner question reaches `AskUserQuestion` or a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
+Before an owner question reaches a `needs_you` card, `AskUserQuestion`, or a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
 First read the owner's plan and every plan it names as source of truth, including each plan's Decisions section and the section the question touches. Then check `ccn answer list --label scope:durable` plus the drive's answer labels. Last check the project's feedback memories.
 A question any of them answers is applied: the root writes the ruling to the lanes (R18) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking.
 
-A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Choose board or `AskUserQuestion` only after the filter.
+A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Only after the filter does a question go out: on a `needs_you` card during execution, and on a board or `AskUserQuestion` only in a planning round (owner answer 01736af).
 
 An absolute owner instruction ("nothing is dropped", "every side-feature carries") stays absolute in every brief, ruling, and memory the root writes.
 Never add "unless the owner explicitly drops it" or "or an explicit owner drop": an exit turns the ruling into a decision surface, and audit lanes manufacture questions from it.
