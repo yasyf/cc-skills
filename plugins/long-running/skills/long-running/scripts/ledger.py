@@ -111,7 +111,7 @@ PAGE_SIZE = 100
 ROUTE_STATES = ("dirty", "blocked")
 TOUCHED_FIELDS = ("reported_head", "registered_head", "labelled_at", "label_head", "hold_until")
 KINDS = ("p0", "ruling", "report", "idle")
-VERDICTS = ("clean", "red", "conflicting", "held")
+VERDICTS = cci.REPORT_VERDICTS
 MERGE_LABEL = "merge"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -523,7 +523,7 @@ class Messages:
 
     def post(self, fields: dict[str, str]) -> str:
         argv = ["cci", "post", "--drive", self.drive, "--lane", fields["lane"], "--kind", MESSAGE_KINDS[fields["kind"]], "--topic", fields["pr"], "--text", fields["text"]]
-        argv += ["--pr", fields["pr"]] if fields["pr"].isdigit() else []
+        argv += ["--pr", fields["pr"]] if PR_KEY.fullmatch(fields["pr"]) else []
         argv += ["--commit", fields["head"]] if FULL_SHA.match(fields["head"]) else []
         return self.shell.run(argv).strip()
 

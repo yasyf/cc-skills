@@ -1461,12 +1461,17 @@ def test_red_ci_a_conflict_a_review_ask_or_an_ejection_goes_to_the_lane(shell, c
         ([], set(), "chat-move-r4"),
         ([("chat-move-r4", "opened"), ("chat-move-land-2", "head"), ("one-session-open-restack", "ready")], set(), "one-session-open-restack"),
         ([("chat-move-r4", "opened"), ("chat-move-land-2", "claim")], {"chat-move-land-2"}, "chat-move-land-2,root"),
+        ([("a1f2e3d4a5b6c7d8e", "opened"), ("p3-census", "report", "clean READY #29020 green")], set(), "p3-census"),
+        ([("chat-move-land-2", "head"), ("root", "report", "CI is still red on #29020")], set(), "chat-move-land-2"),
     ],
 )
 def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_root_when_that_lane_is_gone(shell, config, posted, gone, to):
     shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
-    shell.records = [{"seq": 34766 + index, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [29020]}, "text": f"#29020 {kind}", "source": "post"} for index, (lane, kind) in enumerate(posted)]
+    shell.records = [
+        {"seq": 34766 + index, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [29020]}, "text": text[0] if text else f"#29020 {kind}", "source": "post"}
+        for index, (lane, kind, *text) in enumerate(posted)
+    ]
     shell.gone = gone
     landing_pass(shell, config)
     assert [post["to"] for post in shell.posts if post["kind"] == "blocker"] == [to]

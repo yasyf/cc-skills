@@ -303,6 +303,9 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
     reported = {"seq": 16, "kind": "report", "lane": "lane-a", "text": "clean READY acme/app#12"}
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, reported])) == (0, [])
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, reported], reviews=[])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
+    status = {"seq": 17, "kind": "report", "lane": "root", "text": "CI is still red on acme/app#12"}
+    assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, reported, status])) == (0, [])
+    assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, status])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
 
 
 def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(package: Path, state: Path, registered: Path, capsys) -> None:

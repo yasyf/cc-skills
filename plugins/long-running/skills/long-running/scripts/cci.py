@@ -18,7 +18,12 @@ ROOT_RULINGS = frozenset({"decide", "decision"})
 MECHANISM_TEXT = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
 SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\b")
 TEXT_KINDS = ("report", "incident", "state")
+REPORT_VERDICTS = ("clean", "red", "conflicting", "held")
 SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down", "done"})
+
+
+def lane_report(record: dict) -> bool:
+    return record.get("kind") == "report" and (record.get("text") or "").split(" ", 1)[0] in REPORT_VERDICTS
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:

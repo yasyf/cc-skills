@@ -144,7 +144,6 @@ TEST_DEFINITION = re.compile(
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
-LANE_KINDS = ("head", "report")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
@@ -1526,10 +1525,9 @@ def finder_major(records: list[dict], sha: str) -> str | None:
 
 
 def lane_of(records: list[dict]) -> str | None:
-    for kind in LANE_KINDS:
-        if owned := [(record["seq"], record["lane"]) for record in records if record.get("kind") == kind and record.get("lane")]:
-            return max(owned)[1]
-    return None
+    heads = [(record["seq"], record["lane"]) for record in records if record.get("kind") == "head" and record.get("lane")]
+    reports = [(record["seq"], record["lane"]) for record in records if cci.lane_report(record) and record.get("lane")]
+    return max(heads or reports)[1] if heads or reports else None
 
 
 def plain_problems(text: str) -> list[str]:
