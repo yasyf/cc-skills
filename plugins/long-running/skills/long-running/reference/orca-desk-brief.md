@@ -857,7 +857,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
 | `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
-| `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
+| `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. A lane that posted a `head` or `review` record for the relayed PR since the relay counts as started and draws none. |
 | `UNACKED` | Read the lane's Run messages first; if it never acted, deliver the relay text at the record's path by hand. The send and two resends lost their response, the lane never named the relay, and the runner sends nothing more. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `SPRITE-UNVERIFIABLE` | Inspect the named receipt directory and any Task or Dispatch before relaunching; a remote worker may be running, and the runner launched nothing locally. |

@@ -1463,11 +1463,10 @@ there still asks.
 A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
 grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
 the row's key and the first sentence of its words, and says the merge also
-authorizes it. The card quotes both, and its tap is the authorization: the root's
-`go` for the head, posted after the runner logged a card naming the row, covers
-the row (4236611). A `go` posted before any card named the row covers nothing, and
-the card goes out. An answer `rulings.py authorize` labels `authorizes:<key>` also
-covers the row, because `check-pr` then stops naming it.
+authorizes it. The card quotes both. The root's `go` for the head authorizes the
+merge and every row it touches, whether or not a card ever posted (3f34533): the
+card only carries the owner's word. An answer `rulings.py authorize` labels
+`authorizes:<key>` also covers the row, because `check-pr` then stops naming it.
 
 A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
 each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>

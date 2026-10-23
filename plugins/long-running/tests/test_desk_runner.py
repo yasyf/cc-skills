@@ -1010,6 +1010,17 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
     assert not [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 
 
+def test_a_lane_that_posts_a_head_for_the_relayed_pr_draws_no_deadline(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "blocker:29020:cccc333333", "--lane", LANE, "--text", "#29020 cccc333333: rebase onto dev")
+    shell.sleep(60)
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": ["acme/service#29020"]}, "text": "api-fix dddd444444", "at": actions.stamp(shell.clock)})
+    for _ in range(25):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert [line for line in escalations(shell) if "DEADLINE" in line] == []
+
+
 def wakes(shell: FakeShell) -> list[str]:
     return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
 
@@ -2542,24 +2553,20 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
 
 
-def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_waits_for_a_go_after_it(shell, config, tmp_path):
+def test_a_go_at_the_head_enqueues_a_reserved_touch_whose_merge_card_never_posted(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    merge_go(shell, "29020", "merge #29020 at cccc333")
-    shell.clock += timedelta(minutes=1)
     shell.check_pr["29020"] = (1, RESERVED)
+    shell.pr_card_error = "ci slack: SSM GetParameter: RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
     landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and len(shell.pr_cards) == 1
-    assert "It touches your rule reserved/user-data" in shell.pr_cards[0]["flags"]["--question"]
+    assert shell.enqueues() == [] and shell.pr_cards == []
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED"]
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
@@ -2597,11 +2604,13 @@ def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell,
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    shell.pr_card_error = "slack: channel_not_found"
+    shell.pr_card_error = "slack: channel_not_found, RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
+    landing_pass(shell, config)
+    shell.pr_card_error = "slack: channel_not_found, RequestID: 69b50a14-6da9-4805-9189-2f39cc06d691"
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "the merge card for #29020 at cccc333 did not post: slack: channel_not_found; the next pass tries again" in line
+    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:cccc333:") and "the merge card for #29020 at cccc333 did not post: slack: channel_not_found" in line
     shell.pr_card_error = ""
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
