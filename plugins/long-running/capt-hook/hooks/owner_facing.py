@@ -99,11 +99,19 @@ ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send th
 PROBES = ("kubectl", "pup", "curl")
 SCRATCH_ROOTS = (Path.home() / ".claude", Path("/tmp"), Path("/private/tmp"))
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
-PLAN_FORBIDDEN = re.compile(
-    r"\b(?:dont|don'?t|do not|never|no|not|stop|without)\b[^.\n]{0,40}?\bplan[ -]?mode\b|\bplan[ -]?mode\b[^.\n]{0,30}?\b(?:until|only once|only after|only when)\b",
+PLAN_CONDITIONAL = re.compile(
+    r"\bplan[ -]?mode\b[^.\n]{0,40}?\b(?:without|until|first|before|after|only (?:when|once|after))\b|\b(?:until|after|once)\b[^.\n]{0,40}?\bplan[ -]?mode\b",
     re.IGNORECASE,
 )
+PLAN_FORBIDDEN = re.compile(
+    r"\b(?:dont|don'?t|do not|never|no|not)\s+(?:\w+\s+){0,3}?(?:(?:enter|endter|go (?:in)?to|start|use|re-?enter)\s+)?plan[ -]?mode\b", re.IGNORECASE
+)
 PLAN_ORDERED = re.compile(r"\b(?:enter|endter|go (?:in)?to|start|use|re-?enter|get into)\b[^.\n]{0,20}?\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
+OUTAGE_STOP_WORDS = (
+    "if more than one outage occurs, it's not allowed to just keep fixing, it has to stop, re-enter plan mode, and figure out a fundamental fix to the problem"
+)
+NO_PLAN_BEFORE_FIX = "dont uou darr endter plan mode without fixjng thr fuckign icndient first"
+PLAN_WHEN_DONE = "berify thay all jncident things sre done, then enter plan mode only when eveyrhing is propelry done"
 PLAN_MODE_FORBIDDEN = (
     "The owner's latest word on plan mode forbids it now. Ship the fix from the lane that holds it, and enter plan mode only when the owner orders it."
 )
@@ -261,16 +269,16 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
         plan_mode("EnterPlanMode", STALE_0820): Allow(),
         Input(tool="EnterPlanMode", tool_input={}, commands=incident_sources(OUTAGE_0820)): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, agent_id="a1b2c3"): Allow(),
-        plan_mode(
-            "EnterPlanMode", CLOSED_0820, transcript=[T.user("dont uou darr endter plan mode without fixjng thr fuckign icndient first")]
-        ): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("no plan mode today")]): Block(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont enter plan mode yet"), T.user("ok now re-enter plan mode and replan")]): Allow(),
-        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("we enter plan mode only once the incident is done")]): Block(),
-        plan_mode(
-            "EnterPlanMode",
-            CLOSED_0820,
-            transcript=[T.user("berify thay all jncident things sre done, then enter plan mode only when eveyrhing is propelry done")],
-        ): Block(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("no, go into plan mode")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont fix anything else, enter plan mode now")]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(OUTAGE_STOP_WORDS)]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Allow(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("ship the fix")]): Block(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("ship the fix")]): Allow(),
     },
@@ -278,9 +286,10 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
 def no_plan_mode_in_an_open_incident(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
-    if (word := latest_plan_word(evt)) is not None and PLAN_FORBIDDEN.search(word):
+    word = latest_plan_word(evt) or ""
+    if not PLAN_CONDITIONAL.search(word) and PLAN_FORBIDDEN.search(word):
         return evt.block(PLAN_MODE_FORBIDDEN)
-    if word is not None and PLAN_ORDERED.search(word):
+    if not PLAN_CONDITIONAL.search(word) and PLAN_ORDERED.search(word):
         return None
     return evt.block(PLAN_MODE_IN_INCIDENT) if open_incidents(evt) else None
 
