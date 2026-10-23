@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from cc_transcript import Session
-from captain_hook.events import PostToolUseEvent, SessionStartEvent, SubagentStartEvent
+from captain_hook.events import PostToolUseEvent, PreToolUseEvent, SessionStartEvent, SubagentStartEvent
 from captain_hook.testing.helpers import build_context
 
 from hooks import compaction_handoff as handoff
@@ -103,3 +104,59 @@ def test_an_orca_worker_receives_the_register_once_at_start(tools: Path, monkeyp
     started = injection.brief_drive_worker(SessionStartEvent(_raw=raw(source="startup"), ctx=ctx(tools / "worker")))
 
     assert fenced(started.message) == REGISTER_BODY
+
+
+def activated(session: Path) -> Path:
+    handoff.CompactionState(active=True, slug="brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
+    return session
+
+
+def spawned(session: Path, tool_name: str, tool_input: dict) -> PreToolUseEvent:
+    return PreToolUseEvent(_raw=raw(tool_name=tool_name, tool_input=tool_input), ctx=ctx(session))
+
+
+def slicing(calls: list[tuple[str, ...]]):
+    def refresh(cwd: str, *args: str, **_: object) -> str:
+        calls.append(args)
+        brief = Path(args[2])
+        brief.write_text(brief.read_text() + "> words\nslice-hash: 0123456789ab\n")
+        return f"refreshed {brief} slice-hash none -> 0123456789ab\n"
+
+    return refresh
+
+
+def test_an_incident_spawn_passes_with_its_slice_and_captures_written_into_the_prompt(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(injection, "rulings", slicing(calls))
+    tool_input = {"name": "incident-api-1n80-fix", "prompt": "Fix the api outage."}
+
+    result = injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", tool_input))
+
+    assert result.updated_input == tool_input | {
+        "prompt": "Fix the api outage.\n\nRegister slice: lane=incident-api-1n80-fix step=incident\n> words\nslice-hash: 0123456789ab\n"
+    }
+    assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--program", "brook"))]
+
+
+def test_an_incident_launch_by_hand_gets_its_slice_written_into_the_brief(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(injection, "rulings", slicing([]))
+    brief = tools / "fix-brief.md"
+    brief.write_text("Fix the api outage.\n")
+
+    result = injection.slice_on_spawn(spawned(activated(tools / "session"), "Bash", {"command": f"orca-launch.sh incident-api-1n80-fix incident xhigh {brief}"}))
+
+    assert result is None
+    assert brief.read_text() == "Fix the api outage.\n\nRegister slice: lane=incident-api-1n80-fix step=incident\n> words\nslice-hash: 0123456789ab\n"
+
+
+def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(cwd: str, *args: str, **_: object) -> str:
+        raise subprocess.CalledProcessError(1, ["rulings.py", *args], stderr="no register for brook\n")
+
+    posted: list[tuple[str, dict]] = []
+    monkeypatch.setattr(injection, "rulings", broken)
+    monkeypatch.setattr(injection, "post_blocker", lambda evt, text, **flags: posted.append((text, flags)))
+    prompt = "Lane lane-a.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
+
+    assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": prompt})) is None
+    assert posted == [("slice_on_spawn: the register slice for lane-a did not read: no register for brook", {"key": "slice-on-spawn:lane-a"})]

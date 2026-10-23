@@ -102,3 +102,5 @@ Log: every apply, release, or other state-changing production command you run
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
+
+Register slice: lane={lane} step=incident

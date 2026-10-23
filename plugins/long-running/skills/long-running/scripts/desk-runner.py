@@ -63,7 +63,11 @@ each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line int
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
-`LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
+`LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
+line and the launch is not an incident fix's. Before any launch the runner refreshes the register slice under that
+line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
+brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
+`SLICE-UNREAD` and the launch goes ahead. Every verified
 launch logs `LAUNCHED` with its dispatch and terminal. The runner reads each lane's
 dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-launch/<run>`,
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
@@ -348,7 +352,7 @@ Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD, RULINGS-REFUSED,
-RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, and BATCH-POST-OWED to blocker, any *-FAILED to defect, and all other labels to report.
+RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -428,7 +432,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -571,6 +575,9 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
+SLICE_LINE = "Register slice:"
+SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
+INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
 UNFIXED_KEY = "unfixed:"
@@ -1603,12 +1610,13 @@ class Runner:
             self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
             return
         lane, brief = spec["lane"], Path(spec["brief"]).resolve()
-        if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief):
+        if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief, spec["role"] or ""):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
         if not spec["now"] and (holder := self.duplicate_holder(lane, brief)):
             self.record(log, duplicate_line(key, lane, holder))
             return
+        self.refresh_slice(key, lane, brief)
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
@@ -1731,7 +1739,11 @@ class Runner:
         reported = datetime.strptime(spec["reported"], "%I:%M %p" if spec["reported"].endswith("M") else "%H:%M")
         brief, failure = self.attach_brief(
             lane,
-            lambda briefs: ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+            lambda briefs: self.sliced(
+                key,
+                lane,
+                ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+            ),
             f"INCIDENT {slug}: fix brief for {lane}: {what} {link}",
         )
         if brief is None:
@@ -1839,13 +1851,17 @@ class Runner:
         newest = max((mark for mark in marks if actions.parse_stamp(mark[0]) >= launched), key=lambda mark: actions.parse_stamp(mark[0]), default=None)
         return f"its mechanism {newest[1]} says the cause is UNKNOWN" if newest and UNKNOWN_CAUSE.search(newest[2]) else ""
 
-    def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
-        """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
+    def case_brief(self, key: str, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
+        """The unfixed-case brief for the case with its register slice, freshly attached to the briefs log; its path, or why it has none."""
         prs = self.opened_prs(parent, launch)
         return self.attach_brief(
             lane,
-            lambda briefs: UNFIXED_TEMPLATE.read_text().format(
-                lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=prs, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=briefs, facts=self.drive_facts()
+            lambda briefs: self.sliced(
+                key,
+                lane,
+                UNFIXED_TEMPLATE.read_text().format(
+                    lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=prs, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=briefs, facts=self.drive_facts()
+                ),
             ),
             f"INCIDENT {parent}: unfixed case brief for {lane}: {case}",
         )
@@ -1857,7 +1873,7 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
-        brief, failure = self.case_brief(lane, parent, launch, case)
+        brief, failure = self.case_brief(key, lane, parent, launch, case)
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
@@ -1873,7 +1889,7 @@ class Runner:
         offers = []
         for case in cases:
             lane = next(names)
-            brief, failure = self.case_brief(lane, parent, launch, case)
+            brief, failure = self.case_brief(key, lane, parent, launch, case)
             offers.append(f"{case} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`" if brief else f"{case} | no launch line: {failure}")
         self.record(f"escalation:{key}", f"DECIDE {key} {parent}: {reason}: {'; '.join(offers)}")
 
@@ -1949,7 +1965,7 @@ class Runner:
                 return spec["lane"]
         return None
 
-    def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
+    def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path, role: str = "") -> str:
         try:
             launch_model(model)
         except argparse.ArgumentTypeError as error:
@@ -1958,6 +1974,8 @@ class Runner:
             return f"{effort} is not an effort: {', '.join(EFFORTS)}"
         if not brief.is_file():
             return f"brief {brief} is not a file"
+        if not SLICE_HEADER.search(brief.read_text()) and not incident_fix(lane, model, brief, role):
+            return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
         container = lane_container(lane)
         if container in self.book.store.ids():
             if held := self.book.load(container).actions.get(key):
@@ -2006,6 +2024,27 @@ class Runner:
             if held and (shared or prs & {number for tree in held for number in re.findall(r"\d+", tree.pr)}):
                 return f"{other}: {lanes.summary(other, held)}"
         return ""
+
+    def rulings(self, verb: str, *argv: str) -> Done:
+        return self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), verb, "--repo", self.config.briefs_repo, "--drive", self.config.drive, *argv])
+
+    def refresh_slice(self, key: str, lane: str, brief: Path) -> None:
+        """Write a fresh register slice under the brief's `Register slice:` line, adding `lane=<lane> step=incident` to a brief with none; a register or slice that does not read logs one `SLICE-UNREAD` and never holds the launch."""
+        text = brief.read_text()
+        if not SLICE_HEADER.search(text):
+            brief.write_text(f"{text.rstrip()}\n\n{SLICE_LINE} lane={lane} step={INCIDENT_STEP}\n")
+        done = self.rulings("slice", "--refresh", str(brief))
+        if done.code:
+            reason = ((done.err.strip() or done.out.strip()).splitlines() or ["no output"])[-1]
+            self.escalate(f"slice:{key}", "SLICE-UNREAD", lane, f"`rulings.py slice --refresh` exited {done.code}: {reason}; {lane} launches on its brief without a fresh register slice")
+
+    def sliced(self, key: str, lane: str, text: str) -> str:
+        """`text` with the register slice written in, the way `refresh_slice` writes it into a brief file."""
+        with tempfile.TemporaryDirectory() as staging:
+            brief = Path(staging) / f"{lane}.md"
+            brief.write_text(text)
+            self.refresh_slice(key, lane, brief)
+            return brief.read_text()
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
@@ -2873,9 +2912,9 @@ class Runner:
         brief = self.brief_for(lane)
         if not brief:
             return f"no fallback launched for {backup}: {lane} has no brief file"
-        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief):
+        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief, INCIDENT_MODEL):
             return f"no fallback launched for {backup}: {refusal}"
-        text = FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text())
+        text = self.sliced(key, backup, FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text()))
         attached, failure = self.attach_brief(backup, lambda _: text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
             return f"no fallback launched for {backup}: {failure}"
@@ -3018,7 +3057,7 @@ class Runner:
                 continue
             brief = json.loads(tries[0].target)["brief"]
             if len(tries) == 1:
-                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief)):
+                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief), INCIDENT_MODEL):
                     self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, True, fast=True)
                 continue
             reasons = " | ".join(action.reason or "" for action in tries)
@@ -3290,7 +3329,11 @@ class Runner:
             return f"{lane} not launched: {refusal}"
         brief, failure = self.attach_brief(
             lane,
-            lambda briefs: MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs, release=self.release_command()),
+            lambda briefs: self.sliced(
+                f"{CUT_LAUNCH}{key}",
+                lane,
+                MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs, release=self.release_command()),
+            ),
             f"CUT-SILENT {clock['lane']}: manual release brief for {lane}",
         )
         if brief is None:

@@ -1,15 +1,37 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, register_context, register_of, script
+from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script
 from .tests.register_fixtures import DRIVE_CONFIG
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
+HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:")
+INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
+INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
+SLICE_HEADER = re.compile(r"^Register slice: lane=\S+ step=\S+", re.MULTILINE)
+INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
+BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
+LANE_FLAGS = ("--lane", "-l")
+FRESH = "fresh "
+NO_SLICE = "A drive lane's brief needs a `Register slice: lane=<name> step=<n>` line. Add it, run `rulings.py slice --refresh {brief}`, and spawn again."
+STALE_SLICE = "This spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` and spawn again."
+INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
+BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
+SLICE = f"{sys.executable} {script('rulings.py')} slice"
+FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
+STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n"}
+SLICED = "Lane lane-a: build the relay.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
@@ -21,6 +43,111 @@ def drive_args(evt: BaseHookEvent) -> list[str] | None:
         return ["--drive", entry["drive"]]
     if worker := reqenv.getenv(DRIVE_ENV):
         return ["--drive", worker]
+    return None
+
+
+def prose(call: TaskCall) -> list[str]:
+    lines = (line.strip() for line in (call.raw.get("prompt") or "").splitlines())
+    return [line for line in lines if line and not line.startswith("ccx:")]
+
+
+def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
+    return bool(INCIDENT_NAME.match(call.agent_name or "") or any(INCIDENT_BRIEF.search(line) for line in lines))
+
+
+def helper(agent_type: str | None) -> bool:
+    return agent_type in HELPER_AGENTS or (agent_type or "").startswith(HELPER_PLUGINS)
+
+
+@dataclass
+class Spawn:
+    lane: str
+    incident: bool
+    text: str
+    brief: Path | None
+    inline: bool
+
+    @property
+    def shown(self) -> str:
+        return str(self.brief) if self.brief else "<brief>"
+
+
+def agent_spawn(call: TaskCall) -> Spawn | None:
+    if helper(call.agent_type):
+        return None
+    prompt = call.raw.get("prompt") or ""
+    lane, incident = call.agent_name or "lane", incident_spawn(call, prose(call)[:1])
+    named = [path for found in BRIEF_FILE.findall(prompt) if (path := Path(found).expanduser()).is_file()]
+    holder = next((path for path in named if SLICE_HEADER.search(path.read_text())), None)
+    if SLICE_HEADER.search(prompt) or not holder:
+        return Spawn(lane, incident, prompt, holder or next(iter(named), None), inline=True)
+    return Spawn(lane, incident, holder.read_text(), holder, inline=False)
+
+
+def launch_spawn(evt: BaseHookEvent) -> Spawn | None:
+    for call in evt.command.calls():
+        name, args = Path(call.name).name, list(call.args)
+        if not args or not (brief := Path(args[-1]).expanduser()).is_file():
+            continue
+        if name == "orca-launch.sh" and len(args) >= 4:
+            return Spawn(args[0], args[1] == "incident", brief.read_text(), brief, inline=False)
+        if name == "codex-ask" and (flag := next((flag for flag in LANE_FLAGS if flag in args[:-1]), None)):
+            return Spawn(args[args.index(flag) + 1].rsplit("/", 1)[-1], "--incident" in args, brief.read_text(), brief, inline=False)
+    return None
+
+
+def refreshed(evt: BaseHookEvent, slug: str, spawn: Spawn) -> tuple[str, str]:
+    text = spawn.text if SLICE_HEADER.search(spawn.text) else f"{spawn.text.rstrip()}\n\n{INCIDENT_SLICE.format(lane=spawn.lane)}\n"
+    with tempfile.TemporaryDirectory() as staging:
+        copy = Path(staging) / "brief.md"
+        copy.write_text(text)
+        said = rulings(str(evt.cwd), "slice", "--refresh", str(copy), "--program", slug)
+        return said, copy.read_text()
+
+
+def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra: object) -> Input:
+    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt, "subagent_type": agent_type}, state=[ACTIVE], **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Agent", "Bash")],
+    skip_if=[FromSubagent()],
+    tests={
+        spawn("lane-a", "Lane lane-a: build the relay."): Block(pattern=r"needs a `Register slice: lane=<name> step=<n>` line"),
+        spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
+        spawn("lane-a", SLICED, commands=STALE): Block(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
+        spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
+        spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Block(pattern=r"--refresh \S*unsliced\.md"),
+        spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
+        spawn("lane-a", "Open the PR.", agent_type="ship-pr"): Allow(),
+        spawn("lane-a", "Watch the PR.", agent_type="open-pr:pr-watcher"): Allow(),
+        spawn("lane-a", "Lane lane-a: build the relay.", agent_id="a1b2c3"): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-a", "prompt": "Lane lane-a: build the relay."}): Allow(),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'unsliced.md'}", state=[ACTIVE]): Block(pattern=r"unsliced\.md"),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], commands=FRESH_SLICE): Allow(),
+        Input(command=f"codex-ask --dispatch --lane lane-a {BRIEFS / 'unsliced.md'}", state=[ACTIVE]): Block(pattern=r"unsliced\.md"),
+        Input(command=f"codex-ask -s /tmp/finder {BRIEFS / 'unsliced.md'}", state=[ACTIVE]): Allow(),
+    },
+)
+def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
+    if not (state := CompactionState.load(evt)).active or not state.slug:
+        return None
+    if not (found := agent_spawn(evt.as_input(TaskCall)) if evt.tool_name == "Agent" else launch_spawn(evt)):
+        return None
+    if not found.incident and not SLICE_HEADER.search(found.text):
+        return evt.block(NO_SLICE.format(brief=found.shown))
+    try:
+        said, fresh = refreshed(evt, state.slug, found)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
+        why = str(failed) if isinstance(failed, OSError) else failure_of(failed)
+        post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why}", key=f"slice-on-spawn:{found.lane}")
+        return None
+    if not found.incident:
+        return None if said.startswith(FRESH) else evt.block(STALE_SLICE.format(brief=found.shown))
+    if found.inline:
+        return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE)
+    found.brief.write_text(fresh)
     return None
 
 

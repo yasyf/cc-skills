@@ -30,3 +30,5 @@ Do, in order:
 
 Never ask the owner anything; a refusal you cannot get past goes to root as a
 `blocker` with the command and its output.
+
+Register slice: lane={lane} step=release

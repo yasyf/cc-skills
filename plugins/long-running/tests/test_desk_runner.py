@@ -151,6 +151,8 @@ class FakeShell(runner_module.Shell):
         self.card_error = ""
         self.check_pr: dict[str, tuple[int, str]] = {}
         self.slices: dict[str, tuple[int, str]] = {}
+        self.refreshes: list[list[str]] = []
+        self.refresh_error = ""
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -324,6 +326,9 @@ class FakeShell(runner_module.Shell):
     def rulings(self, argv: list[str]) -> runner_module.Done:
         verb, flags = argv[0], argv[1:]
         assert flags[:4] == ["--repo", str(self.root / "checkout"), "--drive", "d1"]
+        if verb == "slice" and flags[4] == "--refresh":
+            self.refreshes.append(argv)
+            return runner_module.Done(1 if self.refresh_error else 0, "", self.refresh_error)
         repo, _, pr = flags[flags.index("--pr") + 1].rpartition("#")
         assert repo == "Forge-AI/monorepo"
         if verb == "check-pr":
@@ -4929,8 +4934,50 @@ def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, c
 
 def launch_brief(tmp_path: Path) -> Path:
     brief = tmp_path / "fix-brief.md"
-    brief.write_text("brief")
+    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
     return brief
+
+
+def refreshed(tmp_path: Path, brief: Path) -> list[str]:
+    return ["slice", "--repo", str(tmp_path / "checkout"), "--drive", "d1", "--refresh", str(brief)]
+
+
+def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_incident_fix(shell, config, tmp_path):
+    brief = tmp_path / "fix-brief.md"
+    brief.write_text("brief")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R40 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+
+    assert launches(shell) == [] and shell.refreshes == []
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED R40 {LANE}: brief {brief} has no `Register slice: lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`; nothing was launched"
+    ]
+
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    desk_inbox(tmp_path, f"R41 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert brief.read_text() == f"brief\n\nRegister slice: lane={LANE} step=incident\n"
+    assert shell.refreshes == [refreshed(tmp_path, brief)]
+    assert not [line for line in escalations(shell) if "R41" in line and "LAUNCH-FAILED" in line]
+
+
+def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.refresh_error = "no register for d1"
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R42 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert shell.refreshes == [refreshed(tmp_path, brief)]
+    assert f"SLICE-UNREAD slice:R42 {LANE}: `rulings.py slice --refresh` exited 1: no register for d1; {LANE} launches on its brief without a fresh register slice" in escalations(shell)
+    assert ("blocker", "slice:R42") in [(post["kind"], post["topic"]) for post in shell.posts]
 
 
 @pytest.mark.parametrize(
@@ -6840,6 +6887,15 @@ def test_every_desk_incident_brief_template_leaves_enqueue_to_the_landing_desk(t
     text = " ".join(template.read_text().split())
     assert "post READY with the exact head; the landing desk owns enqueue. Never run stack-enqueue, rebase, or push a queued branch." in text
     assert "enqueue it `--fast`" not in text
+
+
+def test_an_alert_fix_brief_is_sliced_for_the_incident_before_it_attaches(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    text = shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+    assert text.endswith("\nRegister slice: lane=alerts-api-0305-fix step=incident\n")
+    assert [[call[0], call[5]] for call in shell.refreshes] == [["slice", "--refresh"]]
 
 
 def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
