@@ -119,8 +119,7 @@ IDS = (
 ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]*[A-Z]s?\b")
 CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
 PARENTHESIZED = re.compile(r"\([^()]*\)")
-CAPTURE_LOG = "owner-prompts"
-CAPTURE_FORMAT = "jsonl"
+CAPTURES = "owner-prompts.jsonl"
 UNREADABLE = (
     *IDS,
     (
@@ -627,7 +626,7 @@ class Reads:
     def said(self) -> list[str] | None:
         if (register := self.register()) is None:
             return None
-        path = Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
+        path = Path(register["state_dir"]) / CAPTURES
 
         def load() -> list[str]:
             captured = [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
