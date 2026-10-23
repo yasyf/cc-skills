@@ -527,7 +527,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
         return handoff, previous
     read_standing(handoff, shell)
     read_incident_lanes(handoff, shell)
-    handoff.register = rulings.register(shell, args.repo, args.program)
+    handoff.register = rulings.register(shell, args.repo, drive.program_of(registry) if registry else args.program)
     which = ["--drive", registry["drive"]] if registry else ["--program", args.program]
     handoff.rows = standing.register_rows(shell.run, args.repo, which, drive.cci_drive(registry) if registry else args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
