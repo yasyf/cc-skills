@@ -48,6 +48,10 @@ RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. The landing desk refuses a head on these; "
     "this hook only advises (0afd2f6), so settle each one before the merge lands."
 )
+INCIDENT_MERGE_REFUSED = (
+    "An incident fix merges only when `rulings.py check-pr --incident` names none of its three ruling checks, and it names {causes} for #{pr} at {head}. "
+    "Settle each one on the branch, then merge again."
+)
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
@@ -312,8 +316,8 @@ def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] |
         return None
 
 
-def merge_advice(call: Call, entry: dict, cwd: str, incident: bool) -> str | None:
-    """The advice for one `gh pr merge` call, naming each refusal `rulings.py check-pr` prints for its PR and head; None when it prints none or anything does not read."""
+def merge_causes(call: Call, entry: dict, cwd: str, incident: bool) -> tuple[str, str, str] | None:
+    """The PR, head and joined refusals `rulings.py check-pr` prints for one `gh pr merge` call; None when it prints none or anything does not read."""
     repo = named_repo(call) or entry["repo"]
     if (merged := merged_pr(call, repo, cwd)) is None:
         return None
@@ -326,7 +330,7 @@ def merge_advice(call: Call, entry: dict, cwd: str, incident: bool) -> str | Non
     if any(line.split(" ", 1)[0] not in CHECK_PR_CAUSES | {"BLOCKER"} for line in lines) or (done.returncode == 1) != bool(named):
         return None
     causes = [line for line in named if line.split(" ", 1)[0] in (INCIDENT_CAUSES if incident else CHECK_PR_CAUSES)]
-    return RULINGS_ADVICE.format(causes="; ".join(causes), pr=pr, head=head[:10]) if causes else None
+    return (pr, head[:10], "; ".join(causes)) if causes else None
 
 
 @on(
@@ -342,11 +346,14 @@ def rulings_merge_advice(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
     incident = bool(INCIDENT_NAME.match(lane_name(evt) or ""))
-    advice = [
-        line
+    found = [
+        checked
         for call in evt.cmd.calls()
-        if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (line := merge_advice(call, entry, str(call.cwd or evt.cwd), incident))
+        if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))
     ]
+    if incident and found:
+        return evt.block("\n".join(INCIDENT_MERGE_REFUSED.format(causes=causes, pr=pr, head=head) for pr, head, causes in found))
+    advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]
     return evt.context("\n".join(advice)) if advice else None
 
 
