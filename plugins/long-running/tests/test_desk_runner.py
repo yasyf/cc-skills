@@ -2439,7 +2439,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_autho
     landing_pass(shell, config)
     assert shell.enqueues() == [] and blockers(shell) == []
     [line] = escalations(shell)
-    assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
+    assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
     message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
     assert 'reserved row reserved/user-data: "User data stays where it is.". Merge also authorizes reserved/user-data' in message
     assert "`rulings.py authorize --row reserved/user-data --action <ts>`" in message
@@ -2449,6 +2449,20 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_autho
     shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+
+
+def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and "Merge also authorizes reserved/user-data" in line
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
@@ -2671,6 +2685,19 @@ def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shel
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["QUOTA-READ-FAILED"]
 
 
+def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    batch_posts(shell, POSTED)
+    landing = landing_of(shell, config, tmp_path)
+    landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing.enqueue()
+    assert shell.enqueues() == []
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
+
+
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -2725,6 +2752,19 @@ def test_a_grade_naming_the_new_head_beats_a_carried_ok(shell, config, tmp_path)
     assert shell.enqueues() == [] and compare_calls(shell) == []
     [blocker] = blockers(shell)
     assert f"cci #{seq}: fidelity: missing F335" in blocker["text"]
+
+
+def test_an_older_head_whose_missing_a_later_ok_cleared_carries_its_ok(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    grade(shell, "29020", "missing bbbb222 scope/progress a second progress state is shown", lane="fidelity-desk-7")
+    seq = grade(shell, "29020", "ok bbbb222 checked scope/progress names progress bar")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
+    carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333", "dev")
+    assert (carried.ok, carried.record["seq"], carried.why) == (True, seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
 
 
 def test_no_ok_carries_from_a_head_whose_newest_grade_is_missing(shell, config, tmp_path):
@@ -2819,7 +2859,15 @@ def test_an_unreadable_test_corpus_holds_the_head_and_escalates_once(shell, conf
     assert line.startswith("TESTS-CORPUS ") and "cannot read the pinned test corpus at cccc333333: TESTS-CORPUS plan/B-tests.md" in line
 
 
-@pytest.mark.parametrize(("code", "out"), [(2, "usage: rulings.py: error: argument command: invalid choice: 'check-pr'\n"), (1, "SOMETHING-NEW rule/x\n"), (0, "BLOCKER gh pr view 29020 failed: HTTP 502\n")])
+@pytest.mark.parametrize(
+    ("code", "out"),
+    [
+        (2, "usage: rulings.py: error: argument command: invalid choice: 'check-pr'\n"),
+        (1, "SOMETHING-NEW rule/x\n"),
+        (0, "BLOCKER gh pr view 29020 failed: HTTP 502\n"),
+        (0, "RULINGS-UNCITED rule/abc1234 the body cites no answer\n"),
+    ],
+)
 def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_escalates_once(shell, config, tmp_path, code, out):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
@@ -2865,6 +2913,21 @@ def test_a_missing_from_one_fidelity_lane_clears_only_on_its_own_ok_or_a_later_o
 
 
 REQUIRED = "reserved/user-data\tuser data|bucket purge\nscope/progress\tprogress bar|Progress\nslice-hash: 0123456789ab\n"
+
+
+def test_an_ok_that_leaves_a_required_row_out_clears_no_other_desks_missing(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7", "fidelity-desk-9"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    shell.slices["cccc333333"] = (0, REQUIRED)
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|bucket purge|progress bar|Progress", lane="fidelity-desk-9")
+    seq = grade(shell, "29020", "missing cccc333 scope/progress a second progress state is shown", lane="fidelity-desk-7")
+    grade(shell, "29020", "ok cccc333 checked scope/progress names progress bar|Progress")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing cccc333 scope/progress" in blocker["text"]
 
 
 def test_an_ok_counts_only_when_its_checked_set_covers_every_required_row_and_its_names(shell, config, tmp_path):
@@ -3375,7 +3438,7 @@ def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config,
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and blockers(shell) == []
     assert mq(shell, config, "checks") == 0
-    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept", "approvals adapter check", "required-ci adapter check"]
+    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
@@ -3497,7 +3560,8 @@ def test_a_hold_all_written_after_the_pass_read_its_holds_stops_the_incident_squ
     assert merges(shell) == []
 
 
-def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalates_once(shell, config, tmp_path):
+@pytest.mark.parametrize("late", [2, 66])
+def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalates_once(shell, config, tmp_path, late):
     incident_pr(shell)
     landing_pass(shell, config)
     assert len(merges(shell)) == 1
@@ -3505,11 +3569,11 @@ def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalate
     shell.sleep(29 * 60)
     landing_pass(shell, config)
     assert not [line for line in escalations(shell) if line.startswith("UNGRADED-30")]
-    shell.sleep(2 * 60)
+    shell.sleep(late * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [line for line in escalations(shell) if line.startswith("UNGRADED-30")] == [
-        f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 31 minutes ago and has no fidelity ok at that head; both grades are owed within 30 minutes of the merge (d968e1d)"
+        f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 {29 + late} minutes ago and has no fidelity ok at that head; both grades are owed within 30 minutes of the merge (d968e1d)"
     ]
 
 

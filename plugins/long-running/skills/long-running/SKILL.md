@@ -1350,7 +1350,7 @@ checks in order, and every built-in runs when it lists none:
 - `rulings`: `rulings.py check-pr` at the head, below.
 - `fidelity`: the fidelity lane's cci `review` grade at the head, below.
 - `finder`: the sol finder's cci `review` record at the head, below.
-- `merge-mode`: the owner's merge mode, below.
+- `merge-mode`: the owner's merge mode, below, read at accept and again just before the enqueue call.
 - `approvals` and `required-ci`: the adapter's own verdict on the PR.
 
 The first check that refuses a prefix posts its blocker or ask and stops it there.
@@ -1391,8 +1391,8 @@ The runner also requires a fidelity ok at every prefix head. It reads the cci
 which cci also matches to a post that named the bare number, and keeps those whose
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
-`missing` blocks until the same lane grades the head ok, or another lane's later ok
-of the head lists the missing row under `checked`; any other ok never clears it. An ok counts only when its whole line lists under `checked`
+`missing` blocks until the same lane grades the head ok, or another lane's later
+counted ok of the head lists the missing row under `checked`; any other ok never clears it. An ok counts only when its whole line lists under `checked`
 every key `rulings.py slice --required` prints for the head and under `names` every
 name of those rows. cci keeps the first 400 characters of a longer line, so the
 runner reads the whole line from the file the record's `path` names. A slice that
@@ -1428,7 +1428,7 @@ it landed as 2b06f105 without its test, because the gate read only
 `stack-enqueue --check` and the holds.*
 
 A restack carries its grade. When no grade names the current head, the runner
-takes each head an older `fidelity: ok` names whose own newest grade is ok, and
+takes each head an older `fidelity: ok` names whose grades hold a counted ok and no open `missing`, and
 compares `git patch-id --stable` of both heads' diffs against the PR's base, read
 from GitHub's compare. Equal patch ids carry the ok to the new head in that pass,
 cited as `fidelity: ok at <new head>, patch-identical to <graded head>` with the
@@ -1504,7 +1504,7 @@ The runner posts no commit status and adds or removes no label. Its check regist
 alone enforces holds, rules-review, the rulings, fidelity, and the finder: no required
 check carries them, so a hand `gt merge`, a web-UI enqueue, or a hand adapter call
 bypasses all of them. The pack's `rulings_merge_advice` hook runs `check-pr` on a
-`gh pr merge` in a drive session and advises with each cause, never blocking (792fdbb).
+`gh pr merge` in a drive session and advises with each cause, never blocking (0afd2f6).
 The root reads `mq.py why <n>` before any of those.
 
 The holds file stays the root's interface. A `hold` label on a PR holds it too,

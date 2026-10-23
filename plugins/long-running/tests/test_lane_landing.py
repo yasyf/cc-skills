@@ -104,14 +104,14 @@ def drive_registry(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
 
 
-def check_pr_stub(monkeypatch, code: int, out: str) -> list[list[str]]:
+def check_pr_stub(monkeypatch, code: int, out: str, viewed: str = "41700") -> list[list[str]]:
     calls: list[list[str]] = []
     real = subprocess.run
 
     def run(argv, **kwargs):
         if argv[:3] == ["gh", "pr", "view"]:
             calls.append(list(argv))
-            return subprocess.CompletedProcess(argv, 0, f"{HEAD}\n", "")
+            return subprocess.CompletedProcess(argv, 0, f"{viewed} {HEAD}\n", "")
         if len(argv) > 2 and argv[2] == "check-pr":
             calls.append(list(argv))
             return subprocess.CompletedProcess(argv, code, out, "")
@@ -155,9 +155,37 @@ def test_an_incident_lane_merge_is_advised_only_on_the_three_incident_refusals(t
     assert [call[:3] for call in calls if call[:3] == ["gh", "pr", "view"]] == [] and "--incident" in calls[-1]
 
 
-@pytest.mark.parametrize(("code", "out"), [(2, "usage: rulings.py: invalid choice: 'check-pr'\n"), (1, "SOMETHING-NEW rule/x\n"), (0, "BLOCKER gh pr view failed\n"), (0, "")])
+@pytest.mark.parametrize(
+    ("code", "out"),
+    [(2, "usage: rulings.py: invalid choice: 'check-pr'\n"), (1, "SOMETHING-NEW rule/x\n"), (0, "BLOCKER gh pr view failed\n"), (0, ""), (0, "RULINGS-UNCITED rule/abc1234\n")],
+)
 def test_a_check_pr_run_the_hook_cannot_read_or_that_names_no_refusal_passes_silently(tmp_path, monkeypatch, code, out):
     drive_registry(tmp_path, monkeypatch)
     check_pr_stub(monkeypatch, code, out)
 
     assert advise(tmp_path, "gh pr merge 41700 -R Forge-AI/monorepo --squash") == []
+
+
+def test_every_merge_in_a_command_is_advised_whichever_selector_names_it(tmp_path, monkeypatch):
+    drive_registry(tmp_path, monkeypatch)
+    calls = check_pr_stub(monkeypatch, 1, "RULINGS-UNCITED rule/abc1234\n", viewed="41711")
+
+    [advice] = advise(tmp_path, f"gh pr merge 41700 -R Forge-AI/monorepo --squash --match-head-commit {HEAD} && gh pr merge fix/sand-read -R Forge-AI/monorepo --squash")
+
+    assert advice.splitlines() == [
+        lane_landing.RULINGS_ADVICE.format(causes="RULINGS-UNCITED rule/abc1234", pr=pr, head=HEAD[:10]) for pr in ("41700", "41711")
+    ]
+    [view] = [call for call in calls if call[:3] == ["gh", "pr", "view"]]
+    assert view[3:6] == ["fix/sand-read", "--repo", "Forge-AI/monorepo"]
+    assert [call[call.index("--pr") + 1] for call in calls if "check-pr" in call] == ["Forge-AI/monorepo#41700", "Forge-AI/monorepo#41711"]
+
+
+def test_a_merge_of_the_current_branch_asks_gh_for_its_pr_in_the_working_directory(tmp_path, monkeypatch):
+    drive_registry(tmp_path, monkeypatch)
+    calls = check_pr_stub(monkeypatch, 1, "RULINGS-UNCITED rule/abc1234\n", viewed="41711")
+
+    [advice] = advise(tmp_path, "gh pr merge --squash")
+
+    assert advice == lane_landing.RULINGS_ADVICE.format(causes="RULINGS-UNCITED rule/abc1234", pr="41711", head=HEAD[:10])
+    [view] = [call for call in calls if call[:3] == ["gh", "pr", "view"]]
+    assert view[3:5] == ["--json", "number,headRefOid"]
