@@ -446,7 +446,7 @@ def test_requeue_of_a_head_the_latch_does_not_name_changes_nothing(capsys):
 
 def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     shell = desk_shell()
-    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {**ADMITTED, "label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
 
     assert label(shell) == 0
     assert shell.labelled == [f"{PR}:merge"]
@@ -801,7 +801,8 @@ def test_label_refuses_a_pr_with_no_reviews(capsys):
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
     assert shell.labelled == []
-    assert shell.keys() == [PR] and shell.fields(PR) == ADMITTED
+    fields = shell.fields(PR)
+    assert shell.keys() == [PR] and {name: fields[name] for name in ADMITTED} == ADMITTED and fields["label_refused"].startswith("#21221 has no approval in force")
 
 
 def test_label_accepts_an_approval_of_an_earlier_head(capsys):
@@ -2103,7 +2104,7 @@ def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsy
 
 
 def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "findings"}}
     shell.store["rows"].append(review)
 
@@ -2117,7 +2118,7 @@ def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
 
 
 def test_a_head_whose_rules_review_is_pending_is_never_labelled(capsys):
-    shell = desk_shell()
+    shell = admitted(desk_shell())
     review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "pending"}}
     shell.store["rows"].append(review)
 
