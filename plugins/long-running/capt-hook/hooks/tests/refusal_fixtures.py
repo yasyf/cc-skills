@@ -6,16 +6,8 @@ BODIES = Path(__file__).parent / "fixtures" / "refusal-kinds"
 CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
-PLAN = BODIES / "plan.md"
 TREE = BODIES / "tree"
-CARD_TERMS_SOURCE = (TREE / "hooks" / "card_terms.py").read_text()
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
-ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approved"}'
-NAMED_ANSWER = (
-    '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Page a stalled launch?",'
-    ' "body": "Yes: add LAUNCH-STALLED with a STALL_SECONDS clock."}'
-)
-SENTINEL_ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Open it read-only?", "body": "Yes, return errReadOnlyView."}'
 
 LAUNCH_STALLED = """\
 diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
@@ -102,11 +94,34 @@ diff --git a/service/store/view.go b/service/store/view.go
 +	return nil, errReadOnly
 """
 
-SENTINEL_BODY = """ccx vcs ship -m 'store: open views read-only' --pr-body-file - <<'EOF'
-## Rulings
+NEW_SENTINEL = """\
+diff --git a/service/store/view.go b/service/store/view.go
+--- a/service/store/view.go
++++ b/service/store/view.go
+@@ -3,0 +4 @@ import (
++var errReadOnly = errors.New("store: the view is read-only")
+"""
 
-- 317cfd6: the owner's answer orders `errReadOnlyView`.
-EOF"""
+DURATION_FIELDS = """\
+diff --git a/service/blob/rules.go b/service/blob/rules.go
+--- a/service/blob/rules.go
++++ b/service/blob/rules.go
+@@ -10,0 +11,4 @@ import (
++type FaultRule struct {
++	Delay time.Duration
++	Took  time.Duration `json:"took"`
++}
+"""
+
+HELPER_PACKAGE_CLOCK = """\
+diff --git a/service/blob/blobtest/faults.go b/service/blob/blobtest/faults.go
+--- a/service/blob/blobtest/faults.go
++++ b/service/blob/blobtest/faults.go
+@@ -20,0 +21,3 @@ func (b *Bucket) apply(rule FaultRule) {
++	select {
++	case <-time.After(rule.Delay):
++	}
+"""
 
 DIGIT_ID_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
@@ -122,12 +137,6 @@ diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/p
 -ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker"}
 +ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker"}
 """
-
-PLAN_GATES_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
-## Rulings
-
-- 317cfd6, the owner's approval of the plan; plan 1.2 names `LAUNCH-STALLED` and `STALL_SECONDS`.
-EOF"""
 
 CARD_TERMS = """\
 diff --git a/hooks/card_terms.py b/hooks/card_terms.py
@@ -156,17 +165,12 @@ HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bod
 EOF"""
 
 
-def sources(
-    diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str | tuple[int, str] = "", show: tuple[str, str] | None = None
-) -> dict[str, str | tuple[int, str]]:
+def sources(diff: str, *, pr: str | tuple[int, str] = "") -> dict[str, str | tuple[int, str]]:
     return {
         "git symbolic-ref": "origin/main\n",
         "git rev-parse": f"{TREE}\n",
         "git diff": diff,
-        "git show": (128, "fatal: invalid object name"),
-        **({f"git show {show[0]}": show[1]} if show else {}),
         "git ls-files": "",
         "gh pr view": pr,
         "gh pr diff": diff,
-        "ccn": answer,
     }

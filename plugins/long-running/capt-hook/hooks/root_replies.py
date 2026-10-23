@@ -19,6 +19,7 @@ from captain_hook import (
     Input,
     T,
     Tool,
+    Warn,
     on,
 )
 
@@ -37,8 +38,8 @@ NUMBER_TEXT_SHOWN = 160
 OWNER_LABEL = re.compile(r"\bowner(?:'s)?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\b\.?(?:[^\"“\n]{0,12}[\"“]([^\"”\n]+))?", re.IGNORECASE)
 SYSTEM_PREFIXES = ("<", "[Request interrupted", "This session is being continued")
 MISLABELED = (
-    "An `OWNER h:mm` label carries the stamp of the owner turn it quotes, read from the transcript."
-    " Relabel each one below with the time shown, then send again."
+    "Warning, nothing was blocked: an `OWNER h:mm` label below does not match the stamp of the owner turn it quotes."
+    " The transcript's time is beside each; use it in your next message or record."
 )
 LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
@@ -164,7 +165,7 @@ def replied(*events: object, reply: str) -> list[object]:
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 7:58 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
-        ): Block(pattern=r"OWNER 4:11 PM"),
+        ): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*OWNER 4:11 PM"),
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 4:11 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
@@ -180,7 +181,7 @@ def replied(*events: object, reply: str) -> list[object]:
                 reply='Logged OWNER 4:30 PM "stop all cuts now" as a hold.',
             ),
             state=ACTIVE,
-        ): Block(pattern=r"OWNER 4:11 PM"),
+        ): Warn(pattern=r"OWNER 4:11 PM"),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Allow(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Allow(),
     },
@@ -188,7 +189,7 @@ def replied(*events: object, reply: str) -> list[object]:
 def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (wrong := mislabeled(evt, last_reply(evt))):
         return None
-    return evt.block(relabel(wrong))
+    return evt.warn(relabel(wrong))
 
 
 @on(
@@ -200,7 +201,7 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             command="cci post --drive d --lane root --kind hold --text 'OWNER 7:58 PM: stop all cuts now'",
             transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
             state=ACTIVE,
-        ): Block(pattern=r"OWNER 4:11 PM"),
+        ): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*OWNER 4:11 PM"),
         Input(
             command="cci post --drive d --lane root --kind hold --text 'OWNER 4:11 PM: stop all cuts now'",
             transcript=[owner_said("stop all cuts now", "2026-01-15T00:11:00Z")],
@@ -214,7 +215,7 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
         return None
     posts = [record_text(values) for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
     wrong = [line for text in posts for line in mislabeled(evt, text)]
-    return evt.block(relabel(wrong)) if wrong else None
+    return evt.context(relabel(wrong)) if wrong else None
 
 
 @on(
