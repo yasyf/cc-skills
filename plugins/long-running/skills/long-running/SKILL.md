@@ -1382,6 +1382,11 @@ ejection, never the PR's comment text:
   PR, and no blocker goes to the lane. A second at that head logs `AWAITS-GO`, and
   the root's next `go` naming the PR puts it back the same way.
 
+A failing required check posts one `blocker` per PR, refusal, red job and cause. The
+cause is the job's status description with run numbers and durations folded. A later
+head that fails the same way gets one `note` under that blocker. A changed cause or a
+new red job opens a new blocker.
+
 `mq.py dequeue <n>` takes a PR out of the queue only when this drive's queue
 enqueued it or one of its lanes opened it. For another drive's PR it refuses and
 names that drive's root. A dequeue posts a cci `stopped` record to every drive
