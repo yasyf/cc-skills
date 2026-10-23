@@ -39,6 +39,7 @@ class Root:
             "cci tail": reviewed,
             f"ccn -R {self.home} log list": SWEEPS_LOG,
             f"ccn -R {self.home} log show": sweeps(5),
+            f"ccn -R {self.home} answer list": "[]",
             "cc-present outcomes": json.dumps({"revising": {"blockIds": []}}),
         }
 

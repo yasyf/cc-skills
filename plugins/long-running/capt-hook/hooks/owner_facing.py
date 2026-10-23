@@ -39,12 +39,12 @@ from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import CompactionState, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script
 from .nudges import queue_nudge
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
-from .tests.board_fixtures import GLOSSARY, ROWS, board
+from .tests.board_fixtures import ANSWERS, GLOSSARY, REPO, ROWS, board
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -118,6 +118,21 @@ ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]*[A-Z]s?\b")
 CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
 PARENTHESIZED = re.compile(r"\([^()]*\)")
 CAPTURES = "owner-prompts.jsonl"
+OWNER_ANSWERS = ("answer", "list", "--label", "from:owner", "--limit", "0", "--json")
+TOKEN = re.compile(r"[a-z0-9]+")
+PLAIN_ENGLISH = frozenset(
+    """
+    access account admin agent alert api app approval approve auth aws backup branch break browser bucket bug build cache call
+    canary check ci claude cli cloud cluster code codex commit config container cookie cpu crash credential cron data database
+    datadog db deploy deployment dev device diff disk dns docker domain download drift email endpoint env environment error fix
+    flag flake fork git github glass grant graphite hook hotfix http iam image in incident install issue job json key kubernetes
+    latency limit linear lint linter log login logout mac machine memory merge metric migration model monitor namespace node
+    oauth on okta outage page password patch permission pipeline plugin pod pr pre preview prod production pull push queue quota
+    rate rebase release repo repository request restore retire retired retry review revert role rollback rollout run runner
+    schema script secret sentry server service session shell sign slack sso stack staging storage tag test timeout token trace
+    tracker typecheck ui update upgrade upload url version vm webhook worktree
+    """.split()
+)
 UNREADABLE = (
     *IDS,
     (
@@ -136,22 +151,22 @@ UNREADABLE = (
         ),
     ),
 )
-READER = """The owner of this work reads the text after the line. He knows plain English, his own words, and the product's nouns in this glossary:
+READER = """The owner of this work reads the text after the line. He knows plain English, his own words, everyday engineering words such as {engineering}, and the product's nouns in this glossary:
 {glossary}
 
 He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
-List each term in the text he would need defined before he could act on it: one outside plain English and the glossary that the text does not explain in his own words. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is such a term; one that labels an option, plan, or list item is not. Return no terms when he needs nothing defined.
+List each term in the text he would need defined before he could act on it. Only the drive's own names count: a lane's name, a cci or cc-notes record id, a hook, file, or function name, a codename, a bare record number, a PR number with no words beside it saying what it is, and a name from his rulings the text does not explain. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is a codename; one that labels an option, plan, or list item is not. Engineering words he knows pass, and so does any term his own words use: never list either. Return no terms when he needs nothing defined.
 ---
 {text}"""
-PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, and the product's nouns in this glossary:
+PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, everyday engineering words such as {engineering}, and the product's nouns in this glossary:
 {glossary}
 
 He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
-A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Return no terms when he needs nothing defined.
+A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Engineering words he knows pass, and so does any term his own words use: never list either. Return no terms when he needs nothing defined.
 ---
 {text}"""
 CC_PRESENT = CommandSchema(
@@ -171,7 +186,7 @@ CC_SLACK = CommandSchema(
     ),
 )
 RULINGS = f"{sys.executable} {script('rulings.py')}"
-PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"}
+PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS}
 PROGRAM_ACTIVE = [CompactionState(active=True, slug="brook")]
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
@@ -571,7 +586,7 @@ def plan_words(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
     found = [f'plain words: the plan has {kind}, "{hit}"' for kind, hit in hits]
     if (glossary := reads.glossary()) is None:
         return found
-    known = {line.strip().lower() for line in glossary.splitlines()}
+    known = {line.strip().lower() for line in glossary.splitlines()} | PLAIN_ENGLISH
     acronyms = dict.fromkeys(word for word in ACRONYM.findall(seen) if not {word.lower(), word.lower().removesuffix("s")} & known)
     found += [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
     return found + reader_test(evt, readable(text), reads, PLAN_READER)
@@ -635,9 +650,16 @@ class Reads:
         def load() -> list[str]:
             captured = [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
             repeats = [repeat.get("words") or "" for row in register["rows"].values() for repeat in json.loads(row.get("repeats") or "[]")]
-            return [squeeze(text) for text in [*captured, *(row.get("words", "") for row in register["rows"].values()), *repeats]]
+            listed = ccn(self.repo, *OWNER_ANSWERS)
+            listed.check_returncode()
+            answered = [quote for answer in json.loads(listed.stdout) for quote in OWNER_QUOTE.findall(answer["body"])]
+            return [squeeze(text) for text in [*captured, *(row.get("words", "") for row in register["rows"].values()), *repeats, *answered]]
 
         return self.read("the owner's captured words", load)
+
+    def ruled(self) -> list[str]:
+        rows = self.register()["rows"].values()
+        return [phrase(name) for row in rows if row.get("kind") == "scope" for name in json.loads(row.get("names") or "[]")]
 
     def report(self, hook: str) -> None:
         if self.failures:
@@ -645,12 +667,31 @@ class Reads:
             post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
 
 
+def phrase(text: str) -> str:
+    return f" {' '.join(TOKEN.findall(text.lower()))} "
+
+
+def plain(word: str) -> bool:
+    return word in PLAIN_ENGLISH or word.removesuffix("s") in PLAIN_ENGLISH
+
+
+def undefined(term: str, spoken: list[str], ruled: list[str]) -> bool:
+    words = phrase(term)
+    if any(name in words for name in ruled):
+        return True
+    return not all(plain(word) for word in words.split()) and not any(words in said for said in spoken)
+
+
 def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READER) -> list[str]:
     if not text.strip() or (glossary := reads.glossary()) is None or (scopes := reads.scopes()) is None:
         return []
-    prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", text=text)
+    prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", engineering=", ".join(sorted(PLAIN_ENGLISH)), text=text)
     verdict = evt.llm(prompt, Undefined, size="small")
-    return [f'plain words: the owner would need "{term}" defined' for term in verdict.terms if term in text] if verdict else []
+    named = [term for term in verdict.terms if term in text] if verdict else []
+    if not named or (said := reads.said()) is None:
+        return []
+    spoken, ruled = [phrase(words) for words in [*said, *glossary.splitlines()]], reads.ruled()
+    return [f'plain words: the owner would need "{term}" defined' for term in named if undefined(term, spoken, ruled)]
 
 
 def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
@@ -794,6 +835,25 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
             body="It names every chat that lost its last turn, by person.",
             options=["Send", "Hold"],
         ): Allow(),
+        status_card(
+            {"terms": ["break-glass", "grant", "stack", "drift preview", "pre-release check", "Sentry", "retired sessions", "error-tracker", "lint", "device-code sign-in"]},
+            title="Request break-glass before the drift preview?",
+            body="The pre-release check needs a grant on the stack. Sentry lists the retired sessions in its error-tracker view, lint passed, and the Mac needs a device-code sign-in.",
+            options=["Request", "Hold"],
+        ): Allow(),
+        status_card({"terms": ["between edits", "nightly backup"]}, title="Restart only between edits?", body="The upload runs after the nightly backup.", options=["Yes", "Hold"]): Allow(),
+        status_card({"terms": ["night-courier"]}, title="Merge the night-courier fix?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+            pattern=r'the owner would need "night-courier" defined'
+        ),
+        status_card({"terms": ["held copy"]}, title="Drop the held copy?", body="Nothing reads it now.", options=["Drop", "Hold"]): Block(
+            pattern=r'the owner would need "held copy" defined'
+        ),
+        status_card({"terms": ["p1a-land"]}, title="Merge the chat fix from p1a-land?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+            pattern=r'the owner would need "p1a-land" defined'
+        ),
+        status_card({"terms": ["#111518"]}, title="Merge the chat fix?", body="Record #111518 says it passed.", options=["Merge", "Hold"]): Block(
+            pattern=r'the owner would need "#111518" defined'
+        ),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], facts=[{"label": "Lane", "value": "the chat-list fix"}]): Block(
             pattern=r'card fact has a drive word, "Lane"'
         ),
