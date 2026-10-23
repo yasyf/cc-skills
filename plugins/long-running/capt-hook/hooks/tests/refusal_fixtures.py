@@ -7,6 +7,8 @@ CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
 PLAN = BODIES / "plan.md"
+TREE = BODIES / "tree"
+CARD_TERMS_SOURCE = (TREE / "hooks" / "card_terms.py").read_text()
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
 ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approved"}'
 NAMED_ANSWER = (
@@ -127,6 +129,26 @@ PLAN_GATES_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-
 - 317cfd6, the owner's approval of the plan; plan 1.2 names `LAUNCH-STALLED` and `STALL_SECONDS`.
 EOF"""
 
+CARD_TERMS = """\
+diff --git a/hooks/card_terms.py b/hooks/card_terms.py
+--- a/hooks/card_terms.py
++++ b/hooks/card_terms.py
+@@ -12,0 +13,2 @@ def card(verdict: dict, **fields: object) -> Input:
++        card({"terms": ["FINDER-PENDING", "rule 23"]}, title="Send the list to the team?", options=["Send", "Hold"]): Allow(),
++        Input(command="cc-slack dm-status --title 'Merge the fix?'"): Block(pattern=r'"FINDER-PENDING" defined'),
+"""
+
+CARD_TERMS_KIND = """\
+diff --git a/hooks/card_terms.py b/hooks/card_terms.py
+--- a/hooks/card_terms.py
++++ b/hooks/card_terms.py
+@@ -2,0 +3 @@ from captain_hook import Allow, Block, Event, Input, on
++ESCALATIONS = {"CARD-STALE": "blocker"}
+@@ -11,0 +13,2 @@ def card(verdict: dict, **fields: object) -> Input:
++        card({"terms": ["FINDER-PENDING", "rule 23"]}, title="Send the list to the team?", options=["Send", "Hold"]): Allow(),
++        Input(command="cc-slack dm-status --title 'Merge the fix?'"): Block(pattern=r'"FINDER-PENDING" defined'),
+"""
+
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
 
@@ -134,10 +156,15 @@ HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bod
 EOF"""
 
 
-def sources(diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str | tuple[int, str] = "") -> dict[str, str | tuple[int, str]]:
+def sources(
+    diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str | tuple[int, str] = "", show: tuple[str, str] | None = None
+) -> dict[str, str | tuple[int, str]]:
     return {
         "git symbolic-ref": "origin/main\n",
+        "git rev-parse": f"{TREE}\n",
         "git diff": diff,
+        "git show": (128, "fatal: invalid object name"),
+        **({f"git show {show[0]}": show[1]} if show else {}),
         "git ls-files": "",
         "gh pr view": pr,
         "gh pr diff": diff,

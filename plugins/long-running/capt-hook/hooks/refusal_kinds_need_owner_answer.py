@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -13,6 +14,9 @@ from captain_hook.util import reqenv
 from .compaction_handoff import CompactionState
 from .lane_landing import DRIVE_ENV, LANDERS, drive_entry, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
+    CARD_TERMS,
+    CARD_TERMS_KIND,
+    CARD_TERMS_SOURCE,
     CITED,
     DIGIT_ID_BODY,
     FAILS_OPEN,
@@ -30,6 +34,7 @@ from .tests.refusal_fixtures import (
     SENTINEL_BODY,
     SENTINEL_ONLY,
     TEST_ONLY,
+    TREE,
     UNCITED,
     UNNAMED,
     UPLOAD_BUDGET,
@@ -63,7 +68,8 @@ GH_EDIT_VALUES = frozenset(
     }
 )
 TRUNK = ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
-UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
+UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
+TOPLEVEL = ["git", "rev-parse", "--show-toplevel"]
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 EXEMPT = re.compile(
     r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__)/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec)\.\w+$"
@@ -97,6 +103,7 @@ RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL
 CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
+TEST_LITERALS = frozenset({"Input", "Block", "Allow", "Warn", "Ask", "Rewrite"})
 UNCITED_KINDS = (
     "A drive lane's PR may not add a refusal kind, quarantine kind, budget, retry, or clock unless its `## Rulings` section cites an owner answer naming it."
     " Cite the answer beside each name below, or post `cci post --kind ask --to root` for one and wait for it."
@@ -263,9 +270,14 @@ def removed(diff: str) -> Iterator[tuple[str, str]]:
             yield path, raw[1:]
 
 
-def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
+def toplevel(req: Request) -> Path | None:
+    found = (read(TOPLEVEL, req.cwd) or "").strip() if req.worktree else ""
+    return Path(found) if found else None
+
+
+def untracked(cwd: Path | None, root: Path) -> Iterator[tuple[str, int, str]]:
     for name in filter(None, (read(UNTRACKED, cwd) or "").split("\0")):
-        if not EXEMPT.search(name) and (content := text_of(Path(cwd or ".") / name)) is not None:
+        if not EXEMPT.search(name) and (content := text_of(root / name)) is not None:
             yield from ((name, number, text) for number, text in enumerate(content.splitlines(), start=1))
 
 
@@ -284,12 +296,52 @@ def diff_text(req: Request, view: dict) -> str | None:
     return read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or ""
 
 
+def revision(req: Request) -> str | None:
+    if req.edit is None:
+        return req.head or "HEAD"
+    return (read(["gh", "pr", "view", *req.edit, *req.gh, "--json", "headRefOid", "--jq", ".headRefOid"], req.cwd) or "").strip() or None
+
+
+def new_sides(req: Request, root: Path | None, paths: set[str]) -> dict[str, str | None]:
+    if req.worktree:
+        return {path: text_of(root / path) if root else None for path in paths}
+    rev = revision(req) if paths else None
+    return {path: read(["git", "show", f"{rev}:{path}"], req.cwd) if rev else None for path in paths}
+
+
+def callee(func: ast.expr) -> str | None:
+    match func:
+        case ast.Name(id=name) | ast.Attribute(attr=name):
+            return name
+    return None
+
+
+def fixture_nodes(tree: ast.AST) -> Iterator[ast.expr]:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if callee(node.func) in TEST_LITERALS:
+                yield node
+            yield from (keyword.value for keyword in node.keywords if keyword.arg == "tests")
+
+
+def fixture_lines(text: str | None) -> frozenset[int]:
+    try:
+        tree = ast.parse(text or "")
+    except SyntaxError:
+        return frozenset()
+    return frozenset(line for node in fixture_nodes(tree) for line in range(node.lineno, (node.end_lineno or node.lineno) + 1))
+
+
 def new_findings(req: Request, view: dict) -> list[Finding]:
     if (diff := diff_text(req, view)) is None:
         return []
-    lines = [*added(diff), *(untracked(req.cwd) if req.worktree and req.edit is None else ())]
+    root = toplevel(req)
+    lines = [*added(diff), *(untracked(req.cwd, root) if root else ())]
     kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
-    return [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
+    found = [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
+    sides = new_sides(req, root, {finding.path for finding in found if finding.path.endswith(".py")})
+    fixtures = {path: fixture_lines(text) for path, text in sides.items()}
+    return [finding for finding in found if finding.line not in fixtures.get(finding.path, ())]
 
 
 def named(text: str, match: re.Match[str]) -> str:
@@ -427,7 +479,7 @@ def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
 
 
 def ship(command: str, **extra: object) -> Input:
-    return Input(**({"command": command, "agent_id": LANE, "state": ACTIVE, "env": DRIVE_ENV} | extra))
+    return Input(**({"command": command, "agent_id": LANE, "state": ACTIVE, "env": DRIVE_ENV, "cwd": str(TREE)} | extra))
 
 
 @on(
@@ -480,6 +532,30 @@ def ship(command: str, **extra: object) -> Input:
         ),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS), decide=CONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS_KIND), decide=CONFIRMED): Block(
+            pattern=r"\A(?![\s\S]*card_terms\.py:1[34] )[\s\S]*card_terms\.py:3 refusal kind CARD-STALE"
+        ),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS), cwd=str(TREE / "hooks"), decide=CONFIRMED): Allow(),
+        ship(
+            f"gh pr create --base main --title 'card terms' --body-file {UNCITED}",
+            commands=sources(CARD_TERMS, show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)),
+            decide=CONFIRMED,
+        ): Allow(),
+        ship(
+            f"gh pr create --base main --head card-terms --title 'card terms' --body-file {UNCITED}",
+            commands=sources(CARD_TERMS, show=("card-terms:hooks/card_terms.py", CARD_TERMS_SOURCE)),
+            decide=CONFIRMED,
+        ): Allow(),
+        ship(
+            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("9f1c2e3:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
+        ): Allow(),
+        ship(
+            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
+        ): Block(pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"),
+        ship(f"gh pr create --base main --title 'card terms' --body-file {UNCITED}", commands=sources(CARD_TERMS), decide=CONFIRMED): Block(
+            pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"
+        ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Block(
             pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
