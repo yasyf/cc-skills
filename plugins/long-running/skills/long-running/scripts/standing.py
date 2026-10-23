@@ -40,7 +40,7 @@ OWN_RULES = re.compile(r"^#{2,3}\s+standing owner rules\b", re.IGNORECASE | re.M
 NEXT_SECTION = re.compile(r"^#{1,2}\s", re.MULTILINE)
 BULLET_ID = re.compile(rf"^\s*[-*]\s+`?({ID})`?\b")
 OWNER_GATE = re.compile(
-    r"\bowner(?:'|’)?s (?:word|approval|sign-?off|go\b|click)|\bowner (?:approval|sign-?off|go\b|click)|reserved for the owner",
+    r"\bowner(?:'|’)?s (?:word|approval|sign-?off|go|click)\b|\bowner (?:approval|sign-?off|go|click)\b|\breserved for the owner\b",
     re.IGNORECASE,
 )
 HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
