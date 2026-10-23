@@ -350,7 +350,7 @@ does at once for a terminal Orca shows closed. Everything else is kept and named
 Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD,
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, HOLDS-UNREAD,
 RULINGS-UNREAD, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
@@ -387,8 +387,13 @@ The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
 plugin version the runner runs. A runner behind the version `installed_plugins.json` lists logs one
-`RUNNER-STALE <running> < <installed>` blocker per installed version, naming the `handoff` that rotates it and the
-restart command; `drive.py digest` prints each desk's running and installed versions.
+`RUNNER-STALE <running> < <installed>` report per installed version and re-executes into the installed version after
+that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. `handoff` stops the live runner at the end
+of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. `drive.py digest`
+prints each desk's running and installed versions.
+While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, each landing pass logs one `RULING-ASK`
+per board round; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
+round, foundational rows first.
 """
 
 from __future__ import annotations
@@ -425,16 +430,18 @@ import prompt_screen
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
+RUNNER_BIN = SCRIPTS.parents[2] / "bin" / "desk-runner.py"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RULING_CARDS = "cards"
 MERGE_CARDS = "merge_cards"
+RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-UNREAD": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RULINGS-UNREAD": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -682,9 +689,14 @@ class Shell:
                 return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
-    def spawn(self, argv: list[str], out: Path, env: dict[str, str]) -> subprocess.Popen:
+    def reexec(self, argv: list[str]) -> None:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execv(argv[0], argv)
+
+    def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w") as sink:
+        with out.open("a" if append else "w") as sink:
             return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
 
     def stat(self, path: Path) -> tuple[int, int] | None:
@@ -1340,8 +1352,11 @@ class Runner:
         self.book.edit(RUNNER, settle)
         self.record(f"escalation:deferred:{held['ids'][0]}", f"DEFERRED {len(lines)} escalations held during {held['incident']}: {' | '.join(lines)}")
 
+    def runner_log(self, desk: str) -> Path:
+        return self.config.desk_inbox.parent.parent / f"{desk}-runner.log"
+
     def restart_command(self, desk: str) -> str:
-        return f"nohup desk-runner.py run --config {self.config.source} --desk {desk} > {self.config.desk_inbox.parent.parent / f'{desk}-runner.log'} 2>&1 < /dev/null &"
+        return f"nohup desk-runner.py run --config {self.config.source} --desk {desk} >> {self.runner_log(desk)} 2>&1 < /dev/null &"
 
     def beat(self, desk: str) -> None:
         inbox = self.config.desk_inbox.parent
@@ -1351,17 +1366,21 @@ class Runner:
         staged.write_text(json.dumps(beat) + "\n")
         staged.replace(inbox / HEARTBEATS[desk])
 
-    def stale(self, desk: str) -> None:
-        """Log one `RUNNER-STALE` per installed version this runner's code is behind, naming the handoff that rotates it."""
+    def stale(self, desk: str) -> bool:
+        """Whether a newer plugin version is installed than this runner runs, noting it once per installed version; the loop re-executes into it at the end of the pass."""
         installed = drive.installed_version()
-        if drive.behind(RUNNING_VERSION, installed):
-            self.escalate(
-                f"stale:{desk}:{RUNNING_VERSION}<{installed}",
-                "RUNNER-STALE",
-                desk,
-                f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, runs {RUNNING_VERSION} while {installed} is installed, so no fix released since reaches it;"
-                f" rotate it with `desk-runner.py handoff --config {self.config.source} --desk {desk}`, then start the next one with `{self.restart_command(desk)}`",
-            )
+        if not drive.behind(RUNNING_VERSION, installed):
+            return False
+        self.escalate(
+            f"stale:{desk}:{RUNNING_VERSION}<{installed}",
+            "RUNNER-STALE",
+            desk,
+            f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, re-executes into {installed} at the end of this pass; nothing to do",
+        )
+        return True
+
+    def reexec(self, desk: str) -> None:
+        self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
 
     def stop_marker(self) -> Path:
         return self.config.source.with_name(f"{self.config.source.name}.stop")
@@ -1377,26 +1396,29 @@ class Runner:
             self.shell.sleep(WAKE_SECONDS)
         return self.stop_requested()
 
-    def handoff(self, desk: str) -> int:
-        beat = self.config.desk_inbox.parent / HEARTBEATS[desk]
-        if not beat.is_file():
-            print(f"desk-runner handoff: no {desk} runner has beaten here")
-            return 0
-        pid = json.loads(beat.read_text())["pid"]
+    @staticmethod
+    def alive(pid: int) -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
-            print(f"desk-runner handoff: runner {pid} is gone; start the next one")
-            return 0
-        marker = self.stop_marker()
-        marker.write_text(f"{pid}\n")
-        deadline = self.now() + HANDOFF_WAIT
-        while marker.exists():
-            if self.now() >= deadline:
-                print(f"desk-runner handoff: runner {pid} wrote no exit mark within {HANDOFF_WAIT}; {marker} stays until it does", file=sys.stderr)
-                return 1
-            self.shell.sleep(WAKE_SECONDS)
-        print(f"desk-runner handoff: runner {pid} exited; start the next one")
+            return False
+        return True
+
+    def handoff(self, desk: str) -> int:
+        """Stop the desk's live runner at the end of its pass, then start its successor on the newest installed plugin with the same config, its output appended to the desk's runner log."""
+        beat = self.config.desk_inbox.parent / HEARTBEATS[desk]
+        pid = json.loads(beat.read_text())["pid"] if beat.is_file() else None
+        if pid is not None and self.alive(pid):
+            marker = self.stop_marker()
+            marker.write_text(f"{pid}\n")
+            deadline = self.now() + HANDOFF_WAIT
+            while marker.exists():
+                if self.now() >= deadline:
+                    print(f"desk-runner handoff: runner {pid} wrote no exit mark within {HANDOFF_WAIT}; {marker} stays until it does, and no successor started", file=sys.stderr)
+                    return 1
+                self.shell.sleep(WAKE_SECONDS)
+        started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), {}, append=True)
+        print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
 
     def binding(self, via: str = "") -> dict:
@@ -4936,18 +4958,20 @@ class Landing:
             self.report_unread()
 
     def ask_rulings(self) -> None:
-        """Log one `RULING-ASK` per ruling card `rulings.py classify` wrote under the drive's `cards/`, and again whenever classify rewrites it, for the root to send the owner as a `needs_you` card."""
-        for card in sorted((self.runner.config.source.parent / RULING_CARDS).glob("*.json")):
-            text = card.read_text()
-            fields = json.loads(text)
-            self.runner.escalate(
-                f"ruling-ask:{card.stem}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
-                "RULING-ASK",
-                card.stem,
-                f"{fields['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
-                " a tap or a reply on it is a capture: Right, the card's recommended option, ticks every line with `rulings.py confirm`, Some wrong waits for the owner's reply naming the lines, and the text typed in the built-in Other's modal is the capture naming them;"
-                f" an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {fields['waits']}\"` and reply in the card's thread in plain words through `slack_dm_status` with `about` `{fields['waits']}`, the card's waits id, so cc-slack opens the reply with the link back to the card itself",
-            )
+        """Log one `RULING-ASK` per board round while ruling cards `rulings.py classify` wrote queue under the drive's `cards/`; the root puts the round on the cc-present board with `rulings.py round`, never one card per ruling."""
+        state = self.runner.config.source.parent
+        if not (queued := list((state / RULING_CARDS).glob("*.json"))):
+            return
+        number = len(list((state / RULING_ROUNDS).glob("round-*.json"))) + 1
+        self.runner.escalate(
+            f"ruling-ask:round-{number}",
+            "RULING-ASK",
+            f"round-{number}",
+            f"{len(queued)} ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive {self.runner.config.drive}`:"
+            f" it puts at most ten of them on the live cc-present board as round {number}, foundational rows first, never as an AskUserQuestion or a bare Slack card;"
+            " a pick or a note on a ruling there is a capture: Right ticks every line with `rulings.py confirm <key> --tick all --capture <digest>`,"
+            " and Some wrong waits for the owner's note naming the lines",
+        )
 
     def gate_pass(self) -> None:
         self.reported = {}
@@ -5032,7 +5056,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.orca_back()
         runner.aged_holds()
         runner.stalled_launches()
-        runner.stale("orca")
+        behind = runner.stale("orca")
         runner.flush()
         runner.write_view()
         runner.beat("orca")
@@ -5042,6 +5066,8 @@ def run_orca(runner: Runner, once: bool) -> int:
         if runner.stop_requested():
             runner.stop_marker().unlink()
             return 0
+        if behind:
+            runner.reexec("orca")
 
 
 def mq_config_fault(landing: dict) -> str:
@@ -5098,7 +5124,7 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.tail_failed(failure)
         except OrcaUnreachable as down:
             runner.orca_down(down)
-        runner.stale("landing")
+        behind = runner.stale("landing")
         runner.flush()
         runner.beat("landing")
         if once:
@@ -5106,6 +5132,8 @@ def run_landing(runner: Runner, once: bool) -> int:
         if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
             runner.stop_marker().unlink()
             return 0
+        if behind:
+            runner.reexec("landing")
 
 
 def launch_model(model: str) -> str:

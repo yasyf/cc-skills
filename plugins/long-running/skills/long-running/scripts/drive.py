@@ -60,7 +60,7 @@ Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence,
 
 ``digest`` prints one line per desk runner from its heartbeat in ``<state dir>/inbox``: its pid, the plugin version it
 runs, the version ``installed_plugins.json`` lists, and its last pass. A runner behind the installed version, or one whose
-heartbeat names no version, reads stale with the ``desk-runner.py handoff`` and restart commands that rotate it; the
+heartbeat names no version, reads stale with the ``desk-runner.py handoff`` command that rotates it; the
 command exits 1 while any desk is stale or has no heartbeat.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
@@ -437,7 +437,7 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
         running = beat.get("version", "")
         late = behind(running, installed)
         current &= not late
-        state = f"stale; rotate it with `desk-runner.py handoff --config {beat['config']} --desk {desk}`, then start the next one with `{beat['restart']}`" if late else "current"
+        state = f"stale; rotate it with `desk-runner.py handoff --config {beat['config']} --desk {desk}`, which starts the next one" if late else "current"
         print(f"{desk}: pid {beat['pid']} runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last pass {beat['at']}: {state}")
     return 0 if current else 1
 

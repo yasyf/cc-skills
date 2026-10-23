@@ -17,12 +17,12 @@ from cc_transcript.models import TranscriptEvent
 from captain_hook import (
     Allow,
     BaseHookEvent,
-    Block,
     Event,
     FromSubagent,
     HookResult,
     Input,
     Tool,
+    Warn,
     WorkflowState,
     on,
     workflow_state,
@@ -38,6 +38,7 @@ from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
 
 SENDER = "long-running"
+STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
@@ -444,7 +445,7 @@ def heir(retired: dict[str, str | None], name: str) -> str | None:
 
 
 def stand_down(message: object) -> bool:
-    return isinstance(message, str) and session_tree.STAND_DOWN.match(message) is not None
+    return isinstance(message, str) and STAND_DOWN.search(message) is not None
 
 
 @on(
@@ -480,20 +481,25 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(
             tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": "desk-2"})]
-        ): Block(pattern=r"^`desk` rotated to `desk-2`"),
+        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` rotated to `desk-2`"),
         Input(
             tool="SendMessage",
             tool_input={"to": "desk", "message": "status?"},
             agent_id="a1b2c3",
             state=[RotationState(retired={"desk": "desk-2", "desk-2": "desk-3"})],
-        ): Block(pattern="Send this to `desk-3` instead"),
-        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Block(),
+        ): Warn(pattern="Send the next one to `desk-3`"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Warn(),
         Input(
             tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}, state=[RotationState(retired={"desk": "desk-2"})]
         ): Allow(),
         Input(
+            tool="SendMessage",
+            tool_input={"to": "desk", "message": "Lane desk: stand down now, desk-2 took over at 11:09 AM; send nothing further."},
+            state=[RotationState(retired={"desk": "desk-2"})],
+        ): Allow(),
+        Input(
             tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": None})]
-        ): Block(pattern="Send this to `main` instead"),
+        ): Warn(pattern="Send the next one to `main`"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": None})]): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk-2", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Allow(),
     },
@@ -501,16 +507,16 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
 def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     raw = evt.input.raw
     retired = RotationState.load(evt).retired
-    if (to := raw.get("to")) not in retired or (evt.agent_id is None and stand_down(raw.get("message"))):
+    if (to := raw.get("to")) not in retired or stand_down(raw.get("message")):
         return None
     if successor := heir(retired, to):
-        return evt.block(
-            f"`{to}` rotated to `{successor}`, which owns its work now, and a message to `{to}` resumes the old lane "
-            f"on its stale brief. Send this to `{successor}` instead."
+        return evt.context(
+            f"Warning, nothing was blocked: `{to}` rotated to `{successor}`, which owns its work now, and this message resumes the old lane "
+            f"on its stale brief. Send the next one to `{successor}`."
         )
     if evt.agent_id is None:
         return None
-    return evt.block(
-        f"`{to}` was stopped and has no successor, and a message to it resumes the stopped lane on its stale brief. "
-        "Send this to `main` instead."
+    return evt.context(
+        f"Warning, nothing was blocked: `{to}` was stopped and has no successor, and this message resumes the stopped lane on its stale brief. "
+        "Send the next one to `main`."
     )

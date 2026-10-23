@@ -7,9 +7,10 @@
     rulings.py classify     (--program SLUG | --drive ID) [--answer ID] [CLASSIFICATION...]
     rulings.py implications (--program SLUG | --drive ID) KEY
     rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...]
+    rulings.py round        (--program SLUG | --drive ID)
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
-    rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH] [--posted REF]
+    rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
     rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ [--root DIR]
     rulings.py accepted     (--program SLUG | --drive ID) --lane NAME
     rulings.py pr-block     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] --lane NAME
@@ -18,6 +19,7 @@
     rulings.py authorize    (--program SLUG | --drive ID) --row KEY (--action TS | --prompt DIGEST)
     rulings.py status       (--program SLUG | --drive ID) KEY STATE --evidence REF
     rulings.py anchor       (--program SLUG | --drive ID) KEY [--paths P]... [--symbols S]... [--ops O]...
+    rulings.py names        (--program SLUG | --drive ID) KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
     rulings.py supersede    (--program SLUG | --drive ID) OLD --by NEW
     rulings.py check-pr     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
 
@@ -34,6 +36,11 @@ The register is the cc-notes ledger labelled ``register`` and ``program:<program
 per owner ruling, board answer, design rule and design exception, holding the owner's words
 verbatim. This script is its only writer. Owner captures are read from
 ``<state dir>/owner-prompts.jsonl``; per-ruling cards are written to ``<state dir>/cards/``.
+
+``round`` puts the next confirmation round on the session's live cc-present board: at most ten queued ruling cards,
+foundational rows first, one board card each whose pick is ``Right`` or ``Some wrong``, opened as a new round. A row the
+owner's own pick, tap or reply on a card produced gets no confirmation; its card leaves the queue unsent. Every card the
+round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue holds only what no round has read.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. The register is read
@@ -91,6 +98,11 @@ DIRECTIONS = ("removes", "permits")
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board"})
 RECOMMENDED_MARK = " (Recommended)"
 CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
+ROUND_SIZE = 10
+ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
+CARD_REPLIES = frozenset({"slack-action", "slack-reply"})
+TAPS = frozenset({"slack-action", "board"})
+PROOF_SOURCE = re.compile(r"^proof:([\w-]+):")
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
@@ -847,6 +859,75 @@ def write_cards(loaded: Register, key: str, confirms: list[str]) -> list[Path]:
     return written
 
 
+def rounds_dir(loaded: Register) -> Path:
+    return loaded.state / "cards" / "rounds"
+
+
+def row_of_card(waits: str) -> str:
+    card = waits.removeprefix("confirms:").rsplit(":", 1)[0] if waits.startswith("confirms:") else waits
+    return card.replace(":", "/", 1)
+
+
+def confirmed_by_owner(fields: dict[str, str]) -> bool:
+    source = PROOF_SOURCE.match(fields.get("proof") or "")
+    return fields.get("kind") == "pick" or bool(source and source[1] in CARD_REPLIES)
+
+
+def kebab(card: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", card.lower())
+
+
+def on_board_card(block: str, card: str) -> bool:
+    return bool(re.fullmatch(rf"round\d+-{re.escape(kebab(card))}(?:-means|-pick)?", block))
+
+
+def round_block(number: int, card: dict) -> dict:
+    block = f"round{number}-{kebab(card['waits'])}"
+    return {
+        "id": block,
+        "type": "card",
+        "title": f"Did I read {card['title']} right?",
+        "children": [
+            {"id": f"{block}-means", "type": "markdown", "md": card["body"]},
+            {"id": f"{block}-pick", "type": "choice", "prompt": "Is this what you meant?", "options": ROUND_PICKS},
+        ],
+    }
+
+
+def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    loaded = Register.load(args, shell)
+    rulings, rounds = loaded.rulings(), rounds_dir(loaded)
+    number = len(list(rounds.glob("round-*.json"))) + 1
+    wanted, skipped = [], []
+    for path in sorted((loaded.state / "cards").glob("*.json")):
+        card = json.loads(path.read_text())
+        fields = rulings.get(row_of_card(card["waits"]))
+        if fields is None or (not card["waits"].startswith("confirms:") and confirmed_by_owner(fields)):
+            skipped.append(path)
+        else:
+            wanted.append((KIND_ORDER.get(fields.get("kind") or "", len(KIND_ORDER)), path.name, path, card))
+    for path in skipped:
+        (rounds / "skipped").mkdir(parents=True, exist_ok=True)
+        path.replace(rounds / "skipped" / path.name)
+    if skipped:
+        print(f"{len(skipped)} card(s) left the queue unsent: the owner's own tap or reply made the row, or the row is superseded", file=sys.stderr)
+    taken = sorted(wanted, key=lambda item: item[:2])[:ROUND_SIZE]
+    if not taken:
+        print("no ruling card queues")
+        return 0
+    taken_dir = rounds / f"round-{number}"
+    taken_dir.mkdir(parents=True, exist_ok=True)
+    shell.run(["cc-present", "round", "--title", f"Your rulings, read back: round {number}"])
+    for *_, path, card in taken:
+        staged = taken_dir / f"{path.stem}.block.json"
+        write_atomic(staged, json.dumps(round_block(number, card), ensure_ascii=False, indent=2) + "\n")
+        shell.run(["cc-present", "update-block", str(staged), "--round", "current"])
+        path.replace(taken_dir / path.name)
+    write_atomic(rounds / f"round-{number}.json", json.dumps({"round": number, "keys": [row_of_card(card["waits"]) for *_, card in taken]}, indent=2) + "\n")
+    print(f"round {number}: {len(taken)} rulings on the board, foundational rows first")
+    return 0
+
+
 def live_lanes(loaded: Register, entry: dict) -> list[str]:
     peers = {peer["lane"] for line in loaded.shell.run(["cci", "who", "--drive", drive.cci_drive(entry), "--json"]).splitlines() if line.strip() and (peer := json.loads(line)).get("lane")}
     rows = {row["key"]: row["fields"] for row in ccn(loaded.shell, loaded.repo, "ledger", "show", entry["ledger"])["rows"]}
@@ -867,8 +948,13 @@ def announce(loaded: Register, cci: str, live: list[str], key: str, how: str) ->
     loaded.shell.run(argv)
 
 
-def repeat_file(loaded: Register, key: str) -> Path:
-    return loaded.state / "register" / f"repeat-{card_id(key)}.json"
+def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
+    path = loaded.state / "sweep" / "repeats" / f"{key.replace('/', '-')}.txt"
+    write_atomic(path, "\n".join([f"The owner repeated {key}. Each sweep hit of its names stays open until its line is deleted or an owner answer names it.", *hits]) + "\n")
+    argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "state", "--text", f"owner repeated {key}: {len(hits)} sweep hits, posted by classify", "--path", str(path)]
+    for lane in sorted(fidelity_lanes(loaded)):
+        argv += ["--to", lane]
+    loaded.shell.run(argv)
 
 
 def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict], entry: dict) -> dict:
@@ -880,8 +966,9 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     proof = f"proof:{capture.get('source', 'prompt')}:{item}"
     at = pacific(capture["at"])
     words = entry["words"]
+    repeated = False
     if extends := entry.get("extends"):
-        key, how = extends, "extended"
+        key, how, repeated = extends, "extended", bool(repeat_markers(loaded, capture["text"]))
         fields = loaded.rows[key]
         kept = listed(fields.get("implications"))
         kind = entry.get("kind") or fields.get("kind")
@@ -890,7 +977,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
             key,
             **reclassified,
             repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": words, "proof": proof}],
-            said=str(int(fields.get("said") or 1) + 1),
+            said=str(int(fields.get("said") or 1) + repeated),
             names=union(names_of(fields), entry.get("names") or []),
             surfaces=union(listed(fields.get("surfaces")), entry.get("surfaces") or []),
             implications=kept + numbered(entry.get("implications") or [], len(kept) + 1, item),
@@ -926,8 +1013,6 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         if supersedes:
             superseded(loaded, supersedes, key)
     hits = Sweeper(loaded, {key: loaded.rows[key]}).files(default_files(loaded, loaded.plan(args.plan)))
-    if how == "extended":
-        write_atomic(repeat_file(loaded, key), json.dumps({"key": key, "opened_at": stamp(), "hits": [str(hit) for hit in hits], "posted": None}, indent=2) + "\n")
     cards = write_cards(loaded, key, entry.get("confirms") or [])
     row = loaded.rows[key]
     return {
@@ -942,6 +1027,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         "surfaces": listed(row.get("surfaces")),
         "supersedes": entry.get("supersedes"),
         "extends": extends,
+        "repeated": repeated,
         "cards": [str(path) for path in cards],
         "hits": [str(hit) for hit in hits],
     }
@@ -973,15 +1059,20 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
             print("\n".join(refused))
             return 1
         touched_rows: dict[str, str] = {}
+        repeats: dict[str, list[str]] = {}
         for entry in entries:
             result = applied(loaded, args, captured, entry)
             print(json.dumps(result, ensure_ascii=False))
             if "key" in result:
                 touched_rows.setdefault(result["key"], result["how"])
+            if result.get("repeated"):
+                repeats[result["key"]] = result["hits"]
         if touched_rows and (drive_entry := entry_of(args)):
             live = live_lanes(loaded, drive_entry)
             for key, how in touched_rows.items():
                 announce(loaded, drive.cci_drive(drive_entry), live, key, how)
+            for key, hits in repeats.items():
+                post_repeat(loaded, drive.cci_drive(drive_entry), key, hits)
     return 0
 
 
@@ -1003,25 +1094,28 @@ def numbers(value: str | None, implications: list[dict]) -> set[int]:
 
 def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
-        return confirmed(args, loaded)
+        return confirmed(args, loaded, args.key)
 
 
-def confirmed(args: argparse.Namespace, loaded: Register) -> int:
-    fields = loaded.row(args.key)
+def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
+    fields = loaded.row(key)
     capture = captures(loaded.state).get(args.capture)
-    card = card_id(args.key)
+    card = card_id(key)
     text = (capture or {}).get("text", "")
-    on_card = capture and (capture.get("block") == card or args.key in text or card in text)
+    block = (capture or {}).get("block") or ""
+    on_card = capture and (block == card or on_board_card(block, card) or key in text or card in text)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
-        print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {args.key}'s card")
+        print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
-    if capture["source"] == "slack-action" and (text.strip().lower().removesuffix(RECOMMENDED_MARK.lower()) != RIGHT or args.tick != "all" or strikes):
+    picked = text.strip().lower().removesuffix(RECOMMENDED_MARK.lower())
+    tapped = capture["source"] == "slack-action" or (capture["source"] in TAPS and picked == RIGHT)
+    if tapped and (picked != RIGHT or args.tick != "all" or strikes):
         print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines, and Other's modal text names them")
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
-    if capture["source"] != "slack-action" and (args.tick == "all" or not (ticks | strikes) <= named_lines):
+    if not tapped and (args.tick == "all" or not (ticks | strikes) <= named_lines):
         print(f"CONFIRM-UNNAMED {args.capture}: a reply ticks or strikes only the lines it names by number")
         return 1
     for item in implications:
@@ -1029,8 +1123,8 @@ def confirmed(args: argparse.Namespace, loaded: Register) -> int:
             item |= {"state": "struck", "proof": args.capture}
         elif item["n"] in ticks:
             item |= {"state": "ticked", "proof": args.capture}
-    loaded.write(args.key, implications=implications)
-    print("\n".join(implication_lines(loaded.rows[args.key])))
+    loaded.write(key, implications=implications)
+    print("\n".join(implication_lines(loaded.rows[key])))
     return 0
 
 
@@ -1059,14 +1153,6 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    if args.posted:
-        if not args.key:
-            raise SystemExit("sweep --posted names the row: sweep KEY --posted REF")
-        path = repeat_file(loaded, args.key)
-        opened = json.loads(path.read_text())
-        write_atomic(path, json.dumps(opened | {"posted": args.posted}, indent=2) + "\n")
-        print(f"posted {args.posted} for {args.key}")
-        return 0
     sweeper = Sweeper(loaded, {args.key: loaded.row(args.key)} if args.key else loaded.scope())
     if args.artifact or args.paths or args.diff:
         hits = sweeper.files([Path(path) for path in args.artifact])
@@ -1402,6 +1488,28 @@ def cmd_anchor(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_names(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (args.remove or args.drop_repeat):
+        raise SystemExit("names needs --remove NAME or --drop-repeat KEY")
+    with writing(args, shell) as loaded:
+        fields = loaded.row(args.key)
+        names, repeats = names_of(fields), listed(fields.get("repeats"))
+        absent = [name for name in args.remove if name not in names] + [key for key in args.drop_repeat if key not in {repeat.get("key") for repeat in repeats}]
+        if absent:
+            print(f"NOT-ON-ROW {args.key}: {', '.join(absent)} is not on the row")
+            return 1
+        kept = [repeat for repeat in repeats if repeat.get("key") not in args.drop_repeat]
+        loaded.write(
+            args.key,
+            names=[name for name in names if name not in args.remove],
+            repeats=kept,
+            said=str(int(fields.get("said") or 1) - (len(repeats) - len(kept))),
+            narrowed=[*listed(fields.get("narrowed")), {"removed": args.remove, "repeats": args.drop_repeat, "why": args.why, "at": stamp()}],
+        )
+    print(f"{args.key} narrowed under {args.why}: removed {', '.join([*args.remove, *args.drop_repeat])}")
+    return 0
+
+
 def superseded(loaded: Register, old_key: str, replacement: str) -> None:
     old, new = loaded.row(old_key), loaded.row(replacement)
     if (old_answers := listed(old.get("answer"))) and (new_answers := listed(new.get("answer"))):
@@ -1655,6 +1763,7 @@ def build_parser() -> argparse.ArgumentParser:
     confirm.add_argument("--capture", required=True, metavar="DIGEST")
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
+    verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
     sliced = verb("slice", cmd_slice, "print the rows a lane, the root, or a head's grade must carry, verbatim")
     sliced.add_argument("--lane")
     sliced.add_argument("--step")
@@ -1674,7 +1783,6 @@ def build_parser() -> argparse.ArgumentParser:
     swept_verb.add_argument("--root", metavar="DIR")
     swept_verb.add_argument("--diff", metavar="FILE")
     swept_verb.add_argument("--plan", metavar="PATH")
-    swept_verb.add_argument("--posted", metavar="REF")
     readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request")
     readback.add_argument("--lane", required=True)
     readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
@@ -1705,6 +1813,11 @@ def build_parser() -> argparse.ArgumentParser:
     anchor.add_argument("--paths", nargs="+", default=[])
     anchor.add_argument("--symbols", nargs="+", default=[])
     anchor.add_argument("--ops", nargs="+", default=[])
+    narrowed = verb("names", cmd_names, "remove names or wrongly attached repeats from a row, citing the answer that removes them (root and seed lane only)")
+    narrowed.add_argument("key")
+    narrowed.add_argument("--remove", action="append", default=[], metavar="NAME")
+    narrowed.add_argument("--drop-repeat", action="append", default=[], metavar="KEY")
+    narrowed.add_argument("--why", required=True, metavar="ANSWER")
     supersede = verb("supersede", cmd_supersede, "record that one row's answer replaces another's")
     supersede.add_argument("old")
     supersede.add_argument("--by", required=True)

@@ -560,11 +560,14 @@ For the cci cutover, the root adds `drive` to the runner config, confirms
 `cci` channel. The root owns that cutover.
 
 To upgrade a running desk without a signal, run `desk-runner.py handoff --desk orca
---config "$CONFIG"`, or `--desk landing` for the landing desk. `handoff` reads that
+--config "$CONFIG"`, or `--desk landing` for the landing desk, from the Run's bound
+terminal. `handoff` reads that
 desk's heartbeat, `orca-runner.heartbeat.json` or `landing-runner.heartbeat.json` beside
 the desk inbox, and writes its pid to `$CONFIG.stop`. That runner finishes its pass,
-writes its exit mark by removing `$CONFIG.stop`, and exits 0; `handoff` returns then,
-and only then does the new runner start, so one process per desk runs at every moment.
+writes its exit mark by removing `$CONFIG.stop`, and exits 0. Only then does `handoff`
+start the next runner itself, on the newest installed plugin with the same config and
+desk, its output appended to `<desk>-runner.log` in the drive's state directory, so one
+process per desk runs at every moment and a rotation is one command.
 
 Only the terminal bound to the Run may call `worker-start`. Every pass the orca desk
 reads the Run's coordinator from Orca and calls Orca, and starts each launcher, as that
@@ -842,7 +845,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `MERGE-ASK` | The runner already posted the PR card the line names into the owner's DM thread, waiting on the `waits` id with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); never send a second card or an `AskUserQuestion`. On a `Merge` tap, post the `cci post --kind go` record the line names; on a `Hold` tap, run `holds.py add --pr <n>`; the text the owner types in `Other`'s modal arrives as the card's capture, which merges nothing and is a capture to classify; on an `Explain more` tap, post the `explain more` ask the line names and reply in the card's thread in plain words through `slack_dm_status` with `about` set to the card's `waits` id, so cc-slack opens the reply with the link back to the card itself, which resolves nothing. The key is the PR and head. |
 | `MERGE-CARD-FAILED` | A merge card did not post: set `landing.card_cli` and `landing.owner_thread` when the line says they are missing, otherwise read the error; the next pass tries again. |
-| `RULING-ASK` | Send the card file the line names to the owner in the turn it arrives with `cc-slack dm-status --card @<path>`, never as an `AskUserQuestion`. A tap or a reply on it is a capture: a `Right` tap, the card's `recommended` option, runs `rulings.py confirm <key> --tick all --capture <digest>`, `Some wrong` waits for the owner's reply naming the lines, and the text typed in the built-in `Other`'s modal is the capture naming them. The card file's `waits` id draws cc-slack's built-in `Explain more`; its tap resolves nothing: post the `explain more` ask the line names and reply in the card's thread in plain words through `slack_dm_status` with `about` set to the card's `waits` id, so cc-slack opens the reply with the link back to the card itself. Silence decides nothing. The key is the card and its text. |
+| `RULING-ASK` | Ruling confirmations queue for the next board round, never one card each (standing rule 23: 5 to 10 cards a round, foundational picks first). When the owner can take a round, run `rulings.py round --drive <id>`: it opens a new round on the root's cc-present board with at most ten queued rulings, foundational rows first, and leaves out a row the owner's own pick, tap or reply on a card made. Never as an `AskUserQuestion` or a bare Slack card. A pick or a note on a ruling is a capture: `Right` runs `rulings.py confirm <key> --tick all --capture <digest>`, and `Some wrong` waits for the owner's note naming the lines. Silence decides nothing. The key is the round. |
 | `SLICE-UNREAD` | Read the named `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane, which launched without it. The key is the launch. |
 | `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
 | `MQ-CONFIG-INVALID` | Add the members the line ends with to the `landing` object of `runner.json`, replacing any of the same name, adjust the suggested `high_risk_paths` globs to the repository, and start the landing runner again. |
