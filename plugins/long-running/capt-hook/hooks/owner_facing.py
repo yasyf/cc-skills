@@ -152,7 +152,7 @@ PLAN_READER = """The owner reads the plan after the line before he approves it. 
 He ruled on these things; each line gives a thing's names, then his words:
 {scopes}
 
-A plan names files, code, and path:line @ ref cites on purpose; those are never terms. List each term he would need defined before he could approve the plan: a bare id, code name, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Return no terms when he needs nothing defined.
+A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Return no terms when he needs nothing defined.
 ---
 {text}"""
 CC_PRESENT = CommandSchema(
