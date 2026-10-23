@@ -108,10 +108,10 @@ PLAN_FORBIDDEN = re.compile(
 )
 PLAN_ORDERED = re.compile(r"\b(?:enter|endter|go (?:in)?to|start|use|re-?enter|get into)\b[^.\n]{0,20}?\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 OUTAGE_STOP_WORDS = (
-    "if more than one outage occurs, it's not allowed to just keep fixing, it has to stop, re-enter plan mode, and figure out a fundamental fix to the problem"
+    "a second outage means we stop patching, re-enter plan mode, and find the fundamental fix"
 )
-NO_PLAN_BEFORE_FIX = "dont uou darr endter plan mode without fixjng thr fuckign icndient first"
-PLAN_WHEN_DONE = "berify thay all jncident things sre done, then enter plan mode only when eveyrhing is propelry done"
+NO_PLAN_BEFORE_FIX = "dont enter plan mode without fixing the incident first"
+PLAN_WHEN_DONE = "check every incident item is done, then enter plan mode only when everything is done"
 PLAN_MODE_FORBIDDEN = (
     "The owner's latest word on plan mode forbids it now. Ship the fix from the lane that holds it, and enter plan mode only when the owner orders it."
 )
@@ -501,16 +501,16 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
         probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED, agent_id="aevidence-0123456789abcdef"): Allow(),
         probe("cci post --kind decision --lane root --to inc-sand-fix 'ship it'", SAND_NOT_MIGRATED): Allow(),
         probe("echo 'kubectl get pods'", SAND_NOT_MIGRATED): Allow(),
-        probe("git show HEAD:go/sand/internal/iris/values.go", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
-        probe("rg -n Retire go/sand/internal/iris", SAND_NOT_MIGRATED): Block(),
+        probe("git show HEAD:service/store/open.go", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
+        probe("rg -n Retire service/store", SAND_NOT_MIGRATED): Block(),
         probe("rg -n Retire", SAND_NOT_MIGRATED): Block(),
-        probe("ccx code read go/sand/internal/iris/values.go --section 170-200", SAND_NOT_MIGRATED): Block(),
-        probe("ccx code search 'who retires a session'", SAND_NOT_MIGRATED): Block(),
+        probe("ccx code read service/store/open.go --section 170-200", SAND_NOT_MIGRATED): Block(),
+        probe("ccx code search 'who retires a store'", SAND_NOT_MIGRATED): Block(),
         probe("rg -n MECHANISM ~/.claude/scratch/drive/inbox", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | rg -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | grep -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
         probe("git status", SAND_NOT_MIGRATED): Allow(),
-        probe("git show HEAD:go/sand/internal/iris/values.go", CLOSED_0820): Allow(),
+        probe("git show HEAD:service/store/open.go", CLOSED_0820): Allow(),
         probe("kubectl -n plat get deploy api", CLOSED_0820): Allow(),
         Input(command="kubectl -n plat get deploy api", commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
     },
@@ -549,18 +549,18 @@ def cause(command: str, **extra: object) -> Input:
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     tests={
-        cause("cci post --drive release-v3 --lane root --kind go --to sofi-fix --text 'the autoscaler caused the SoFi crashes; scale the pool'"): Block(
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Block(
             pattern=r"cites the lane `MECHANISM` record"
         ),
         cause(
-            "cci post --drive release-v3 --lane root --kind decision --to sofi-fix --text 'HEAD-404 is why Josh fails (#104717)'",
+            "cci post --drive release-v3 --lane root --kind decision --to worker-fix --text 'a missing object is why uploads fail (#104717)'",
             commands={"cci grep": ""},
         ): Block(),
         cause(
-            "cci post --drive release-v3 --lane root --kind go --to sofi-fix --text 'MECHANISM #104942: HEAD-404 caused it; ship the fix'",
+            "cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'MECHANISM #104942: a missing object caused it; ship the fix'",
             commands={"cci grep": '{"seq": 104942, "kind": "mechanism"}'},
         ): Allow(),
-        cause("cci post --drive release-v3 --lane root --kind go --to sofi-fix --text 'the autoscaler caused the crashes'", decide=UNCONFIRMED): Allow(),
+        cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the crashes'", decide=UNCONFIRMED): Allow(),
         cause("cci post --drive release-v3 --lane root --kind go --to landing-desk --pr 41464 --text 'land it'"): Allow(),
         cause("cci post --drive release-v3 --lane root --kind head --text 'p1 abc because rebased'"): Allow(),
         cause("cci tail --drive release-v3 --cursor root"): Allow(),
