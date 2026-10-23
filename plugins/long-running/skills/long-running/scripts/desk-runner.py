@@ -378,10 +378,11 @@ re-read on every use. A repository the GitHub account the runner acts as owns, w
 under `every`, under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, and in
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, and enqueues once a root `go` record names each
-waiting PR and its head by a short sha. The card is the PR card `landing.card_cli` draws, such as ai-oncall's `tools/ci slack pr-card`, run from the landing checkout
-into the owner's DM thread `landing.owner_thread` (`{"user": <Slack id>, "ts": <the root's DM status thread>}`), waiting on `merge:<pr>:<short sha>` with
-`Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already open for the head is edited in place, never re-posted, and a post that fails
-logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. A reserved touch puts the row's key and the first sentence of its words in the card's question, whose
+waiting PR and its head by a short sha. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
+PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
+open for the head is edited in place, never re-posted, and a post that fails
+logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
 does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
@@ -439,7 +440,9 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RULING_CARDS = "cards"
-MERGE_CARDS = "merge_cards"
+MERGE_CARDS = "merge_asks"
+MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
+SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
@@ -3469,6 +3472,30 @@ def enqueued_heads(key: str) -> dict[str, str]:
     return dict(entry.split("@", 1) for entry in key.split("#")[0].removeprefix("enqueue:").split(","))
 
 
+REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes requested", "REVIEW_REQUIRED": "waiting for review"}
+
+
+def merge_card_block(repo: str, pr: str, waits: str, detail: str, view: dict) -> dict:
+    """The board card that asks whether to merge `pr` at the head in `waits`: a short question, then why it waits and any rule it touches, the PR's title, author, size, and review state, the PR itself, and Merge recommended over Hold."""
+    summary = f"{view['title']}, by {view['author']['login']}, +{view['additions']} −{view['deletions']} lines, review: {REVIEWS.get(view.get('reviewDecision') or '', 'none yet')}."
+    context = f"{detail}\n\n{summary}"
+    return {
+        "id": waits,
+        "type": "card",
+        "title": f"Merge this PR at {waits.rsplit(':', 1)[1]}?",
+        "children": [
+            {"id": f"{waits}-context", "type": "markdown", "md": context},
+            {"id": f"{waits}-pr", "type": "pr", "repo": repo, "number": int(pr)},
+            {"id": f"{waits}-answer", "type": "choice", "options": [{"id": "merge", "label": "Merge", "recommended": True}, {"id": "hold", "label": "Hold"}]},
+        ],
+    }
+
+
+def slack_ts(out: str) -> str | None:
+    found = SLACK_MESSAGE.search(out)
+    return f"{found[1]}.{found[2]}" if found else None
+
+
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
@@ -4190,34 +4217,34 @@ class Landing:
         entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
 
-    def merge_card(self, pr: str, head: str, question: str) -> str | None:
-        """Post the PR card `landing.card_cli` draws for `pr` at `head` into the owner's DM thread `landing.owner_thread`, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold, or edit the card already open for that head when its question changed; the card's Slack ts, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
+    def merge_card(self, pr: str, head: str, detail: str) -> str | None:
+        """Ask the merge question for `pr` at `head` through `cc-present ask` in the drive root's session, so it lands on the root's board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. The card's Slack ts, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
         posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
-        if posted and posted["question"] == question:
+        if posted and posted["question"] == detail:
             return posted["ts"]
-        landing = self.landing_config
-        if not landing.get("card_cli") or not landing.get("owner_thread"):
-            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", "runner.json names no landing.card_cli or landing.owner_thread, so no merge card posts | set landing.card_cli to the PR card command, such as `tools/ci slack pr-card`, and landing.owner_thread to {\"user\": <the owner's Slack id>, \"ts\": <the root's DM status thread ts>}; the next pass posts the cards")
+        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.runner.config.drive and entry["sessions"]), None)
+        if not entry:
+            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
-        owner = landing["owner_thread"]
-        argv = [*checkout_argv(self.checkout, landing["card_cli"]), "--pr", pr, "--user", owner["user"], "--thread", owner["ts"], "--waits", waits, "--question", question, "--recommended", "Merge", "--option", "Hold"]
-        token = self.shell.run(["gh", "auth", "token"])
-        try:
-            done = self.shell.run([*argv, *(["--ts", posted["ts"]] if posted else [])], env={"GITHUB_TOKEN": token.out.strip()})
-        except OSError as error:
-            done = Done(127, "", f"{argv[0]} did not start: {error}")
-        if done.code:
+        view = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS])
+        done = view if view.code else self.ask_card(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)), entry["sessions"][-1])
+        if done.code or not (ts := slack_ts(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
             self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
-        ts = json.loads(done.out)["ts"]
-        self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": question}}))
+        self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
 
+    def ask_card(self, card: dict, session: str) -> Done:
+        try:
+            return self.shell.run(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(card))
+        except OSError as error:
+            return Done(127, "", f"cc-present did not start: {error}")
+
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
-        """Post one PR card per waiting PR and head into the owner's DM thread, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
+        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
         merged = self.merged_by_owner(heads, list(waiting))
         asking = [pr for pr in waiting if pr not in merged or self.unauthorized(pr, heads[pr], merged[pr])]
@@ -4239,17 +4266,17 @@ class Landing:
             reserved = self.reserved_touches(pr, heads[pr])
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"It changes {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}." if paths else "Every PR waits for your answer." if mode == "every" and not self.lands_green else "It touches a reserved rule."
-            touched = "".join(f" It touches your rule {key}: \"{sentence}\" Merge also allows it." for key, sentence in reserved)
-            if not (ts := self.merge_card(pr, heads[pr], f"Merge this PR at {short}? {why}{touched}")):
+            touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
+            if not (ts := self.merge_card(pr, heads[pr], f"{why}{touched}")):
                 continue
             authorize = "".join(f"; the card quotes {key} and its words, and the Merge go authorizes it" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}",
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers the PR card at ts {ts} in his DM thread, waiting on `{waits}`"
+                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers the merge card at ts {ts} in the root's status thread or on its board, waiting on `{waits}`"
                 f" | Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture,"
-                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and reply in the card's thread in plain words through `slack_dm_status` with `about` `{waits}`, the card's waits id, so cc-slack opens the reply with the link back to the card itself",
+                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and answer in plain words with `cc-present reply --block {waits} --body <answer>`, which replies on the board and under the Slack card with the link back to it",
             )
 
     def admit(self, heads: dict[str, str]) -> set[str]:

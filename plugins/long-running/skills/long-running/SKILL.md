@@ -1446,18 +1446,20 @@ change is one edit plus an `answer supersede`, with no restart.
 
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
-The runner posts the PR's card into the owner's DM thread itself, once per waiting PR
-and head, and logs one `MERGE-ASK` naming it. The card is the pull request card
-ai-oncall draws, through the command `landing.card_cli` names, such as
-`tools/ci slack pr-card`: the PR as a hyperlink, its CI, review, author, size, and
-reviewer findings, and a question in plain words. It waits on `merge:<n>:<short sha>`
-with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3), never an
-`AskUserQuestion`, so the drive keeps working while the card waits. A card already
-open for the head is edited in place, never re-posted. `landing.owner_thread` names
-the owner's Slack id and the root's DM status thread, where the tap reaches the root;
-a missing setting or a failed post logs `MERGE-CARD-FAILED`, and the next pass tries
-again. The root never hand-writes a merge card. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
-the line names and replies in the card's thread in plain words through `slack_dm_status` with `about` set to the card's `waits` id, so cc-slack opens the reply with the link back to the card itself.
+The runner asks the merge card itself, once per waiting PR and head, and logs one
+`MERGE-ASK` naming it. The card goes through the same path as every other card,
+`cc-present ask` with `--session` set to the drive root's newest session in the drive
+registry, so it lands on the root's board and in the root's Slack status thread, posted
+as the root (owner answer 8ed9899): the question in plain words, the PR's title,
+author, size, and review state, and the PR as a hyperlink with its live checks. It
+waits on `merge:<n>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and
+`Explain more` (93037c3), never an `AskUserQuestion`, so the drive keeps working while
+the card waits. A card already open for the head is edited in place, never re-posted.
+A missing registry entry or a failed post logs `MERGE-CARD-FAILED`, and the next pass
+tries again. The root never hand-writes a merge card. An `Explain more` tap resolves
+nothing: the root posts the `explain more` ask the line names and answers in plain
+words with `cc-present reply --block <the card's waits id> --body <answer>`, which
+replies on the board and under the Slack card with the link back to it.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,

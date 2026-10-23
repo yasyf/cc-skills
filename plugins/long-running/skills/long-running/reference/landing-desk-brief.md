@@ -26,8 +26,9 @@ the PR by its `#<n>`. A blank line is not an error.
 The owner's merge mode, `landing.merge_mode` in `runner.json`, decides which PRs
 wait for the owner before they enqueue: `every` PR, only `high-risk` ones, or none
 under `auto`. The root asks it once at execution start and records the answer. For each
-waiting PR and head the runner posts the PR's card, ai-oncall's pull request card, into
-the owner's DM thread with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more`
+waiting PR and head the runner asks the merge card through `cc-present ask` in the drive
+root's session, so it lands on the root's board and in the root's Slack status thread,
+with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more`
 (93037c3), and logs one `MERGE-ASK` naming it; nobody hand-writes a merge card, and no
 merge question goes out as an `AskUserQuestion`. An `Explain more` tap resolves nothing. The text the owner types
 in `Other`'s modal reaches the root as the card's capture and merges nothing.
