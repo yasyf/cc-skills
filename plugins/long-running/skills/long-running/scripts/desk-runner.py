@@ -389,8 +389,10 @@ The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
 plugin version the runner runs. A runner behind the version `installed_plugins.json` lists logs one
-`RUNNER-STALE <running> < <installed>` report per installed version and re-executes into the installed version after
-that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. `handoff` stops the live runner at the end
+`RUNNER-STALE <running> < <installed>` report per installed version, naming the hand restart command, and re-executes into the installed version after
+that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
+object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
+each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the end
 of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. `drive.py digest`
 prints each desk's running and installed versions.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, each landing pass logs one `RULING-ASK`
@@ -546,6 +548,7 @@ QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEATS = drive.HEARTBEATS
+DESKS = tuple(HEARTBEATS)
 RUNNING_VERSION = drive.plugin_manifest()["version"]
 LAUNCH_STALL = timedelta(seconds=60)
 ORPHANED_SEND = timedelta(minutes=2)
@@ -693,6 +696,9 @@ class Shell:
             except subprocess.TimeoutExpired:
                 return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
         return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def adopt(self, values: dict[str, str]) -> None:
+        os.environ.update(values)
 
     def reexec(self, argv: list[str]) -> None:
         sys.stdout.flush()
@@ -935,6 +941,7 @@ class Config:
     case_lanes: int
     landing: dict | None
     alert_facts: Path | None
+    desk_env: dict[str, dict[str, str]]
 
     @classmethod
     def load(cls, path: Path) -> Config:
@@ -971,6 +978,7 @@ class Config:
             case_lanes=raw.get("incident", {}).get("case_lanes", 2),
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
+            desk_env={desk: (raw.get(desk) or {}).get("env", {}) for desk in DESKS},
         )
 
 
@@ -1361,7 +1369,8 @@ class Runner:
         return self.config.desk_inbox.parent.parent / f"{desk}-runner.log"
 
     def restart_command(self, desk: str) -> str:
-        return f"nohup desk-runner.py run --config {self.config.source} --desk {desk} >> {self.runner_log(desk)} 2>&1 < /dev/null &"
+        env = "".join(f"{name}={shlex.quote(value)} " for name, value in self.config.desk_env[desk].items())
+        return f"nohup {f'env {env}' if env else ''}desk-runner.py run --config {self.config.source} --desk {desk} >> {self.runner_log(desk)} 2>&1 < /dev/null &"
 
     def beat(self, desk: str) -> None:
         inbox = self.config.desk_inbox.parent
@@ -1380,7 +1389,7 @@ class Runner:
             f"stale:{desk}:{RUNNING_VERSION}<{installed}",
             "RUNNER-STALE",
             desk,
-            f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, re-executes into {installed} at the end of this pass; nothing to do",
+            f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, re-executes into {installed} at the end of this pass; nothing to do; a hand restart is `{self.restart_command(desk)}`",
         )
         return True
 
@@ -1421,7 +1430,7 @@ class Runner:
                     print(f"desk-runner handoff: runner {pid} wrote no exit mark within {HANDOFF_WAIT}; {marker} stays until it does, and no successor started", file=sys.stderr)
                     return 1
                 self.shell.sleep(WAKE_SECONDS)
-        started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), {}, append=True)
+        started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
 
@@ -5205,11 +5214,11 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument("--source", required=True)
     policy.add_argument("--supersedes", default="")
     loop = verbs.add_parser("run")
-    loop.add_argument("--desk", choices=("orca", "landing"), required=True)
+    loop.add_argument("--desk", choices=DESKS, required=True)
     loop.add_argument("--once", action="store_true")
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
-    handoff.add_argument("--desk", choices=("orca", "landing"), required=True)
+    handoff.add_argument("--desk", choices=DESKS, required=True)
     show = verbs.add_parser("show")
     gc = verbs.add_parser("gc")
     gc.add_argument("--dry-run", action="store_true")
@@ -5223,6 +5232,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     config = Config.load(args.config)
     runner = Runner(shell or Shell(), config, actions.Store(config.store))
     if args.verb == "run":
+        runner.shell.adopt(config.desk_env[args.desk])
         return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
     if args.verb == "show":
         sys.stdout.write(runner.render())
