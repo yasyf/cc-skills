@@ -1005,7 +1005,7 @@ def confirmed(args: argparse.Namespace, loaded: Register) -> int:
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
     if capture["source"] == "slack-action" and (text.strip().lower().removesuffix(RECOMMENDED_MARK.lower()) != RIGHT or args.tick != "all" or strikes):
-        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong and Other wait for the owner's reply naming the lines")
+        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines, and Other's modal text names them")
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
     if capture["source"] != "slack-action" and (args.tick == "all" or not (ticks | strikes) <= named_lines):

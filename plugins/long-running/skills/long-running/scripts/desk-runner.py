@@ -4934,7 +4934,7 @@ class Landing:
                 "RULING-ASK",
                 card.stem,
                 f"{fields['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
-                " a tap or a reply on it is a capture: Right, the card's recommended option, ticks every line with `rulings.py confirm`, and Some wrong and the built-in Other wait for the owner's reply naming the lines;"
+                " a tap or a reply on it is a capture: Right, the card's recommended option, ticks every line with `rulings.py confirm`, Some wrong waits for the owner's reply naming the lines, and the text typed in the built-in Other's modal is the capture naming them;"
                 f" an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {fields['waits']}\"` and reply in the card's thread in plain words, starting with a Slack link to the card, `<permalink|this card>`",
             )
 
