@@ -2999,7 +2999,7 @@ async function mountComponent(host){
    linkNode(node);
    await Promise.all(jobs);
   }
- }catch(e){host.dataset.cmptFailed="1";return}
+ }catch(e){console.error(e);host.dataset.cmptFailed="1";host.prepend(el("div","netmsg",esc("This block could not be drawn: "+e.message)));return}
  host.dataset.mounted="1";
 }
 function mountComponents(root){
