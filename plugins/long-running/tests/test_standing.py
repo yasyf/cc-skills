@@ -55,6 +55,10 @@ def test_dropping_a_carried_rule_needs_a_superseded_by_line() -> None:
         ("released as it merges, no owner's word gate (4ffc9a5)", False),
         ("CODEOWNER approvals on #28756", False),
         ("owner approval missing (deadbee)", True),
+        ("Where an audit row and an owner answer differ, the owner's words win.", False),
+        ("When the owner's words list categories, the row names the surface", False),
+        ("reserved for the owners of each lane", False),
+        ("the owner's go-ahead on SoFi", True),
     ],
 )
 def test_an_owner_gate_line_must_cite_a_live_answer(line: str, flagged: bool) -> None:
