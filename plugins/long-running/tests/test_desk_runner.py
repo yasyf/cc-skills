@@ -5064,6 +5064,63 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
 
 
+def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2) -> None:
+    worktree = runner_module.lanes.Worktree(path=tmp_path / holder, branch=holder, ahead=ahead, pushed="pushed" if ahead else "not pushed", pr=pr)
+    monkeypatch.setattr(runner_module.Runner, "lane_worktrees", lambda self, lane: [worktree] if lane == holder else [])
+
+
+@pytest.mark.parametrize(("now", "ahead", "duplicate"), [("", 2, True), ("NOW ", 2, False), ("", 0, False)])
+def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate(shell, config, tmp_path, monkeypatch, now, ahead, duplicate):
+    clocked_lane(shell, config, tmp_path)
+    holding(monkeypatch, tmp_path, ahead=ahead)
+    brief = tmp_path / "cache.md"
+    brief.write_text("Finish the cache half of #1201.\n")
+    desk_inbox(tmp_path, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    refused = [line for line in escalations(shell) if line.startswith("LAUNCH-DUPLICATE")]
+    assert bool(refused) is duplicate
+    if duplicate:
+        assert refused == [runner_module.duplicate_line("R11", "api-cache", f"{LANE}: {runner_module.lanes.summary(LANE, runner_module.Runner.lane_worktrees(None, LANE))}")]
+    assert len(launches(shell)) == (1 if duplicate else 2)
+
+
+def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(shell, config, tmp_path, monkeypatch, capsys):
+    clocked_lane(shell, config, tmp_path, lane="inc-sand-fix")
+    holding(monkeypatch, tmp_path, holder="inc-sand-fix", pr="")
+    brief = tmp_path / "second.md"
+    brief.write_text("Fix the reader.\n")
+    assert cli(shell, config, "launch", "--key", "launch-two", "--lane", "inc-sand-fix-2", "--model", "opus", "--effort", "xhigh", "--brief", str(brief)) == 1
+    assert "LAUNCH-DUPLICATE launch-two inc-sand-fix-2: inc-sand-fix:" in capsys.readouterr().err
+    assert cli(shell, config, "launch", "--key", "launch-three", "--lane", "inc-sand-fix-2", "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed") == 0
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "answered", "minutes", "unowned"),
+    [
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", False, 11, True),
+        ("state", "CLASS SAND-5A uploads fail on retry", False, 11, True),
+        ("state", "PR2 is green at the head", False, 11, False),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", True, 11, False),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", False, 5, False),
+        ("report", "SAND-5A uploads fail on retry", False, 11, False),
+    ],
+)
+def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, answered, minutes, unowned):
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane="inc-sand-evidence", kind=kind, text=text, at=actions.stamp(shell.clock))
+    if answered:
+        lane_record(shell, "root", "go", "launch inc-sand-fix for SAND-5A")
+    shell.sleep(minutes * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    lines = [line for line in escalations(shell) if line.startswith("CLASS-UNOWNED")]
+    assert len(lines) == unowned
+    if unowned:
+        assert lines[0].startswith(f"CLASS-UNOWNED tag:SAND5A inc-sand-evidence: #{seq} at ")
+        assert "no fix-lane GO naming tag:SAND5A" in lines[0]
+
+
 def cci_go(shell: FakeShell, text: str, source: str = "post") -> None:
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "text": text, "to": ["orca-desk"], "source": source})
 
