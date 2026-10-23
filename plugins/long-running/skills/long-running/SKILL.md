@@ -1367,14 +1367,9 @@ which cci also matches to a post that named the bare number, and keeps those who
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
 `missing` blocks until the same lane grades the head ok; a later ok from another
-lane never clears it. An ok counts only when its whole line lists under `checked`
-every key `rulings.py slice --required` prints for the head and under `names` every
-name of those rows. cci keeps the first 400 characters of a longer line, so the
-runner reads the whole line from the file the record's `path` names. A slice that
-does not read logs `SLICE-READ-FAILED` once per head, and no grade counts for that
-head that pass.
-A head graded `missing`, graded ok only at an older head, graded by an ok that
-leaves a required row out, or never graded gets
+lane never clears it. An ok counts as posted: rows the register gains after it
+never void it or hold the head (4236611).
+A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
 lane, and nothing in its prefix is enqueued. The check runs again just before
 the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
@@ -1388,10 +1383,10 @@ gets one `FINDER-PENDING #<n>` blocker per head to its lane. A finder pass answe
 major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
---pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass. Any cause it
-prints but `RESERVED-NO-ANSWER` fails the head, with one blocker per head and set of
-causes. `TESTS-CORPUS` alone holds the head and escalates once. A reserved touch
-alone passes this check, because merge mode sends the card whose tap authorizes it.
+--pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass and holds no
+head (4236611). Each cause it prints but `RESERVED-NO-ANSWER` is a warning: one cci
+`note` per head and set of causes to the PR's lane. A reserved touch is merge mode's
+to settle, because merge mode sends the card whose tap authorizes it.
 A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row by key or
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
@@ -1461,9 +1456,11 @@ there still asks.
 A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
 grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
 the row's key and the first sentence of its words, and says the merge also
-authorizes it. The card quotes both, and its tap is the authorization: the root
-records it with `rulings.py authorize --row <key> --action <tap ts>`, and the head
-waits until `check-pr` stops naming the row, as well as for the root's `go`.
+authorizes it. The card quotes both, and its tap is the authorization: the root's
+`go` for the head, posted after the runner logged a card naming the row, covers
+the row (4236611). A `go` posted before any card named the row covers nothing, and
+the card goes out. An answer `rulings.py authorize` labels `authorizes:<key>` also
+covers the row, because `check-pr` then stops naming it.
 
 A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
 each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
@@ -1471,9 +1468,10 @@ each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
 artifact lists logs one `BATCH-POST-OWED` per batch instead of its `MERGE-ASK`.
 
 Incident fixes still land by plain squash under every mode. Before the merge, an
-approved, green fix meets only `check-pr --incident`'s `RULINGS-UNCITED`,
-`RESERVED-NO-ANSWER`, and `TEST-REMOVED`, each logged `RULINGS-REFUSED`, and the
-holds file is read again just before `gh pr merge`. Neither grade gates it: a fix
+approved, green fix merges once the holds file, read again just before
+`gh pr merge`, holds no line over it. What `check-pr --incident` names of
+`RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED` is a warning, one cci
+`note` to the PR's lane, and the fix merges anyway (4236611). Neither grade gates it: a fix
 whose head has no counted fidelity ok or no finder ok 30 minutes after it lands
 logs `UNGRADED-30` once (d968e1d).
 

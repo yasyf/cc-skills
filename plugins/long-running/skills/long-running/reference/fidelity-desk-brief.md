@@ -134,9 +134,12 @@ match a chunk the desk already graded is not re-read before a push; its earlier 
   `rulings.py sweep` hit. `rulings.py readback --lane <lane> --contract <seq>`
   prints the grade request. Accept with `readback: ok <lane> <slice-hash>`, or
   return `readback: missing <lane> <key> <one line>`. The runner refuses the lane's
-  READY, its first PR, and its first new branch until one is accepted. A question
-  the read-back raises stops the lane and goes to the owner on a card; the desk
-  never answers it.
+  READY, its first PR, and its first new branch until one is accepted. A grade stands
+  until a desk posts a newer one: rows added to the register never void it or
+  hold a READY PR, and the lane reads them back in its next PR (4236611). The request
+  prints a row the read-back leaves out or a hit it leaves unmarked as a `WARNING`
+  line above it; weigh them and grade. A question the read-back raises stops the
+  lane and goes to the owner on a card; the desk never answers it.
 
 ## Sweep mode
 

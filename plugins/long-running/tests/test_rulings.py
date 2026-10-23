@@ -20,6 +20,7 @@ SEED = {"id": "8075b46" + "0" * 33, "title": "How does a seed converge?", "body"
 
 DURABLE = ["answer", "list", "--label", "scope:durable", "--limit", "0"]
 REGISTER_LEDGER = "f" * 40
+DRIVE_LEDGER = "d" * 40
 STAMP = "2026-10-23T12:00:00Z"
 AT = "2026-10-23T12:30:00Z"
 PROMPT_KEY = "prompt/1023-053000"
@@ -291,12 +292,21 @@ def seeded(package: Path) -> dict[str, dict[str, str]]:
 
 
 class RegisterShell(ledger.Shell):
-    def __init__(self, rows: dict[str, dict[str, str]], answers: list[dict] | None = None, diff: str = "", lanes: list[str] | None = None, records: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        rows: dict[str, dict[str, str]],
+        answers: list[dict] | None = None,
+        diff: str = "",
+        lanes: list[str] | None = None,
+        records: list[dict] | None = None,
+        drive_rows: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         self.rows = {key: dict(fields) for key, fields in rows.items()}
         self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
         self.lanes = lanes or []
         self.records = records or []
+        self.drive_rows = drive_rows or {}
         self.calls: list[list[str]] = []
 
     def writes(self) -> list[list[str]]:
@@ -309,6 +319,8 @@ class RegisterShell(ledger.Shell):
                 return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
             case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
                 return json.dumps({"id": REGISTER_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
+            case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == DRIVE_LEDGER:
+                return json.dumps({"id": DRIVE_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.drive_rows.items()]})
             case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, *flags] if identity == REGISTER_LEDGER:
                 for flag, value in zip(flags[::2], flags[1::2], strict=True):
                     assert flag == "--field"
@@ -333,8 +345,8 @@ class RegisterShell(ledger.Shell):
                 return json.dumps({"baseRefName": "main"})
             case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
                 return "git@github.com:acme/app.git\n"
-            case ["cci", "state", "--drive", "brook-cci", "--json", "--budget", _]:
-                return "".join(json.dumps({"lane": lane, "kind": "head"}) + "\n" for lane in self.lanes)
+            case ["cci", "who", "--drive", "brook-cci", "--json"]:
+                return "".join(json.dumps({"session": "s-root", "drive": "brook-cci", "lane": lane, "name": lane}) + "\n" for lane in self.lanes)
             case ["cci", "post", *_]:
                 return "#1\n"
             case ["cci", "grep", "--drive", "brook-cci", "--json", *_]:
@@ -366,7 +378,7 @@ def state(home: Path) -> Path:
 def registered(home: Path, state: Path) -> Path:
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO}
+    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO, "ledger": DRIVE_LEDGER}
     (drives / "brook-drive.json").write_text(json.dumps(entry))
     return drives
 
@@ -554,7 +566,13 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     (state / "briefs").mkdir()
     (state / "briefs" / "lane-a.md").write_text("Brief.\nThe desktop shell keeps its uploads.\n")
     captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
-    shell = RegisterShell(seeded(package), lanes=["lane-a", "root", "lane-b"])
+    registry = {
+        "lane/lane-c": {"lane": "lane-c", "branch_prefix": "lane-c-"},
+        "lane/lane-done": {"lane": "lane-done", "branch_prefix": "lane-done-"},
+        "gone/lane-done": {"lane": "lane-done", "gone_at": STAMP},
+        "41": {"lane": "lane-z", "state": "open"},
+    }
+    shell = RegisterShell(seeded(package), lanes=["lane-a", "root", "lane-b"], drive_rows=registry)
     three = [
         {"text": "The desktop shell gains no uploader.", "direction": "removes"},
         {"text": "Shell upload code is deleted.", "direction": "removes"},
@@ -588,7 +606,29 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert announced[0] == f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim."
     assert "> uploads stay out of the desktop shell." in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
+
+
+def test_classify_posts_one_record_per_row_however_many_captures_touch_it(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    captured(state, capture("1", "no parked worker here"), capture("2", "no parked worker there"))
+    shell = RegisterShell(seeded(package), lanes=["lane-a"])
+    one = [{"text": "One more line.", "direction": "removes"}]
+
+    code, _ = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker here", "implications": one},
+        {"digest": "2" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker there", "implications": one},
+    )
+
+    assert code == 0
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
+    assert announced[0] == "Register extended rule/aaaaaaa (scope): the owner's words and what they mean, verbatim."
+    assert "> also, Oct 23 5:30 AM PT: no parked worker there" in announced
 
 
 def test_a_repeat_extends_its_row_counts_it_and_opens_a_sweep_until_the_hits_are_posted(
@@ -936,18 +976,39 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
         0,
         f"readback request lane-a {current}: 4 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n",
     )
+    request = f"readback request lane-a {current}: 4 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n"
     code, out = ran(capsys, read_back(*header, *rows[:2], *hits), "readback", "--lane", "lane-a", "--contract", "500")
-    assert code == 1
-    assert "READBACK-ROW-MISSING rule/eeeeeee: no read-back line names it" in out.splitlines()
-    assert f"READBACK-HIT-UNMARKED {hits[0]}" in out.splitlines()
-    code, out = ran(capsys, read_back("Register slice: lane=lane-a step=1.9", "slice-hash: 000000000000", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500")
-    assert (code, out) == (1, f"READBACK-STALE lane-a: the read-back covers slice-hash 000000000000; the lane's slice is now {current}\n")
+    assert code == 0 and out.endswith(request)
+    assert "WARNING READBACK-ROW-MISSING rule/eeeeeee: no read-back line names it" in out.splitlines()
+    assert f"WARNING READBACK-HIT-UNMARKED {hits[0]}" in out.splitlines()
+    assert ran(capsys, read_back("Register slice: lane=lane-a step=1.9", "slice-hash: 000000000000", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (0, request)
+    assert ran(capsys, read_back("Register slice: lane=lane-a step=1.9", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (0, request)
     assert ran(capsys, read_back(*header, *rows), "readback", "--lane", "lane-a", "--contract", "500") == (
-        1,
-        "".join(f"READBACK-HIT-UNMARKED {hit}\n" for hit in hits),
+        0,
+        "".join(f"WARNING READBACK-HIT-UNMARKED {hit}\n" for hit in hits) + request,
     )
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-a", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
+
+
+def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_row_as_a_warning(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    stamp = rulings.SLICE_HASH.search(sliced)["hash"]
+    hits = [f"{line} - keep: the line states the ban" for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
+    body = tmp_path / "readback.md"
+    body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", f"slice-hash: {stamp}", "rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone", *hits]) + "\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}}]
+    added = seeded(package) | {"rule/fffffff": {"kind": "pick", "status": "in-force", "global": "no", "words": "Name the lane on every card.", "answer": '["fffffff"]', "steps": '["1.9"]', "lanes": '["all"]', "paths": "none"}}
+    _, grown = ran(capsys, RegisterShell(added), "slice", "--lane", "lane-a", "--step", "1.9")
+
+    code, out = ran(capsys, RegisterShell(added, records=records), "readback", "--lane", "lane-a", "--contract", "500")
+    assert code == 0
+    assert out.splitlines() == [
+        "WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it",
+        f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 5 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
+    ]
 
 
 def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:

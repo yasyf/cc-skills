@@ -841,19 +841,16 @@ def write_cards(loaded: Register, key: str, confirms: list[str]) -> list[Path]:
     return written
 
 
-def live_lanes(shell: ledger.Shell, cci: str) -> list[str]:
-    records = [json.loads(line) for line in shell.run(["cci", "state", "--drive", cci, "--json", "--budget", "1000000"]).splitlines() if line.strip()]
-    return sorted({record["lane"] for record in records} - {"root", "main"})
+def live_lanes(loaded: Register, entry: dict) -> list[str]:
+    peers = {peer["lane"] for line in loaded.shell.run(["cci", "who", "--drive", drive.cci_drive(entry), "--json"]).splitlines() if line.strip() and (peer := json.loads(line)).get("lane")}
+    rows = {row["key"]: row["fields"] for row in ccn(loaded.shell, loaded.repo, "ledger", "show", entry["ledger"])["rows"]}
+    registered = {fields["lane"] for key, fields in rows.items() if key.startswith(ledger.LANE_PREFIX)} - ledger.gone_lanes(rows)
+    return sorted((peers | registered) - {"root", "main"})
 
 
-def announce(loaded: Register, args: argparse.Namespace, key: str, how: str) -> None:
-    if not (entry := entry_of(args)):
-        return
+def announce(loaded: Register, cci: str, live: list[str], key: str, how: str) -> None:
     fields = loaded.rows[key]
-    cci = drive.cci_drive(entry)
-    lanes = live_lanes(loaded.shell, cci)
-    if not is_global(fields) and "all" not in listed(fields.get("lanes")):
-        lanes = [lane for lane in lanes if lane in listed(fields.get("lanes"))]
+    lanes = live if is_global(fields) or "all" in listed(fields.get("lanes")) else [lane for lane in live if lane in listed(fields.get("lanes"))]
     if not lanes:
         return
     path = loaded.state / "register" / f"announce-{card_id(key)}.md"
@@ -926,7 +923,6 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     if how == "extended":
         write_atomic(repeat_file(loaded, key), json.dumps({"key": key, "opened_at": stamp(), "hits": [str(hit) for hit in hits], "posted": None}, indent=2) + "\n")
     cards = write_cards(loaded, key, entry.get("confirms") or [])
-    announce(loaded, args, key, how)
     row = loaded.rows[key]
     return {
         "digest": item,
@@ -970,8 +966,16 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
             print("\n".join(refused))
             return 1
+        touched_rows: dict[str, str] = {}
         for entry in entries:
-            print(json.dumps(applied(loaded, args, captured, entry), ensure_ascii=False))
+            result = applied(loaded, args, captured, entry)
+            print(json.dumps(result, ensure_ascii=False))
+            if "key" in result:
+                touched_rows.setdefault(result["key"], result["how"])
+        if touched_rows and (drive_entry := entry_of(args)):
+            live = live_lanes(loaded, drive_entry)
+            for key, how in touched_rows.items():
+                announce(loaded, drive.cci_drive(drive_entry), live, key, how)
     return 0
 
 
@@ -1081,7 +1085,6 @@ class ReadBack:
     record: dict
     body: str
     want: Want
-    stamp: str
     attached: str | None
 
 
@@ -1091,15 +1094,11 @@ def read_back(shell: ledger.Shell, cci: str, seq: int, lane: str) -> ReadBack | 
         return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
     attached = (record.get("refs") or {}).get("path")
     body = "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
-    if not (header := SLICE_HEADER.search(body)) or not (stamp := SLICE_HASH.search(body)):
-        return f"READBACK-NO-SLICE #{seq}: the read-back names no `{SLICE_LINE}` line and `slice-hash:` line"
+    if not (header := SLICE_HEADER.search(body)):
+        return f"READBACK-NO-SLICE #{seq}: the read-back names no `{SLICE_LINE}` line"
     if (want := Want.parse(header)).lane != lane:
         return f"READBACK-NOT-LANES #{seq}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
-    return ReadBack(record, body, want, stamp["hash"], attached)
-
-
-def current_hash(loaded: Register, want: Want, plan: Path | None) -> str:
-    return SLICE_HASH.search(lane_slice(loaded, want, plan))["hash"]
+    return ReadBack(record, body, want, attached)
 
 
 def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -1111,21 +1110,16 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(read)
         return 1
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
-    current = SLICE_HASH.search(fresh)["hash"]
-    problems = []
-    if read.stamp != current:
-        problems.append(f"READBACK-STALE {args.lane}: the read-back covers slice-hash {read.stamp}; the lane's slice is now {current}")
     keys = re.findall(r"^### (\S+) \|", fresh, re.MULTILINE)
     lines = read.body.splitlines()
-    problems += [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
+    warnings = [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
     root = args.root or args.repo
     expected = [line for line in fresh.splitlines() if HIT_LINE.match(line)]
     expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(globbed(root, read.want.paths), root)]
-    problems += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
-    if problems:
-        print("\n".join(problems))
-        return 1
-    print(f"readback request {args.lane} {current}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications")
+    warnings += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
+    for warning in warnings:
+        print(f"WARNING {warning}")
+    print(f"readback request {args.lane} {SLICE_HASH.search(fresh)['hash']}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications")
     return 0
 
 
@@ -1134,7 +1128,7 @@ def fidelity_lanes(loaded: Register) -> set[str]:
     return {lanes} if isinstance(lanes, str) else set(lanes)
 
 
-def unaccepted(loaded: Register, cci: str, lane: str, plan: Path | None, reviews: list[dict]) -> str | None:
+def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
     desks = fidelity_lanes(loaded)
     graded = [
         (record, found)
@@ -1146,13 +1140,6 @@ def unaccepted(loaded: Register, cci: str, lane: str, plan: Path | None, reviews
     record, newest = max(graded, key=lambda item: item[0]["seq"])
     if newest["verdict"] != "ok":
         return f"the newest grade, #{record['seq']}, is missing: {newest['rest']}"
-    if not record.get("re"):
-        return f"the newest grade, #{record['seq']}, names no read-back record"
-    read = read_back(loaded.shell, cci, int(record["re"]), lane)
-    if isinstance(read, str):
-        return read
-    if (current := current_hash(loaded, read.want, plan)) != newest["rest"].split()[0]:
-        return f"the grade #{record['seq']} covers slice-hash {newest['rest'].split()[0]}; the lane's slice is now {current}"
     return None
 
 
@@ -1161,7 +1148,7 @@ def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; accepted reads the lane's read-back from its cci drive")
     cci = drive.cci_drive(entry)
-    if why := unaccepted(loaded, cci, args.lane, plan_path(args, loaded), pr_records(shell, cci, "--kind", "review")):
+    if why := unaccepted(loaded, args.lane, pr_records(shell, cci, "--kind", "review")):
         print(f"CONTRACT-MISSING {args.lane}: {why}")
         return 1
     print(f"accepted {args.lane}")
@@ -1606,7 +1593,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     if not (lane := lane_of(records)):
         findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")
     elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, "--kind", "review"))) is not None:
-        why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, cci, lane, loaded.plan(args.plan), reviews))
+        why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, lane, reviews))
         if why:
             findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")
 
@@ -1682,14 +1669,13 @@ def build_parser() -> argparse.ArgumentParser:
     swept_verb.add_argument("--diff", metavar="FILE")
     swept_verb.add_argument("--plan", metavar="PATH")
     swept_verb.add_argument("--posted", metavar="REF")
-    readback = verb("readback", cmd_readback, "check a lane's read-back against its current slice and print the grade request")
+    readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request")
     readback.add_argument("--lane", required=True)
     readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
     readback.add_argument("--plan", metavar="PATH")
     readback.add_argument("--root", metavar="DIR")
-    accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok for its current slice")
+    accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok")
     accepted.add_argument("--lane", required=True)
-    accepted.add_argument("--plan", metavar="PATH")
     block = verb("pr-block", cmd_pr_block, "print a PR body's ## Rulings and ### In your words sections")
     block.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")
     block.add_argument("--head", required=True, metavar="SHA")

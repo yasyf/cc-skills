@@ -333,7 +333,7 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
         1,
         ["CONTRACT-MISSING lane-a: the newest grade, #10, is missing: rule/bbbbbbb the drain line is not read back"],
     )
-    assert check(capsys, CheckShell(rows, stamp="0" * 12)) == (1, [f"CONTRACT-MISSING lane-a: the grade #9 covers slice-hash {'0' * 12}; the lane's slice is now {stamp}"])
+    assert check(capsys, CheckShell(rows, stamp="0" * 12)) == (0, [])
     assert check(capsys, CheckShell(rows, records=[LANE_HEAD, FINDER_OK, opened])) == (0, [])
     assert check(capsys, CheckShell(rows, records=[FINDER_OK])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
@@ -343,6 +343,19 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
     status = {"seq": 17, "kind": "report", "lane": "root", "text": "CI is still red on acme/app#12"}
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, reported, status])) == (0, [])
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, status])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
+
+
+def test_a_desks_ok_stands_until_a_newer_grade_whatever_the_register_gains_after_it(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package)
+    stamp = current_stamp(rows, None)
+    added = rows | {"rule/fffffff": {"kind": "pick", "status": "in-force", "global": "no", "words": "Name the lane on every card.", "answer": '["fffffff"]', "steps": f'["{STEP}"]', "lanes": '["all"]', "paths": "none"}}
+    reworded = pinned(package)
+    reworded["rule/ccccccc"]["words"] = "Cards quote the owner's words they ask about."
+
+    assert current_stamp(added, None) != stamp
+    assert check(capsys, CheckShell(added, stamp=stamp)) == (0, [])
+    assert ran(capsys, CheckShell(added, stamp=stamp), "accepted", "--lane", "lane-a") == (0, "accepted lane-a\n")
+    assert check(capsys, CheckShell(reworded, stamp=stamp)) == (0, [])
 
 
 def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(package: Path, state: Path, registered: Path, capsys) -> None:

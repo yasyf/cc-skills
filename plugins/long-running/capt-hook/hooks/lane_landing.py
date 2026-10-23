@@ -45,12 +45,8 @@ STEERING_REFUSAL = (
     "Send the root a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
 )
 RULINGS_ADVICE = (
-    "`rulings.py check-pr` names {causes} for #{pr} at {head}. The landing desk refuses a head on these; "
-    "this hook only advises (0afd2f6), so settle each one before the merge lands."
-)
-INCIDENT_MERGE_REFUSED = (
-    "An incident fix merges only when `rulings.py check-pr --incident` names none of its three ruling checks, and it names {causes} for #{pr} at {head}. "
-    "Settle each one on the branch, then merge again."
+    "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
+    "and this hook only advises, so settle each one you can before the merge lands."
 )
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
@@ -351,8 +347,6 @@ def rulings_merge_advice(evt: BaseHookEvent) -> HookResult | None:
         for call in evt.cmd.calls()
         if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))
     ]
-    if incident and found:
-        return evt.block("\n".join(INCIDENT_MERGE_REFUSED.format(causes=causes, pr=pr, head=head) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]
     return evt.context("\n".join(advice)) if advice else None
 
