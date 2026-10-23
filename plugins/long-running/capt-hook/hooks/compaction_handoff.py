@@ -309,7 +309,7 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
 
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd).stdout
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:
@@ -337,7 +337,7 @@ def post_blocker(evt: BaseHookEvent, text: str) -> None:
     drive = entry.get("cci_drive") or Path(entry["state_dir"]).name
     argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
     try:
-        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired):
         return
 
