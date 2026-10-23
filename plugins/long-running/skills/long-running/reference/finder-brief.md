@@ -19,8 +19,6 @@ Codex reads neither the hooks nor the register, so the prompt carries everything
   prints (every global, pending, and matched row), each with its key, the owner's
   words verbatim, its implications with their `removes` or `permits` mark and
   status, and its names. Paste them as the register holds them, never summarized.
-  Until `slice --required` ships, paste every active and `pending-owner` row of
-  `ccn ledger show <register ledger> --json` instead, and leave out the slice-hash.
 - The PR body, `## Rulings` and `## Regression tests` included, as claims to check.
 
 ## What it returns
@@ -103,6 +101,6 @@ Do two things and report both in the findings schema.
 PR body:
 <the PR body, verbatim>
 
-Rows (`rulings.py slice --required` for this head, slice-hash <sha12>; or every active and pending-owner register row):
+Rows (`rulings.py slice --required` for this head, slice-hash <sha12>):
 <for each row: key, words verbatim, implications with removes/permits and status, names>
 ```

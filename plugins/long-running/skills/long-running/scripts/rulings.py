@@ -47,7 +47,9 @@ round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue hol
 resolves the program and the state directory from the drive registry. The register is read
 from the checkout the drive's registry entry names; ``--repo``, which defaults to the current
 directory, names it only when no drive runs the program. ``check-pr`` reads the register only
-through the registry entry and uses ``--repo`` for the PR's own checkout. ``--paths`` globs
+through the registry entry and uses ``--repo`` for the PR's own checkout. ``slice --required`` and
+``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
+through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
 Standard library only.
 """
@@ -63,6 +65,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -667,6 +670,21 @@ def compare(shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
     return parse_diff(shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA]))
 
 
+def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
+    checkout = (entry_of(args) or {}).get("checkout")
+    if not checkout or ledger.origin_repo(shell, Path(checkout)).lower() != repo.lower():
+        return compare(shell, repo, base, head)
+    git = ["git", "-C", checkout]
+    pinned = f"refs/rulings/{head}-{os.getpid()}"
+    shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".diff") as out:
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", f"--output={out.name}", f"{pinned}...{head}"])
+            return parse_diff(Path(out.name).read_text(errors="replace"))
+    finally:
+        shell.run([*git, "update-ref", "-d", pinned])
+
+
 def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
     if not (match := ledger.PR_KEY.fullmatch(args.pr)):
         raise SystemExit(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N")
@@ -690,10 +708,10 @@ def touched(fields: dict[str, str], diff: Diff) -> bool:
     return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or bool(symbol_lines(fields, diff, at_home=False))
 
 
-def required_slice(loaded: Register, diff: Diff) -> str:
-    lines = [f"{key}\t{'|'.join(names_of(fields))}" for key, fields in loaded.rulings().items() if is_global(fields) or touched(fields, diff)]
-    body = "\n".join(lines) + "\n"
-    return body + f"slice-hash: {digest(body)}\n"
+def required_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
+    rows = [(key, fields) for key, fields in loaded.rulings().items() if is_global(fields) or touched(fields, diff)]
+    lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
+    return hashed(lines + section("Every global, pending and touched row", rows))
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
@@ -1150,7 +1168,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
         base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
-        sys.stdout.write(required_slice(loaded, compare(shell, repo, base, args.head)))
+        sys.stdout.write(required_slice(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
     elif args.root:
         sys.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -1744,7 +1762,7 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     repo, number = pull(args, shell)
     loaded = findings.read("the register", lambda: Register.load(args, shell, drive_checkout(args)))
     view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName"])))
-    diff = findings.read(f"the compare of {repo}#{number}", lambda: compare(shell, repo, args.base or view["baseRefName"], args.head)) if view else None
+    diff = findings.read(f"the diff of {repo}#{number}", lambda: pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)) if view else None
     if loaded and view and diff:
         check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff), findings)
     for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:

@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import re
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -345,6 +348,11 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
                 return self.diff
+            case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
+                return ""
+            case ["git", "-C", "/repo", "diff", *_, output, _]:
+                Path(output.removeprefix("--output=")).write_text(self.diff)
+                return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "main"})
             case ["gh", "api", "repos/acme/app"]:
@@ -989,14 +997,24 @@ def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: P
     assert "> Cards quote the words they ask about, verbatim." in second.splitlines()
 
 
-def test_the_required_slice_lists_every_global_pending_and_touched_row_with_its_names(home: Path, package: Path, state: Path, capsys) -> None:
+def required(out: str) -> list[str]:
+    return re.findall(r"^### (\S+) \|", out, re.MULTILINE)
+
+
+def test_the_required_slice_prints_every_global_pending_and_touched_row_with_its_words_implications_and_names(home: Path, package: Path, state: Path, capsys) -> None:
     rows = seeded(package) | {"rule/1234567": {"kind": "order", "status": "in-force", "words": "Log every retry.", "paths": "pending", "lanes": '["all"]'}}
 
     code, out = ran(capsys, RegisterShell(rows, diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+    lines = out.splitlines()
 
     assert code == 0
     assert hashed_correctly(out)
-    assert out.splitlines()[:-1] == ["exception/E1\t", "rule/1234567\t", "rule/aaaaaaa\trelay-server|parked worker", "rule/bbbbbbb\t"]
+    assert lines[0] == "Required rows for acme/app#12 at cafef00d"
+    assert required(out) == ["exception/E1", "rule/1234567", "rule/aaaaaaa", "rule/bbbbbbb"]
+    assert "> Relay code lives in relay-journal. Never in relay-server." in lines
+    assert "1. No relay code lands in relay-server. (removes, proposed, binds now)" in lines
+    assert "Names: relay-server, parked worker" in lines
+    assert "> Log every retry." in lines
 
 
 class SiblingBase(RegisterShell):
@@ -1015,14 +1033,44 @@ def test_the_required_slice_compares_against_the_base_branch_the_pr_names(home: 
     code, out = ran(capsys, SiblingBase(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d")
 
     assert code == 0
-    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+    assert "rule/bbbbbbb" in required(out)
 
 
 def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_names(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--repo", "acme/app")
 
     assert code == 0
-    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+    assert "rule/aaaaaaa" in required(out)
+
+
+FIXTURES_DIFF = (
+    b"diff --git a/fixtures/page.png b/fixtures/page.png\nnew file mode 100644\nindex 0000000..3333333\nBinary files /dev/null and b/fixtures/page.png differ\n"
+    b"diff --git a/fixtures/blob b/fixtures/blob\nnew file mode 100644\nindex 0000000..4444444\n--- /dev/null\n+++ b/fixtures/blob\n@@ -0,0 +1 @@\n+\xb5\xff\n"
+)
+
+
+class LargeDiff(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        match argv:
+            case ["gh", "api", *_]:
+                raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
+            case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"refs/rulings/cafef00d-{os.getpid()}...cafef00d":
+                Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
+                self.calls.append(argv)
+                return ""
+        return super().run(argv, stdin, cwd)
+
+
+def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_binary_file_by_name(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = seeded(package) | {"rule/2345678": {"kind": "order", "status": "in-force", "words": "Keep page fixtures small.", "paths": '["fixtures/page.png"]'}}
+    shell = LargeDiff(rows)
+
+    code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+
+    assert code == 0
+    assert {"rule/bbbbbbb", "rule/2345678"} <= set(required(out))
+    assert ["git", "-C", REPO, "fetch", "-q", "origin", f"+main:refs/rulings/cafef00d-{os.getpid()}", "cafef00d"] in shell.calls
+    assert shell.calls[-1] == ["git", "-C", REPO, "update-ref", "-d", f"refs/rulings/cafef00d-{os.getpid()}"]
 
 
 def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
@@ -1038,7 +1086,7 @@ def test_the_required_slice_includes_a_row_whose_symbol_a_caller_elsewhere_adds(
 
     _, out = ran(capsys, RegisterShell(seeded(package), diff=caller), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
 
-    assert "rule/bbbbbbb\t" in out.splitlines()
+    assert "rule/bbbbbbb" in required(out)
 
 
 def test_sweep_prints_each_hit_open_deleted_or_authorized(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
