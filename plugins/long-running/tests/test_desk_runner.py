@@ -2882,14 +2882,15 @@ def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp
 
 def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):
     landing = landing_of(shell, config, tmp_path)
-    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "success"}]
-    assert landing.head_statuses("29020", "cccc333333") == [{"context": "ci", "state": "success"}]
+    green, red = {"context": "ci", "state": "success", "description": ""}, {"context": "ci", "state": "failure", "description": "Build #2 failed"}
+    shell.combined_statuses["cccc333333"] = [green]
+    assert landing.head_statuses("29020", "cccc333333") == [green]
     shell.clock += timedelta(seconds=59)
-    assert landing.head_statuses("29020", "cccc333") == [{"context": "ci", "state": "success"}]
+    assert landing.head_statuses("29020", "cccc333") == [green]
     assert len(graphql_reads(shell)) == 1
     shell.clock += timedelta(seconds=1)
-    shell.combined_statuses["cccc333333"] = [{"context": "ci", "state": "failure"}]
-    assert landing.head_statuses("29020", "cccc333333") == [{"context": "ci", "state": "failure"}]
+    shell.combined_statuses["cccc333333"] = [red]
+    assert landing.head_statuses("29020", "cccc333333") == [red]
     assert len(graphql_reads(shell)) == 2
 
 

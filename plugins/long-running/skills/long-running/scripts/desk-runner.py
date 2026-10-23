@@ -4947,7 +4947,8 @@ class Landing:
         if parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
         elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
-            self.post_record("note", key, json.loads(earlier.target)["lane"], f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
+            to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
+            self.post_record("note", key, to, f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
         else:
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
 
