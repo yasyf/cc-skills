@@ -599,6 +599,8 @@ PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
 CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
 FIX_GO_KINDS = frozenset({"go", "decide", "decision"})
+FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
+UNPUSHED = frozenset({"not pushed", "no origin branch"})
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
 PR_SILENT_HORIZON = timedelta(hours=1)
 ANSWERS_KEPT = 2000
@@ -1982,8 +1984,8 @@ class Runner:
         return next((question for question in questions if question not in claimed), "")
 
     def duplicate_holder(self, lane: str, brief: Path) -> str:
-        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: one sharing an incident key, or one whose branch carries a PR the brief names."""
-        keys = {incident_name(lane), *(brief_incidents(brief) - {NAMES_NOTHING})}
+        """The live lane already holding the work a launch's brief names, with commits ahead or a pushed branch, as `<lane>: <lane status>`, or empty: a fix lane on the same incident, a lane sharing an incident the brief names, or one whose branch carries a PR the brief names."""
+        keys = brief_incidents(brief) - {NAMES_NOTHING}
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         prs = {number for found in PR_NAMED.finditer(text) for number in found.groups() if number}
         for container in self.book.containers(LANE_PREFIX):
@@ -1991,10 +1993,15 @@ class Runner:
             launched = self.book.actions(container, kind="launch")
             if other == lane or not launched:
                 continue
-            shared = keys & self.incident_keys(other, launched[-1])
+            ours = keys | ({incident_name(lane)} if fix_launch(self.book.load(container)) else set())
+            shared = ours & self.incident_keys(other, launched[-1])
             if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
                 continue
-            held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed != "not pushed"]
+            try:
+                held = [tree for tree in self.lane_worktrees(other) if tree.ahead or tree.pushed not in UNPUSHED]
+            except CciTailFailed as failure:
+                self.tail_failed(failure)
+                return ""
             if held and (shared or prs & {number for tree in held for number in re.findall(r"\d+", tree.pr)}):
                 return f"{other}: {lanes.summary(other, held)}"
         return ""
@@ -2889,7 +2896,7 @@ class Runner:
             self.tail_failed(failure)
             return
         after = timedelta(minutes=self.config.pr_silent_minutes)
-        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in FIX_GO_KINDS]
+        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in FIX_GO_KINDS and FIX_GO.search(record.get("text") or "")]
         for record in records:
             if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue

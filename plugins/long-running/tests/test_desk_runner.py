@@ -5064,15 +5064,18 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
 
 
-def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2) -> None:
-    worktree = runner_module.lanes.Worktree(path=tmp_path / holder, branch=holder, ahead=ahead, pushed="pushed" if ahead else "not pushed", pr=pr)
+def holding(monkeypatch, tmp_path: Path, holder: str = LANE, pr: str = "#1201", ahead: int = 2, pushed: str = "pushed") -> None:
+    worktree = runner_module.lanes.Worktree(path=tmp_path / holder, branch=holder, ahead=ahead, pushed=pushed, pr=pr)
     monkeypatch.setattr(runner_module.Runner, "lane_worktrees", lambda self, lane: [worktree] if lane == holder else [])
 
 
-@pytest.mark.parametrize(("now", "ahead", "duplicate"), [("", 2, True), ("NOW ", 2, False), ("", 0, False)])
-def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate(shell, config, tmp_path, monkeypatch, now, ahead, duplicate):
+@pytest.mark.parametrize(
+    ("now", "ahead", "pushed", "duplicate"),
+    [("", 2, "pushed", True), ("NOW ", 2, "pushed", False), ("", 0, "not pushed", False), ("", 0, "no origin branch", False), ("", 0, "pushed", True)],
+)
+def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate(shell, config, tmp_path, monkeypatch, now, ahead, pushed, duplicate):
     clocked_lane(shell, config, tmp_path)
-    holding(monkeypatch, tmp_path, ahead=ahead)
+    holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
     brief = tmp_path / "cache.md"
     brief.write_text("Finish the cache half of #1201.\n")
     desk_inbox(tmp_path, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
@@ -5096,21 +5099,22 @@ def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(
 
 
 @pytest.mark.parametrize(
-    ("kind", "text", "answered", "minutes", "unowned"),
+    ("kind", "text", "go", "minutes", "unowned"),
     [
-        ("report", "NEW CLASS SAND-5A uploads fail on retry", False, 11, True),
-        ("state", "CLASS SAND-5A uploads fail on retry", False, 11, True),
-        ("state", "PR2 is green at the head", False, 11, False),
-        ("report", "NEW CLASS SAND-5A uploads fail on retry", True, 11, False),
-        ("report", "NEW CLASS SAND-5A uploads fail on retry", False, 5, False),
-        ("report", "SAND-5A uploads fail on retry", False, 11, False),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", "", 11, True),
+        ("state", "CLASS SAND-5A uploads fail on retry", "", 11, True),
+        ("state", "PR2 is green at the head", "", 11, False),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", "launch inc-sand-fix for SAND-5A", 11, False),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", "launch inc-sand-evidence to collect SAND-5A logs", 11, True),
+        ("report", "NEW CLASS SAND-5A uploads fail on retry", "", 5, False),
+        ("report", "SAND-5A uploads fail on retry", "", 11, False),
     ],
 )
-def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, answered, minutes, unowned):
+def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, go, minutes, unowned):
     orca_pass(shell, config)
     seq = cci_record(shell, lane="inc-sand-evidence", kind=kind, text=text, at=actions.stamp(shell.clock))
-    if answered:
-        lane_record(shell, "root", "go", "launch inc-sand-fix for SAND-5A")
+    if go:
+        lane_record(shell, "root", "go", go)
     shell.sleep(minutes * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
