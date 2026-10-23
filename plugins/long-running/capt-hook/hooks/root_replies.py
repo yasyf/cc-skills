@@ -7,12 +7,8 @@ from zoneinfo import ZoneInfo
 
 from cc_transcript.models import UserEvent
 from captain_hook import (
-    CONFIRMED,
-    UNCONFIRMED,
     Allow,
     BaseHookEvent,
-    Block,
-    Confirm,
     Event,
     FromSubagent,
     HookResult,
@@ -49,11 +45,8 @@ IDLE_CLAIM = re.compile(
     re.IGNORECASE,
 )
 UNREAD_LANE = (
-    "A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
+    "Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
     " Run it, then report what it shows."
-)
-IDLE_JUDGE = Confirm(
-    rule="Block only when the reply calls a named lane idle, silent, dead, or empty, or stands one down or relaunches it, with no lane-status read this turn."
 )
 DEFECT_ADMITTED = re.compile(
     r"\bmy bad\b|\bI (?:missed|forgot|should have|didn'?t)\b|\b(?:tooling|tool|hook|runner|desk)\s+(?:defect|bug|gap|is broken|was broken|misfired)\b"
@@ -61,20 +54,18 @@ DEFECT_ADMITTED = re.compile(
     re.IGNORECASE,
 )
 NARRATED_DEFECT = (
-    "A reply that admits a tooling defect, a missed step, or a dead lane ships the fix in the same turn."
+    "Warning, nothing was blocked: A reply that admits a tooling defect, a missed step, or a dead lane ships the fix in the same turn."
     " Spawn the fix lane or post its `cci post --kind go`, then report it."
 )
-DEFECT_JUDGE = Confirm(rule="Block only when the reply admits the drive's own tooling defect, missed step, or dead lane and this turn spawned no lane and posted no GO that fixes it.")
 MEASURED = re.compile(
     r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|(?:users?|sessions?|runs?|errors?|crashes|failures?|requests?|events?|objects?|rows?|retires?|deletes?|refusals?|chats?|reports?)\b|(?:/|per\s+)(?:min(?:ute)?|hour|sec(?:ond)?|s)\b)",
     re.IGNORECASE,
 )
 QUERY_CITED = re.compile(r"#\d{3,}\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|https?://\S+")
 UNSOURCED_NUMBER = (
-    "A count, rate, or percentage told to the owner names the query record it came from."
+    "Warning, nothing was blocked: A count, rate, or percentage told to the owner names the query record it came from."
     " Put that record's `#<seq>` or link beside each number below, or drop the number."
 )
-NUMBER_JUDGE = Confirm(rule="Block only when the reply states a measured production count, rate, or percentage with no record, query, or link it came from.")
 
 
 def owner_turns(evt: BaseHookEvent) -> list[tuple[datetime, str]]:
@@ -223,11 +214,11 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE, decide=CONFIRMED): Block(
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
         ),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE): Warn(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE): Warn(),
         Input(
             transcript=[
                 T.user("status?"),
@@ -237,9 +228,8 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("worker-fix-2 is idle; relaunching it."),
             ],
             state=ACTIVE,
-            decide=CONFIRMED,
-        ): Block(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")], state=ACTIVE, decide=UNCONFIRMED): Allow(),
+        ): Warn(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")], state=ACTIVE): Warn(),
         Input(
             transcript=[
                 T.user("status?"),
@@ -247,15 +237,14 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("worker-fix-2 is idle; relaunching it."),
             ],
             state=ACTIVE,
-            decide=CONFIRMED,
         ): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("The fix lane opened its PR.")], state=ACTIVE, decide=CONFIRMED): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")], decide=CONFIRMED): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("The fix lane opened its PR.")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")]): Allow(),
     },
 )
 def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active and IDLE_CLAIM.search(last_reply(evt)) and not lane_status_read(evt, set()):
-        return evt.block(UNREAD_LANE, confirm=IDLE_JUDGE)
+        return evt.context(UNREAD_LANE)
     return None
 
 
@@ -264,7 +253,7 @@ def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("Bash", "SendMessage")],
     skip_if=[FromSubagent()],
     tests={
-        Input(command="cci post --drive d --lane root --kind stand-down --to worker-fix-2 --text 'stand down'", state=ACTIVE): Block(
+        Input(command="cci post --drive d --lane root --kind stand-down --to worker-fix-2 --text 'stand down'", state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
         ),
         Input(
@@ -276,8 +265,8 @@ def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
             command="cci post --drive d --lane root --kind stand-down --to worker-fix-2 --text 'stand down'",
             transcript=[T.user("status?"), T.assistant(T.tool("Bash", command="drive.py lane-status worker-fix-3 --drive d"))],
             state=ACTIVE,
-        ): Block(),
-        Input(tool="SendMessage", tool_input={"to": "worker-fix-2", "message": "Stand down: stop working and send nothing further."}, state=ACTIVE): Block(),
+        ): Warn(),
+        Input(tool="SendMessage", tool_input={"to": "worker-fix-2", "message": "Stand down: stop working and send nothing further."}, state=ACTIVE): Warn(),
         Input(
             tool="SendMessage",
             tool_input={"to": "worker-fix-2", "message": "Stand down: stop working and send nothing further."},
@@ -295,11 +284,11 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
         raw = evt.input.raw
         message, to = raw.get("message"), raw.get("to")
         standing_down = isinstance(message, str) and re.match(r"\s*stand[ -]down\b", message, re.IGNORECASE)
-        return evt.block(UNREAD_LANE) if standing_down and not lane_status_read(evt, {str(to)}) else None
+        return evt.context(UNREAD_LANE) if standing_down and not lane_status_read(evt, {str(to)}) else None
     posts = [CCI_POST.bind(call).values for call in evt.command.calls("cci")]
     lanes = {lane for values in posts if "stand-down" in values.get("kind", ()) for to in values.get("to", ()) for lane in to.split(",") if lane}
     standing_down = any("stand-down" in values.get("kind", ()) for values in posts)
-    return evt.block(UNREAD_LANE) if standing_down and not lane_status_read(evt, lanes) else None
+    return evt.context(UNREAD_LANE) if standing_down and not lane_status_read(evt, lanes) else None
 
 
 @on(
@@ -310,9 +299,8 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
-            decide=CONFIRMED,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Block(pattern=r"ships the fix in the same turn"),
+        ): Warn(pattern=r"ships the fix in the same turn"),
         Input(
             transcript=[
                 T.user("why is it slow"),
@@ -320,7 +308,6 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("My bad: the runner was broken; runner-stall-fix is on it."),
             ],
             state=ACTIVE,
-            decide=CONFIRMED,
             commands=incident_sources(SAND_NOT_MIGRATED),
         ): Allow(),
         Input(
@@ -330,19 +317,16 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("My bad: the runner was broken and I missed the stalled launch."),
             ],
             state=ACTIVE,
-            decide=CONFIRMED,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Block(),
+        ): Warn(),
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
-            decide=CONFIRMED,
             commands=incident_sources(CLOSED_0820),
         ): Allow(),
         Input(
             transcript=[T.user("why is it slow"), T.assistant("The fix lane opened its PR.")],
             state=ACTIVE,
-            decide=CONFIRMED,
             commands=incident_sources(SAND_NOT_MIGRATED),
         ): Allow(),
     },
@@ -350,7 +334,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
 def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     reply = last_reply(evt)
     if CompactionState.load(evt).active and DEFECT_ADMITTED.search(reply) and not fix_named(evt, reply) and open_incidents(evt):
-        return evt.block(NARRATED_DEFECT, confirm=DEFECT_JUDGE)
+        return evt.context(NARRATED_DEFECT)
     return None
 
 
@@ -359,17 +343,17 @@ def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE, decide=CONFIRMED): Block(
+        Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Warn(
             pattern=r"300 requests per minute"
         ),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE, decide=CONFIRMED): Allow(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE, decide=UNCONFIRMED): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE, decide=CONFIRMED): Allow(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")], decide=CONFIRMED): Allow(),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE): Warn(),
+        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")]): Allow(),
     },
 )
 def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     lines = [line.strip()[:NUMBER_TEXT_SHOWN] for line in last_reply(evt).splitlines() if MEASURED.search(line) and not QUERY_CITED.search(line)][:NUMBERS_SHOWN]
-    return evt.block("\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"]), confirm=NUMBER_JUDGE) if lines else None
+    return evt.context("\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"])) if lines else None

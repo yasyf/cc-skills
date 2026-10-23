@@ -35,11 +35,11 @@ def stop(state: Path, cls=StopEvent, **raw) -> list[str]:
         {"agent_id": "a44fd2b6534c7cc71", "agent_type": "long-running:lane"},
     ],
 )
-def test_a_lane_final_text_over_the_cap_is_refused(tmp_path: Path, who: dict) -> None:
+def test_a_lane_final_text_over_the_cap_is_warned(tmp_path: Path, who: dict) -> None:
     assert stop(drive(tmp_path), last_assistant_message=REPORT, **who) == [lane_reports.ONE_LINE]
 
 
-def test_a_lane_subagent_stop_over_the_cap_is_refused(tmp_path: Path) -> None:
+def test_a_lane_subagent_stop_over_the_cap_is_warned(tmp_path: Path) -> None:
     raw = {"agent_id": "a44fd2b6534c7cc71", "agent_type": "long-running:lane", "last_assistant_message": REPORT}
 
     assert stop(drive(tmp_path), SubagentStopEvent, **raw) == [lane_reports.ONE_LINE]

@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from cc_transcript.query import Session
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
-from captain_hook import CONFIRMED, UNCONFIRMED
 from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_commands
 
 from fire import fire
@@ -63,11 +62,9 @@ class Root:
         transcript = Session.from_path(self.transcript)
         return cls(_raw=payload | raw, ctx=build_context(transcript=transcript, session_dir=self.session_dir))
 
-    def spawn(self, name: str, prompt: str, *, block: bool = True) -> str | None:
+    def spawn(self, name: str, prompt: str) -> str | None:
         raw = {"session_id": "0123456789abcdef", "cwd": str(self.transcript.parent)}
-        ctx = StubbedContext.wrapping(
-            build_context(session_dir=self.session_dir), decisions=CONFIRMED if block else UNCONFIRMED
-        )
+        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir))
         tool_input = {"name": name, "prompt": prompt, "subagent_type": "long-running:lane-ship"}
         evt = PreToolUseEvent(_raw=raw | {"tool_name": "Agent", "tool_input": tool_input}, ctx=ctx)
         results = fire(owner_facing, evt)
@@ -75,7 +72,7 @@ class Root:
 
     def tool(self, name: str, tool_input: dict, *posted: dict, **raw: str) -> list[str]:
         payload = {"session_id": "0123456789abcdef", "cwd": str(self.transcript.parent), "tool_name": name, "tool_input": tool_input}
-        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir), decisions=CONFIRMED)
+        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir))
         evt = PreToolUseEvent(_raw=payload | raw, ctx=ctx)
         with stubbed_commands({" ".join(owner_facing.INCIDENT_DIGEST): json.dumps({"open_incidents": list(posted)})}):
             return [result.message for result in fire(owner_facing, evt)]
@@ -140,7 +137,7 @@ def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "text", "blocked"),
+    ("status", "text", "warned"),
     [
         ("open", "sand 1437 is published", True),
         ("open", "sand 1437 is published (#103935)", False),
@@ -148,10 +145,10 @@ def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
     ],
     ids=["open-incident-from-memory", "quotes-the-released-record", "closed-incident"],
 )
-def test_a_publish_line_during_an_open_incident_quotes_the_released_record(root: Root, incidents: Path, status: str, text: str, blocked: bool) -> None:
+def test_a_publish_line_during_an_open_incident_quotes_the_released_record(root: Root, incidents: Path, status: str, text: str, warned: bool) -> None:
     incident(incidents, "0820", status, target="sand")
 
-    assert root.publish(text) == (owner_facing.PUBLISH_FROM_MEMORY if blocked else None)
+    assert root.publish(text) == (owner_facing.PUBLISH_FROM_MEMORY if warned else None)
 
 
 @pytest.mark.parametrize("text", ["Fix lane spawned at 10:35am; mechanism by 10:45.", "Build 72755 is red."])
@@ -175,25 +172,14 @@ def test_logged_misfires_pass_once_their_role_is_declared(root: Root, name: str)
 
 
 @pytest.mark.parametrize("name", MISFIRES)
-def test_logged_misfires_without_a_role_go_to_the_model(root: Root, name: str) -> None:
-    assert root.spawn(name, MISFIRES[name], block=False) is None
-
-
-@pytest.mark.parametrize("name", MISFIRES)
-def test_logged_misfires_without_a_role_block_on_a_confident_match(root: Root, name: str) -> None:
+def test_logged_misfires_without_a_role_warn(root: Root, name: str) -> None:
     assert root.spawn(name, MISFIRES[name]) == owner_facing.INCIDENT_ROUTE
 
 
-def test_a_fix_lane_with_incident_turn_authority_blocks_without_the_model(root: Root) -> None:
+def test_a_fix_lane_with_incident_turn_authority_warns(root: Root) -> None:
     prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80.\nAuthority: Incident Turn."
 
-    assert root.spawn("api-1n80-fix", prompt, block=False) == owner_facing.INCIDENT_ROUTE
-
-
-def test_a_fix_lane_naming_an_outage_without_authority_goes_to_the_model(root: Root) -> None:
-    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80."
-
-    assert root.spawn("api-1n80-fix", prompt, block=False) is None
+    assert root.spawn("api-1n80-fix", prompt) == owner_facing.INCIDENT_ROUTE
 
 
 @pytest.mark.parametrize(
@@ -217,13 +203,13 @@ def test_a_fix_lane_the_desk_refused_on_load_spawns_in_process(root: Root, refus
 
 
 @pytest.mark.parametrize("tool", ["EnterPlanMode", "ExitPlanMode"])
-def test_plan_mode_blocks_while_a_drive_incident_is_open(root: Root, incidents: Path, tool: str) -> None:
+def test_plan_mode_warns_while_a_drive_incident_is_open(root: Root, incidents: Path, tool: str) -> None:
     incident(incidents, "0820", "fix-pending", target="executor")
 
     assert root.tool(tool, {}) == [owner_facing.PLAN_MODE_IN_INCIDENT]
 
 
-def test_a_posted_incident_record_blocks_plan_mode(root: Root, incidents: Path) -> None:
+def test_a_posted_incident_record_warns_on_plan_mode(root: Root, incidents: Path) -> None:
     assert root.tool("EnterPlanMode", {}, OUTAGE_TWO) == [owner_facing.PLAN_MODE_IN_INCIDENT]
 
 
@@ -240,12 +226,12 @@ def test_plan_mode_outside_a_drive_passes(tmp_path: Path, incidents: Path, refus
     assert Root(tmp_path, active=False).tool("EnterPlanMode", {}) == []
 
 
-def test_an_owner_question_on_other_work_blocks_while_the_alert_is_active(root: Root, incidents: Path) -> None:
+def test_an_owner_question_on_other_work_warns_while_the_alert_is_active(root: Root, incidents: Path) -> None:
     incident(incidents, "sand-not-migrated", "open", target="sand")
 
     [message] = root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?"))
 
-    assert message.startswith("the alert is active") and "sand-not-migrated" in message
+    assert message.startswith("Warning, nothing was blocked: the alert is active") and "sand-not-migrated" in message
 
 
 def test_the_incident_own_question_passes(root: Root, incidents: Path) -> None:
@@ -260,7 +246,7 @@ def test_an_owner_question_after_the_incident_closes_passes(root: Root, incident
     assert root.tool("AskUserQuestion", question("Should I extend the backlog deadline to 11:30?")) == []
 
 
-def test_a_root_probe_blocks_while_the_alert_is_active(root: Root, incidents: Path) -> None:
+def test_a_root_probe_warns_while_the_alert_is_active(root: Root, incidents: Path) -> None:
     incident(incidents, "sand-not-migrated", "open", target="sand")
 
     assert root.tool("Bash", {"command": "kubectl -n plat get deploy api"}) == [owner_facing.ROOT_PROBE]
@@ -296,7 +282,7 @@ def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
     return root
 
 
-def test_a_status_card_in_drive_words_is_refused_and_its_pr_options_pass(drive_root: Root) -> None:
+def test_a_status_card_in_drive_words_is_warned_and_its_pr_options_pass(drive_root: Root) -> None:
     card = {"status": "needs_you", "title": "Merge the slice?", "body": "The desk graded it.", "options": ["Merge #42301", "Hold"]}
     payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
     evt = PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir)))
@@ -360,7 +346,7 @@ def test_the_root_reply_is_nudged_for_a_lane_name_and_never_for_engineering_word
     assert [term for term in terms[:-1] if f'"{term}"' in nudge] == []
 
 
-def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_refused(drive_root: Root, tmp_path: Path) -> None:
+def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_warned(drive_root: Root, tmp_path: Path) -> None:
     state = tmp_path / "scratch"
     state.mkdir()
     capture = {"digest": "a" * 16, "at": "2026-01-02T03:04:05Z", "session": "s-owner", "source": "prompt", "text": "keep the desk copy on the laptop. never on the phone"}

@@ -584,7 +584,7 @@ def test_retry_outlives_the_previous_job() -> None:
     assert handoff.COMPACT_RETRY_SECONDS > compact_job.MAX_LIFETIME_SECONDS
 
 
-def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
+def test_a_narrative_with_an_uncited_owner_gate_warns_at_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
@@ -594,12 +594,12 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
         bash(session)
     )
 
-    blocked = handoff.compact_when_idle(stop_event(session))
+    warned = handoff.compact_when_idle(stop_event(session))
 
-    assert blocked.action.name == "block"
-    assert "fails the standing-rules lint" in blocked.message and "`ccn doc edit bbbbbbbb --body -`" in blocked.message
-    assert "owner-gate line cites no live answer id: SoFi release on the owner's word" in blocked.message
-    assert "missing durable rule" not in blocked.message
+    assert warned.action.name == "warn"
+    assert "fails the standing-rules lint" in warned.message and "`ccn doc edit bbbbbbbb --body -`" in warned.message
+    assert "owner-gate line cites no live answer id: SoFi release on the owner's word" in warned.message
+    assert "missing durable rule" not in warned.message
     assert state(session).phase == "due"
     assert not any(call[:2] in (["doc", "supersede"], ["doc", "add"]) for call in ccn_calls(docs))
 
@@ -609,7 +609,7 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n" in (docs / ("b" * 40 + ".md")).read_text()
 
 
-def test_an_uncited_standing_rule_blocks_the_stop_at_its_record_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
+def test_an_uncited_standing_rule_warns_at_the_stop_at_its_record_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
@@ -618,11 +618,11 @@ def test_an_uncited_standing_rule_blocks_the_stop_at_its_record_not_the_doc(home
     standing_rule(docs, "go", "release on the owner's word")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
-    blocked = handoff.compact_when_idle(stop_event(session))
+    warned = handoff.compact_when_idle(stop_event(session))
 
-    assert blocked.action.name == "block"
-    assert "\ncci #1: standing rule #1 requires owner approval but cites no live answer id: " in blocked.message
-    assert "ccn doc edit" not in blocked.message
+    assert warned.action.name == "warn"
+    assert "\ncci #1: standing rule #1 requires owner approval but cites no live answer id: " in warned.message
+    assert "ccn doc edit" not in warned.message
 
     standing_rule(docs, "correction", "every merged PR is released as it merges (answer 4ffc9a5)", re=1)
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
@@ -905,7 +905,7 @@ def test_a_hand_written_doc_gains_the_generated_sections_and_the_summary_names_i
     assert augmented.endswith("_From doc 6666666, carried forward._\n\n## Root's next actions\n1. 12-item plan\n")
 
 
-def test_a_second_active_doc_after_generation_blocks_the_stop_and_names_the_failure_at_compaction(
+def test_a_second_active_doc_after_generation_warns_at_the_stop_and_names_the_failure_at_compaction(
     home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = home / "session"
@@ -914,11 +914,11 @@ def test_a_second_active_doc_after_generation_blocks_the_stop_and_names_the_fail
     monkeypatch.setenv("FAKE_CCN_SUPERSEDE", "fail")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(bash(session))
 
-    blocked = handoff.compact_when_idle(stop_event(session))
+    warned = handoff.compact_when_idle(stop_event(session))
 
-    assert blocked.action.name == "block"
-    assert blocked.message.startswith(
-        "The drive's handoff left more than one active progress doc. Fix it, then stop again:\n"
+    assert warned.action.name == "warn"
+    assert warned.message.startswith(
+        "Warning, nothing was blocked: The drive's handoff left more than one active progress doc. Fix it, then stop again:\n"
         "2 active progress:brook docs after generation, expected only bbbbbbb: aaaaaaa, bbbbbbb; "
     )
     assert state(session).phase == "due"

@@ -10,16 +10,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from captain_hook import (
-    CONFIRMED,
-    UNCONFIRMED,
     Allow,
     Annotated,
     Arguments,
     BaseHookEvent,
-    Block,
     CommandMatches,
     CommandSchema,
-    Confirm,
     Event,
     FileFixture,
     FromSubagent,
@@ -96,14 +92,6 @@ RULING_SYSTEM = (
     "one question that rule answers, phrased as an agent would ask it before acting, under 120 characters, ending "
     "with a question mark. Example: the message 'from now on, release everything as it merges' gives the title "
     "'When does a merged PR get released?'. When the message states no standing rule, return an empty title."
-)
-ROOT_READ = Confirm(
-    rule=(
-        "An investigation read at the drive root: reading repo code, history, lane output, or Slack to work something "
-        "out floods the root's context and belongs to a lane. One-shot control-plane reads are outside the rule: a "
-        "bounded read of a state, inbox, or mailbox file, and a single Slack thread read during an incident turn "
-        "before any lane exists."
-    )
 )
 
 WORDS = (Operand("words", count="*"),)
@@ -435,34 +423,30 @@ class ReadsInbox:
         )
 
 
-def root_block(
-    *, message: str, only_if: Sequence[object], tests: dict, bypass: bool = True, confirm: Confirm | None = None
-) -> None:
+def root_warning(*, message: str, only_if: Sequence[object], tests: dict, bypass: bool = True) -> None:
     hook(
         Event.PreToolUse,
         message=message,
         only_if=[DriveActive(), *only_if],
         skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
-        block=True,
-        confirm=confirm,
         tests=tests,
     )
 
 
-root_block(
-    message="Drive roots read inboxes through `cci digest --drive <drive>` and `cci tail --drive <drive>`.",
+root_warning(
+    message="Warning, nothing was blocked: Drive roots read inboxes through `cci digest --drive <drive>` and `cci tail --drive <drive>`.",
     only_if=[ReadsInbox()],
     tests={
-        Input(command="tail -n 40 ~/.claude/scratch/drive/inbox/deploy-go.md", state=ACTIVE): Block(pattern=r"cci digest"),
-        Input(command="grep -n G12 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
-        Input(command="sed -n '1,400p' /drive/inbox/runner.md", state=ACTIVE): Block(),
-        Input(command="cat /drive/inbox/*.md", state=ACTIVE): Block(),
-        Input(tool="Read", tool_input={"file_path": "/drive/inbox/runner.md"}, state=ACTIVE): Block(),
+        Input(command="tail -n 40 ~/.claude/scratch/drive/inbox/deploy-go.md", state=ACTIVE): Warn(pattern=r"cci digest"),
+        Input(command="grep -n G12 /drive/inbox/deploy-go.md", state=ACTIVE): Warn(),
+        Input(command="sed -n '1,400p' /drive/inbox/runner.md", state=ACTIVE): Warn(),
+        Input(command="cat /drive/inbox/*.md", state=ACTIVE): Warn(),
+        Input(tool="Read", tool_input={"file_path": "/drive/inbox/runner.md"}, state=ACTIVE): Warn(),
         Input(command="grep -c G12 /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
         Input(command="wc -l /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
         Input(command="cat >> /drive/inbox/orca-desk.md <<'EOF'\nR9 orca-desk: relay to a: go\nEOF", state=ACTIVE): Allow(),
         Input(command="inbox-digest.py --state /drive/inbox/.inbox-digest.json /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
-        Input(command="tail -n 40 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
+        Input(command="tail -n 40 /drive/inbox/deploy-go.md", state=ACTIVE): Warn(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md"): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md # ccx:raw", state=ACTIVE): Allow(),
@@ -470,11 +454,11 @@ root_block(
     },
 )
 
-root_block(
-    message="Lane artifacts are read by a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: Lane artifacts are read by a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[ReadsLaneArtifact()],
     tests={
-        Input(tool="Read", file=FileFixture(name="matrix.md", content="a\n"), state=ACTIVE): Block(
+        Input(tool="Read", file=FileFixture(name="matrix.md", content="a\n"), state=ACTIVE): Warn(
             pattern=r"Lane artifacts"
         ),
         Input(tool="Read", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
@@ -482,11 +466,11 @@ root_block(
     },
 )
 
-root_block(
-    message="A read this large belongs to a lane, not the drive root. Read a window with `offset` and `limit`.",
+root_warning(
+    message="Warning, nothing was blocked: A read this large belongs to a lane, not the drive root. Read a window with `offset` and `limit`.",
     only_if=[ReadsOversizeWindow()],
     tests={
-        Input(tool="Read", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(
+        Input(tool="Read", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Warn(
             pattern=r"read this large"
         ),
         Input(tool="Read", file=FileFixture(name="notes.md", content=LONG), limit=40, state=ACTIVE): Allow(),
@@ -498,84 +482,78 @@ root_block(
     },
 )
 
-root_block(
-    message="File reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: File reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[ReadsRepoFiles()],
-    confirm=ROOT_READ,
     tests={
-        Input(command=f"cat {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(pattern=r"File reads"),
-        Input(command=f"cat {SOURCE}", state=ACTIVE, decide=UNCONFIRMED): Allow(),
+        Input(command=f"cat {SOURCE}", state=ACTIVE): Warn(pattern=r"File reads"),
         Input(command=f"cat {SOURCE} # ccx:raw", state=ACTIVE): Allow(),
         Input(command="cat {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command=f"grep -n line {SOURCE} > /tmp/lines.txt", state=ACTIVE): Allow(),
         Input(command=f"sed -n '3,$p' {SOURCE} >> plan.md", state=ACTIVE): Allow(),
         Input(command=f"sed -n '3,$p' {SOURCE} | ccn doc edit 91b9194 --body -", state=ACTIVE): Allow(),
         Input(command="head -c 1200 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"head -c 4001 {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"head -c 4001 {SOURCE}", state=ACTIVE): Warn(),
         Input(command="head -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"head -n 41 {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"head -n 41 {SOURCE}", state=ACTIVE): Warn(),
         Input(command="tail -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"tail -n +40 {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"tail -f {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"tail -n +40 {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"tail -f {SOURCE}", state=ACTIVE): Warn(),
         Input(command="grep -c line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command="grep -n -m 20 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"grep -m 21 line {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"grep -m 5 -A 9 line {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"grep -n line {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"grep -m 21 line {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"grep -m 5 -A 9 line {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"grep -n line {SOURCE}", state=ACTIVE): Warn(),
         Input(command="grep -n line {file} | head -n 12", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"grep -m 1 -o . {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"cat {SOURCE} >&2 | head -n 1", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"cat {SOURCE} | tee /dev/stderr | head -n 1", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"cat {SOURCE} | (head -n 1; cat)", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command=f"for i in 1 2; do head -n 40 {SOURCE}; done", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"grep -m 1 -o . {SOURCE}", state=ACTIVE): Warn(),
+        Input(command=f"cat {SOURCE} >&2 | head -n 1", state=ACTIVE): Warn(),
+        Input(command=f"cat {SOURCE} | tee /dev/stderr | head -n 1", state=ACTIVE): Warn(),
+        Input(command=f"cat {SOURCE} | (head -n 1; cat)", state=ACTIVE): Warn(),
+        Input(command=f"for i in 1 2; do head -n 40 {SOURCE}; done", state=ACTIVE): Warn(),
         Input(command="grep -c line {file} 2>/dev/null # count", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command="wc -l {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command=f"head -n 5 {SOURCE} && head -n 5 {SOURCE}", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command=f"head -n 5 {SOURCE} && head -n 5 {SOURCE}", state=ACTIVE): Warn(),
         Input(command="sed -i '' s/a/b/ {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
         Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n")): Allow(),
         Input(command="cat >> inbox.md <<'EOF'\nlaunch l17 NOW\nEOF", state=ACTIVE): Allow(),
         Input(command="ccx vcs status | grep blocked", state=ACTIVE): Allow(),
-        Input(command="cci tail --drive release-v3 --cursor root | grep -n MECHANISM", state=ACTIVE, decide=CONFIRMED): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root | grep -n MECHANISM", state=ACTIVE): Allow(),
         Input(command="ccx vcs status | jq .", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="Searches belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: Searches belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[SearchesRepo()],
-    confirm=ROOT_READ,
     tests={
-        Input(command="rg -n LAUNCH plugins", state=ACTIVE, decide=CONFIRMED): Block(pattern=r"^Searches belong"),
-        Input(command="rg -n LAUNCH plugins", state=ACTIVE, decide=UNCONFIRMED): Allow(),
-        Input(tool="Grep", tool_input={"pattern": "LAUNCH", "path": "plugins"}, state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command="rg -n '# ccx:raw' plugins", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command="rg -n LAUNCH plugins", state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Searches belong"),
+        Input(tool="Grep", tool_input={"pattern": "LAUNCH", "path": "plugins"}, state=ACTIVE): Warn(),
+        Input(command="rg -n '# ccx:raw' plugins", state=ACTIVE): Warn(),
         Input(command="rg -n LAUNCH plugins # ccx:raw", state=ACTIVE): Allow(),
         Input(command="rg -n LAUNCH plugins", env={"CAPT_HOOK_CCX_RAW": "1"}, state=ACTIVE): Allow(),
         Input(command="rg -n LAUNCH plugins"): Allow(),
         Input(command="rg -n LAUNCH plugins", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="date -u +%H:%MZ && ls ~/scratch", state=ACTIVE): Allow(),
-        Input(command="cci tail --drive release-v3 --cursor root | rg -n 'MECHANISM|blocker'", state=ACTIVE, decide=CONFIRMED): Allow(),
-        Input(command="cci tail --drive release-v3 --cursor root; rg -n MECHANISM", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command="cci tail --drive release-v3 --cursor root | rg -n 'MECHANISM|blocker'", state=ACTIVE): Allow(),
+        Input(command="cci tail --drive release-v3 --cursor root; rg -n MECHANISM", state=ACTIVE): Warn(),
     },
 )
 
-root_block(
-    message="Git history reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: Git history reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[runs_verb(GIT, ("log",), ("show",), ("diff",), ("blame",), ("grep",), ("reflog",))],
-    confirm=ROOT_READ,
     tests={
-        Input(command="git log --oneline -20", state=ACTIVE, decide=CONFIRMED): Block(pattern=r"Git history"),
-        Input(command="git log --oneline -20", state=ACTIVE, decide=UNCONFIRMED): Allow(),
-        Input(command="git -C /tmp/repo diff --stat", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command="git --no-optional-locks log -1", state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(command="git --literal-pathspecs show HEAD", state=ACTIVE, decide=CONFIRMED): Block(),
+        Input(command="git log --oneline -20", state=ACTIVE): Warn(pattern=r"Git history"),
+        Input(command="git -C /tmp/repo diff --stat", state=ACTIVE): Warn(),
+        Input(command="git --no-optional-locks log -1", state=ACTIVE): Warn(),
+        Input(command="git --literal-pathspecs show HEAD", state=ACTIVE): Warn(),
         Input(command="git status", state=ACTIVE): Allow(),
         Input(command="git log -5", agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="Code and repo reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: Code and repo reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[
         Or(
             runs_verb(CCX, ("code",), ("repo",), ("vcs", "diff"), ("vcs", "show"), ("vcs", "history"), ("vcs", "log")),
@@ -583,65 +561,61 @@ root_block(
         )
     ],
     tests={
-        Input(command="ccx code read hooks/x.py --section 1-90", state=ACTIVE): Block(pattern=r"Code and repo reads"),
-        Input(command="ccx vcs diff", state=ACTIVE): Block(),
+        Input(command="ccx code read hooks/x.py --section 1-90", state=ACTIVE): Warn(pattern=r"Code and repo reads"),
+        Input(command="ccx vcs diff", state=ACTIVE): Warn(),
         Input(
             tool="mcp__plugin_cc-context_cc-context__ccx_code_read", tool_input={"path": "x.py"}, state=ACTIVE
-        ): Block(),
+        ): Warn(),
         Input(command="ccx vcs status", state=ACTIVE): Allow(),
         Input(command="ccx vcs pr status 28797 28756", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="Web page reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:web-fetch`.",
+root_warning(
+    message="Warning, nothing was blocked: Web page reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:web-fetch`.",
     only_if=[runs_verb(CCX, ("web",))],
     tests={
-        Input(command="ccx web read https://example.com/docs", state=ACTIVE): Block(pattern=r"Web page reads"),
+        Input(command="ccx web read https://example.com/docs", state=ACTIVE): Warn(pattern=r"Web page reads"),
         Input(command="ccx vcs status", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="PR and review reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:pr-review-triage`.",
+root_warning(
+    message="Warning, nothing was blocked: PR and review reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:pr-review-triage`.",
     only_if=[Or(runs_verb(GH, ("pr", "view"), ("pr", "diff")), runs_verb(CCX, ("vcs", "reviews")))],
     tests={
-        Input(command="gh pr view 28797 --json body", state=ACTIVE): Block(pattern=r"PR and review reads"),
-        Input(command="gh -R yasyf/cc-skills pr view 148", state=ACTIVE): Block(),
-        Input(command="ccx vcs reviews --stack", state=ACTIVE): Block(),
+        Input(command="gh pr view 28797 --json body", state=ACTIVE): Warn(pattern=r"PR and review reads"),
+        Input(command="gh -R yasyf/cc-skills pr view 148", state=ACTIVE): Warn(),
+        Input(command="ccx vcs reviews --stack", state=ACTIVE): Warn(),
         Input(command="gh pr list", state=ACTIVE): Allow(),
         Input(command="gh pr view 28797", agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="CI log reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:ci-triage`.",
+root_warning(
+    message="Warning, nothing was blocked: CI log reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-context:ci-triage`.",
     only_if=[runs_verb(GH, ("run", "view"))],
     tests={
-        Input(command="gh run view 123 --log-failed", state=ACTIVE): Block(pattern=r"CI log reads"),
+        Input(command="gh run view 123 --log-failed", state=ACTIVE): Warn(pattern=r"CI log reads"),
         Input(command="gh run list", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="Issue reads belong to a lane, not the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: Issue reads belong to a lane, not the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
     only_if=[runs_verb(GH, ("issue", "view"))],
     tests={
-        Input(command="gh issue view 148", state=ACTIVE): Block(pattern=r"Issue reads"),
+        Input(command="gh issue view 148", state=ACTIVE): Warn(pattern=r"Issue reads"),
         Input(command="gh issue list", state=ACTIVE): Allow(),
     },
 )
 
-root_block(
-    message="Slack reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-slack:slack-triage`.",
+root_warning(
+    message="Warning, nothing was blocked: Slack reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-slack:slack-triage`.",
     only_if=[Or(runs_verb(CC_SLACK, ("thread",), ("history",)), Tool(*SLACK_READ_TOOLS))],
-    confirm=ROOT_READ,
     tests={
-        Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE, decide=CONFIRMED): Block(pattern=r"Slack reads"),
-        Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE, decide=CONFIRMED): Block(),
-        Input(
-            tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE, decide=UNCONFIRMED
-        ): Allow(),
+        Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE): Warn(pattern=r"Slack reads"),
+        Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE): Warn(),
         Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
         Input(command="cc-slack thread C0B/p1 # ccx:raw", state=ACTIVE): Allow(),
         Input(
@@ -656,18 +630,18 @@ root_block(
     },
 )
 
-root_block(
-    message="This fetch is too large for the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
+root_warning(
+    message="Warning, nothing was blocked: This fetch is too large for the drive root. Delegate with `Agent` using `long-running:lane` and `model: sonnet`.",
     only_if=[Or(Tool(*DOC_TOOLS), OversizedTool())],
     tests={
-        Input(tool="mcp__plugin_datadog_mcp__get_datadog_notebook", tool_input={"id": 1}, state=ACTIVE): Block(
+        Input(tool="mcp__plugin_datadog_mcp__get_datadog_notebook", tool_input={"id": 1}, state=ACTIVE): Warn(
             pattern=r"too large"
         ),
         Input(
             tool="mcp__linear__get_issue",
             tool_input={"id": "ENG-1"},
             state=[*ACTIVE, RootContextState(oversized={"mcp__linear__get_issue": 40000})],
-        ): Block(),
+        ): Warn(),
         Input(tool="mcp__linear__get_issue", tool_input={"id": "ENG-1"}, state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-notes_cc-notes__doc_show", tool_input={"id": "4ffc9a5"}, state=ACTIVE): Allow(),
         Input(tool="SendMessage", tool_input={"to": "orca-desk", "message": "go"}, state=ACTIVE): Allow(),

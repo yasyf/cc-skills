@@ -58,14 +58,14 @@ def test_an_unsettled_question_passes_silently(home: Path) -> None:
     assert settled.check_settled_before_asking(ask(home, UNSETTLED)) is None
 
 
-def test_a_re_asked_durable_answer_blocks_with_its_id_and_no_plan_dump(home: Path) -> None:
-    blocked = settled.check_settled_before_asking(ask(home, UNSETTLED, RELEASE))
+def test_a_re_asked_durable_answer_warns_with_its_id_and_no_plan_dump(home: Path) -> None:
+    warned = settled.check_settled_before_asking(ask(home, UNSETTLED, RELEASE))
 
-    assert blocked.message == settled.GATE_MESSAGE
+    assert warned.message == settled.GATE_MESSAGE
     assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
 
 
-def test_a_board_question_settled_by_a_feedback_memory_blocks(home: Path) -> None:
+def test_a_board_question_settled_by_a_feedback_memory_warns(home: Path) -> None:
     memory = home / ".claude" / "projects" / "-repo" / "memory"
     memory.mkdir(parents=True)
     (memory / "owner-clicks.md").write_text(
@@ -75,9 +75,9 @@ def test_a_board_question_settled_by_a_feedback_memory_blocks(home: Path) -> Non
     board = home / "owner-board.json"
     board.write_text(json.dumps({"blocks": [{"title": "Do you owe a review or approval click on the program PR?", "body": "prose"}]}))
 
-    blocked = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
+    warned = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
 
-    assert blocked.message == settled.GATE_MESSAGE
+    assert warned.message == settled.GATE_MESSAGE
 
 
 def test_a_confirm_block_restating_a_settled_answer_is_not_a_re_ask(home: Path) -> None:

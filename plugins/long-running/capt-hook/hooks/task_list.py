@@ -10,7 +10,6 @@ from cc_transcript.models import TranscriptEvent
 
 from captain_hook import (
     Allow,
-    Block,
     BaseHookEvent,
     Event,
     FromSubagent,
@@ -19,6 +18,7 @@ from captain_hook import (
     TaskCall,
     TaskUpdateCall,
     Tool,
+    Warn,
     WorkflowState,
     on,
     workflow_state,
@@ -361,7 +361,7 @@ def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"taskId": "1", "status": "completed"},
             tasks=[LANE_TASK],
             state=[CompactionState(active=True)],
-        ): Block(pattern="leave the task open"),
+        ): Warn(pattern="leave the task open"),
         Input(
             tool="TaskUpdate",
             agent_id="a1b2c3",
@@ -383,8 +383,8 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
     if call.status != "completed":
         return None
     if (task := evt.tasks.get(call.task_id)) and (lane := lane_of(task)):
-        return evt.block(
-            f"Task #{task.id} is the root's record of lane {lane}; the root completes it once it has consumed "
+        return evt.context(
+            f"Warning, nothing was blocked: Task #{task.id} is the root's record of lane {lane}; the root completes it once it has consumed "
             "your deliverable. SendMessage team-lead the deliverable instead and leave the task open."
         )
     return None
