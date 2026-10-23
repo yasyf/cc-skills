@@ -707,10 +707,10 @@ def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, 
 
 
 SCOPE_WORDS = (
-    "I fcking told you starting one in teh cloud then wrtiing on mac is not in scope",
-    "tehre shouldnt ever be a syncing state bc that jsut happens behind the scene",
-    "no deletion from R2, no cloud deletion at all",
-    "so we said xplicitly not to poll and stream instad",
+    "1e9a64d: a Mac never writes to a chat started in the cloud",
+    "f958522: no syncing state; the downloading bar is the one transfer state",
+    "da49cb1: nothing is deleted from cloud storage",
+    "f765046: stream paths never poll",
 )
 SWEEP_LINE = "Run `rulings.py sweep --program brook` before the first plan or card edit."
 RECORDING_CCI = """#!/usr/bin/env python3
