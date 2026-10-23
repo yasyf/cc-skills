@@ -1,0 +1,19 @@
+{
+  "id": "card-n6",
+  "type": "card",
+  "title": "Do these words say how updates should work?",
+  "summary": "Your words on updates, quoted with nothing added.",
+  "children": [
+    {
+      "id": "n6-confirm",
+      "type": "approval",
+      "prompt": "Confirm as written: download the update in the background, show the banner, and only restart when i click it, and only between edits",
+      "pros": [
+        "No note is cut off mid-edit by an update."
+      ],
+      "cons": [
+        "A laptop that stays busy after the click waits to restart."
+      ]
+    }
+  ]
+}

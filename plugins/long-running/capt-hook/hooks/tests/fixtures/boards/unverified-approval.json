@@ -1,0 +1,12 @@
+{
+  "id": "banner-confirm",
+  "type": "card",
+  "title": "Should the update banner stay as it is?",
+  "children": [
+    {
+      "id": "banner-ok",
+      "type": "approval",
+      "prompt": "Keep the update banner the app already shows (unverified)."
+    }
+  ]
+}

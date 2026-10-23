@@ -13,6 +13,7 @@ from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_
 from fire import fire
 from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
+from hooks.tests.board_fixtures import GLOSSARY, ROWS
 from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
 
 MISFIRES = {
@@ -276,3 +277,67 @@ def test_lane_probes_and_root_routing_pass(root: Root, incidents: Path, command:
     incident(incidents, "sand-not-migrated", "open", target="sand")
 
     assert root.tool("Bash", {"command": command}, **raw) == []
+
+
+PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY}
+
+
+@pytest.fixture
+def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    entry = {"drive": "brook", "sessions": ["0123456789abcdef"], "program": "brook", "state_dir": str(tmp_path / "scratch")}
+    (drives / "brook.json").write_text(json.dumps(entry))
+    root = Root(tmp_path)
+    seed = PostToolUseEvent(_raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=root.session_dir))
+    CompactionState(active=True, slug="brook").save(seed)
+    return root
+
+
+def test_a_status_card_in_drive_words_is_refused_and_its_pr_options_pass(drive_root: Root) -> None:
+    card = {"status": "needs_you", "title": "Merge the slice?", "body": "The desk graded it.", "options": ["Merge #42301", "Hold"]}
+    payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
+    evt = PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir)))
+
+    with stubbed_commands(PLAIN_READS):
+        message = owner_facing.plain_words_in_owner_questions(evt).message
+
+    assert message.startswith(owner_facing.PLAIN_WORDS)
+    assert 'card title has a drive word, "slice"' in message
+    assert 'card body has a drive word, "desk"' in message
+    assert "#42301" not in message
+
+
+def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root) -> None:
+    drive_root.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", "The slice for lane p1a is done.")) + "\n")
+    payload = {"session_id": "0123456789abcdef", "transcript_path": str(drive_root.transcript), "cwd": str(drive_root.transcript.parent)}
+    context = build_context(transcript=Session.from_path(drive_root.transcript), session_dir=drive_root.session_dir)
+    evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context))
+
+    with stubbed_commands(PLAIN_READS):
+        assert owner_facing.plain_words_on_reply(evt) is None
+
+    with nudges.NudgeState.mutate(evt) as state:
+        pending, state.pending = state.pending, []
+    [nudge] = pending
+    assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
+    assert 'your reply has a drive word, "slice"' in nudge
+
+
+def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_refused(drive_root: Root, tmp_path: Path) -> None:
+    state = tmp_path / "scratch"
+    state.mkdir()
+    capture = {"digest": "a" * 16, "at": "2026-01-02T03:04:05Z", "session": "s-owner", "source": "prompt", "text": "keep the desk copy on the laptop. never on the phone"}
+    (state / "owner-prompts.jsonl").write_text(json.dumps(capture) + "\n")
+    reads = {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)}), f"{owner_facing.RULINGS} glossary": GLOSSARY}
+
+    def card(title: str):
+        card = {"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies a note back to the phone.", "options": ["Right", "Some wrong", "Open board"]}
+        payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
+        with stubbed_commands(reads):
+            return owner_facing.plain_words_in_owner_questions(PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir))))
+
+    assert card("“keep the desk copy on the laptop.”") is None
+    assert 'card title has a drive word, "desk"' in card("“keep the desk copy on the phone.”").message

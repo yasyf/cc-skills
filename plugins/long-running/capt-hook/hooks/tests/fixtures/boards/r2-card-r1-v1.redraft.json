@@ -1,0 +1,24 @@
+{
+  "id": "r2-card-r1",
+  "type": "card",
+  "title": "Should the first release ship what works and tune after?",
+  "children": [
+    {
+      "id": "r2-r1",
+      "type": "choice",
+      "prompt": "Should the first release ship what works and tune after?",
+      "options": [
+        {
+          "id": "ship",
+          "label": "Ship what works first; tune after, on measurements",
+          "hint": "Moving the reader's work comes after the first release"
+        },
+        {
+          "id": "all",
+          "label": "Do all three inside the first release",
+          "hint": "Move the reader's work and speed up both timers before shipping"
+        }
+      ]
+    }
+  ]
+}

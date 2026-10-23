@@ -1,0 +1,77 @@
+{
+  "title": "Notes app replan: your decisions, round 3",
+  "blocks": [
+    {
+      "id": "r3-build",
+      "type": "card",
+      "title": "Should a new build reach people the day it is made?",
+      "children": [
+        {
+          "id": "r3-build-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-cloud",
+      "type": "card",
+      "title": "Who can open a note you did not start?",
+      "children": [
+        {
+          "id": "r3-cloud-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-runs",
+      "type": "card",
+      "title": "Should run history stay on the laptop?",
+      "children": [
+        {
+          "id": "r3-runs-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-evict",
+      "type": "card",
+      "title": "When should a note leave the laptop?",
+      "children": [
+        {
+          "id": "r3-evict-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-confirm",
+      "type": "card",
+      "title": "Do these ten details match your answers?",
+      "children": [
+        {
+          "id": "r3-confirm-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-answers",
+      "type": "card",
+      "title": "Should your answers stay in force until you change them?",
+      "children": [
+        {
+          "id": "r3-answers-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    }
+  ]
+}

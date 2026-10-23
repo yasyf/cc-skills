@@ -1,0 +1,19 @@
+{
+  "id": "r3-spikes-queue",
+  "type": "choice",
+  "prompt": "Queued messages move from per-note files into the note's database, but a message sent from the app never reaches the database today (unverified). How should the queue keep its order?",
+  "options": [
+    {
+      "id": "columns",
+      "label": "Add order columns to each saved message"
+    },
+    {
+      "id": "simplify",
+      "label": "Keep send-now and remove; drop reorder"
+    },
+    {
+      "id": "none",
+      "label": "Nothing keeps the order"
+    }
+  ]
+}

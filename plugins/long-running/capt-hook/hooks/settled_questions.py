@@ -29,6 +29,7 @@ from .compaction_handoff import CompactionState, ccn
 BURST_SECONDS = 10 * 60
 DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
+CONFIRMS = "confirms:"
 WORD = re.compile(r"[a-z0-9][a-z0-9-]*")
 SUFFIX = re.compile(r"(?:ies|s|ed|ing)$")
 STOPWORDS = frozenset(
@@ -78,7 +79,7 @@ def strings(value: object) -> Iterator[str]:
     match value:
         case str():
             yield value
-        case dict():
+        case dict() if not str(value.get("id", "")).startswith(CONFIRMS):
             for item in value.values():
                 yield from strings(item)
         case list():

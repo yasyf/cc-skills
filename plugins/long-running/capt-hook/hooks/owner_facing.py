@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from functools import cache
+from functools import cache, cached_property
 from pathlib import Path
 from types import ModuleType
 
@@ -29,16 +32,22 @@ from captain_hook import (
     T,
     TaskCall,
     Tool,
+    ast_grep,
     on,
 )
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
+from pydantic import BaseModel
 
-from .compaction_handoff import CompactionState, post_blocker, script
+from .compaction_handoff import CompactionState, drive_entry, post_blocker, rulings, script
 from .nudges import queue_nudge
+from .pr_ledger import lane_name
+from .register_injection import drive_args
 from .root_context import operand_targets, reads_stdin
+from .tests.board_fixtures import GLOSSARY, ROWS, board
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
+from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.incident_fixtures import (
     BARE_INCIDENT,
     CLOSED_0820,
@@ -87,6 +96,85 @@ DRAFT_IN_QUESTION = (
     "The root never composes Slack copy, so a question never carries a proposed reply."
     " Hand the Slack lane the facts and links, then show its draft verbatim in a Send option's preview."
 )
+PLAIN_WORDS = (
+    "Owner-facing text must read in plain words."
+    " Replace each term below, or gloss it in the owner's own words, then post again."
+)
+REPLY_IN_PLAIN_WORDS = "Your last reply to the owner used terms he may not know. Restate them in plain words in your next reply."
+SLACK_CARD = "mcp__plugin_cc-slack_cc-slack__slack_dm_status"
+READ_FAILURES = (OSError, subprocess.SubprocessError, ValueError, LookupError)
+CCI_TEXT = 400
+SHOWN = frozenset({"title", "summary", "intro", "md", "prompt", "label", "hint", "value", "pros", "cons", "placeholder", "note", "body", "options"})
+URL = re.compile(r"https?://\S+")
+PATH_CITE = re.compile(r"`?[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b`?")
+QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")
+OWNER_QUOTE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
+IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
+PR_NUMBER = re.compile(r"(?<![\w&#])#\d+\b")
+IDS = (
+    ("an internal id", RECORD_IDS),
+    ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
+    ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
+)
+ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]*[A-Z]s?\b")
+CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
+PARENTHESIZED = re.compile(r"\([^()]*\)")
+CAPTURES = "owner-prompts.jsonl"
+UNREADABLE = (
+    *IDS,
+    (
+        "a file path",
+        re.compile(
+            r"(?<![\w/.:~-])(?:(?:~|\.\.?)?/[\w.-]*[A-Za-z][\w.-]*(?:/[\w.-]+)*|[\w.-]+(?:/[\w.-]+){2,}"
+            r"|[\w-]+(?:/[\w.-]+)*\.(?:py|go|rs|ts|tsx|js|jsx|json|jsonl|md|toml|ya?ml|sh|sql|txt|lock)\b)"
+        ),
+    ),
+    ("a code symbol", re.compile(r"`[^`\n]+`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|\b\w+\(\)|\b\w+::\w+")),
+    (
+        "a drive word",
+        re.compile(
+            r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+READER = """The owner of this work reads the text after the line. He knows plain English, his own words, and the product's nouns in this glossary:
+{glossary}
+
+He ruled on these things; each line gives a thing's names, then his words:
+{scopes}
+
+List each term in the text he would need defined before he could act on it: one outside plain English and the glossary that the text does not explain in his own words. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is such a term; one that labels an option, plan, or list item is not. Return no terms when he needs nothing defined.
+---
+{text}"""
+PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, and the product's nouns in this glossary:
+{glossary}
+
+He ruled on these things; each line gives a thing's names, then his words:
+{scopes}
+
+A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Return no terms when he needs nothing defined.
+---
+{text}"""
+CC_PRESENT = CommandSchema(
+    "cc-present",
+    operands=(Operand("verb"), Operand("words", count="*")),
+    options=(
+        *(Option(name, (f"--{name}",)) for name in ("after", "block", "body", "cwd", "doc", "note", "root", "round", "round-title", "session", "title")),
+        *(Option(name, (f"--{name}",), bool) for name in ("clear", "dry-run", "new")),
+    ),
+)
+CC_SLACK = CommandSchema(
+    "cc-slack",
+    operands=(Operand("words", count="*"),),
+    options=(
+        *(Option(name, (f"--{name}",)) for name in ("agent", "blocks", "card", "cwd", "file", "session", "thread")),
+        *(Option(name, (f"--{name}",), bool) for name in ("rebuild", "root-only")),
+    ),
+)
+RULINGS = f"{sys.executable} {script('rulings.py')}"
+PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"}
+PROGRAM_ACTIVE = [CompactionState(active=True, slug="brook")]
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
@@ -139,7 +227,9 @@ AUTHORIZING_KINDS = {"go", "lift", "unblock"}
 PR_REF = re.compile(r"#\d{3,}")
 PR_TAIL = re.compile(r"\d{3,}$")
 ROUTING = re.compile(r"(?i)\brout(?:e|es|ed|ing)\b|\bcluster (?:assignment|move)\b|\bcutover\b")
-BOARD_VERBS = ("push", "start", "update-block")
+BOARD_VERBS = ("push", "start", "update-block", "reply")
+BOARD_DOCS = ("push", "start", "update-block")
+STDIN = "-"
 AUTHORIZED_BESIDE_A_QUESTION = (
     "A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
     " Wait for the answer, then write it in a later turn."
@@ -439,9 +529,212 @@ def names_an_incident(text: str, names: tuple[str, ...]) -> bool:
     return any(re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, re.IGNORECASE) for name in names)
 
 
+def shown(value: object, where: str = "document", key: str = "") -> Iterator[tuple[str, str]]:
+    match value:
+        case str() if key in SHOWN:
+            yield where, value
+        case dict():
+            here = value["id"] if isinstance(value.get("type"), str) and isinstance(value.get("id"), str) else where
+            for name, item in value.items():
+                yield from shown(item, here, name)
+        case list():
+            for item in value:
+                yield from shown(item, where, key)
+
+
+def readable(text: str) -> str:
+    text = IN_YOUR_WORDS.sub(lambda block: OWNER_QUOTE.sub(" ", block[0]), text)
+    for exempt in (URL, PATH_CITE, QUOTE_CITE):
+        text = exempt.sub(" ", text)
+    return text
+
+
+def word_list(where: str, text: str, *, pr_block: bool) -> list[str]:
+    seen = readable(text)
+    rules = UNREADABLE if pr_block else (*UNREADABLE, ("a PR number", PR_NUMBER))
+    hits = dict.fromkeys((kind, hit[0]) for kind, pattern in rules for hit in pattern.finditer(seen))
+    return [f'plain words: {where} has {kind}, "{hit}"' for kind, hit in hits]
+
+
+def squeeze(text: str) -> str:
+    return " ".join(text.split()).strip("\"“”' ").rstrip(".")
+
+
+def unquoted(text: str, said: list[str]) -> str:
+    return OWNER_QUOTE.sub(lambda quote: " " if (words := squeeze(quote[0])) and any(words in source for source in said) else quote[0], text)
+
+
+def outside_cites(text: str) -> str:
+    seen = CODE.sub(" ", OWNER_QUOTE.sub(" ", readable(text)))
+    while (stripped := PARENTHESIZED.sub(" ", seen)) != seen:
+        seen = stripped
+    return seen
+
+
+def plan_words(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
+    seen = outside_cites(text)
+    hits = dict.fromkeys((kind, hit[0]) for kind, pattern in IDS for hit in pattern.finditer(seen))
+    found = [f'plain words: the plan has {kind}, "{hit}"' for kind, hit in hits]
+    if (glossary := reads.glossary()) is None:
+        return found
+    known = {line.strip().lower() for line in glossary.splitlines()}
+    acronyms = dict.fromkeys(word for word in ACRONYM.findall(seen) if not {word.lower(), word.lower().removesuffix("s")} & known)
+    found += [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
+    return found + reader_test(evt, readable(text), reads, PLAN_READER)
+
+
+def reason(failure: BaseException) -> str:
+    if isinstance(failure, subprocess.CalledProcessError):
+        return f"exit {failure.returncode}: {str(failure.stderr or '').strip()}"
+    return str(failure) or type(failure).__name__
+
+
+def fenced(rule: str, problems: list[str]) -> str:
+    return f"{rule}\n\n```\n" + "\n".join(problems) + "\n```"
+
+
+class Undefined(BaseModel):
+    terms: list[str] = []
+
+
+@dataclass
+class Reads:
+    evt: BaseHookEvent
+    which: list[str]
+    failures: list[str] = field(default_factory=list)
+    loaded: dict[str, object] = field(default_factory=dict)
+
+    @cached_property
+    def entry(self) -> dict:
+        return drive_entry(self.evt) or {}
+
+    @property
+    def repo(self) -> str:
+        return self.entry.get("checkout") or str(self.evt.cwd)
+
+    def read[V](self, what: str, load: Callable[[], V]) -> V | None:
+        if what not in self.loaded:
+            try:
+                self.loaded[what] = load()
+            except READ_FAILURES as failure:
+                self.failures.append(f"{what}: {reason(failure)}")
+                self.loaded[what] = None
+        return self.loaded[what]
+
+    def register(self) -> dict | None:
+        return self.read("rulings.py rows", lambda: json.loads(rulings(self.repo, "rows", *self.which, "--json")))
+
+    def glossary(self) -> str | None:
+        return self.read("rulings.py glossary", lambda: rulings(self.repo, "glossary", *self.which))
+
+    def scopes(self) -> list[str] | None:
+        if (register := self.register()) is None:
+            return None
+        rows = [row for row in register["rows"].values() if row.get("kind") == "scope"]
+        return self.read("the scope rows", lambda: [f"- {', '.join(json.loads(row.get('names') or '[]'))}: {row.get('words', '')}" for row in rows])
+
+    def said(self) -> list[str] | None:
+        if (register := self.register()) is None:
+            return None
+        path = Path(register["state_dir"]) / CAPTURES
+
+        def load() -> list[str]:
+            captured = [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+            repeats = [repeat.get("words") or "" for row in register["rows"].values() for repeat in json.loads(row.get("repeats") or "[]")]
+            return [squeeze(text) for text in [*captured, *(row.get("words", "") for row in register["rows"].values()), *repeats]]
+
+        return self.read("the owner's captured words", load)
+
+    def report(self, hook: str) -> None:
+        if self.failures:
+            text = f"{hook}: {'; '.join(self.failures)}"[:CCI_TEXT]
+            post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
+
+
+def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READER) -> list[str]:
+    if not text.strip() or (glossary := reads.glossary()) is None or (scopes := reads.scopes()) is None:
+        return []
+    prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", text=text)
+    verdict = evt.llm(prompt, Undefined, size="small")
+    return [f'plain words: the owner would need "{term}" defined' for term in verdict.terms] if verdict else []
+
+
+def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
+    found = [problem for where, text in texts for problem in word_list(where, text, pr_block=where in pr_blocks)]
+    return found + reader_test(evt, "\n\n".join(text for _, text in texts), reads)
+
+
+def piped_boards(evt: BaseHookEvent) -> list[str]:
+    statements = [statement.text for statement in ast_grep.find_kinds(evt.command.raw, "bash", frozenset({"redirected_statement"}))]
+    named = [text for text in statements if [name.text for name in ast_grep.find_kinds(text, "bash", frozenset({"command_name"}))][:1] == ["cc-present"]]
+    bodies = [body for text in named if (body := next(ast_grep.find_kinds(text, "bash", frozenset({"heredoc_body"})), None))]
+    return [body.text if body.text.endswith("\n") else f"{body.text}\n" for body in bodies]
+
+
+def board_bytes(evt: BaseHookEvent, cwd: Path | None, source: str, piped: int) -> bytes:
+    if source != STDIN:
+        return Path(str(cwd or evt.cwd), Path(source).expanduser()).read_bytes()
+    return piped_boards(evt)[piped].encode()
+
+
+def board_sources(evt: BaseHookEvent) -> Iterator[tuple[Call, dict[str, tuple], str | None, int]]:
+    piped = 0
+    for call in evt.command.calls("cc-present"):
+        values = CC_PRESENT.bind(call).values
+        verb = next(iter(values.get("verb", ())), None)
+        source = next(iter(values.get("doc" if verb == "start" else "words", ())), None) if verb in BOARD_DOCS else None
+        yield call, values, source, piped
+        piped += source == STDIN
+
+
+def slack_card(evt: BaseHookEvent) -> dict | None:
+    if evt.tool_name == SLACK_CARD:
+        return evt._tool_input.get("card")
+    for call in evt.command.calls("cc-slack"):
+        values = CC_SLACK.bind(call).values
+        if values.get("words", ())[:1] == ("dm-status",) and (card := next(iter(values.get("card", ())), None)):
+            found = Path(str(call.cwd or evt.cwd), Path(card[1:]).expanduser()).read_text() if card.startswith("@") else card
+            return json.loads(found)
+    return None
+
+
+def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
+    docs = [
+        reads.read(f"the started board {source} {piped}", lambda: json.loads(board_bytes(evt, call.cwd, source, piped)))
+        for call, values, source, piped in board_sources(evt)
+        if values.get("verb", ())[:1] == ("start",) and not values.get("dry-run") and source
+    ]
+    return [pair for doc in docs if doc for pair in shown(doc)]
+
+
+def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
+    if not (card := reads.read("the status card", lambda: slack_card(evt))):
+        return started_boards(evt, reads)
+    said = reads.said() or []
+    options = [("card option", option) for option in card.get("options") or []]
+    return [(where, unquoted(text, said)) for where, text in [("card title", card.get("title") or ""), ("card body", card.get("body") or ""), *options] if text]
+
+
+def status_card(llm: dict | None = None, **card: object) -> Input:
+    return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS, llm=llm or {})
+
+
+def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
+    text = question_text(evt)
+    if (incidents := open_incidents(evt)) and not any(names_an_incident(text, names) for names in incidents):
+        return evt.block(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
+    if DRAFTED_COPY.search(text):
+        return evt.block(DRAFT_IN_QUESTION)
+    if RECORD_IDS.search(text):
+        return evt.block(CODENAME_IN_QUESTION)
+    if LETTER_NAMES.search(text):
+        return evt.block(CODENAME_IN_QUESTION, confirm=CODENAME_JUDGE)
+    return None
+
+
 @on(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion")],
+    only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
     tests={
         ask("D gate: the plan said dry-run before enqueue. Which gate?"): Block(pattern=r"never a codename"),
@@ -486,20 +779,77 @@ def names_an_incident(text: str, names: tuple[str, ...]) -> bool:
         ask("Should I extend the thousand-row backlog?", incidents=(SAND_NOT_MIGRATED,)): Block(pattern=r"the alert is active"),
         ask("Should I extend the backlog deadline to noon?", posted=(BARE_INCIDENT,)): Block(pattern=r"names its target, topic, or record number"),
         ask("Hand-publish sand for #103958?", posted=(BARE_INCIDENT,)): Allow(),
+        status_card(title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+            pattern=r'card title has a drive word, "slice"'
+        ),
+        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge #42301", "Hold"]): Allow(),
+        status_card(title="Merge the chat-list fix?", body="It lands after #42298.", options=["Merge", "Hold"]): Block(
+            pattern=r'card body has a PR number, "#42298"'
+        ),
+        status_card(title="Merge the chat-list fix?", body="Uses `rows_of` (answer 5f0c2e1).", options=["Merge"]): Block(
+            pattern=r"an internal id[\s\S]*a code symbol"
+        ),
+        status_card({"terms": ["chat-list"]}, title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"]): Block(
+            pattern=r'the owner would need "chat-list" defined'
+        ),
+        Input(
+            command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
+            commands=PLAIN_READS,
+        ): Block(pattern=r'a drive word, "sidecar"'),
+        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Block(
+            pattern=r'r3-spikes-queue has a drive word, "lane"'
+        ),
+        Input(
+            command="cc-present start --session s1 --doc - <<'EOF'\n{\"title\": \"Ship the roster change?\", \"blocks\": []}\nEOF",
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
+            commands=PLAIN_READS,
+        ): Block(pattern=r'a drive word, "roster"'),
+        Input(command=f"cc-present start --session s1 --doc {board('clean-card.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(
+            tool=SLACK_CARD,
+            tool_input={"card": {"title": "Merge the chat-list fix?", "body": "Its checks passed.", "options": ["Merge"]}},
+            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
+            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"},
+        ): Allow(),
+        Input(command="ls", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands=PLAIN_READS): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
     },
 )
 def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
-    text = question_text(evt)
-    if (incidents := open_incidents(evt)) and not any(names_an_incident(text, names) for names in incidents):
-        return evt.block(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
-    if DRAFTED_COPY.search(text):
-        return evt.block(DRAFT_IN_QUESTION)
-    if RECORD_IDS.search(text):
-        return evt.block(CODENAME_IN_QUESTION)
-    if LETTER_NAMES.search(text):
-        return evt.block(CODENAME_IN_QUESTION, confirm=CODENAME_JUDGE)
+    if evt.tool_name == "AskUserQuestion":
+        return codenames_in_question(evt)
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    texts = owner_strings(evt, reads)
+    problems = plain_words(evt, texts, reads, pr_blocks=frozenset({"card option"})) if texts else []
+    reads.report("plain_words_in_owner_questions")
+    return evt.block(fenced(PLAIN_WORDS, problems)) if problems and not reads.failures else None
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(transcript=reply_transcript("The slice for lane p1a is done."), commands=PLAIN_READS): Allow(),
+        Input(transcript=reply_transcript("The slice for lane p1a is done."), agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
+    },
+)
+def plain_words_on_reply(evt: BaseHookEvent) -> HookResult | None:
+    if not CompactionState.load(evt).active or not (which := drive_args(evt)) or not (reply := last_reply(evt)):
+        return None
+    reads = Reads(evt, which)
+    if problems := plain_words(evt, [("your reply", reply)], reads):
+        queue_nudge(evt, fenced(REPLY_IN_PLAIN_WORDS, problems))
+    reads.report("plain_words_on_reply")
     return None
 
 

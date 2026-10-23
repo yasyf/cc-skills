@@ -1,0 +1,23 @@
+{
+  "id": "share-open",
+  "type": "card",
+  "title": "Should a shared note open in the browser?",
+  "summary": "These changes only: the title now asks its question.",
+  "children": [
+    {
+      "id": "share-open-pick",
+      "type": "choice",
+      "prompt": "Should a shared note open in the browser?",
+      "options": [
+        {
+          "id": "yes",
+          "label": "Yes, read-only"
+        },
+        {
+          "id": "none",
+          "label": "Nothing opens it"
+        }
+      ]
+    }
+  ]
+}

@@ -2386,6 +2386,24 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
+def test_the_landing_pass_asks_the_owner_once_per_ruling_card_and_again_when_classify_rewrites_it(shell, config, tmp_path):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    card = cards / "rule:5c0e9a1.json"
+    ruling = {"status": "needs_you", "title": "\u201ca note started on the phone is out of scope\u201d", "body": "This also means:\n1. Nothing copies it to the laptop.", "options": ["Right", "Some wrong", "Open board"], "waits": "rule:5c0e9a1"}
+    card.write_text(json.dumps(ruling))
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("RULING-ASK ruling-ask:rule:5c0e9a1:") and " rule:5c0e9a1: \u201ca note started on the phone is out of scope\u201d | " in line
+    assert f"`cc-slack dm-status --card @{card}`" in line and "never as an AskUserQuestion" in line
+    card.write_text(json.dumps(ruling | {"body": "This also means:\n1. Nothing copies it to the laptop.\n2. Nothing copies it back."}))
+    landing_pass(shell, config)
+    assert len(escalations(shell)) == 2
+
+
 def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(shell, config, tmp_path):
     merge_mode(config, "high-risk")
     lone_green_pr(shell)

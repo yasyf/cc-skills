@@ -1,0 +1,13 @@
+{
+  "id": "update-confirm",
+  "type": "card",
+  "title": "Confirm your words as written?",
+  "summary": "Your words on updates, quoted with nothing added.",
+  "children": [
+    {
+      "id": "update-confirm-ok",
+      "type": "approval",
+      "prompt": "download the update in the background, show the banner, and only restart when i click it, and only between edits"
+    }
+  ]
+}

@@ -78,3 +78,13 @@ def test_a_board_question_settled_by_a_feedback_memory_blocks(home: Path) -> Non
     blocked = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
 
     assert blocked.message == settled.GATE_MESSAGE
+
+
+def test_a_confirm_block_restating_a_settled_answer_is_not_a_re_ask(home: Path) -> None:
+    confirm = {"id": "confirms:release", "type": "card", "title": RELEASE, "children": [{"id": "confirms:release-ok", "type": "approval", "prompt": RELEASE}]}
+    board = home / "confirm-board.json"
+    board.write_text(json.dumps({"blocks": [confirm]}))
+
+    assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})) is None
+    board.write_text(json.dumps({"blocks": [confirm | {"id": "release"}]}))
+    assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})).message == settled.GATE_MESSAGE

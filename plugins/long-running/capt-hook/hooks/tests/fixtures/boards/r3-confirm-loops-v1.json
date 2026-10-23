@@ -1,0 +1,20 @@
+{
+  "id": "r3-confirm-loops",
+  "type": "choice",
+  "prompt": "7. These timed checks stay in the plan. Which may stay?",
+  "options": [
+    {
+      "id": "lease",
+      "label": "The server renews a 90-second mount lease while a note is open",
+      "hint": "The sidecar renews the lease on a timer"
+    },
+    {
+      "id": "held",
+      "label": "A held copy pulls its changes every 30 seconds"
+    },
+    {
+      "id": "roster",
+      "label": "A laptop with a held copy refreshes its roster every 5 minutes"
+    }
+  ]
+}

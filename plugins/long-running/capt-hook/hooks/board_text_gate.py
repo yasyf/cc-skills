@@ -1,0 +1,446 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import shlex
+import subprocess
+import tempfile
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, WorkflowState, on
+from captain_hook.util import reqenv
+
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
+from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
+from .register_injection import drive_args
+from .tests.register_fixtures import DRIVE_CONFIG
+from .tests.board_fixtures import (
+    BREACHES,
+    FAILING,
+    GLOSSARY,
+    HELD,
+    HEREDOC,
+    HEREDOC_SHA,
+    REPO,
+    ROWS,
+    SWEEPS_LOG,
+    board,
+    fidelity,
+    held_copy_hit,
+    missing,
+    redraft,
+    sha12,
+    sweeps,
+)
+
+GATED = ("push", "update-block", "reply")
+WATCHED = ("start", "push")
+CONFIRM_WORDS = re.compile(r"\bas written\b|\bdecided by you\b|\byour ruling\b", re.IGNORECASE)
+OUTSIDE = re.compile(r"\b(?:also|my) recommend(?:ed|ation)\b|\banswer only to change\b|\bdecided by you\b|\btick nothing\b", re.IGNORECASE)
+IN_OPTION = re.compile(r"\brecommended\b|\bby default\b|\bthe default\b|\bdefaults? to\b|\bmy pick\b", re.IGNORECASE)
+MECHANISM = re.compile(r"\b(?:how|which)\b|^(?:\d+\.\s*)?what\b", re.IGNORECASE)
+NOTHING = re.compile(r"^(?:\(\w\)\s*)?(?:none|nothing)\b", re.IGNORECASE)
+OWN_DESIGN = re.compile(r"(?-i:\bE-?\d+(?:\.\d+)*\b)|\b(?:our|the plan's|the design's)\s+(?:own\s+)?design\b|\bdesign exception\b", re.IGNORECASE)
+WHETHER = re.compile(r"\bwhether\b|^(?:\d+\.\s*)?(?:should|shall|do|does|did|is|are|can|could|will|would|may|must)\b", re.IGNORECASE)
+CAPABILITY = re.compile(r"\b(?:today|already|currently|as built|existing)\b", re.IGNORECASE)
+CITED = re.compile(r"[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b|\(unverified\b")
+UNVERIFIED = re.compile(r"\(unverified\b")
+SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+HIT_COUNT = re.compile(r"\b(?:\d+|no|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:sweep\s+)?hits?\b", re.IGNORECASE)
+ONLY_THESE = re.compile(r"\bthese changes only\b|\bonly these changes\b|\bonly this block\b", re.IGNORECASE)
+SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\s+(?P<key>\S+)\s+(?P<where>\S+:\d+)\s+(?P<name>.+)$")
+FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
+OK = "ok"
+SWEEP_CADENCE = timedelta(hours=1)
+QUESTIONS = ("choice", "approval")
+TEXT = "text"
+REFUSAL = "Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
+
+
+class BoardWatches(WorkflowState):
+    sessions: list[str] = []
+
+
+@dataclass(frozen=True)
+class Published:
+    verb: str
+    data: bytes
+    doc: object
+    session: str
+    path: Path | None
+    where: str
+
+    @property
+    def sha12(self) -> str:
+        return hashlib.sha256(self.data).hexdigest()[:12]
+
+    @property
+    def suffix(self) -> str:
+        return ".md" if self.verb in ("reply", "plan") else ".json"
+
+
+def first(values: dict[str, tuple], name: str) -> str | None:
+    return next(iter(values.get(name, ())), None)
+
+
+def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, dict[str, tuple], str | None, int]]:
+    for call, values, source, piped in board_sources(evt):
+        if first(values, "verb") in verbs and not values.get("dry-run"):
+            yield call, values, source, piped
+
+
+def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:
+    return Published(verb, data, {"type": TEXT, "id": where, "md": data.decode()}, session, path, where)
+
+
+def parsed(data: bytes) -> tuple[bytes, object]:
+    return data, json.loads(data)
+
+
+def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
+    if evt.tool_name == "ExitPlanMode":
+        plan = CompactionState.load(evt).plan_path
+        data = reads.read("the plan file", lambda: Path(plan).expanduser().read_bytes()) if plan else None
+        return [] if data is None else [as_text("plan", data, "", Path(plan).expanduser(), "the plan")]
+    found = []
+    for call, values, source, piped in calls(evt, GATED):
+        session = first(values, "session") or evt.session_id
+        if first(values, "verb") == "reply":
+            found.append(as_text("reply", (first(values, "body") or "").encode(), session, None, f"the reply on {first(values, 'block')}"))
+            continue
+        if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call.cwd, source, piped)))):
+            path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
+            found.append(Published(first(values, "verb"), *loaded, session, path, source))
+    return found
+
+
+def blocks(value: object, card: dict | None = None) -> Iterator[tuple[dict, dict | None]]:
+    match value:
+        case dict():
+            if isinstance(value.get("type"), str) and isinstance(value.get("id"), str):
+                yield value, card
+                card = value if value["type"] == "card" else card
+            for item in value.values():
+                yield from blocks(item, card)
+        case list():
+            for item in value:
+                yield from blocks(item, card)
+
+
+def own_text(block: dict) -> list[str]:
+    return [text for where, text in shown(block, block["id"]) if where == block["id"]]
+
+
+def confirms(found: list[tuple[dict, dict | None]], said: list[str]) -> list[str]:
+    problems = []
+    for block, card in found:
+        if block["type"] != "approval":
+            continue
+        prompt = block.get("prompt", "")
+        head, colon, rest = prompt.partition(":")
+        labelled = bool(colon) and bool(CONFIRM_WORDS.search(head))
+        framed = card is not None and bool(CONFIRM_WORDS.search(f"{card.get('title', '')} {card.get('summary', '')}"))
+        if (labelled or framed or CONFIRM_WORDS.search(prompt)) and not any(squeeze(rest if labelled else prompt) in source for source in said):
+            problems.append(f"{block['id']}: the confirm does not quote your words verbatim")
+    return problems
+
+
+def decisions(found: list[tuple[dict, dict | None]]) -> list[str]:
+    problems = []
+    for block, _ in found:
+        if block["type"] in QUESTIONS:
+            texts = [str(option.get(key, "")) for option in block.get("options") or [] for key in ("label", "hint")]
+            problems += [f'{block["id"]}: a default sits in option text, "{hit[0]}"' for text in texts if (hit := IN_OPTION.search(text))]
+            continue
+        texts = [OWNER_QUOTE.sub(" ", text) for text in own_text(block)]
+        problems += [f'{block["id"]}: decision text outside a choice or approval, "{hit[0]}"' for text in texts if (hit := OUTSIDE.search(text))]
+    return problems
+
+
+def mechanisms(found: list[tuple[dict, dict | None]]) -> list[str]:
+    return [
+        f"{block['id']}: a choice of how something works has no none option, nothing does this"
+        for block, _ in found
+        if block["type"] == "choice"
+        and MECHANISM.search(block.get("prompt", ""))
+        and not any(NOTHING.match(str(option.get(key, ""))) for option in block.get("options") or [] for key in ("id", "label"))
+    ]
+
+
+def whethers(found: list[tuple[dict, dict | None]]) -> list[str]:
+    problems = []
+    for block, card in found:
+        if block["type"] not in QUESTIONS:
+            continue
+        context = [text for _, text in shown(card or block)]
+        asked = [block.get("prompt", ""), *([card.get("title", "")] if card else [])]
+        if any(OWN_DESIGN.search(text) for text in context) and not any(WHETHER.search(text.strip()) for text in asked):
+            problems.append(f"{block['id']}: a question resting on our own design is not asked as whether to do it")
+    return problems
+
+
+def capabilities(found: list[tuple[dict, dict | None]]) -> list[str]:
+    problems = []
+    for block, _ in found:
+        texts = own_text(block)
+        sentences = [sentence.strip() for text in texts for sentence in SENTENCE.split(OWNER_QUOTE.sub(" ", text))]
+        problems += [
+            f'{block["id"]}: a claim about what exists cites no path:line @ ref and is not marked (unverified), "{sentence[:120]}"'
+            for sentence in sentences
+            if CAPABILITY.search(sentence) and not CITED.search(sentence)
+        ]
+        if block["type"] == "approval" and any(UNVERIFIED.search(text) for text in texts):
+            problems.append(f"{block['id']}: an approval carries an unverified claim")
+    return problems
+
+
+def titles(found: list[tuple[dict, dict | None]]) -> list[str]:
+    return [
+        f'{block["id"]}: the title does not end in a question mark, "{block.get("title", "")}"'
+        for block, _ in found
+        if block["type"] == "card" and not str(block.get("title", "")).rstrip().endswith("?")
+    ]
+
+
+def sweep(reads: Reads, *artifacts: Path) -> list[re.Match[str]] | None:
+    flags = [arg for artifact in artifacts for arg in ("--artifact", str(artifact))]
+    lines = reads.read(f"rulings.py sweep {' '.join(map(str, artifacts)) or 'default'}", lambda: rulings(reads.repo, "sweep", *reads.which, *flags))
+    return None if lines is None else [hit for line in lines.splitlines() if (hit := SWEEP_LINE.match(line.strip())) and hit["state"] == "open"]
+
+
+def ran(argv: list[str]) -> str:
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    done.check_returncode()
+    return done.stdout
+
+
+def revising(reads: Reads, session: str) -> list[str]:
+    def load() -> list[str]:
+        return json.loads(ran(["cc-present", "outcomes", "--session", session, "--no-doc"]))["revising"]["blockIds"]
+
+    return reads.read("cc-present outcomes", load) or []
+
+
+def strikes(item: Published, found: list[tuple[dict, dict | None]], reads: Reads) -> list[str]:
+    texts = [text for block, _ in found for text in own_text(block)]
+    problems = []
+    if item.verb == "update-block" and found and found[0][0]["id"] in revising(reads, item.session) and not any(HIT_COUNT.search(text) for text in texts):
+        problems.append(f"{found[0][0]['id']}: an update after a strike names no sweep hit count")
+    if any(ONLY_THESE.search(text) for text in texts) and (hits := sweep(reads)):
+        problems.append(f"{item.where}: says these changes only while the sweep has {len(hits)} open hits")
+    return problems
+
+
+def swept(reads: Reads, item: Published) -> list[re.Match[str]] | None:
+    if item.path is not None:
+        return sweep(reads, item.path)
+    with tempfile.TemporaryDirectory() as scratch:
+        path = Path(scratch) / f"{item.sha12}{item.suffix}"
+        path.write_bytes(item.data)
+        return sweep(reads, path)
+
+
+def reviews(drive: str, since: int, flags: list[str]) -> list[dict]:
+    argv = ["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--kind", "review", *flags]
+    return [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
+
+
+def grades(reads: Reads, register: dict) -> list[re.Match[str]] | None:
+    def load() -> list[re.Match[str]]:
+        runner = json.loads((Path(register["state_dir"]) / "runner.json").read_text())
+        lanes = runner["landing"]["fidelity_lane"]
+        flags = [arg for lane in ([lanes] if isinstance(lanes, str) else lanes) for arg in ("--lane", lane)]
+        named = set(flags[1::2])
+        found: list[re.Match[str]] = []
+        last = 0
+        while page := [record for record in reviews(runner["drive"], last, flags) if record["seq"] > last]:
+            graded = [record for record in page if record.get("kind") == "review" and record.get("lane") in named]
+            found += [hit for record in graded if (hit := FIDELITY_TEXT.match(record["text"]))]
+            last = max(record["seq"] for record in page)
+        return found
+
+    return reads.read("the fidelity reviews", load)
+
+
+def verify_reports(item: Published, reads: Reads, register: dict) -> list[str]:
+    return [f"verify: a fidelity desk lists {hit['detail']}" for hit in grades(reads, register) or [] if hit["sha"] == item.sha12 and hit["verdict"] != OK]
+
+
+def notes(repo: str, *args: str) -> object:
+    done = ccn(repo, *args, "--json")
+    done.check_returncode()
+    return json.loads(done.stdout)
+
+
+def passes(reads: Reads, program: str) -> list[datetime] | None:
+    def load() -> list[datetime]:
+        logs = [log["id"] for log in notes(reads.repo, "log", "list") if log["title"] == f"sweeps: {program}"]
+        return [datetime.fromisoformat(entry["ts"]) for log in logs[:1] for entry in notes(reads.repo, "log", "show", log)["entries"]]
+
+    return reads.read("the sweeps log", load)
+
+
+def text_grade(item: Published, reads: Reads, register: dict) -> list[str]:
+    problems = []
+    if (graded := grades(reads, register)) is not None and not any(hit["sha"] == item.sha12 and hit["verdict"] == OK for hit in graded):
+        problems.append(f"text grade: no fidelity desk review names {item.where} ({item.sha12}); push again once one posts fidelity: ok text {item.sha12}")
+    match passes(reads, register["program"]):
+        case []:
+            problems.append(f"text grade: no hourly sweep pass is logged for {register['program']}")
+        case [*stamps] if (age := datetime.now(UTC) - max(stamps)) >= SWEEP_CADENCE:
+            problems.append(f"text grade: the newest hourly sweep pass is {int(age.total_seconds() // 60)} minutes old")
+    return problems
+
+
+def envelope(doc: object) -> list[tuple[dict, dict | None]]:
+    if not isinstance(doc, dict) or "type" in doc:
+        return []
+    return [({"type": "document", "id": "the document", **{key: value for key, value in doc.items() if isinstance(value, str)}}, None)]
+
+
+def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
+    found = [*envelope(item.doc), *blocks(item.doc)]
+    register = reads.register()
+    words = reads.said() if register else None
+    problems = [
+        *(confirms(found, words) if words is not None else []),
+        *decisions(found),
+        *mechanisms(found),
+        *whethers(found),
+        *capabilities(found),
+        *titles(found),
+        *strikes(item, found, reads),
+    ]
+    if register:
+        problems += verify_reports(item, reads, register)
+        problems += [f'sweep: {hit["where"]} names "{hit["name"]}", which {hit["key"]} rules out' for hit in swept(reads, item) or []]
+    problems += plan_words(evt, item.data.decode(), reads) if item.verb == "plan" else plain_words(evt, list(shown(item.doc)), reads)
+    if register:
+        problems += text_grade(item, reads, register)
+    return problems
+
+
+def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[str, ...] = (), minutes: int = 5, revised: tuple[str, ...] = (), **extra: object) -> Input:
+    commands = {
+        f"{RULINGS} rows": ROWS,
+        f"{RULINGS} sweep": sweep_out,
+        f"{RULINGS} glossary": GLOSSARY,
+        "cci tail": fidelity(*reviewed),
+        "cci post": "#1\n",
+        f"ccn -R {REPO} log list": SWEEPS_LOG,
+        f"ccn -R {REPO} log show": sweeps(minutes),
+        "cc-present outcomes": json.dumps({"revising": {"blockIds": list(revised)}}),
+    }
+    return Input(
+        command=command,
+        state=extra.pop("state", PROGRAM_ACTIVE),
+        cwd=REPO,
+        env={**DRIVE_CONFIG, **extra.pop("env", {})},
+        commands={**commands, **extra.pop("commands", {})},
+        **extra,
+    )
+
+
+def update(name: str, **extra: object) -> Input:
+    return posting(f"cc-present update-block {board(name)}", reviewed=(sha12(name),), **extra)
+
+
+def reply(name: str, **extra: object) -> Input:
+    text = board(name).read_text()
+    return posting(f"cc-present reply --block r3-confirm-loops --body {shlex.quote(text)}", reviewed=(hashlib.sha256(text.encode()).hexdigest()[:12],), **extra)
+
+
+def exits(name: str, **extra: object) -> Input:
+    state = [CompactionState(active=True, slug="brook", plan_path=str(board(name)))]
+    return posting(tool="ExitPlanMode", tool_input={"plan": board(name).read_text()}, state=state, **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "ExitPlanMode")],
+    tests={
+        **{update(name, sweep_out=HELD.get(name, "")): Block(pattern=BREACHES[name]) for name in FAILING},
+        **{update(redraft(name)): Allow() for name in FAILING},
+        reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Block(
+            pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
+        ),
+        reply("reply-4ae100d5.redraft.md"): Allow(),
+        posting(f"cc-present push {board('r3-titles.redraft.json')}"): Block(pattern=r"no fidelity desk review names"),
+        update("clean-card.json", minutes=90): Block(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
+        update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Block(pattern=r"no hourly sweep pass is logged for brook"),
+        update("strike-update.json", revised=("share-open",)): Block(pattern=r"share-open: an update after a strike names no sweep hit count"),
+        update("strike-update.redraft.json", revised=("share-open",)): Allow(),
+        update("strike-update.json"): Allow(),
+        update("only-these.json", sweep_out=held_copy_hit("plan.md")): Block(pattern=r"says these changes only while the sweep has 1 open hits"),
+        update("only-these.json"): Allow(),
+        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF", reviewed=(HEREDOC_SHA,)): Allow(),
+        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Block(pattern=HEREDOC_SHA),
+        posting(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
+        update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Block(pattern=r"r3-build: the title does not end"),
+        update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
+        update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
+        update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
+        update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Block(
+            pattern=r"verify: a fidelity desk lists rule/5c0e9a1 the card offers a held copy"
+        ),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("r3-titles.redraft.json"))}): Allow(),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Block(
+            pattern=r"no fidelity desk review names"
+        ),
+        posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Block(
+            pattern=r"the document: decision text outside a choice or approval, \"Answer only to change\""
+        ),
+        posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Block(
+            pattern=r"share-open: the title does not end"
+        ),
+        posting("ls -la"): Allow(),
+        exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
+        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Block(pattern=r'the owner would need "Notes R3b" defined'),
+        exits("plan-title.redraft.md", reviewed=(sha12("plan-title.redraft.md"),)): Allow(),
+        exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
+        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Block(
+            pattern=r'the plan has a plan row number, "C221"\n[\s\S]*the plan has an answer id, "5c0e9a1"\n[\s\S]*an acronym standing in for words, "OPFS"'
+        ),
+        exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Block(
+            pattern=r"decision text outside a choice or approval, \"Also recommended\"[\s\S]*says these changes only"
+        ),
+    },
+)
+def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    reads = Reads(evt, which)
+    items = published(evt, reads)
+    problems = [problem for item in items for problem in graded(evt, reads, item)]
+    reads.report("board_text_gate")
+    return evt.block(fenced(REFUSAL, problems)) if problems and not reads.failures else None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="cc-present push board.json --session s1", state=[*PROGRAM_ACTIVE, BoardWatches(sessions=["s1"])]): Allow(),
+        Input(command="cc-present push board.json --session s1 --dry-run", state=PROGRAM_ACTIVE): Allow(),
+        Input(command="cc-present push board.json --session s1"): Allow(),
+        Input(command="cc-present update-block card.json --session s1", state=PROGRAM_ACTIVE): Allow(),
+    },
+)
+def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
+    if not (which := drive_args(evt)):
+        return None
+    started = BoardWatches.load(evt).sessions
+    boards = [(first(values, "verb"), first(values, "session") or evt.session_id) for _, values, _, _ in calls(evt, WATCHED)]
+    fresh = list(dict.fromkeys(session for verb, session in boards if verb == "start" or session not in started))
+    for session in fresh:
+        argv = ["python3", str(script("board_watch.py")), "start", "--session", session, *which]
+        subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    if unseen := [session for session in fresh if session not in started]:
+        with BoardWatches.mutate(evt) as state:
+            state.sessions = [*state.sessions, *unseen]
+    return None

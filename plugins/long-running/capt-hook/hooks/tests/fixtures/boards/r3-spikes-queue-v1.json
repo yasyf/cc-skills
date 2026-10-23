@@ -1,0 +1,22 @@
+{
+  "id": "r3-spikes-queue",
+  "type": "choice",
+  "prompt": "Queued messages move from per-note files into the note's database, but a message sent from the app never reaches the database today. How should the queue keep its order?",
+  "options": [
+    {
+      "id": "json",
+      "label": "Store lane and order inside each message",
+      "hint": "The stored value carries lane and order as JSON, with four new database verbs"
+    },
+    {
+      "id": "columns",
+      "label": "Add order columns",
+      "hint": "The restart bug (C77) stays until the rewrite"
+    },
+    {
+      "id": "simplify",
+      "label": "Simplify the queue",
+      "hint": "Removes a teammate's steer delivery (#4120)"
+    }
+  ]
+}

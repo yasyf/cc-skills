@@ -1,0 +1,77 @@
+{
+  "title": "Notes app replan: your decisions, round 3",
+  "blocks": [
+    {
+      "id": "r3-build",
+      "type": "card",
+      "title": "How a new build is made and reaches people",
+      "children": [
+        {
+          "id": "r3-build-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-cloud",
+      "type": "card",
+      "title": "Notes you did not start",
+      "children": [
+        {
+          "id": "r3-cloud-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-runs",
+      "type": "card",
+      "title": "Run history",
+      "children": [
+        {
+          "id": "r3-runs-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-evict",
+      "type": "card",
+      "title": "When a note leaves the laptop, and old share links",
+      "children": [
+        {
+          "id": "r3-evict-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-confirm",
+      "type": "card",
+      "title": "Ten details your answers already settle",
+      "children": [
+        {
+          "id": "r3-confirm-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    },
+    {
+      "id": "r3-answers",
+      "type": "card",
+      "title": "Keeping your answers in force",
+      "children": [
+        {
+          "id": "r3-answers-why",
+          "type": "markdown",
+          "md": "One line of context."
+        }
+      ]
+    }
+  ]
+}

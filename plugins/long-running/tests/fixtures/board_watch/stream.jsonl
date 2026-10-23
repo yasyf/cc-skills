@@ -1,0 +1,9 @@
+{"connected":true,"type":"channel.changed"}
+{"blockId":"share-open-pick","optionIds":[],"other":"only for the team, and only read-only","schemaVersion":1,"type":"choice.selected"}
+{"blockId":"share-open-pick","optionIds":["yes"],"schemaVersion":1,"type":"choice.selected"}
+{"blockId":"board-notes","schemaVersion":1,"text":"also check the share menu","type":"input.submitted"}
+{"blockId":"share-open-pick","id":"9f2c11ab","schemaVersion":1,"text":"say who can open it","type":"feedback.created"}
+{"blockId":"update-confirm-ok","schemaVersion":1,"type":"decision.created","verdict":"approved"}
+{"blockId":"banner-ok","note":"keep the old banner text","schemaVersion":1,"type":"decision.created","verdict":"rejected"}
+{"blockId":"share-open-pick","optionIds":["yes"],"schemaVersion":1,"type":"choice.selected"}
+{"schemaVersion":1,"summary":"Both answered.","type":"present.closed"}
