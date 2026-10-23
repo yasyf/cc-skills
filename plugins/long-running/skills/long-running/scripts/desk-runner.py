@@ -451,7 +451,7 @@ RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused",
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
-OWNER_KINDS = ("head", "opened", "ready", "claim")
+OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
@@ -4842,10 +4842,14 @@ class Landing:
         return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
 
     def owner(self, pr: str, row: dict) -> str:
-        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, else the lane that registered its ledger row."""
+        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
         posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
-        claims = [record for record in posted if record["drive"] == drive and record["kind"] in OWNER_KINDS and pr in dict(repo_prs(record, self.repo))]
+        claims = [
+            record
+            for record in posted
+            if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and pr in dict(repo_prs(record, self.repo))
+        ]
         return claims[-1]["lane"] if claims else row.get("lane", "")
 
     def reach(self, lane: str) -> list[str]:
