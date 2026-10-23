@@ -21,13 +21,11 @@ notifications it answered, and status it restated per event.
 
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
-The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefed
-from `/live-dashboard` `reference/keeping-live.md`; `alerts-desk` when the drive touches
+The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
 once the drive has a plan; and one priority desk per owner-named #1-priority outcome
-while that outcome is open. Once the drive has posted to Slack, or the owner has linked a Slack
-channel or thread, the Slack watch lane is standing too, briefed from
-`reference/slack-watch-brief.md`. When the owner names a Slack
+while that outcome is open. No dashboard or dashboard curator runs (owner instruction
+of 2026-10-18), and no lane or root watches Slack (owner answer d94db5b). When the owner names a Slack
 channel for the drive's updates, `comms-desk` is standing, briefed from
 `reference/comms-desk-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
 not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
@@ -179,8 +177,7 @@ messages without `TaskCreate` or `TaskUpdate`, to the root and each in-process t
 The owner's switch is `CLAUDE_CODE_TODO_REMINDER_MODE=off` in the `env` block of
 `~/.claude/settings.json`; it disables that reminder for the whole Claude Code process.
 
-Report to the user on milestones or when they must act, never per event. Each
-milestone report opens with the drive dashboard link (see Drive dashboard).
+Report to the user on milestones or when they must act, never per event.
 
 Every milestone report and every status answer is the owner report table,
 `reference/owner-report-table.md`: one row for each plan step, named as the work in
@@ -468,9 +465,9 @@ executor owns the incident, through the final reply:
 - It records every side effect in the `scripts/actions.py` store before running it,
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
-- It fixes every incident forward. A rollback is the exception, taken only when a
-  fix forward is not feasible or would take too long, and the fix lane records which
-  and why (owner answer 2f6cdcf). The never-cancel-a-running-apply rule holds.
+- It fixes every incident forward. No lane chooses a rollback or a revert: one runs
+  only when the owner's own word names that act, after the diagnosis has found the
+  issue (owner answers 36a298d and 91150e7). The never-cancel-a-running-apply rule holds.
 
 When the root launches an incident pair itself, the launch is one command:
 
@@ -533,9 +530,8 @@ Alert intake runs before the root wakes. A monitor transition never launches a
 lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
 <link> :: <what fired>`, which the runner records and launches nothing on. The
 alerts desk appends `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what
-fired>` only when it judges a lane necessary, and the Slack watch lane appends one
-for each incident report. `reported` is the first report's Pacific time; the brief
-names it and the 20-minute bar runs from it. For an `incident` line the runner
+fired>` only when it judges a lane necessary. `reported` is the first report's
+Pacific time; the brief names it and the 20-minute bar runs from it. For an `incident` line the runner
 fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`,
 attaches it to the briefs log as
 `<slug>-fix.full.md`, and launches `<slug>-fix` on incident xhigh at once; a repeat
@@ -848,8 +844,9 @@ An absolute owner instruction ("nothing is dropped", "every side-feature carries
 Never add "unless the owner explicitly drops it" or "or an explicit owner drop": an exit turns the ruling into a decision surface, and audit lanes manufacture questions from it.
 
 An audit or parity lane's brief says the same: grade a row the owner's rulings cover against those rulings (carry, or the plan mechanism that carries it); never queue it as an owner question.
-A prior root or PR decision that contradicts an owner ruling is a defect to revert, not a question.
-Where a landed PR or a refining plan line conflicts with the owner's plan, the owner's plan wins and the conflict becomes a revert lane.
+A prior root or PR decision that contradicts an owner ruling is a defect to fix forward, not a question.
+Where a landed PR or a refining plan line conflicts with the owner's plan, the owner's plan wins and the conflict becomes a fix lane that changes the code to match the plan.
+A revert runs only when the owner's own word names it (owner answer 36a298d).
 
 Only a question nothing settles goes to the owner. Each card names which authorities were checked.
 
@@ -881,8 +878,8 @@ the root never records one by hand.
 
 **R19a. A gate that wants an owner-recorded answer for a settled decision is satisfied the same turn.**
 Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling`
-taking a cc-notes id from an `AskUserQuestion`. When the plan or a board pick already carries the
-decision, the root asks it in one `AskUserQuestion` that turn while the owner is present. Otherwise
+taking a cc-notes answer id. When the plan or a board pick already carries the
+decision, the root asks it that turn on a `needs_you` card with the choices as buttons (owner answer 01736af). Otherwise
 it records the plan's decision as the ruling and accepts on the owner's behalf, citing the plan line
 or board pick id in the accept reason. The root never ends a turn waiting for the owner to say "ask",
 and never leaves the PRs behind the gate parked.
@@ -976,9 +973,10 @@ Every update the root sends to that DM is a status card, `slack_dm_status(card)`
 `drive` is the drive's name and `phase` its current phase. `status` is `incident`
 for an incident, `needs_you` for an owner ask with its choices as `options`, `done`
 for a landing or release, and `progress` otherwise. A tap on a card reaches the root
-as a directive on its next tool call. The root never parks waiting for a tap, and
-an ask the drive blocks on still goes through `AskUserQuestion`, except a per-PR
-merge ask, which is a card under D3. The
+as a directive on its next tool call. The root never parks waiting for a tap. Every
+owner ask the drive blocks on, a per-PR merge ask under D3 included, is a `needs_you`
+card with its choices as buttons, never an `AskUserQuestion`, and the lane that asked
+stops on that item until the tap (owner answer 01736af). The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
@@ -1029,10 +1027,8 @@ other Slack tool. The replies went out at 2:30 through the user-level MCP.*
   event, so nothing is restated.
 - A post that asks a person to act (a grant, a permission, an approval, an answer)
   opens an R3 wait→do chain. Any fence, hold, or `until <person>` line it gates names
-  the thread (`until reply in <channel>/<thread_ts>`). The watch lane relays that reply
-  to the root and writes the unblock line into the fence owner's inbox (for example
-  `inbox/deploy-go.md`) in the same poll. No fence may name a person without naming a
-  watched thread.
+  the thread (`until reply in <channel>/<thread_ts>`). No lane watches or polls that
+  thread (owner answer d94db5b).
 - An answer the owner dictated goes out as one message with the grant in the dispatch,
   never staged across several instructions.
 - The owner's surface word is literal: "channel" means a top-level channel post,
@@ -1046,12 +1042,11 @@ other Slack tool. The replies went out at 2:30 through the user-level MCP.*
 **Reporter threads.** A thread where a person reported a break gets these rules from
 every lane that writes in it, and the incident and Slack lane briefs carry them:
 
-- Telemetry before asks. Never ask a reporter for a client version, an id, a log line,
-  or a reproduction step that metrics, logs, Sentry, or our own run and session records
-  hold. The incident fix brief lists those reads first. A reporter is asked only for
-  what cannot be read, such as what they saw, at most once. An ask that keeps recurring
-  becomes a tooling lane that puts the fact in telemetry, such as the client version on
-  every request.
+- Telemetry, never asks. No lane asks a reporter for evidence: a client version, an id,
+  a log line, a reproduction step, or what they saw (owner answer 8ff2abf). Metrics,
+  logs, Sentry, and our own run and session records answer it, and the incident fix
+  brief lists those reads first. A fact none of them holds becomes a tooling lane that
+  puts it in telemetry, such as the client version on every request.
 - Architecture before cause. Before any message names a cause on a reporter's machine,
   the lane states which component served the failing request and shows that the request
   reached the reporter's client. A cloud run is served by the cloud. Every cause the
@@ -1113,31 +1108,8 @@ to hourly".*
 
 The pack's `root_context` hook blocks the root's Slack reads and never its approved Slack writes.
 
-The pack's `slack_threads` hook appends every thread a drive session posts in to
-`<state dir>/slack/watched-threads.jsonl`, whether the post went through the cc-slack
-CLI, its MCP tools, or the user-level `mcp__slack__slack_send_message`, and whether or
-not it passed `--no-watch`. That file is the watch lane's thread list; handoffs and
-spawn prompts never carry one (`reference/slack-watch-brief.md`).
-
-The same hook reads every owner prompt in a drive's root session, slash commands
-included. A Slack permalink, a channel link, or a bare `<channel id> p<digits>`,
-`<channel id> <ts>`, or `<channel id>/<ts>` reference goes on that list as a link row
-through `drive.py watch`, before the root's turn starts. The row opens the thread from
-the linked message and adds its channel to the lane's history poll. The watch lane
-holds the list as a wait source, so the row wakes it within seconds.
-
-The hook's context names each addition. The root never adds one by hand, and spawns
-the watch lane when none is live. When the row cannot be written, the context carries
-the command to rerun. A link in a teammate message, a notification, or a compaction
-summary is not the owner's and adds nothing.
-
-The watch lane adds the links reporters post with the same command, and posts a
-`blocker` to the root for a channel it cannot read.
-
-*Prevents the gap of 2026-10-13, when a customer engineer reported a broken product
-path at 9:28 AM in an account channel the watch lane did not poll. The drive first saw
-it at about 10:34 AM, when the owner pasted the thread link, and the channel joined
-the watch only on a later root turn.*
+No hook enrols a posted thread or a pasted Slack link for watching, and no Slack watch
+lane runs (owner answer d94db5b).
 
 *Prevents the release-v3 failure of 2026-10-01: the owner pasted Anubhav Jain's
 "PR reviewer broken" thread at `17:25:46Z` after replying "Looking". The root briefed
@@ -2395,8 +2367,10 @@ Compute: <for a pass, backfill, dry run, or bulk rewrite: the in-region box reci
   region, and the bucket or team each process owns; never this Mac. "none" otherwise>.
 Escalate early, do not improvise: scope surprise, an assumption the code refutes,
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
-AskUserQuestion is unavailable; on a decision, take the brief's default, log it with
-  `ccn log append <drive log id>`, and report it.
+AskUserQuestion is unavailable. A decision this brief, the plan, and the owner's
+  answers do not settle stops that item: `cci post --kind ask --to root` with 2-4
+  options, keep building what does not depend on it, and wait for the root's answer.
+  Never take a default or a provisional pick (owner answers 01736af and 752564a).
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Plan task: register your unit at spawn so the dashboard's Plan progress card counts it:
   `ccn task add "<unit>" --plan <plan id> --label step:<n> --label program:<slug> --criterion "<done when>"`,
@@ -2828,13 +2802,11 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-The drive dashboard is a `/live-dashboard` dir at `<state dir>/dashboard`. `drive.py`
-writes its `context.json` on every registry write, and `drive.py start` and root
-`SessionStart` seed `layout.yaml` from the `drive` preset when none exists, then start
-the server detached, and the drive's [prompt watch](#prompt-watch) beside it. The same
-hooks print the `live-dashboard url --dir` command; the
-root gives the owner that link in its first reply of every drive, after every resume
-and compaction, and in the header of each milestone report.
+No live dashboard runs for the drive, and no curator or poller feeds one (owner
+instruction of 2026-10-18). No hook, handoff, or report starts the server or hands the
+owner a dashboard link. When the owner asks for a dashboard by name, it is a
+`/live-dashboard` dir at `<state dir>/dashboard`, whose `context.json` `drive.py` writes
+on every registry write, and the rest of this section describes it.
 
 The dashboard is the owner's view, and it answers four questions in this order: what
 waits on me, what is broken, what is live, and what is in flight. Review comes after
@@ -2863,8 +2835,7 @@ for a cc-skills lane, never a hand edit to `layout.yaml`. Three things stay off 
 The drive's pack adds `lr.needs-owner`, `lr.plan-progress`, `lr.inbox-feed`, `lr.drive`,
 `lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at
 main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
-PR's ledger row. The `dashboard-curator` desk closes only what settles in words, briefed
-from `/live-dashboard` `reference/keeping-live.md`.
+PR's ledger row.
 
 #### Plan progress
 
@@ -2917,9 +2888,8 @@ A terminal stopped at a prompt reports nothing. Its transcript goes quiet and it
 looks busy. The prompt watch reads Orca instead.
 
 `drive.py start` and root `SessionStart` run `prompt_watch.py start --drive <id>`,
-which detaches one `run` per drive beside the dashboard server. The watch is its own
-process, so a closed dashboard or a stuck session does not stop it. It polls every 30
-seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends when
+which detaches one `run` per drive. The watch is its own process, so a stuck session
+does not stop it. It polls every 30 seconds, holds `<state dir>/prompt-watch/lock` so a second one exits, and ends when
 `drive.py end` removes the registry file.
 
 A plugin update signals nothing. The next `start` from the new version locks
@@ -3329,10 +3299,11 @@ handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previ
 
 The standing rules register is a cc-notes doc labeled `standing-rules:<slug>`, as
 owner answers `4d381e0` and `8cb6da7` require.
-A consolidation lane proposes at most 30 rules for the owner to approve.
+A consolidation lane proposes at most 35 rules for the owner to approve, the count the
+owner approved on answer `5fb1ec1`.
 Full answers stay in cc-notes, linked by id from the register.
-The owner's 30-rule cap keeps the current release-v3 draft, doc `0cf17c9`, at about
-7 KB, below the injection budget.
+The `register_injection` hook hands the register to every subagent at start, helper
+agents included; one past the injection budget is named for a full read, never truncated.
 
 `generate` reads the newest register doc by `updated_at`.
 It never builds, edits, or supersedes a register doc or writes a register file.
@@ -3416,9 +3387,7 @@ The record carries open owner asks from the drive's ledger as `ledger.py` ask ro
 that are not dropped, answered, or `LIVE`, with their state. It also carries the
 root's open tasks, lanes and monitors from the background tasks at the root's last
 `Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
-root sessions. Under the registry line, `Read first` carries the dashboard link from
-`<state dir>/dashboard/server.json`, the tailnet form when Tailscale shares it. With
-no server record, the line names the `live-dashboard start --dir` command instead.
+root sessions. It names no dashboard, running or not.
 
 The open task list shows only `in_progress` tasks, one line each as
 `- #<id> <subject>`, with subjects clipped to 120 characters. With none in progress,
@@ -3848,7 +3817,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`
     under I6. Never mark it done. Only a later `correction` record with
     `--topic standing --re <seq>` and a later answer replaces it.
-    A consolidation lane proposes at most 30 register rules for the owner to approve.
+    A consolidation lane proposes at most 35 register rules for the owner to approve.
     Handoff generation only reads the newest `standing-rules:<slug>` doc.
     Claude lane hooks inject the register once at start, or a read instruction
     above 9,000 characters. They also deliver matched answers.

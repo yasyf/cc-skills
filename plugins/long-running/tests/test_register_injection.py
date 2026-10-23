@@ -57,16 +57,23 @@ def fenced(message: str) -> str:
     return body
 
 
-def test_every_subagent_lane_but_no_helper_receives_the_register_once_at_start(tools: Path) -> None:
+def test_every_subagent_helpers_included_receives_the_register_once_at_start(tools: Path) -> None:
     session = tools / "session"
     handoff.CompactionState(active=True, slug="brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
 
-    for agent_type in ("long-running:lane", "long-running:lane-ship", "general-purpose"):
+    for agent_type in (
+        "long-running:lane",
+        "long-running:lane-ship",
+        "general-purpose",
+        "Explore",
+        "Plan",
+        "claude-code-guide",
+        "cc-context:enumerator",
+        "codex:codex-wrapper",
+    ):
         started = start(session, "a1", agent_type)
         assert started.message.startswith("Standing rules register `0cf17c9`, verbatim;")
         assert fenced(started.message) == REGISTER_BODY
-    for helper in ("Explore", "Plan", "claude-code-guide", "cc-context:enumerator", "codex:codex-wrapper"):
-        assert start(session, "a2", helper) is None
 
 
 def test_a_register_over_the_injection_budget_is_named_not_truncated(tools: Path) -> None:

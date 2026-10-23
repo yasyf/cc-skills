@@ -268,8 +268,7 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
         "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
-        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n"
-        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'brook' / 'dashboard'}` starts it and prints the link for the owner\n",
+        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n\n## Open owner asks\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body
@@ -292,7 +291,7 @@ def test_generate_reads_the_register_of_the_drives_program_not_the_plan_stem(dri
     assert labels and set(labels) == {"standing-rules:durable-program"}
 
 
-def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_handoff_names_no_dashboard_even_when_one_is_serving(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     server = drive_home / "state" / "brook" / "dashboard" / "server.json"
     server.parent.mkdir(parents=True)
     server.write_text(json.dumps({"url": "http://127.0.0.1:8123/", "tailnet_url": "http://mac.tail1.ts.net:8123/"}))
@@ -300,7 +299,8 @@ def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path
 
     out = generate(drive_home, shell, capsys=capsys)
 
-    assert "- Dashboard: http://mac.tail1.ts.net:8123/; give the owner this link in your next reply\n" in shell.docs[out["id"]]
+    body = shell.docs[out["id"]]
+    assert "Dashboard" not in body and "live-dashboard" not in body and "8123" not in body
 
 
 def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_rest(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

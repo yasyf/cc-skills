@@ -23,7 +23,7 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    for a version, id, or log the platform records; read it from telemetry first.
+    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
     this Mac.
@@ -34,10 +34,9 @@ Do:
   0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
-     Exception, owner answer 2f6cdcf: roll the target back only when a fix forward
-     is not feasible or will take too long, and only when this brief names which of
-     the two and why. A brief that names no such reason is a fix forward; never
-     read a rollback into it.
+     No brief, lane, or exception grants a rollback or a revert. One runs only when
+     the owner's own word names that act, after your diagnosis has found the issue
+     (owner answer 36a298d); never offer one before that.
   1. Reproduce the case above exactly as written: the thread, run, request, or
      monitor query it names, and which component served the failing request: a
      cloud run is served by the cloud, never by their machine. Record it failing

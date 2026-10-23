@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Tool, Warn, on
 
-from .dashboard import DRIVE_ENV, FIXTURES, entry_of
+from .prompt_watch import DRIVE_ENV, FIXTURES, entry_of
 
 DESK_INBOX = "orca-desk.md"
 HEARTBEAT = "orca-runner.heartbeat.json"

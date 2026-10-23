@@ -35,8 +35,8 @@ ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <u
 The thread-scoped label grants that one thread, so the desk then replies only there. Every other thread, and every top-level post
 in that channel, stays silent unless the owner names it.
 
-The Slack watch lane relays human messages in this channel to the comms desk, not the
-root. The root addresses the desk over the cci bus,
+No lane watches this channel (owner answer d94db5b). The root addresses the desk over
+the cci bus,
 `cci post --drive <drive> --lane root --kind go --to comms-desk --text "<ruling>"`,
 never by `SendMessage` (SKILL.md I4); the desk's poll prints each such record.
 
@@ -103,8 +103,8 @@ Write rules: follow the cc-slack skill's "Write a post": plain words for the
   ledger names, raw shas, or status labels.
 
 Reporter threads, per SKILL.md "Reporter threads":
-  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
-    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Ask a reporter for no evidence: no client version, id, log line, reproduction
+    step, or what they saw. The lanes read telemetry, Sentry, and our records (8ff2abf).
   - Name no cause on the reporter's machine until the evidence shows the failing
     request reached it; call any cause the lanes have not proven "suspected".
   - At most one message between the reporter's messages. A fix going live, a lane's

@@ -148,9 +148,8 @@ orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 `reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
 carry a Slack channel name's underscores. `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
 transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
-The alerts desk writes an `incident` line only when it judges a lane necessary,
-and the Slack watch lane writes one for each incident report. For an `incident`
-line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
+The alerts desk writes an `incident` line only when it judges a lane necessary.
+For an `incident` line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
 it to the briefs log as `<slug>-fix.full.md` with `ccn log append --attach
 --replace`, and launches `<slug>-fix` on incident xhigh at once on that
 attachment's `ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
