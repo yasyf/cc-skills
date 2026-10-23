@@ -111,6 +111,15 @@ DIGIT_ID_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bo
 - 1068167: the owner's answer adds `LAUNCH-STALLED` with a `STALL_SECONDS` clock.
 EOF"""
 
+RELISTED = """\
+diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
+--- a/plugins/long-running/skills/long-running/scripts/desk-runner.py
++++ b/plugins/long-running/skills/long-running/scripts/desk-runner.py
+@@ -368 +368 @@ ESCALATION_KINDS = {
+-ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker"}
++ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker"}
+"""
+
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
 

@@ -22,6 +22,7 @@ from .tests.refusal_fixtures import (
     NAMED_ANSWER,
     NO_DRIVE,
     PLAIN,
+    RELISTED,
     RETIRE_AND_RECONVERT,
     SENTINEL_ANSWER,
     SENTINEL_BODY,
@@ -245,6 +246,15 @@ def added(diff: str) -> Iterator[tuple[str, int, str]]:
             line += 1
 
 
+def removed(diff: str) -> Iterator[tuple[str, str]]:
+    path = ""
+    for raw in diff.splitlines():
+        if raw.startswith("+++ "):
+            path = raw[4:].removeprefix("b/")
+        elif raw.startswith("-") and not raw.startswith("--- ") and path:
+            yield path, raw[1:]
+
+
 def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
     for name in filter(None, (read(UNTRACKED, cwd) or "").split("\0")):
         if not EXEMPT.search(name) and (content := text_of(Path(cwd or ".") / name)) is not None:
@@ -256,17 +266,22 @@ def pr_view(req: Request) -> dict | None:
     return None if found is None else parsed(found)
 
 
-def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
+def diff_text(req: Request, view: dict) -> str | None:
     if req.edit is not None:
-        yield from added(read(["gh", "pr", "diff", *req.edit, *req.gh], req.cwd) or "")
-        return
+        return read(["gh", "pr", "diff", *req.edit, *req.gh], req.cwd) or ""
     base = f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
     if not base:
-        return
+        return None
     span = ["--merge-base", base] if req.worktree else [f"{base}...{req.head or 'HEAD'}"]
-    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or "")
-    if req.worktree:
-        yield from untracked(req.cwd)
+    return read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or ""
+
+
+def new_findings(req: Request, view: dict) -> list[Finding]:
+    if (diff := diff_text(req, view)) is None:
+        return []
+    lines = [*added(diff), *(untracked(req.cwd) if req.worktree and req.edit is None else ())]
+    kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
+    return [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
 
 
 def named(text: str, match: re.Match[str]) -> str:
@@ -357,7 +372,7 @@ def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     if view is None and not (req.bodies or req.texts):
         return None
     view = view or {}
-    findings = [finding for path, line, text in diff_lines(req, view) if in_scope(req, path) for finding in classify(path, line, text)]
+    findings = new_findings(req, view)
     if not findings or (body := body_text(req, view)) is None:
         return None
     rulings = found.group(0) if (found := RULINGS.search(body)) else ""
@@ -423,6 +438,9 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Block(
+            pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
+        ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN), decide=CONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(pattern=r"open\.go:127 .* errReadOnly"),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
