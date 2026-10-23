@@ -1,0 +1,19 @@
+diff --git a/app/chats/chatTitle.ts b/app/chats/chatTitle.ts
+--- a/app/chats/chatTitle.ts
++++ b/app/chats/chatTitle.ts
+@@ -1,12 +1,15 @@
+ export type ChatState =
+   | { kind: "ready" }
+   | { kind: "read-only"; reason: string }
++  | { kind: "syncing" }
+
+ export function chatTitle(label: string, state: ChatState): string {
+   switch (state.kind) {
+     case "ready":
+       return label
+     case "read-only":
+       return `${label} (read-only: ${state.reason})`
++    case "syncing":
++      return `${label} (Syncing…)`
+   }
+ }
