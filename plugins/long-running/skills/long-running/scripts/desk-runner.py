@@ -7,6 +7,7 @@
     desk-runner.py run    --config PATH --desk orca|landing [--once]
     desk-runner.py rebind --config PATH
     desk-runner.py show   --config PATH
+    desk-runner.py gc     --config PATH [--dry-run]
 
 STDLIB ONLY. Every action lives in the store `actions.py` owns: one container per lane,
 `desk-lane-<lane>`, whose owner is the lane's current Orca dispatch, plus `desk-landing`
@@ -293,14 +294,14 @@ from another lane that names the PR or a component settles a landing too. An inc
 root `--resolves` on one of the runner's records about it, its RELEASE-HELD-AFTER-LANDING lines included, and
 each open root `hold` record after its landing that names the PR or is addressed to the release owner logs one
 `RELEASE-HELD-AFTER-LANDING`; no other kind is a hold, and a root `--resolves` on the hold closes it. Once the record that settles a landing carries a build, each pass reads
-`tools/ci release live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
+`<landing.release_cli> live <id> --json` for the release id its text names, or its build, and posts one `fix-live` record
 `RELEASED <component> <version> (<build>)` to the root and `landing.comms_lane` once every component reads live, keyed
 `release:<pr>:live`. A `release` record on another drive, which `cci tail` returns as peer mail, settles nothing. A record the
 drive's root posts with `--re` or `--resolves` naming the release record or one of its blockers ends a merge-fast landing's too. Each landing is
 judged once, by the first pass that reads it, and the set read persists in the landing desk's store: the desk's first pass
 records every landing it reads as history and sends nothing, so a restart or an upgrade never judges an old landing again,
 and a landed row with no `landed_at` is not read until it has one. A landing from before the
-runner process started, first read after it, closes with no record when `tools/ci release live --json` shows its squash or a
+runner process started, first read after it, closes with no record when `<landing.release_cli> live --json` shows its squash or a
 later commit running, for one of its components when it names any. Each record carries
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
@@ -308,7 +309,17 @@ or a post that prints no `#<seq>`, is posted again on the next pass and escalate
 drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
-named for reclaim. Each escalation runs
+named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
+`gc`, which the root runs and no pass ever does, reads each `<lane>.terminal.json`, the reply orca-launch.sh saved
+from its last `orca terminal create`, and closes that terminal through Orca only when its launch settled: the runner
+holds no open launch of the lane, and either the receipt's dispatch reads completed or failed in the Run's worker list,
+or no dispatch of the Run references the terminal and the runner's latest started launch of the lane, now settled, wrote
+the receipt. A handle Orca calls stale stands for the connected terminal in the lane's worktree whose `tabId:leafId` is
+the receipt's pane key, unless an unsettled dispatch works in that worktree.
+It closes only a terminal no unsettled dispatch holds, read idle at an empty prompt that asks nothing with no output
+for ten minutes by a known output time, closing the tab too when no other connected terminal shares it, and then deletes the receipt unless a launch rewrote it, as it
+does at once for a terminal Orca shows closed. Everything else is kept and named; `--dry-run` closes and deletes nothing.
+Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 INCIDENT-OWNED to state, UNBOUND, UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, and HOLDS-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
@@ -318,6 +329,18 @@ escalation, worker_done, status, decision gate or handoff is a summary: its rece
 the full line and then the whole message, subject and body, kept under
 `<receipts>/cci/messages/<id>.md` when the message arrives. Landing restack routes
 sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
+Each orca pass also couples the drive to its releases. A lane's `release` record that names a build has the build's owner,
+`<lane>@<drive>`, recorded with `drive.py release` and the build claimed for the lane with
+`cci claim --for <lane>@<drive> --build <build> --rel started`, logging `RELEASE-CLAIM-FAILED` once when either fails.
+With `landing.applying` set, every 15 seconds the runner reads each tracked build until it finishes and posts one
+`applying <component>/<env> <commit> (<release>)` release record, keyed `applying:<job>`, to the root of every live
+drive `cci who --role root` lists, the first time a job of a watched component reads running. A lane's `hold`
+record of the form `froze <scope> until <RFC 3339> as freeze <id>` is tracked until it closes: past its until the
+lane gets one lift `ask`, and once the lane has no live session the root gets one. The runner's first read
+on a drive starts at the newest record.
+`landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
+checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
+among every missing member.
 The config requires `drive` and `orca.desk_inbox`, and `run --desk landing` requires `landing.release_owner`,
 a cci `--to` address such as `peer:<session>`, and `landing.merge_mode`, the owner's pick of `every`, `high-risk`, or `auto`,
 re-read on every use. Under `every`, and under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, a prefix
@@ -335,11 +358,13 @@ import itertools
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -371,6 +396,12 @@ BINDING = "binding"
 TRUNK = "dev"
 INACTIVE = frozenset({"completed", "failed"})
 RECLAIM_NAMED = 10
+CREATED = ".terminal.json"
+STALE_HANDLE = "terminal_handle_stale"
+IDLE_PROBE_MS = 1500
+QUIET = timedelta(minutes=10)
+DONE_MARKER = re.compile(r"^✻ .* · done ")
+NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 minutes"
 MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -415,6 +446,14 @@ CUT_CURSOR = "cut-cursor"
 CUT_LAUNCH = "cut:"
 CUT_GRACE = timedelta(minutes=1)
 CUT_CLAIM = timedelta(hours=2)
+RELEASE_CURSOR = "release-cursor"
+RELEASE_BUILDS = "release-builds"
+FREEZES = "freezes"
+FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
+BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
+RELEASE_POLL = timedelta(seconds=15)
+APPLYING_KEYS = ("build", "step", "components")
+RELEASE_CLI = "tools/ci release"
 MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
 DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "HOLDS-UNREAD", "LIVENESS", "STALE-MAIL", "RECLAIM"})
@@ -728,6 +767,44 @@ def sprite_started_as(receipt: Path) -> str:
     return f" as {' '.join(ids)}" if ids else ""
 
 
+def release_cli(checkout: Path, landing: dict) -> list[str]:
+    """`landing.release_cli`, a command line whose first word is relative to the landing checkout, as an argv."""
+    first, *rest = shlex.split(landing["release_cli"])
+    return [str(checkout / first), *rest]
+
+
+def release_build_argv(checkout: Path, template: str, build: str) -> list[str] | None:
+    """`landing.applying.build` for one build, its first word relative to the landing checkout, with `{build}`, `{pipeline}`, and `{number}` filled from the build's URL; None when it names a pipeline the build does not carry."""
+    found = BUILD_URL.search(build)
+    values = {"build": build, "pipeline": found["pipeline"] if found else "", "number": found["number"] if found else build}
+    if "{pipeline}" in template and not values["pipeline"]:
+        return None
+    first, *rest = (word.format(**values) for word in shlex.split(template))
+    return [str(checkout / first), *rest]
+
+
+def parse_until(text: str) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(text.rstrip(".,;:"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else None
+
+
+def applying_fault(landing: dict | None) -> str:
+    """What `landing.applying` lacks for the runner to announce applies, or empty when it is whole or absent."""
+    applying = (landing or {}).get("applying")
+    if applying is None:
+        return ""
+    if missing := [key for key in APPLYING_KEYS if not applying.get(key)]:
+        return f"landing.applying names no {', '.join(missing)}"
+    try:
+        groups = re.compile(applying["step"]).groupindex
+    except re.error as failure:
+        return f"landing.applying.step is no regular expression: {failure}"
+    return "" if {"component", "env"} <= set(groups) else "landing.applying.step has no `component` and `env` named groups"
+
+
 def pacific(moment: datetime) -> str:
     return moment.astimezone(PACIFIC).strftime("%H:%M")
 
@@ -872,6 +949,30 @@ class Book:
         return [action for action in self.store.load(container).actions.values() if (kind is None or action.kind == kind) and (status is None or action.status == status)]
 
 
+@dataclass(frozen=True)
+class RunView:
+    statuses: dict[str, str]
+    named: dict[str, set[str]]
+    live: frozenset[str]
+    live_worktrees: frozenset[str]
+
+    @classmethod
+    def of(cls, rows: list[dict]) -> RunView:
+        """The Run's worker list as gc reads it: each dispatch's status, the dispatches naming each terminal, and the terminals and worktrees an unsettled dispatch holds."""
+        named: dict[str, set[str]] = {}
+        for row in rows:
+            if row.get("agentTerminalHandle"):
+                named.setdefault(row["agentTerminalHandle"], set()).add(row["dispatchId"])
+        unsettled = [row for row in rows if row["dispatchStatus"] not in INACTIVE]
+        workspaces = [(row.get("resource") or {}).get("worktreeId") or row["projection"]["workspace"]["id"] for row in unsettled]
+        return cls(
+            statuses={row["dispatchId"]: row["dispatchStatus"] for row in rows},
+            named=named,
+            live=frozenset(row["agentTerminalHandle"] for row in unsettled if row.get("agentTerminalHandle")),
+            live_worktrees=frozenset(workspace.partition("::")[2] for workspace in workspaces),
+        )
+
+
 @dataclass
 class Dispatch:
     lane: str
@@ -965,6 +1066,67 @@ class Orca:
         self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
         return True
 
+    def workers(self) -> list[dict]:
+        rows: list[dict] = []
+        cursor: list[str] = []
+        while True:
+            page = self.ask("orchestration", "worker-list", "--run", self.config.run, "--limit", "100", *cursor)["result"]
+            rows += page["workers"]
+            if not (after := (page.get("page") or {}).get("nextCursor")):
+                return rows
+            cursor = ["--cursor", after]
+
+    def created(self, lane: str) -> dict | None:
+        """The terminal orca-launch.sh's last `terminal create` for the lane answered with, or None when that create named none."""
+        path = self.config.receipts / f"{lane}{CREATED}"
+        try:
+            reply = json.loads(path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+        return reply["result"]["terminal"] if reply.get("ok") and (reply.get("result") or {}).get("terminal", {}).get("handle") else None
+
+    def connected_in(self, worktree: str) -> list[dict] | str:
+        listed = self.ask("terminal", "list", "--worktree", f"path:{worktree}", "--limit", "1000")
+        if not listed.get("ok"):
+            return f"orca terminal list {listed['error']['code']}"
+        return [row for row in listed["result"]["terminals"] if row.get("connected")]
+
+    def quiet(self, terminal: str) -> bool:
+        """Whether the terminal's agent sits at an empty prompt, asking nothing, with no output in the last ten minutes."""
+        shown = self.ask("terminal", "show", "--terminal", terminal)
+        if not (shown.get("ok") and shown["result"]["terminal"]["connected"]):
+            return False
+        if not (output := shown["result"]["terminal"].get("lastOutputAt")) or self.shell.now().timestamp() * 1000 - output <= QUIET.total_seconds() * 1000:
+            return False
+        waited = self.ask("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(IDLE_PROBE_MS))
+        if not (waited.get("ok") and waited["result"]["wait"]["satisfied"]):
+            return False
+        screen = self.ask("terminal", "read", "--terminal", terminal, "--screen")
+        return bool(screen.get("ok")) and prompt_screen.input_state(screen["result"]["terminal"]) == prompt_screen.IDLE and not asking(screen["result"]["terminal"])
+
+    def close(self, terminal: str, worktree: str) -> str:
+        """Close the terminal, and its tab when no other connected terminal shares it; empty, or the error code."""
+        listed = self.connected_in(worktree)
+        if isinstance(listed, str):
+            return listed
+        tab = next((row.get("tabId") for row in listed if row["handle"] == terminal), None)
+        shared = any(row.get("tabId") == tab and row["handle"] != terminal for row in listed)
+        closed = self.ask("terminal", "close", "--terminal", terminal, *(() if shared else ("--tab",)))
+        return "" if closed.get("ok") else closed["error"]["code"]
+
+
+def drop_receipt(receipt: Path, read: str) -> None:
+    """Delete the receipt gc read, unless a launch has since written another in its place."""
+    if receipt.read_text() == read:
+        receipt.unlink()
+
+
+def asking(terminal: dict) -> bool:
+    """Whether the agent's last line above its input box is a question."""
+    tail = [line.rstrip() for line in terminal.get("tail") or []]
+    said = [line.strip() for line in tail[: prompt_screen.composer(tail)] if line.strip() and not prompt_screen.is_rule(line) and not DONE_MARKER.match(line.strip())]
+    return bool(said) and said[-1].endswith("?")
+
 
 def clipped_by_cci(text: str) -> bool:
     return len(text) == CCI_TEXT and text.endswith("…")
@@ -1004,6 +1166,7 @@ class Runner:
         self.pass_binding: dict | None = None
         self.unreachable_passes = 0
         self.pr_silent_skipped: set[str] = set()
+        self.release_polled = datetime.min.replace(tzinfo=timezone.utc)
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -2374,10 +2537,82 @@ class Runner:
         named = " ".join(f"{dispatch.lane}={dispatch.id}:{dispatch.terminal}" for dispatch in settled[:RECLAIM_NAMED])
         more = f" and {len(settled) - RECLAIM_NAMED} more" if len(settled) > RECLAIM_NAMED else ""
         scope = "".join(f" --dispatch {dispatch.id}" for dispatch in settled) if len(settled) <= RECLAIM_NAMED else ""
-        step = f"run {self.config.gc} --run {self.config.run}{scope}" if self.config.gc else "close each idle terminal and remove each finished worktree under R195"
+        worktrees = f"{self.config.gc} --run {self.config.run}{scope}" if self.config.gc else "close each other idle terminal and remove each finished worktree under R195"
+        step = f"run {SCRIPTS / 'desk-runner.py'} gc --config {self.config.source}, then {worktrees}"
         self.escalate(f"reclaim:{settled[0].id}", "RECLAIM", "runner", f"{len(settled)} settled dispatch(es) still hold their terminal: {named}{more}; {step}")
         for dispatch in settled:
             self.book.accept(RUNNER, f"reclaim:{dispatch.id}", "reclaim", dispatch.terminal, dispatch.lane, None)
+
+    def gc(self, dry_run: bool) -> int:
+        """Close each terminal a settled launch's receipt says orca-launch.sh created, once its agent reads idle, and drop that receipt; print one line per receipt and a tally."""
+        run = RunView.of(self.orca.workers())
+        tally: Counter[str] = Counter()
+        for lane in sorted(path.name.removesuffix(CREATED) for path in self.config.receipts.glob(f"*{CREATED}")):
+            verb, target, reason = self.gc_lane(lane, run, dry_run)
+            tally[verb] += 1
+            print(f"{verb} {target} {reason}", flush=True)
+        print(" ".join(f"{verb}={count}" for verb, count in sorted(tally.items())) or "nothing to reclaim")
+        return 1 if tally["error"] else 0
+
+    def gc_lane(self, lane: str, run: RunView, dry_run: bool) -> tuple[str, str, str]:
+        """What gc does with one lane's created terminal: `close` it, `drop` a receipt whose terminal is already closed, `keep` it with the reason, or `error`."""
+        receipt = self.config.receipts / f"{lane}{CREATED}"
+        raw = receipt.read_text()
+        if (created := self.orca.created(lane)) is None:
+            return "keep", lane, "its last terminal create named no terminal"
+        handle = created["handle"]
+        container = f"{LANE_PREFIX}{lane}"
+        launches = self.book.actions(container, kind="launch") if container in self.book.store.ids() else []
+        if unsettled := next((action.action_id for action in launches if action.status in actions.OPEN), ""):
+            return "keep", handle, f"launch {unsettled} of {lane} is {self.book.known(container, unsettled).status}"
+        if self.orca.terminal(lane) == handle and (dispatch := self.orca.receipt(lane)):
+            if run.statuses.get(dispatch) not in INACTIVE:
+                return "keep", handle, f"dispatch {dispatch} is {run.statuses.get(dispatch) or 'not in the Run'}"
+            settled = f"dispatch {dispatch} is {run.statuses[dispatch]}"
+        elif handle in run.named:
+            return "keep", handle, f"dispatch {', '.join(sorted(run.named[handle]))} references it"
+        elif not self.wrote_receipt(container, launches, receipt):
+            return "keep", handle, f"launch {lane} has no dispatch, and no settled launch of it by this runner wrote its receipt"
+        else:
+            settled = f"launch {lane} has no dispatch"
+        worktree_receipt = self.config.receipts / f"{lane}.worktree"
+        worktree = worktree_receipt.read_text().strip() if worktree_receipt.is_file() else ""
+        shown = self.orca.ask("terminal", "show", "--terminal", handle)
+        if shown.get("ok") and not shown["result"]["terminal"]["connected"]:
+            if not dry_run:
+                drop_receipt(receipt, raw)
+            return "drop", handle, f"{settled}, and its terminal is already closed"
+        target, replacing = handle, ""
+        if shown.get("ok"):
+            worktree = worktree or shown["result"]["terminal"].get("worktreePath") or ""
+        elif shown["error"]["code"] != STALE_HANDLE:
+            return "keep", handle, f"orca terminal show {shown['error']['code']}"
+        elif not (pane := created.get("paneKey")) or not worktree:
+            return "keep", handle, "stale handle, and its launch receipt records no pane or worktree"
+        elif worktree in run.live_worktrees:
+            return "keep", handle, "stale handle, and an unsettled dispatch works in its worktree"
+        elif isinstance(listed := self.orca.connected_in(worktree), str):
+            return "keep", handle, f"stale handle, {listed}"
+        elif not (target := next((row["handle"] for row in listed if f"{row.get('tabId')}:{row.get('leafId')}" == pane), "")):
+            return "keep", handle, "stale handle, and no connected terminal carries its launch pane"
+        else:
+            replacing = f", replacing stale {handle}"
+        if target in run.live:
+            return "keep", target, f"serves unsettled dispatch {', '.join(sorted(run.named[target]))}"
+        if not self.orca.quiet(target):
+            return "keep", target, NOT_IDLE
+        if not dry_run:
+            if error := self.orca.close(target, worktree):
+                return "error", target, f"orca terminal close {error}"
+            drop_receipt(receipt, raw)
+        return "close", target, f"{settled}{replacing}"
+
+    def wrote_receipt(self, container: str, launches: list[actions.Action], receipt: Path) -> bool:
+        """Whether the runner's latest started launch of the lane wrote the receipt: it changed after that launch started and before its launch log last did."""
+        latest = max((action for action in launches if action.started_at), key=lambda action: action.started_at, default=None)
+        if latest is None or (written := self.shell.stat(receipt)) is None or (logged := self.shell.stat(self.launch_log(container, latest.action_id))) is None:
+            return False
+        return actions.parse_stamp(latest.started_at).timestamp() * 1e9 <= written[1] <= logged[1]
 
     def overdue(self, container: str, about: str) -> None:
         moment = self.now()
@@ -2645,6 +2880,141 @@ class Runner:
                 f"INCIDENT-CLOCK {lane} in-process: the Orca launch of the Opus fallback {backup} failed twice: {reasons} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {brief}",
             )
 
+    def release_coupling(self) -> None:
+        """Couple the drive to the releases its lanes start: claim each started build for its lane, announce each watched apply to every live drive root, and ask to lift each freeze a lane left behind."""
+        if not self.config.landing:
+            return
+        try:
+            self.read_release_records()
+            if self.now() - self.release_polled < RELEASE_POLL:
+                return
+            self.release_polled = self.now()
+            self.watch_applies()
+            self.ask_lifts()
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+
+    def read_release_records(self) -> None:
+        """Track each build a lane's `release --build` record names and each freeze a lane's `hold` record names as `froze <scope> until <time> as freeze <id>`; a build is claimed for its lane the pass it is first read. A first read starts at the newest record."""
+        drive = self.config.drive
+        cursor = self.book.load(RUNNER).facts.get(RELEASE_CURSOR)
+        if cursor is None:
+            newest = cci.records(self.cci_tail, drive, "--limit", "1")
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({RELEASE_CURSOR: max((record["seq"] for record in newest), default=0)}))
+            return
+        builds: dict[str, dict] = {}
+        freezes: dict[str, dict] = {}
+        for record in cci.records(self.cci_tail, drive, "--kind=release", "--kind=hold", since=cursor):
+            cursor = max(cursor, record["seq"])
+            if record["drive"] != drive or record["lane"] in (RUNNER, ROOT):
+                continue
+            if record["kind"] == "release":
+                release = found[0] if (found := RELEASE_ID.search(record["text"])) else ""
+                for build in (record.get("refs") or {}).get("builds") or []:
+                    builds.setdefault(str(build), {"lane": record["lane"], "release": release, "seq": record["seq"], "done": False})
+            elif record["kind"] == "hold" and (froze := FROZE.search(record["text"])):
+                freezes.setdefault(froze["id"], {"lane": record["lane"], "scope": froze["scope"], "until": froze["until"], "hold": record["seq"], "asked": []})
+        known = self.book.load(RUNNER).facts.get(RELEASE_BUILDS) or {}
+        fresh = {build: info for build, info in builds.items() if build not in known}
+        for build, info in fresh.items():
+            self.claim_release(build, info)
+
+        def keep(incident: actions.Incident) -> None:
+            incident.facts.setdefault(RELEASE_BUILDS, {}).update(fresh)
+            held = incident.facts.setdefault(FREEZES, {})
+            for freeze, info in freezes.items():
+                held.setdefault(freeze, info)
+            incident.facts[RELEASE_CURSOR] = cursor
+
+        self.book.edit(RUNNER, keep)
+
+    def claim_release(self, build: str, info: dict) -> None:
+        """Record the build's owner, `<lane>@<drive>`, in the drive registry and claim the build for that lane with `cci claim --for`; a step that fails escalates RELEASE-CLAIM-FAILED once."""
+        owner = f"{info['lane']}@{self.config.drive}"
+        registry = [sys.executable, str(SCRIPTS / "drive.py"), "release", "--cci-drive", self.config.drive, "--owner", owner, "--build", build, *(["--release", info["release"]] if info["release"] else [])]
+        failures = [
+            f"`{' '.join(argv[1:] if argv[0] == sys.executable else argv)}` exited {done.code}: {' '.join((done.err or done.out).split())[:200]}"
+            for argv in (registry, ["cci", "claim", "--for", owner, "--build", build, "--rel", "started"])
+            if (done := self.shell.run(argv)).code != 0
+        ]
+        if failures:
+            self.escalate(f"release-claim:{build}", "RELEASE-CLAIM-FAILED", info["lane"], f"build {build} started by {owner}: {'; '.join(failures)}")
+
+    def watch_applies(self) -> None:
+        """Read each tracked build through `landing.applying.build` and post one `applying <component>/<env> <commit> (<release>)` release record to every live drive root for each job whose step key `landing.applying.step` matches, of a component `landing.applying.components` names, the first pass it reads running; a finished build is no longer read."""
+        applying = self.config.landing.get("applying")
+        if not applying:
+            return
+        for build, info in (self.book.load(RUNNER).facts.get(RELEASE_BUILDS) or {}).items():
+            if info["done"]:
+                continue
+            argv = release_build_argv(Path(self.config.landing["checkout"]).expanduser(), applying["build"], build)
+            if argv is None:
+                self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"build {build} is no Buildkite build URL, and landing.applying.build names its pipeline; no apply of it is announced")
+                self.book.edit(RUNNER, lambda incident, build=build: incident.facts[RELEASE_BUILDS][build].update({"done": True}))
+                continue
+            done = self.shell.run(argv)
+            if done.code != 0:
+                self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"`{' '.join(argv)}` exited {done.code}: {' '.join((done.err or done.out).split())[:200]}; it is read again next pass")
+                continue
+            try:
+                shown = json.loads(done.out)
+            except json.JSONDecodeError:
+                self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"`{' '.join(argv)}` printed no JSON: {' '.join(done.out.split())[:200]}; it is read again next pass")
+                continue
+            for job in shown.get("jobs") or []:
+                step = re.fullmatch(applying["step"], job.get("step_key") or "")
+                if step and job.get("state") == "running" and any(fnmatch(step["component"], glob) for glob in applying["components"]):
+                    self.announce_apply(build, info, step["component"], step["env"], job["id"], shown.get("commit") or "")
+            if shown.get("finished_at"):
+                self.book.edit(RUNNER, lambda incident, build=build: incident.facts[RELEASE_BUILDS][build].update({"done": True}))
+
+    def announce_apply(self, build: str, info: dict, component: str, env: str, job: str, commit: str) -> None:
+        key = f"applying:{job}"
+        if self.book.known(RUNNER, key):
+            return
+        done = self.shell.run(["cci", "who", "--role", "root", "--json"])
+        if done.code != 0:
+            raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+        drives = [json.loads(line).get("drive") or "" for line in done.out.splitlines() if line.strip()]
+        to = ",".join(dict.fromkeys([ROOT, *(f"{ROOT}@{drive}" for drive in drives if drive and drive != self.config.drive)]))
+        stack = f"{component}/{env}"
+        text = f"applying {stack} {commit[:8] or 'at an unread commit'} ({info['release'] or f'build {build}'})"
+        posted = self.cci_post("release", text, to, stack, key, record_id=key, flags=["--stack", stack, "--build", build])
+        if posted.code == 0 and POSTED.match(posted.out):
+            self.book.accept(RUNNER, key, "applying", json.dumps({"build": build, "stack": stack, "to": to}), info["lane"], None)
+        else:
+            self.escalate(key, "APPLYING-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again on the next poll that reads the job running")
+
+    def ask_lifts(self) -> None:
+        """For each freeze a lane's open `hold` record names, post one `ask` when it ran past its until, to its lane, and one to root when its lane has no live session; a hold that closed drops the freeze."""
+        for freeze, info in list((self.book.load(RUNNER).facts.get(FREEZES) or {}).items()):
+            hold = self.cci_record(info["hold"])
+            if hold is None or hold["status"] != "open":
+                self.book.edit(RUNNER, lambda incident, freeze=freeze: incident.facts[FREEZES].pop(freeze))
+                continue
+            close = f"close hold #{info['hold']} with `cci post --kind lift --resolves {info['hold']}`"
+            asks = []
+            if (until := parse_until(info["until"])) and self.now() >= until:
+                asks.append(("lapsed", info["lane"], f"lift freeze {freeze} on {info['scope']}: it ran to its until, {info['until']}; {close}, or freeze again to extend it"))
+            if not self.lane_live(info["lane"]):
+                asks.append(("orphaned", ROOT, f"lift freeze {freeze} on {info['scope']}: lane {info['lane']}, its owner, has no live session; run `{self.release_command()} unfreeze {freeze}` and {close}, or hand it to another lane"))
+            for cause, to, text in asks:
+                if cause in info["asked"]:
+                    continue
+                key = f"lift-ask:{freeze}:{cause}"
+                posted = self.cci_post("ask", text, to, freeze, key, record_id=key, flags=["--target", info["scope"].split("/")[0]])
+                if posted.code == 0 and POSTED.match(posted.out):
+                    self.book.edit(RUNNER, lambda incident, freeze=freeze, cause=cause: incident.facts[FREEZES][freeze]["asked"].append(cause))
+                else:
+                    self.escalate(key, "LIFT-ASK-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again next pass")
+
+    def lane_live(self, lane: str) -> bool:
+        done = self.shell.run(["cci", "who", "--drive", self.config.drive, "--lane", lane, "--json"])
+        if done.code != 0:
+            raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+        return bool(done.out.strip())
+
     def cut_clock(self) -> None:
         """Hold every ordered cut to `deadlines.cut_minutes`: a root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's release record the landing runner posted with no build yet, opens a clock for the order's `--target` refs or the landing's components, and a `release` record with a build or a `refuse` from that lane stops it, as does anything `cut_closed` names. Past the limit the runner logs one CUT-SILENT with the hand command and launches `manual-release-<component>`; a later `refuse` that says a release already ships the commit or later goes to that lane."""
         try:
@@ -2725,7 +3095,8 @@ class Runner:
             return
         until = actions.stamp(self.now() + CUT_CLAIM)
         stacks = " ".join(f"{component}/{env}" for env in clock["env"].split(","))
-        hand = f"tools/ci release claim {stacks} --purpose incident --reason '{clock['trigger']} cut by hand' --until {until} && tools/ci release start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
+        release = self.release_command()
+        hand = f"{release} claim {stacks} --purpose incident --reason '{clock['trigger']} cut by hand' --until {until} && {release} start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
         line = f"CUT-SILENT {clock['lane']} {component}: no CUT or refusal {minutes} min after {clock['trigger']}; hand path: {hand}"
         launched = self.manual_release(key, manual, component, clock, hand) if not component.startswith("<") else "no manual release lane launched: the order names no component"
         self.end_cut(key, "silent")
@@ -2759,6 +3130,10 @@ class Runner:
         )
         return f"#{named['seq']} {named['kind']}" if named else ""
 
+    def release_command(self) -> str:
+        """The release CLI as the landing config names it, run from the repo's root, or a placeholder when it names none."""
+        return (self.config.landing or {}).get("release_cli") or "<release cli>"
+
     def end_cut(self, key: str, ended: str) -> None:
         self.book.edit(RUNNER, lambda incident: incident.facts[CUT_CLOCKS][key].update({"ended": ended}))
 
@@ -2768,7 +3143,7 @@ class Runner:
             return f"{lane} not launched: {refusal}"
         brief, failure = self.attach_brief(
             lane,
-            lambda briefs: MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs),
+            lambda briefs: MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs, release=self.release_command()),
             f"CUT-SILENT {clock['lane']}: manual release brief for {lane}",
         )
         if brief is None:
@@ -2959,6 +3334,7 @@ class Landing:
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
+        self.release_cli = release_cli(self.checkout, config)
         self.comms = config.get("comms_lane", "")
         self.status_card = config.get("status_card", False)
         self.card_drawn = ""
@@ -3673,7 +4049,7 @@ class Landing:
                 self.publish_line(action)
 
     def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
-        """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `tools/ci release live` shows its squash or a later commit running, and closes without a record."""
+        """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `<landing.release_cli> live --json` shows its squash or a later commit running, and closes without a record."""
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
         if done.code != 0:
             return False
@@ -3687,8 +4063,8 @@ class Landing:
         return True
 
     def shipped(self, sha: str, components: list[str]) -> str:
-        """The deploy `tools/ci release live` shows running `sha` or a later commit, of one of `components` when it names any, or empty when none does or the read fails."""
-        done = self.shell.run([str(self.checkout / "tools" / "ci"), "release", "live", "--json"])
+        """The deploy `<release_cli> live --json` shows running `sha` or a later commit, of one of `components` when it names any, or empty when none does, or the read fails."""
+        done = self.shell.run([*self.release_cli, "live", "--json"])
         if done.code != 0:
             return ""
         contains: dict[str, bool] = {}
@@ -3748,12 +4124,14 @@ class Landing:
                 )
 
     def publish_line(self, action: actions.Action) -> None:
-        """Once a landing's release names its build, read `tools/ci release live` each pass and post one RELEASED fix-live record to the root and the comms lane when every component it ships is live."""
+        """Once a landing's release names its build, read `<release_cli> live <id> --json` each pass and post one RELEASED fix-live record to the root and the comms lane when every component it ships is live."""
         landed, receipt = json.loads(action.target), action.verification_receipt
         components = landed["components"] or receipt["targets"]
         release = receipt["release"] or BUILD_NUMBER.search(receipt["builds"][0])[1]
-        done = self.shell.run([str(self.checkout / "tools" / "ci"), "release", "live", release, "--json"])
-        if done.code != 0 or not components:
+        if not components:
+            return
+        done = self.shell.run([*self.release_cli, "live", release, "--json"])
+        if done.code != 0:
             return
         live = json.loads(done.out)
         if any(live.get(component, {}).get("live", NOT_LIVE) == NOT_LIVE for component in components):
@@ -4179,6 +4557,12 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.flush()
         print(runner.unbound(state), file=sys.stderr)
         return 3
+    if fault := applying_fault(runner.config.landing):
+        why = f"{runner.config.source}: {fault}; the runner refused to start"
+        runner.escalate(f"applying-config:{runner.config.source}", "APPLYING-CONFIG-INVALID", "runner", why)
+        runner.flush()
+        print(why, file=sys.stderr)
+        return 3
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
@@ -4201,6 +4585,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.pr_silent()
             runner.in_process()
             runner.cut_clock()
+            runner.release_coupling()
         except OrcaUnreachable as down:
             runner.orca_down(down)
         else:
@@ -4218,7 +4603,7 @@ def run_orca(runner: Runner, once: bool) -> int:
 
 
 def mq_config_fault(landing: dict) -> str:
-    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, only built-in checks, and the high-risk globs merge mode high-risk reads. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
+    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, only built-in checks, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
     faults, members = [], []
     adapter = landing.get("adapter") or {}
     if adapter.get("kind") not in (merge_queue.GraphiteStackEnqueue.kind, merge_queue.LabelEnqueue.kind):
@@ -4233,6 +4618,9 @@ def mq_config_fault(landing: dict) -> str:
     if landing["merge_mode"] == "high-risk" and not landing.get("high_risk_paths"):
         faults.append("runs merge mode high-risk with no landing.high_risk_paths globs, so no PR would read as high-risk")
         members.append(f'"high_risk_paths": {json.dumps(list(HIGH_RISK_STARTER))}')
+    if not landing.get("release_cli"):
+        faults.append("names no landing.release_cli, the release command line relative to landing.checkout, so no deploy state could be read")
+        members.append(f'"release_cli": {json.dumps(RELEASE_CLI if (Path(landing["checkout"]).expanduser() / RELEASE_CLI.split()[0]).is_file() else "<release command line>")}')
     if not faults:
         return ""
     return f"{'; '.join(faults)}; add to the \"landing\" object of runner.json, replacing any member of the same name: {', '.join(members)}"
@@ -4313,7 +4701,9 @@ def build_parser() -> argparse.ArgumentParser:
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=("orca", "landing"), required=True)
     show = verbs.add_parser("show")
-    for sub in (relay, launch, policy, loop, rebind, handoff, show):
+    gc = verbs.add_parser("gc")
+    gc.add_argument("--dry-run", action="store_true")
+    for sub in (relay, launch, policy, loop, rebind, handoff, show, gc):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -4331,6 +4721,12 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return runner.rebind()
     if args.verb == "handoff":
         return runner.handoff(args.desk)
+    if args.verb == "gc":
+        try:
+            return runner.gc(args.dry_run)
+        except OrcaUnreachable as down:
+            print(f"orca unreachable: {down}; nothing more was reclaimed", file=sys.stderr)
+            return 1
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":

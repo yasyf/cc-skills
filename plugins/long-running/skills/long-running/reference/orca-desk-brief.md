@@ -391,11 +391,25 @@ the receipt directory orca-launch.sh writes by default, and launches with
 `ORCA_LAUNCH_STATE` set to it. A lane launched by hand with orca-launch.sh is therefore
 relayed to like one the runner launched, with no receipts to copy; never set
 `ORCA_LAUNCH_STATE` on a hand launch. `orca.gc` names the repo's gc command, which every `RECLAIM` line
-carries. Set the accepted prefix policy's revision to #28601's revision.
+carries after `desk-runner.py gc`. Set the accepted prefix policy's revision to #28601's revision.
 
 `landing.release_owner` is required by `run --desk landing`, which exits on a config
 without it. It is the cci `--to` address of the lane that starts releases, such as
 `peer:<session name>` for a session bound to another drive.
+`landing.release_cli` is the repo's release command line, its first word relative to
+`landing.checkout`; the landing desk reads `<release_cli> live --json` and
+`<release_cli> live <id> --json` through it, and a CUT-SILENT hand path and the manual
+release brief name it. On a config without it, `run --desk landing` exits with
+`MQ-CONFIG-INVALID`, whose line lists it with every other missing member, as
+`"release_cli": "tools/ci release"` on a checkout that carries `tools/ci`.
+`landing.applying`, optional, turns on the orca runner's apply announcements: `build` is
+the command line, first word relative to `landing.checkout`, that prints a release
+build as Buildkite's REST build JSON, with `{build}`, `{pipeline}`, and `{number}`
+filled from the build URL a lane's `release` record names; `step` is a regular
+expression with `component` and `env` named groups that a job's step key must match
+whole; and `components` lists the fnmatch globs of the components whose applies peer
+drives watch. `run --desk orca` posts `APPLYING-CONFIG-INVALID` and exits on a partial one.
+`reference/release-lanes.md` has what the runner claims, announces, and asks.
 `landing.merge_mode` is required too: the owner's pick of `every`, `high-risk`, or
 `auto`, which the root asks once at execution start and records as a cc-notes answer.
 Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET`. It
@@ -503,6 +517,8 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "infra/rows/*"],
     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
     "release_owner": "peer:<release session>",
+    "release_cli": "tools/ci release",
+    "applying": {"build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}", "step": "apply-(?P<component>.+?)--(?P<env>.+)", "components": ["sandsql", "api", "executor", "rsw-*"]},
     "interval_seconds": 180,
     "status_card": true,
     "policy": {
@@ -644,8 +660,10 @@ address the original question id through `--reply-to`.
 **O6. Never end a session.** The runner never stops, signals, releases, or closes
 Claude, Codex, Orca, a terminal, a PTY daemon, or a supervisor. Finished sessions
 stay open. An `OUTCOME` line does not authorize cleanup. The sweep names each
-newly settled dispatch once in a `RECLAIM` line with the `orca.gc` command, and
-the root runs that command under R195.
+newly settled dispatch once in a `RECLAIM` line with `desk-runner.py gc` and then
+the `orca.gc` command, and the root runs both under R195. `gc` closes only the
+terminal a settled launch's `<lane>.terminal.json` receipt names, idle at an empty
+prompt, and keeps and names every other.
 
 **O7. Keep action records.** The action record carries acceptance,
 delivery, start, result, and verification. Neither a sent message nor a moved
@@ -838,7 +856,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `PROMPT-WATCH-DOWN` | Run the line's `prompt_watch.py start` command; until it polls again no prompt on this drive is being read. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
-| `RECLAIM` | Run the line's gc command; it closes each idle settled terminal's tab and removes each finished worktree under R195. |
+| `RECLAIM` | Run the line's two commands: `desk-runner.py gc` closes each idle terminal a settled launch's receipt names, and the `orca.gc` command closes the rest and removes each finished worktree under R195. |
 | `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
 | `LAUNCH-FAILED` | Read the named launch failure before issuing any new action; for an inbox launch line, relay to the live dispatch or append a corrected line under a new key. |
 | `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |
