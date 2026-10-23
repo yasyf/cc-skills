@@ -123,6 +123,20 @@ PLAIN_ENGLISH = frozenset(
     version vm webhook worktree
     """.split()
 )
+PLAIN_FOR = {
+    "census box": "a temporary machine we delete afterwards",
+    "pass box": "a temporary machine we delete afterwards",
+    "lane": "worker",
+    "desk": "standing worker",
+    "watchdog": "the check that watches the workers",
+    "finder": "automated code review",
+    "slice": "the rules that apply here",
+    "fidelity grade": "check against your rules",
+    "read-back": "summary of your rules",
+    "merge card": "merge question",
+    "runner": "background script",
+    "sweep": "search",
+}
 UNREADABLE = (
     *IDS,
     (
@@ -136,7 +150,8 @@ UNREADABLE = (
     (
         "a drive word",
         re.compile(
-            r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?)\b",
+            r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?"
+            r"|census box(?:es)?|pass box(?:es)?|watchdogs?|finders?|fidelity grades?|read-?backs?|merge cards?|runners?|sweeps?)\b",
             re.IGNORECASE,
         ),
     ),
@@ -542,7 +557,13 @@ def word_list(where: str, text: str, *, pr_block: bool) -> list[str]:
     seen = readable(text)
     rules = UNREADABLE if pr_block else (*UNREADABLE, ("a PR number", PR_NUMBER))
     hits = dict.fromkeys((kind, hit[0]) for kind, pattern in rules for hit in pattern.finditer(seen))
-    return [f'plain words: {where} has {kind}, "{hit}"' for kind, hit in hits]
+    return [f'plain words: {where} has {kind}, "{hit}"{instead(hit)}' for kind, hit in hits]
+
+
+def instead(hit: str) -> str:
+    word = hit.lower().replace("readback", "read-back")
+    plain = PLAIN_FOR.get(word) or PLAIN_FOR.get(word.removesuffix("es")) or PLAIN_FOR.get(word.removesuffix("s"))
+    return f'; say "{plain}" instead' if plain else ""
 
 
 def squeeze(text: str) -> str:
@@ -829,6 +850,10 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
             pattern=r'card fact has a drive word, "Lane"'
         ),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], phase="graded by the desk"): Warn(pattern=r'card phase has a drive word, "desk"'),
+        status_card(title="Count the chats from the database?", body="The census box read every bucket.", options=["Count"]): Warn(
+            pattern=r'card body has a drive word, "census box"; say "a temporary machine we delete afterwards" instead'
+        ),
+        status_card(title="Merge the chat-list fix?", body="The runner posted it.", options=["Merge"]): Warn(pattern=r'"runner"; say "background script" instead'),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
             state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
