@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from itertools import dropwhile, takewhile
 from pathlib import Path
@@ -166,6 +166,16 @@ def block_text(block: dict) -> str:
     return "\n".join(strings(block))
 
 
+def innermost(node: object, hit: Callable[[dict], bool]) -> list[dict]:
+    match node:
+        case dict():
+            inner = [found for value in node.values() for found in innermost(value, hit)]
+            return inner or ([node] if {"id", "type"} <= node.keys() and hit(node) else [])
+        case list():
+            return [found for value in node for found in innermost(value, hit)]
+    return []
+
+
 def sentence_with(text: str, needle: str) -> str:
     return next((part.strip() for part in SENTENCE.split(text) if needle and folded(needle) in folded(part)), "")
 
@@ -214,7 +224,7 @@ def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
     try:
         register = read_register(evt, which)
         needles = [needle for needle in (quote, term) if needle]
-        marked = [block for block in board(evt) if any(folded(needle) in folded(block_text(block)) for needle in needles)]
+        marked = innermost(board(evt), lambda block: any(folded(needle) in folded(block_text(block)) for needle in needles))
         sentence = quote or next((found for block in marked if (found := sentence_with(block_text(block), term))), "") or sentence_with(last_reply(evt), term)
         rows = bearing(register["rows"], term, sentence)
         blocks = [block["id"] for block in marked]

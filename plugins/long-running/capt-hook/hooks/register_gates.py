@@ -42,9 +42,9 @@ from .tests.register_fixtures import (
 )
 
 SHORT = 7
-ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
-CITING_LINE = re.compile(r"\b(?:GO|DECIDE) root \(.*")
-GO_LINE = re.compile(r"\bGO root \(.*")
+ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
+CITING_LINE = re.compile(r"(?:^|(?<=[\"']))[ \t]*(?:GO|DECIDE) root \(.*", re.MULTILINE)
+GO_LINE = re.compile(r"(?:^|(?<=[\"']))[ \t]*GO root \(.*", re.MULTILINE)
 CITING_KINDS = frozenset({"go", "decide"})
 GO_KINDS = frozenset({"go"})
 BOARD_WRITES = frozenset({"push", "update-block"})
@@ -190,6 +190,8 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         gate(
             f'echo "GO root (4:50 AM) walker: cut web under {UNROWED}" >> /s/inbox/deploy-go.md', "quiet", (UNROWED, shown(UNROWED))
         ): Block(pattern=r"has no row in register"),
+        gate(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
+        gate(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"1234567 has no row"),
         gate(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
         gate(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
         gate(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
@@ -313,17 +315,15 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
         if not text:
             return None
         register = read_register(evt, which)
-        questions = open_questions(register)
+        if not (questions := open_questions(register)):
+            return None
+        shown = [f"{REGISTER_FENCE}\n{briefs.strip()}\n{REGISTER_FENCE}"] if briefs else []
+        message = "\n".join([QUESTION_OPEN, *(asked(question, register["rows"]) for question in questions), *shown])
+        quoted = all(quotes(text, question) for question in questions)
     except READ_ERRORS as error:
         failed_open(evt, "owner_question_gate", error)
         return None
-    if not questions:
-        return None
-    shown = [f"{REGISTER_FENCE}\n{briefs.strip()}\n{REGISTER_FENCE}"] if briefs else []
-    message = "\n".join([QUESTION_OPEN, *(asked(question, register["rows"]) for question in questions), *shown])
-    if not all(quotes(text, question) for question in questions):
-        return evt.block(UNQUOTED + message)
-    return evt.block(message, confirm=QUESTION_JUDGE)
+    return evt.block(message, confirm=QUESTION_JUDGE) if quoted else evt.block(UNQUOTED + message)
 
 
 def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: str) -> None:

@@ -155,6 +155,15 @@ def test_a_what_is_question_marks_its_block_and_names_the_rows_bearing_on_it(roo
     assert "open rule/0a1b2c3 plan.md:305 relay slot" in context
 
 
+def test_a_question_on_a_nested_card_marks_the_card_and_not_its_group(root):
+    root.routes[("cc-present", "outcomes")] = board({"id": "round-3", "type": "group", "blocks": [LOOKUP, TIMERS]})
+
+    root.prompt("waht is a relay slot? why is this here?")
+
+    [question] = root.questions()
+    assert question["blocks"] == ["c7-timers"]
+
+
 def test_a_quoted_sentence_is_the_sentence_under_question_with_no_board(root):
     text = f"> {CATCH}\n\nwhat is this workaround and can we drop it"
 
