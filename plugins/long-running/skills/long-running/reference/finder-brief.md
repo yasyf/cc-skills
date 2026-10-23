@@ -20,6 +20,8 @@ Codex reads neither the hooks nor the register, so the prompt carries everything
   words verbatim, its implications with their `removes` or `permits` mark and
   status, and its names. Paste them as the register holds them, never summarized.
 - The PR body, `## Rulings` and `## Regression tests` included, as claims to check.
+- The plan's path and the paths of the sub-plans the slice names, so the finder can
+  cite the line each added or changed test rests on.
 
 ## What it returns
 
@@ -35,6 +37,11 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   pending row in force is read against the rows it would have excepted.
 - Defect findings keep the schema's severities. A `blocker` counts as a major and a
   `nit` as a minor.
+- Every test the head adds or changes asserts only behavior a plan line, sub-plan
+  line, or owner ruling names (e20e623). `swept` cites that line for each test as
+  `tests: <test> <- <plan cite>; ...`. A test that pins drive-era behavior the plan
+  removes, or behavior nothing names, is one finding of severity `major`, its
+  `defect` starting `test <name> pins unplanned behavior:`.
 
 Every key the slice printed appears exactly once, as `met`, `n/a`, `pending`, or a
 `missing` finding. A reply that drops a key is no verdict: run the pass again.
@@ -77,7 +84,7 @@ Read the head pinned by sha, never the PR's moving tip: `git fetch origin <full 
 then `git diff origin/<base>...<full sha>`. Read the code around every changed symbol at
 that sha, its callers and callees included.
 
-Do two things and report both in the findings schema.
+Do three things and report all three in the findings schema.
 
 1. Find defects in the diff: wrong results, broken callers, lost data, races,
    tests that assert less than they claim. Rate each blocker, major, minor, or nit.
@@ -97,6 +104,14 @@ Do two things and report both in the findings schema.
    - pending: a row marked pending-owner gets no verdict; list it under pending, and
      read a head that needs it in force against the rows it would have excepted.
    Every key below appears exactly once.
+
+3. Read every test the diff adds or changes. A test may assert only behavior a
+   line of the plan, a sub-plan, or an owner ruling names. Cite that line for each
+   test in `swept` as "tests: <test> <- <plan cite>; ...". A test that pins
+   drive-era behavior the plan removes, or behavior nothing names, is one finding,
+   severity major, defect starting "test <name> pins unplanned behavior:".
+
+Plan: <plan path>; sub-plans: <paths>
 
 PR body:
 <the PR body, verbatim>

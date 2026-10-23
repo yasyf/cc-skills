@@ -77,6 +77,11 @@ whether the code, as it runs after the change, does what the words say.
   test against standing rule 34 (784f1ab): every change needs a regression test
   that would actually have failed, never a trivial one. A test the old
   tree also passes, or one that asserts nothing the failure broke, reads `missing`.
+- Every test the head adds or changes asserts only behavior a plan line, sub-plan
+  line, or owner ruling names, and the grade file cites that line for each test
+  (e20e623). A test that pins drive-era behavior the plan removes, or behavior
+  nothing names, reads `missing` against the row or plan line it contradicts,
+  with the line `test <name> pins unplanned behavior`.
 - The `## Risk profile` states Load and Data in prose. It has no Census or
   Backout field, and no field's absence is a refusal by itself.
 - A grade that lists any problem is a refusal. There is no "ok with notes":

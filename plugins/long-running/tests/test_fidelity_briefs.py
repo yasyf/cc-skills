@@ -75,3 +75,10 @@ def test_lane_briefs_ask_for_regression_tests_that_failed_and_a_risk_profile_in_
     assert "each test id" in text and "failed against the old tree" in text
     assert "states Load and Data in prose" in text
     assert "Census" not in text and "Backout" not in text
+
+
+def test_both_graders_hold_each_added_test_to_the_plan_line_it_rests_on():
+    for name in ("finder-brief.md", "fidelity-desk-brief.md"):
+        brief = " ".join((SKILL / "reference" / name).read_text().split())
+        assert "pins unplanned behavior" in brief and "(e20e623)" in brief, name
+        assert "behavior a plan line, sub-plan line, or owner ruling names" in brief, name
