@@ -26,8 +26,10 @@ the PR by its `#<n>`. A blank line is not an error.
 The owner's merge mode, `landing.merge_mode` in `runner.json`, decides which PRs
 wait for the owner before they enqueue: `every` PR, only `high-risk` ones, or none
 under `auto`. The root asks it once at execution start and records the answer. Each
-`MERGE-ASK` the runner logs goes to the owner as a `needs_you` ask card with `Merge` and
-`Hold` buttons beside its fixed `Explain more` (93037c3), never as an `AskUserQuestion`.
+`MERGE-ASK` the runner logs goes to the owner as a `needs_you` ask card whose `waits` id
+the line names, with `Merge` and `Hold` buttons beside the fixed `Explain more` cc-slack
+draws on a waiting card (93037c3), never as an `AskUserQuestion`. An `Explain more` tap
+resolves nothing.
 A repository the runner's own GitHub account owns lands once green with no card
 (de6c88c). A `Merge` tap becomes a root `go`
 record naming the PR and its head, which the runner enqueues on; a `Hold` tap becomes

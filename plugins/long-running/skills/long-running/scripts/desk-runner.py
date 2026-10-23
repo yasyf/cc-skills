@@ -373,8 +373,8 @@ re-read on every use. A repository the GitHub account the runner acts as owns, w
 under `every`, under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, and in
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue logs one `MERGE-ASK` per waiting PR and head instead, and enqueues once a root `go` record names each
-waiting PR and its head by a short sha. The card is an ask card whose buttons are `Merge` and `Hold` beside the fixed `Explain more`
-(93037c3). A reserved touch puts the row's key and the first sentence of its words on the card, whose
+waiting PR and its head by a short sha. The card is an ask card whose `waits` id is `merge:<pr>:<short sha>`, so cc-slack draws its
+fixed `Explain more` beside `Merge` and `Hold` in place of Ack and Pause (93037c3). A reserved touch puts the row's key and the first sentence of its words on the card, whose
 tap is the authorization: the head waits until `rulings.py authorize` labels the tap's answer `authorizes:<key>` and `check-pr` stops
 naming the row. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
@@ -4116,6 +4116,7 @@ class Landing:
             asking = [pr for pr in asking if pr not in owed]
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
+            waits = f"merge:{pr}:{short}"
             reserved = self.reserved_touches(pr, heads[pr], rows)
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"it touches {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}" if paths else "every PR waits for the owner" if mode == "every" and not self.lands_green else "it touches a reserved row"
@@ -4126,7 +4127,9 @@ class Landing:
                 "MERGE-ASK",
                 f"#{pr}",
                 f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers: {why}{touched}"
-                f" | send a needs_you ask card with options `Merge #{pr} {short}` and `Hold #{pr}` beside its fixed `Explain more` (93037c3); Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, and Explain more gets a plain-words reply in the card's thread",
+                f" | send a needs_you ask card with waits `{waits}` and options `Merge #{pr} {short}` and `Hold #{pr}`, which cc-slack draws beside its fixed `Explain more` (93037c3), never listed as an option;"
+                f" Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`,"
+                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and reply in the card's thread in plain words",
             )
 
     def admit(self, heads: dict[str, str]) -> set[str]:
@@ -4884,12 +4887,14 @@ class Landing:
         """Log one `RULING-ASK` per ruling card `rulings.py classify` wrote under the drive's `cards/`, and again whenever classify rewrites it, for the root to send the owner as a `needs_you` card."""
         for card in sorted((self.runner.config.source.parent / RULING_CARDS).glob("*.json")):
             text = card.read_text()
+            fields = json.loads(text)
             self.runner.escalate(
                 f"ruling-ask:{card.stem}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
                 "RULING-ASK",
                 card.stem,
-                f"{json.loads(text)['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
-                " a tap or a reply on it is a capture: Right ticks every line with `rulings.py confirm`, and Some wrong waits for the owner's reply naming the lines",
+                f"{fields['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
+                " a tap or a reply on it is a capture: Right ticks every line with `rulings.py confirm`, and Some wrong waits for the owner's reply naming the lines;"
+                f" an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {fields['waits']}\"` and reply in the card's thread in plain words",
             )
 
     def gate_pass(self) -> None:
