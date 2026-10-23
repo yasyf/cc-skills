@@ -91,6 +91,7 @@ class FakeCcn(ledger.Shell):
         self.stuck: set[str] = set()
         self.history: dict[str, list[dict]] = {}
         self.registers: list[str] = []
+        self.register_label = REGISTER
         self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
         self.notes = CcnPlans([])
         self.lane_records: list[dict] = []
@@ -135,7 +136,7 @@ class FakeCcn(ledger.Shell):
             return json.dumps(
                 [
                     {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
-                    for i, doc in enumerate(self.registers if REGISTER in labels else self.active)
+                    for i, doc in enumerate(self.registers if self.register_label in labels else self.active)
                 ]
             )
         if verb == ["doc", "show"]:
@@ -146,7 +147,7 @@ class FakeCcn(ledger.Shell):
                     "id": doc,
                     "title": self.titles.get(doc, "brook: progress"),
                     "body": self.docs[doc],
-                    "tags": self.tags.get(doc, [REGISTER] if doc in self.registers else ["progress:brook"]),
+                    "tags": self.tags.get(doc, [self.register_label] if doc in self.registers else ["progress:brook"]),
                     "supersedes": self.supersedes.get(doc, []),
                     "created_at": created,
                     "updated_at": self.updated.get(doc, created),
@@ -158,7 +159,7 @@ class FakeCcn(ledger.Shell):
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
             self.history[doc] = [creation_entry(self.docs[doc])]
-            (self.registers if REGISTER in labels else self.active).append(doc)
+            (self.registers if self.register_label in labels else self.active).append(doc)
             self.added[doc] = argv[5]
             self.titles[doc] = argv[5]
             self.touch(doc)
@@ -203,7 +204,7 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     drives = tmp_path / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "d1.json").write_text(
-        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1", "state_dir": str(tmp_path / "state")})
+        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1", "state_dir": str(tmp_path / "state" / "brook")})
     )
     session = tmp_path / "session.json"
     session.write_text(
@@ -268,7 +269,7 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n"
-        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'dashboard'}` starts it and prints the link for the owner\n",
+        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'brook' / 'dashboard'}` starts it and prints the link for the owner\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body
@@ -278,8 +279,21 @@ def test_generate_writes_every_source_into_the_active_generated_doc(drive_home: 
     assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi"
 
 
+def test_generate_reads_the_register_of_the_drives_program_not_the_plan_stem(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry = drive_home / ".claude/long-running/drives/d1.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"state_dir": str(drive_home / "state" / "durable-program")}))
+    shell = shell_with()
+    shell.register_label = "standing-rules:durable-program"
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    assert "Register `ccn doc show ccccccc`: 2 owner-approved rules" in shell.docs[out["id"]]
+    labels = [call[6] for call in shell.calls if call[3:6] == ["doc", "list", "--label"] and call[6].startswith("standing-rules:")]
+    assert labels and set(labels) == {"standing-rules:durable-program"}
+
+
 def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    server = drive_home / "state" / "dashboard" / "server.json"
+    server = drive_home / "state" / "brook" / "dashboard" / "server.json"
     server.parent.mkdir(parents=True)
     server.write_text(json.dumps({"url": "http://127.0.0.1:8123/", "tailnet_url": "http://mac.tail1.ts.net:8123/"}))
     shell = shell_with()
@@ -835,7 +849,7 @@ def test_a_failed_register_read_still_generates_and_posts_one_blocker(
     body = shell.docs[out["id"]]
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n\n- #2 [cci #2]\n\n- the register rows did not load (rulings.py: error: no register ledger for brook)" in body
     [(cci_drive, text)] = posted
-    assert cci_drive == "state" and text.startswith("The register rows for state did not load for the handoff: rulings.py: error: no register ledger for brook.")
+    assert cci_drive == "brook" and text.startswith("The register rows for brook did not load for the handoff: rulings.py: error: no register ledger for brook.")
     assert [handoff.sys.executable, str(standing.RULINGS), "rows", "--drive", "d1", "--repo", REPO, "--json"] in shell.calls
 
 

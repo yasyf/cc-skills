@@ -184,12 +184,16 @@ def write_atomic(path: Path, payload: dict) -> Path:
     return path
 
 
+def program_of(entry: dict) -> str:
+    return Path(entry["state_dir"]).name
+
+
 def cci_drive(entry: dict) -> str:
-    return entry.get("cci_drive") or Path(entry["state_dir"]).name
+    return entry.get("cci_drive") or program_of(entry)
 
 
 def context_of(entry: dict) -> dict:
-    program = Path(entry["state_dir"]).name
+    program = program_of(entry)
     return {
         "id": entry["drive"],
         "title": program,
