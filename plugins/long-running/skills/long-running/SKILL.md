@@ -1396,6 +1396,8 @@ name or a list of lane names when grading is sharded: a grade from any
 listed lane counts and the newest decides. The runner re-reads the lane from
 `runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
+`reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
+`reference/finder-brief.md` is the sol finder's.
 
 *Prevents an enqueue past a fidelity refusal. On 2026-10-13 the runner enqueued
 monorepo #36596 at ceb14d32, which the fidelity desk had graded missing F307;
@@ -2457,6 +2459,10 @@ Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to 
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
+PR body: beside `## Rulings`, a `## Regression tests` section lists each test id the
+  change adds or edits and links one CI run where that test failed against the old tree.
+  Nothing checks the link; the fidelity desk reads each named test against the failure
+  it claims (784f1ab). The `## Risk profile` states Load and Data in prose.
 GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
   per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never

@@ -211,6 +211,9 @@ Escalate early, never improvise: scope surprise, an assumption the code refutes,
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
 
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
+Its PR body carries a `## Regression tests` section that lists each test id and links
+one CI run where that test failed against the old tree, and a `## Risk profile` that
+states Load and Data in prose.
 Drive to a terminal state, then send the preamble's `worker_done` with
 `--outcome succeeded|failed`, `--task-id <taskId>`, and `--dispatch-id <dispatchId>`
 from that preamble. The three-sentence body names what changed, what was
