@@ -3518,10 +3518,15 @@ ruling: "the hook should augment the existing one if one was recently made for t
 upcming compaxt".*
 
 The hook adds one pointer line to the plan the first time. It starts with
-`- **Progress (read first after any compaction):**` and names the label and generated
-doc id, or the generated filename for the file fallback. Later handoffs change only
-that id or name, always to the active doc. The handoff never restructures the plan. Let the hook do the
-superseding and pointer edit.
+`- **Progress (read first after any compaction):**` and names the active doc id and
+`ccn doc show <id>`, or the generated filename for the file fallback. It names no drive
+label: the slug lives in the hook's state and in the doc's own `progress:<slug>` label,
+so a plan handed off as a standalone package stays free of drive names. A pointer that
+already names the active doc is left byte-identical, whatever its wording. When the
+active doc changes, the hook rewrites the line to the label-free form, and keeps a
+package-relative path such as `records/docs/<id>.md` with the new id when the old line
+carried one. The handoff never restructures the plan. Let the hook do the superseding
+and pointer edit.
 
 **`/compact`.** Once the progress record and pointer are ready, the hook starts a
 detached background job at that main-session `Stop` and lets the stop through. The
