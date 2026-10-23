@@ -331,10 +331,14 @@ def drive_entry(evt: BaseHookEvent) -> dict | None:
     return None
 
 
+def bus_name(entry: dict) -> str:
+    return entry.get("cci_drive") or Path(entry["state_dir"]).name
+
+
 def post_blocker(evt: BaseHookEvent, text: str) -> None:
     if not (entry := drive_entry(evt)):
         return
-    drive = entry.get("cci_drive") or Path(entry["state_dir"]).name
+    drive = bus_name(entry)
     argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
     try:
         subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))

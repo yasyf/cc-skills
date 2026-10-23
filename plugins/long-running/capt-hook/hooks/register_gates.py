@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,22 +27,30 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import REGISTER_FENCE, CompactionState, ccn, post_blocker, rulings
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, CompactionState, bus_name, ccn, drive_entry, post_blocker, rulings, script
 from .lane_landing import lane_name, program
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, inbox_text, incident_spawn, posted_text, prose
+from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, declared_fixes, inbox_text, incident_spawn, open_incidents, posted_text, prose
 from .register_injection import drive_args
 from .root_context import FILE_WRITES
 from .tests.register_fixtures import (
     ACTIVE,
+    CLEAR,
+    CUT_HELD,
     CWD,
+    DRIVE_CONFIG,
+    DURING_INCIDENT,
+    GATE_OWED,
     GO_PATH,
     LEDGER,
+    OPEN_FIX,
     OWNER_QUESTION,
     ROWED,
     ROWS,
     SHA,
+    TWO_STEPS,
     UNROWED,
+    WIDEN_HELD,
     fixture,
     readings,
     reply,
@@ -81,8 +90,7 @@ UNQUOTED = (
     "This reply or brief does not quote the open owner question below. Quote its words, sentence and rows, and say from them"
     " whether the thing should exist before any code read."
 )
-CAPTURE_LOG = "owner-prompts"
-CAPTURE_FORMAT = "jsonl"
+CAPTURES = "owner-prompts.jsonl"
 QUESTION_JUDGE = Confirm(
     rule="Block when a reply or writer brief, written while the owner's question is open, leaves out his words, the sentence"
     " under question or the register rows bearing on it, or reads code before saying from those rulings whether the thing"
@@ -124,6 +132,14 @@ SEAT_REFUSED = "`rulings.py {verb}` runs only in {seats}, and this session is {l
 AUTHORIZES_LABEL = (
     "An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
 )
+CUT_GATE = script("cut_gate.py")
+CUT_CHECK = f"{sys.executable} {CUT_GATE} check"
+WIDENED_TO = "fleet"
+RELEASE_NOUNS = {"cut": "cut", "widen": "flag widening"}
+TARGET_FLAGS = frozenset({"--targets", "--target", "--groups"})
+RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
+GO_WAITS = "A GO naming `{tokens}` waits while gate row `{key}` is owed. Meet the gate first, then post the GO."
+CUT_REFUSED = "This {verb} is refused while the register's cut rules below hold. Clear each one, then run it again."
 HOOK_EDIT = (
     "The installed long-running plugin changes only through a reviewed pull request, so this write into `{path}` is refused."
     " Fix the check in a worktree and ship it as a pull request."
@@ -166,7 +182,7 @@ def citing_lines(evt: BaseHookEvent) -> list[str]:
 
 
 def captures(register: dict) -> Path:
-    return Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
+    return Path(register["state_dir"]) / CAPTURES
 
 
 def launches(evt: BaseHookEvent) -> list[tuple[Call, tuple[str, ...]]]:
@@ -619,3 +635,119 @@ def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
     cache = plugin_cache()
     inside = next((path for path in written_paths(evt) if path.is_relative_to(cache)), None)
     return evt.block(HOOK_EDIT.format(path=inside)) if inside else None
+
+
+def flag_targets(flag: str, value: str) -> list[str]:
+    return value.split(",") if flag in TARGET_FLAGS else []
+
+
+def start_targets(args: tuple[str, ...]) -> list[str]:
+    named: list[str] = []
+    pending = ""
+    for arg in args:
+        flag, equals, value = arg.partition("=")
+        if pending:
+            named += flag_targets(pending, arg)
+            pending = ""
+        elif equals and flag in RELEASE_VALUE_FLAGS:
+            named += flag_targets(flag, value)
+        elif arg in RELEASE_VALUE_FLAGS:
+            pending = arg
+        elif not arg.startswith("-"):
+            named += arg.split(",")
+    return [target for target in named if target]
+
+
+def release_calls(evt: BaseHookEvent) -> list[tuple[str, list[str]]]:
+    found = []
+    for call in evt.command.calls("ci"):
+        args = call.args
+        if args[:2] == ("release", "start"):
+            found.append(("cut", start_targets(args[2:])))
+        elif args[:3] == ("release", "channel", "promote") and args[4:5] == (WIDENED_TO,):
+            found.append(("widen", [WIDENED_TO]))
+    return found
+
+
+def go_texts(evt: BaseHookEvent) -> list[str]:
+    return GO_LINE.findall(inbox_text(evt)) + posted(evt, GO_KINDS)
+
+
+def names_token(text: str, token: str) -> bool:
+    return re.search(rf"(?<![\w.]){re.escape(token)}(?!\w|\.\w)", text) is not None
+
+
+def waiting_gos(rows: dict, texts: list[str]) -> list[str]:
+    return [
+        GO_WAITS.format(tokens=", ".join(named), key=key)
+        for key, row in rows.items()
+        if row.get("kind") == "gate" and row.get("status") == "owed"
+        for named in [[token for token in json.loads(row.get("blocks") or "[]") if any(names_token(text, token) for text in texts)]]
+        if named
+    ]
+
+
+def cut_outcome(verb: str, targets: list[str], register: dict, entry: dict, repairs: list[str] | None) -> dict:
+    argv = [*CUT_CHECK.split(), "--verb", verb, *(f"--target={target}" for target in targets), "--drive", bus_name(entry)]
+    argv += ["--ledger", entry["ledger"], "--repo", entry["repo"], "--started", entry["started_at"], *(["--incident"] if repairs is not None else [])]
+    argv += [f"--repair={pr}" for pr in repairs or []]
+    done = subprocess.run(argv, input=json.dumps(register), capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True, cwd=entry["checkout"])
+    return json.loads(done.stdout)
+
+
+def cut_case(command: str, outcome: dict | None = None, incidents: str = "[]", **extra: object) -> Input:
+    commands = readings("quiet") | {" ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}"}
+    if outcome is not None:
+        commands[CUT_CHECK] = json.dumps(outcome)
+    return Input(command=command, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=commands, **extra)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Edit", "Write")],
+    tests={
+        cut_case("tools/ci release channel promote next fleet", GATE_OWED): Block(
+            pattern=WIDEN_HELD
+        ),
+        cut_case("tools/ci release channel promote fleet next"): Allow(),
+        cut_case("tools/ci release start sand", CLEAR): Allow(),
+        cut_case("tools/ci release start sand", DURING_INCIDENT, OPEN_FIX): Allow(),
+        cut_case("tools/ci release start --target sand", TWO_STEPS): Block(pattern=CUT_HELD),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7 now'"): Block(
+            pattern=r"^A GO naming `1\.7` waits while gate row `rule/7e8f901` is owed\. Meet the gate first, then post the GO\.$"
+        ),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.75 now'"): Allow(),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7.'"): Block(pattern=r"`1\.7`"),
+        cut_case("cci post --lane root --kind go --to walker --text 'start step 1.7'", None, OPEN_FIX): Allow(),
+        cut_case("tools/ci release start web && tools/ci release channel promote next fleet", GATE_OWED): Block(pattern=CUT_HELD),
+        cut_case("tools/ci release start --targets=sand,web --env prod --commit abc1234", GATE_OWED): Block(pattern=CUT_HELD),
+        cut_case("cci post --lane root --kind note --to walker --text 'step 1.7 is next'"): Allow(),
+        Input(command="tools/ci release start sand", cwd=CWD, commands={CUT_CHECK: json.dumps(GATE_OWED)}): Allow(),
+        Input(command="tools/ci release start sand", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+    },
+)
+def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
+    releases = release_calls(evt)
+    texts = go_texts(evt)
+    if not (releases or texts) or not (which := drive_args(evt)) or (entry := drive_entry(evt)) is None:
+        return None
+    try:
+        register = read_register(evt, which)
+        waiting = waiting_gos(register["rows"], texts)
+        repairs = declared_fixes(evt) if (waiting or releases) and open_incidents(evt) else None
+        outcomes = [(verb, cut_outcome(verb, targets, register, entry, repairs)) for verb, targets in releases]
+    except READ_ERRORS as error:
+        failed_open(evt, "go_and_cut_gate", error)
+        return None
+    if waiting and repairs is None:
+        return evt.block(waiting[0])
+    for text in waiting:
+        blocker(evt, f"go:{text}", f"go_and_cut_gate let a GO through during an open incident: {text}")
+    for verb, outcome in outcomes:
+        for found in outcome["blockers"]:
+            blocker(evt, f"cut:{found['key']}", f"go_and_cut_gate let a {RELEASE_NOUNS[verb]} through during an open incident: {found['text']}")
+    held = [(verb, outcome["stops"]) for verb, outcome in outcomes if outcome["stops"]]
+    if not held:
+        return None
+    verb, reasons = held[0]
+    return evt.block("\n".join([CUT_REFUSED.format(verb=RELEASE_NOUNS[verb]), fenced("\n".join(f"- {found['text']}" for found in reasons))]))
