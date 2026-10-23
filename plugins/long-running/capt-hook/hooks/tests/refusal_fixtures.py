@@ -84,7 +84,7 @@ HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-bod
 EOF"""
 
 
-def sources(diff: str, *, answer: str = ANSWER, pr: str = "") -> dict[str, str]:
+def sources(diff: str, *, answer: str | tuple[int, str] = ANSWER, pr: str = "") -> dict[str, str | tuple[int, str]]:
     return {
         "git symbolic-ref": "origin/main\n",
         "git diff": diff,

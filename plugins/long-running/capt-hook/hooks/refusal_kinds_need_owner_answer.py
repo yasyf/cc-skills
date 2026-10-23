@@ -307,6 +307,10 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="")): Block(pattern=r"cites an owner answer"),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(3, "not-found: entity not found"))): Block(
+            pattern=r"cites an owner answer"
+        ),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
         ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET), decide=CONFIRMED): Block(
             pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
