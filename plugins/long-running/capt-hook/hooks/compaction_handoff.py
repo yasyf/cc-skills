@@ -66,7 +66,7 @@ GENERATED_STUB = json.dumps(
     }
 )
 READ_FIRST_STUB = json.dumps(json.loads(GENERATED_STUB) | {"id": "c" * 40, "read_first": ["ccn doc show bbbbbbb"], "narrative": "ccccccc", "fresh": True})
-FIRE_FRACTION = 0.8
+HEADROOM_TOKENS = 50_000
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
@@ -600,14 +600,17 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
             cwd=str(FIXTURES / "project-600k"),
             state=[CompactionState(active=True, model="claude-fable-5-1")],
         ): Allow(),
-        Input(
-            tool="Bash",
-            tool_input={"command": "ls"},
-            file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            transcript=USAGE_460K,
-            cwd=str(FIXTURES / "project-600k"),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Allow(),
+        **{
+            Input(
+                tool="Bash",
+                tool_input={"command": "ls"},
+                file=FileFixture(home=True, name="brook.md", content="# brook\n"),
+                transcript=FIXTURES / f"usage-{used}k.jsonl",
+                cwd=str(FIXTURES / "project-600k"),
+                state=[CompactionState(active=True, plan_path="~/brook.md")],
+            ): Allow()
+            for used in (507, 517, 522)
+        },
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
@@ -626,7 +629,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         ):
             return None
         limit = threshold(root.model, state.model, evt.cwd)
-        if root.tokens < FIRE_FRACTION * limit:
+        if limit - root.tokens > HEADROOM_TOKENS:
             return None
         plan = (
             Path(state.plan_path).expanduser()

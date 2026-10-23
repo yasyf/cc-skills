@@ -3263,19 +3263,19 @@ opus-4-0 through 4-6, and every claude-3 model.
 
 `threshold = window − 33k`, and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it
 further. The check runs after each main-session tool call, never a subagent's, and fires
-once used tokens cross 80% of that threshold.
+once 50k tokens or fewer remain before that threshold.
 
-**Nudge.** At 80% of the threshold, the hook sends the root one nudge, as context
-on its next tool call or prompt. It gives used tokens against the threshold and asks
-for a new progress doc with the root's narrative when convenient. The hook fills the
+**Nudge.** With 50k tokens left before the threshold, the hook sends the root one nudge,
+as context on its next tool call or prompt. It asks for a new progress doc with the
+root's narrative when convenient. The hook fills the
 handoff from the owner-approved register, live standing cci rules, open asks, tasks,
 lanes, monitors, inbox heads and cursors, and lint findings. The root writes only what
 those sources lack. The slug comes from `progress:<slug>` in the plan's existing
 progress pointer line, or from the plan's file stem if that line has no slug. The nudge is not repeated,
 and the nudge never holds the turn.
 
-**Order.** When the nudge fires or context passes about 90%, the root writes the progress doc
-before answering any further record. The doc names the last cci seq the root consumed, because the
+**Order.** When the nudge fires, the root writes the progress doc before answering any
+further record. The doc names the last cci seq the root consumed, because the
 root cursor goes stale across a compaction, so the successor resumes with `cci tail --since <seq>`.
 After an unplanned compaction the successor's first act is:
 
