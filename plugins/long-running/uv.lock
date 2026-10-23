@@ -123,7 +123,7 @@ wheels = [
 
 [[package]]
 name = "capt-hook"
-version = "12.103.0"
+version = "12.103.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-grep-py" },
@@ -144,9 +144,9 @@ dependencies = [
     { name = "spawnllm", extra = ["sdk"] },
     { name = "wn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/54/ef/9ea3cf302481c1a2ba2c34ada8fca8be56053b4337b64666749df5b2ae44/capt_hook-12.103.0.tar.gz", hash = "sha256:d261ed08b68ed3048ee58d3bd8ddafeee0e0c092d5d1fb4840a47348a14d5849", size = 638963, upload-time = "2026-10-23T01:07:18.229Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/66/0a74538ff3a3a6bb2e4e585abfe0bd05ddda27a84669ac3e157d0b7ce15b/capt_hook-12.103.1.tar.gz", hash = "sha256:2705b4bc1fa56767565a8cc2eaadcf9aae91601f423fbd6bd58147b7e27c720c", size = 639169, upload-time = "2026-10-23T13:21:45.085Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/2b/21fa52246a95568b3239d4483f44466f32d5f6a95ebc28001ee125ee74da/capt_hook-12.103.0-py3-none-any.whl", hash = "sha256:2cee6d7516778df10d5b35ac1a625320c71f9d485550eda4d790f28042817589", size = 764923, upload-time = "2026-10-23T01:07:15.957Z" },
+    { url = "https://files.pythonhosted.org/packages/15/4a/6048e38d4f3898c45c6646e619609bb4f1afdb448112b74add54800ed32a/capt_hook-12.103.1-py3-none-any.whl", hash = "sha256:dff1c8e975d564016f92b85073d590707b3fcb9f46c4cf8e48096ee24d27fc44", size = 765102, upload-time = "2026-10-23T13:21:43.02Z" },
 ]
 
 [[package]]
@@ -829,7 +829,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "capt-hook", specifier = ">=12.101.1" },
+    { name = "capt-hook", specifier = ">=12.103.1" },
     { name = "pytest", specifier = ">=8" },
 ]
 

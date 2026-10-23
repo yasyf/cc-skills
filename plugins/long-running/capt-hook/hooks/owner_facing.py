@@ -231,15 +231,21 @@ def incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
     return done.stdout if done.returncode == 0 else ""
 
 
-def open_incidents(evt: BaseHookEvent) -> list[tuple[str, ...]]:
+def stored_incidents(evt: BaseHookEvent) -> list[dict]:
     since = datetime.now(UTC) - INCIDENT_WINDOW
-    stored = [
-        (record["incident_id"], record["facts"].get("target"), record["facts"].get("alert"))
+    return [
+        record
         for record in json.loads(incident_source(evt, INCIDENT_STORE) or "[]")
-        if record["status"] not in SETTLED_INCIDENT
-        and not record["facts"].get("not_ours")
-        and datetime.fromisoformat(record["opened_at"]) >= since
+        if record["status"] not in SETTLED_INCIDENT and not record["facts"].get("not_ours") and datetime.fromisoformat(record["opened_at"]) >= since
     ]
+
+
+def declared_fixes(evt: BaseHookEvent) -> list[str]:
+    return [str(record["facts"]["repair_pr"]) for record in stored_incidents(evt) if record["facts"].get("repair_pr")]
+
+
+def open_incidents(evt: BaseHookEvent) -> list[tuple[str, ...]]:
+    stored = [(record["incident_id"], record["facts"].get("target"), record["facts"].get("alert")) for record in stored_incidents(evt)]
     posted = [
         (f"#{record['seq']}", record.get("topic"), record.get("id"), *((record.get("refs") or {}).get("targets") or []))
         for record in json.loads(incident_source(evt, INCIDENT_DIGEST) or "{}").get("open_incidents") or []
