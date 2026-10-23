@@ -473,11 +473,15 @@ const ROUGH_LIB="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js
 function cmptSystem(spec,host,jobs){
  const box=el("div","ddc-system");
  const {kind,...map}=spec;
+ const id=host.dataset.component;
  jobs.push(Promise.all([import(SYSMAP_LIB),import(ROUGH_LIB)]).then(([lib,rough])=>{
   const handle=lib.mount(box,map,{rough:rough.default});
   if(!handle.problems.length)return;
-  handle.problems.forEach(p=>console.error(`system map '${host.dataset.component}': ${p}`));
-  throw new Error(`system map '${host.dataset.component}' has ${handle.problems.length} problem(s)`);
+  handle.problems.forEach(p=>console.error(`system map '${id}': ${p}`));
+  throw new Error(`system map '${id}' has ${handle.problems.length} problem(s)`);
+ },e=>{
+  console.error(`system map '${id}' did not load: ${e.message}`);
+  throw new Error("the system map needs a network connection to load from cdn.jsdelivr.net");
  }));
  return box;
 }
@@ -485,9 +489,13 @@ const resetSystemMaps=()=>Promise.all([...document.querySelectorAll("[data-smap]
 function systemMd(spec,L){
  const parts=spec.blocks.flatMap(b=>b.parts||[]);
  const name=Object.fromEntries([...spec.blocks,...parts].map(x=>[x.id,plain(x.name)]));
- const item=(x,pad)=>L.push(`${pad}- **${plain(x.name)}**: ${plain(x.role)}`);
- const block=b=>{item(b,"");(b.parts||[]).forEach(p=>item(p,"  "))};
+ const STATUS={planned:" (planned)",retired:" (retired)"};
+ const item=(x,pad)=>L.push(`${pad}- **${plain(x.name)}**${x.tag?` (${plain(x.tag)})`:""}${STATUS[x.status]||""}: ${plain(x.role)}${x.about?` — ${plain(x.about)}`:""}`);
+ const SEALED={true:" (sealed)",false:" (not sealed)"};
+ const holds=h=>L.push(`  - Holds: ${plain(h.text)}${h.note?` — ${plain(h.note)}`:""}${SEALED[h.sealed]||""}`);
+ const block=b=>{item(b,"");(b.contents||[]).forEach(holds);(b.parts||[]).forEach(p=>item(p,"  "))};
  const ends=s=>s.from===s.to?`in ${name[s.from]}`:`${name[s.from]} to ${name[s.to]}`;
+ const STYLE={async:" (async)",copy:" (copy)",control:" (control)"};
  const MARK={risk:" (a risk)",stop:" (refused on purpose)"};
  const step=(s,i,pad)=>L.push(`${pad}${i+1}. ${plain(s.say)} (${ends(s)})${s.waitsFor?` (waits for step ${s.waitsFor})`:""}${s.mark?MARK[s.mark]:""}`);
  const group=Object.fromEntries((spec.groups||[]).map(g=>[g.id,plain(g.label)]));
@@ -496,6 +504,10 @@ function systemMd(spec,L){
   L.push(g?`\n_${group[g]}_\n`:"");
   spec.blocks.filter(b=>(b.group||null)===g).forEach(block);
  });
+ if((spec.links||[]).length){
+  L.push("\n_Links_\n");
+  spec.links.forEach(k=>L.push(`- ${name[k.from]} to ${name[k.to]}${k.label?`: ${plain(k.label)}`:""}${STYLE[k.style]||""}`));
+ }
  if(spec.path){
   L.push(`\n_${plain(spec.path.title)}_\n`);
   spec.path.steps.forEach((s,i)=>step(s,i,""));
