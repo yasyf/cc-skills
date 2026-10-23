@@ -77,7 +77,7 @@ def test_cli_lint_reads_the_register(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(standing, "ccn", ccn)
     monkeypatch.setattr(standing.rulings, "register", lambda shell, repo, program: REGISTER)
-    monkeypatch.setattr(standing, "register_rows", lambda run, repo, program: None)
+    monkeypatch.setattr(standing, "register_rows", lambda run, repo, which, drive: None)
 
     assert standing.main(["lint", "--doc", "abc", "--program", "v3"]) == standing.VIOLATIONS
     assert capsys.readouterr().out == UNQUOTED + "\n"
