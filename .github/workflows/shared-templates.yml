@@ -31,3 +31,6 @@ jobs:
 
       - name: Generated files match plugins/_shared
         run: python3 plugins/_shared/build.py check
+
+      - name: dd.system matches the cc-present schema it pins
+        run: bash plugins/_shared/scripts/sync-system-map.sh --check

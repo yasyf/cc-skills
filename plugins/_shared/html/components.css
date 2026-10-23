@@ -88,6 +88,8 @@ svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2
 .fx-box[data-status=open] .fx-t{fill:var(--fx-ink2)}
 .fx-box[data-status=warn] rect{fill:var(--warn-soft);stroke:var(--warn)}
 .fx-bridge{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
+.ddc-system{--smap-paper:var(--card);--smap-ink:var(--ink);--smap-line:var(--line);--smap-max-h:var(--figcap,70vh)}
+:root[data-print] .smap-chrome{display:none}
 [data-component][data-mounted]>figure.ddc-fallback{display:none}
 @media (max-width:900px){
   .ddc-input{grid-template-columns:1fr auto;gap:4px 10px}
@@ -105,7 +107,8 @@ svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2
   .ddc-input{grid-template-columns:1fr auto}
   .ddc[data-mode] .ddc-side{display:block!important;position:static!important;clip-path:none!important;margin-top:10pt}
   .ddc[data-mode=slider] .ddc-ba::after{display:none}
-  .ddc,.ddc-out,.ddc-ph,.ddc-step{break-inside:avoid}
+  .ddc,.ddc-out,.ddc-ph,.ddc-step,.ddc-system{break-inside:avoid}
+  .smap-chrome{display:none}
   [data-component][data-bespoke]>figure.ddc-fallback{display:block}
   [data-component][data-bespoke]>.ddc-bespoke{display:none}
 }

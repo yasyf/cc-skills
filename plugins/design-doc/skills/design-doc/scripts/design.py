@@ -33,7 +33,9 @@ over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error, a diagram that never
 rendered, or an uncaught exception or console.error the page emits up to
 two seconds after it is ready, printing Chrome's stderr and the page's
-console so a failure names its cause. pdf
+console so a failure names its cause; a doc that declares a dd.system map
+is opened again at 1440, 1024, 768 and 390 px, and every view of every map
+must pass the map's own audit. pdf
 prints the served doc to its design-doc.pdf through the template's print
 stylesheet. build compiles the project's author-written components/*.tsx
 into components.js with the pinned Vite and Preact pack, installed under
@@ -65,6 +67,17 @@ SYSD_CTM_JS = """new Promise(res=>requestAnimationFrame(()=>requestAnimationFram
  const t=vp&&vp.transform.baseVal.consolidate();
  res(t?String(Math.min(t.matrix.a,t.matrix.d)):null);
 })))"""
+SYSTEM_MAP_SIZES = ((1440, 900), (1024, 768), (768, 1024), (390, 844))
+SYSTEM_MAP_AUDIT_JS = """(async()=>{
+ const hosts=[...document.querySelectorAll("[data-smap]")].filter(h=>!h.smap.problems.length);
+ hosts.forEach(h=>{for(let d=h.closest("details");d;d=d.parentElement.closest("details"))d.open=true});
+ const late=new Promise(r=>setTimeout(()=>r("late"),%d));
+ return Promise.all(hosts.map(async h=>{
+  const id=h.closest("[data-component]").dataset.component;
+  if(await Promise.race([h.smap.ready,late])==="late")return {id,problems:[{view:"home",text:"it never finished drawing"}]};
+  return {id,problems:await h.smap.audit({all:true})};
+ }));
+})()"""
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -704,6 +717,22 @@ class RenderedDom(HTMLParser):
             self.syntax_error = True
 
 
+def system_map_problems(builder, chrome, url, timeout) -> list:
+    out = []
+    for width, height in SYSTEM_MAP_SIZES:
+        session = builder.open_page(chrome, url)
+        chrome.call("Emulation.setDeviceMetricsOverride",
+                    {"width": width, "height": height, "deviceScaleFactor": 2, "mobile": width < 1024}, session=session)
+        state = builder.settle(chrome, session, timeout)
+        if state["ready"] != "1":
+            out.append(f"at {width}px: " + builder.ready_problem(state, timeout))
+            continue
+        audits = builder.evaluate(chrome, session, SYSTEM_MAP_AUDIT_JS % (timeout * 1000), timeout=timeout * 3)
+        for audit in audits:
+            out += [f"system map {audit['id']!r} at {width}px, {p['view']}: {p['text']}" for p in audit["problems"]]
+    return out
+
+
 def render_check(args) -> int:
     root = Path(args.dir)
     R = load_registers(root, "render-check")
@@ -729,6 +758,8 @@ def render_check(args) -> int:
         elif scale is not None and not (math.isfinite(float(scale)) and float(scale) > 0):
             problems.append("the system diagram's pan-zoom viewport is singular (scale 0 or NaN); the card renders blank")
         html = builder.evaluate(chrome, session, builder.DOM_JS)
+        if any(isinstance(s, dict) and s.get("kind") == "dd.system" for s in (R.get("components") or {}).values()):
+            problems += system_map_problems(builder, chrome, base + page, args.timeout)
     except builder.ChromeError as e:
         problems.append(str(e))
     finally:
@@ -736,7 +767,7 @@ def render_check(args) -> int:
         server.shutdown()
         chrome.close()
 
-    for e in builder.page_errors(chrome):
+    for e in dict.fromkeys(builder.page_errors(chrome)):
         problems.append("page: " + first_line(e, 200))
     dom = RenderedDom()
     dom.feed(html)
@@ -2524,7 +2555,7 @@ def component_labels(R):
         where = f"components.{cid}"
         if isinstance(spec.get("title"), str) and spec["title"].strip():
             yield f"{where}.title", spec["title"], True
-        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols", "columns", "lanes"):
+        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols", "columns", "lanes", "groups", "stories"):
             for i, item in enumerate(spec.get(field) or []):
                 if isinstance(item, dict) and isinstance(item.get("label"), str) and item["label"].strip():
                     yield f"{where}.{field}[{i}].label", item["label"], True
@@ -2535,6 +2566,20 @@ def component_labels(R):
             for j, box in enumerate((lane.get("boxes") if isinstance(lane, dict) else None) or []):
                 if isinstance(box, dict) and isinstance(box.get("title"), str) and box["title"].strip():
                     yield f"{where}.lanes[{i}].boxes[{j}].title", box["title"], True
+        for i, block in enumerate(spec.get("blocks") or []):
+            if not isinstance(block, dict):
+                continue
+            if isinstance(block.get("name"), str) and block["name"].strip():
+                yield f"{where}.blocks[{i}].name", block["name"], True
+            for j, part in enumerate(block.get("parts") or []):
+                if isinstance(part, dict) and isinstance(part.get("name"), str) and part["name"].strip():
+                    yield f"{where}.blocks[{i}].parts[{j}].name", part["name"], True
+        for i, story in enumerate(spec.get("stories") or []):
+            if isinstance(story, dict) and isinstance(story.get("title"), str) and story["title"].strip():
+                yield f"{where}.stories[{i}].title", story["title"], True
+        path = spec.get("path")
+        if isinstance(path, dict) and isinstance(path.get("title"), str) and path["title"].strip():
+            yield f"{where}.path.title", path["title"], True
         for side in ("before", "after"):
             pane = spec.get(side)
             if isinstance(pane, dict) and isinstance(pane.get("label"), str) and pane["label"].strip():

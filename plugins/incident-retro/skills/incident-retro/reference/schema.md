@@ -766,6 +766,7 @@ The page loads its libraries from jsdelivr at exact versions, pinned in one `LIB
 |---|---|---|
 | `lucide-static` | `lucide-static@1.39.0` | `icons/<name>.svg`, as design-doc |
 | `uplot` | `uplot@1.6.32` | `https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js` and `https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css` |
+| `roughjs` | `roughjs@4.6.6` | `bundled/rough.esm.js`, for the shared kit's `dd.system` map, which also imports `system-map.min.js` from cc-present at the tag design-doc's `reference/schema.md` names |
 
 Mermaid is not used. The template draws the retro's tiles and windows as SVG. It also draws the swimlane as SVG, while `uPlot` draws the notebook series on canvas. `check` warns when the template pins a version this table does not state.
 

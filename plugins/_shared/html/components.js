@@ -1,5 +1,5 @@
 // @requires COMPONENTS,REF,SVGNS,clearHl,handleOf,heroInit,hlTarget,mdRef,mermaidJob,plain,refChip,setAspect,sysdSvg,wireFullSize,$,el,esc,inline,mdToHtml
-// @defines DD_KINDS,DD_MD,FLOW_LEGEND,FX_CALL_GAP,FX_CALL_H2,FX_COL_H,FX_CONN,FX_GAP,FX_LEG_H,FX_PAD,FX_PADX,LN_BOX_GAP,LN_BOX_H,LN_BOX_H2,LN_BRIDGE_MIN,LN_EYE,LN_FPAD,LN_GAP,LN_MINW,LN_NARROW,LN_ONE_COL,SVG_ATTRS,SVG_CSS_BAN,SVG_TAGS,TEXT_W,TL_PILL,WI_FNS,WI_TOKEN,afterFonts,boxH,callH,callW,cmptBeforeAfter,cmptFigMd,cmptFigure,cmptFlow,cmptFrame,cmptLanes,cmptMatrix,cmptSteps,cmptTabs,cmptTimeline,cmptWhatIf,flowBy,flowLabel,flowSub,flowSvg,flowTopics,fxCanvas,fxFonts,fxLabelled,fxMarker,fxMeasure,fxMount,fxNum,fxSvg,fxText,fxUid,lanesLabel,lanesSvg,mountedComponents,safeSvg,stackH,textWidth,trimZeros,whatifEval,whatifParse,whatifTokens,wiNum,wiUnit
+// @defines DD_KINDS,DD_MD,FLOW_LEGEND,FX_CALL_GAP,FX_CALL_H2,FX_COL_H,FX_CONN,FX_GAP,FX_LEG_H,FX_PAD,FX_PADX,LN_BOX_GAP,LN_BOX_H,LN_BOX_H2,LN_BRIDGE_MIN,LN_EYE,LN_FPAD,LN_GAP,LN_MINW,LN_NARROW,LN_ONE_COL,ROUGH_LIB,SVG_ATTRS,SVG_CSS_BAN,SVG_TAGS,SYSMAP_LIB,TEXT_W,TL_PILL,WI_FNS,WI_TOKEN,afterFonts,boxH,callH,callW,cmptBeforeAfter,cmptFigMd,cmptFigure,cmptFlow,cmptFrame,cmptLanes,cmptMatrix,cmptSteps,cmptSystem,cmptTabs,cmptTimeline,cmptWhatIf,flowBy,flowLabel,flowSub,flowSvg,flowTopics,fxCanvas,fxFonts,fxLabelled,fxMarker,fxMeasure,fxMount,fxNum,fxSvg,fxText,fxUid,lanesLabel,lanesSvg,mountedComponents,resetSystemMaps,safeSvg,stackH,systemMd,textWidth,trimZeros,whatifEval,whatifParse,whatifTokens,wiNum,wiUnit
 const WI_TOKEN=/[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+/g;
 const WI_FNS={min:Math.min,max:Math.max};
 function whatifTokens(src){
@@ -468,6 +468,53 @@ function cmptLanes(spec,host){
  }).observe(host);
  return box;
 }
+const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.44.2/plugin/.claude/components/display/src/system-map.min.js";
+const ROUGH_LIB="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js";
+function cmptSystem(spec,host,jobs){
+ const box=el("div","ddc-system");
+ const {kind,...map}=spec;
+ jobs.push(Promise.all([import(SYSMAP_LIB),import(ROUGH_LIB)]).then(([lib,rough])=>{
+  const handle=lib.mount(box,map,{rough:rough.default});
+  if(!handle.problems.length)return;
+  handle.problems.forEach(p=>console.error(`system map '${host.dataset.component}': ${p}`));
+  throw new Error(`system map '${host.dataset.component}' has ${handle.problems.length} problem(s)`);
+ }));
+ return box;
+}
+const resetSystemMaps=()=>Promise.all([...document.querySelectorAll("[data-smap]")].map(h=>h.smap.reset()));
+function systemMd(spec,L){
+ const parts=spec.blocks.flatMap(b=>b.parts||[]);
+ const name=Object.fromEntries([...spec.blocks,...parts].map(x=>[x.id,plain(x.name)]));
+ const item=(x,pad)=>L.push(`${pad}- **${plain(x.name)}**: ${plain(x.role)}`);
+ const block=b=>{item(b,"");(b.parts||[]).forEach(p=>item(p,"  "))};
+ const ends=s=>s.from===s.to?`in ${name[s.from]}`:`${name[s.from]} to ${name[s.to]}`;
+ const MARK={risk:" (a risk)",stop:" (refused on purpose)"};
+ const step=(s,i,pad)=>L.push(`${pad}${i+1}. ${plain(s.say)} (${ends(s)})${s.waitsFor?` (waits for step ${s.waitsFor})`:""}${s.mark?MARK[s.mark]:""}`);
+ L.push("");
+ spec.blocks.filter(b=>!b.group).forEach(block);
+ (spec.groups||[]).forEach(g=>{
+  const inside=spec.blocks.filter(b=>b.group===g.id);
+  if(!inside.length)return;
+  L.push(`\n_${plain(g.label)}_\n`);
+  inside.forEach(block);
+ });
+ if(spec.path){
+  L.push(`\n_${plain(spec.path.title)}_\n`);
+  spec.path.steps.forEach((s,i)=>step(s,i,""));
+ }
+ if((spec.stories||[]).length){
+  L.push("\n_Stories_\n");
+  spec.stories.forEach(st=>{
+   L.push(`- **${plain(st.label)}**: ${plain(st.title)}`);
+   st.steps.forEach((s,i)=>step(s,i,"   "));
+  });
+ }
+ if((spec.notes||[]).length){
+  L.push("\n_Notes_\n");
+  spec.notes.forEach(n=>L.push(`- **${name[n.on]}**: ${plain(n.text)}`));
+ }
+ L.push("");
+}
 const cmptFigMd=f=>f.kind==="mermaid"
  ? "```mermaid\n"+f.source.trim()+"\n```\n"+(f.caption?"\n_"+plain(f.caption)+"_\n":"")
  : (f.label?plain(f.label)+"\n":"")+(f.caption?"\n_"+plain(f.caption)+"_\n":"");
@@ -476,7 +523,7 @@ function mountedComponents(){
   .map(h=>[h,COMPONENTS[h.dataset.component],h.dataset.component])
   .filter(([,spec])=>spec);
 }
-const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes};
+const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes,"dd.system":cmptSystem};
 const DD_MD={
  "dd.tabs":(spec,L)=>spec.tabs.forEach(t=>{
   L.push(`_${plain(t.label)}_\n`);
@@ -521,4 +568,5 @@ const DD_MD={
   l.boxes.forEach(b=>L.push(`- **${plain(b.title)}**${b.sub?" — "+plain(b.sub):""}${b.status&&b.status!=="closed"?` (${b.status})`:""}`));
   L.push("");
  }),
+ "dd.system":systemMd,
 };
