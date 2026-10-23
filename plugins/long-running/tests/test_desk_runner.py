@@ -2754,19 +2754,6 @@ def test_a_grade_naming_the_new_head_beats_a_carried_ok(shell, config, tmp_path)
     assert f"cci #{seq}: fidelity: missing F335" in blocker["text"]
 
 
-def test_an_older_head_whose_missing_a_later_ok_cleared_carries_its_ok(shell, config, tmp_path):
-    raw = json.loads(config.read_text())
-    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
-    config.write_text(json.dumps(raw))
-    lone_green_pr(shell)
-    finder_verdict(shell, "29020", "ok cccc333 no findings")
-    grade(shell, "29020", "missing bbbb222 scope/progress a second progress state is shown", lane="fidelity-desk-7")
-    seq = grade(shell, "29020", "ok bbbb222 checked scope/progress names progress bar")
-    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
-    carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333", "dev")
-    assert (carried.ok, carried.record["seq"], carried.why) == (True, seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
-
-
 def test_no_ok_carries_from_a_head_whose_newest_grade_is_missing(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at bbbb222.")
@@ -2892,42 +2879,23 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
 
 
-@pytest.mark.parametrize(
-    ("clearing", "lane"),
-    [("ok cccc333", "fidelity-desk-7"), ("ok cccc333 checked reserved/user-data,scope/progress names user data|progress bar", "fidelity-desk")],
-)
-def test_a_missing_from_one_fidelity_lane_clears_only_on_its_own_ok_or_a_later_ok_that_checked_its_row(shell, config, tmp_path, clearing, lane):
+def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     seq = grade(shell, "29020", "missing cccc333 scope/progress a second progress state is shown", lane="fidelity-desk-7")
-    grade(shell, "29020", "ok cccc333 checked reserved/user-data names user data")
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|progress bar")
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert f"fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing cccc333 scope/progress" in blocker["text"]
-    grade(shell, "29020", clearing, lane=lane)
+    grade(shell, "29020", "ok cccc333", lane="fidelity-desk-7")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
 
 
 REQUIRED = "reserved/user-data\tuser data|bucket purge\nscope/progress\tprogress bar|Progress\nslice-hash: 0123456789ab\n"
-
-
-def test_an_ok_that_leaves_a_required_row_out_clears_no_other_desks_missing(shell, config, tmp_path):
-    raw = json.loads(config.read_text())
-    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7", "fidelity-desk-9"]
-    config.write_text(json.dumps(raw))
-    lone_green_pr(shell)
-    shell.slices["cccc333333"] = (0, REQUIRED)
-    grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|bucket purge|progress bar|Progress", lane="fidelity-desk-9")
-    seq = grade(shell, "29020", "missing cccc333 scope/progress a second progress state is shown", lane="fidelity-desk-7")
-    grade(shell, "29020", "ok cccc333 checked scope/progress names progress bar|Progress")
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    [blocker] = blockers(shell)
-    assert f"fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing cccc333 scope/progress" in blocker["text"]
 
 
 def test_an_ok_counts_only_when_its_checked_set_covers_every_required_row_and_its_names(shell, config, tmp_path):

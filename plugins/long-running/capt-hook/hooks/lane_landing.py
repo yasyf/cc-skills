@@ -312,15 +312,6 @@ def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] |
         return None
 
 
-@on(
-    Event.PreToolUse,
-    only_if=[Tool("Bash")],
-    tests={
-        Input(command="gh pr merge 36023 --squash"): Allow(),
-        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", env=DRIVE_ENV): Allow(),
-        Input(command="gh pr view 36023 -R o/r --json mergedAt", env=DRIVE_ENV): Allow(),
-    },
-)
 def merge_advice(call: Call, entry: dict, cwd: str, incident: bool) -> str | None:
     """The advice for one `gh pr merge` call, naming each refusal `rulings.py check-pr` prints for its PR and head; None when it prints none or anything does not read."""
     repo = named_repo(call) or entry["repo"]
@@ -338,6 +329,15 @@ def merge_advice(call: Call, entry: dict, cwd: str, incident: bool) -> str | Non
     return RULINGS_ADVICE.format(causes="; ".join(causes), pr=pr, head=head[:10]) if causes else None
 
 
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="gh pr merge 36023 --squash"): Allow(),
+        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", env=DRIVE_ENV): Allow(),
+        Input(command="gh pr view 36023 -R o/r --json mergedAt", env=DRIVE_ENV): Allow(),
+    },
+)
 def rulings_merge_advice(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None

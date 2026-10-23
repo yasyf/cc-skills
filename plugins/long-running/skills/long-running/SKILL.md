@@ -1391,8 +1391,8 @@ The runner also requires a fidelity ok at every prefix head. It reads the cci
 which cci also matches to a post that named the bare number, and keeps those whose
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
-`missing` blocks until the same lane grades the head ok, or another lane's later
-counted ok of the head lists the missing row under `checked`; any other ok never clears it. An ok counts only when its whole line lists under `checked`
+`missing` blocks until the same lane grades the head ok; a later ok from another
+lane never clears it. An ok counts only when its whole line lists under `checked`
 every key `rulings.py slice --required` prints for the head and under `names` every
 name of those rows. cci keeps the first 400 characters of a longer line, so the
 runner reads the whole line from the file the record's `path` names. A slice that
@@ -1428,7 +1428,7 @@ it landed as 2b06f105 without its test, because the gate read only
 `stack-enqueue --check` and the holds.*
 
 A restack carries its grade. When no grade names the current head, the runner
-takes each head an older `fidelity: ok` names whose grades hold a counted ok and no open `missing`, and
+takes each head an older `fidelity: ok` names whose own newest grades are ok, one of them counted, and
 compares `git patch-id --stable` of both heads' diffs against the PR's base, read
 from GitHub's compare. Equal patch ids carry the ok to the new head in that pass,
 cited as `fidelity: ok at <new head>, patch-identical to <graded head>` with the

@@ -274,11 +274,11 @@ on a PR holds it too, and the runner never adds or removes that label. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head. A grade is a cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without), read by the PR's
 `owner/repo#N` reference, whose text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the head it grades. Each
-lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, or another lane's later
-counted ok of the head lists the missing row under `checked`. An ok counts only when its whole line, read from the record's `path` once cci clipped it, lists under `checked` every key
+lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, whatever another lane
+posts. An ok counts only when its whole line, read from the record's `path` once cci clipped it, lists under `checked` every key
 `rulings.py slice --required` prints for the head and under `names` every name of those rows; a slice that does not read logs
 `SLICE-READ-FAILED` once per head, and no grade counts for that head that pass. A head no
-grade names carries the counted ok of an older head that no open `missing` holds, when `git patch-id --stable` of both heads'
+grade names carries the counted ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
@@ -3360,21 +3360,12 @@ def whole_line(record: dict) -> str:
     return next((line for line in path.read_text().splitlines() if line.startswith(text[:-1])), text)
 
 
-def checked_keys(line: str) -> set[str]:
-    found = COVERED.search(line)
-    return set(re.split(r"[,\s]+", found["checked"].strip())) if found else set()
-
-
-def missing_key(text: str) -> str:
-    """The row a `fidelity: missing <head> <key> <why>` grade names."""
-    return (text.removeprefix(FIDELITY_MISSING).split()[1:2] or [""])[0]
-
-
 def uncovered(line: str, required: dict[str, set[str]]) -> list[str]:
     """The required rows a grade's `checked <keys> names <names>` leaves out: each key it does not list, or whose names it did not all search."""
     found = COVERED.search(line)
+    checked = set(re.split(r"[,\s]+", found["checked"].strip())) if found else set()
     names = {name.strip() for name in found["names"].split("|")} if found else set()
-    return [key for key, wanted in required.items() if key not in checked_keys(line) or not wanted <= names]
+    return [key for key, wanted in required.items() if key not in checked or not wanted <= names]
 
 
 def cause(line: str) -> str:
@@ -3700,36 +3691,25 @@ class Landing:
         """Each fidelity lane's newest grade naming `sha`."""
         return [grade for lane in self.fidelity_lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
 
-    def settled(self, newest: list[dict], required: dict[str, set[str]]) -> tuple[dict | None, dict | None]:
-        """The newest counted ok among `newest`, one standing grade per fidelity lane, and the newest `missing` there that no later counted ok clears by listing its row under `checked`."""
-        oks = sorted((grade for grade in newest if grade["text"].startswith(FIDELITY_OK)), key=lambda record: record["seq"], reverse=True)
-        counted = [ok for ok in oks if not uncovered(whole_line(ok), required)]
-        missing = [
-            grade
-            for grade in newest
-            if grade["text"].startswith(FIDELITY_MISSING) and not any(ok["seq"] > grade["seq"] and missing_key(grade["text"]) in checked_keys(whole_line(ok)) for ok in counted)
-        ]
-        return next(iter(counted), None), max(missing, key=lambda record: record["seq"], default=None)
+    def counted(self, oks: list[dict], required: dict[str, set[str]]) -> dict | None:
+        """The newest ok of `oks` whose whole line covers every row of `required`."""
+        return max((ok for ok in oks if not uncovered(whole_line(ok), required)), key=lambda record: record["seq"], default=None)
 
     def fidelity(self, pr: str, sha: str, base: str) -> Grade:
-        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, or another lane's later counted ok of the head lists the missing row under `checked`. An ok counts only when its whole line lists under `checked` every key `rulings.py slice --required` prints for the head, and under `names` every name of those rows. With no grade naming the head, the counted ok of an older head no open `missing` holds carries when both patches against `base` match."""
+        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts. An ok counts only when its whole line lists under `checked` every key `rulings.py slice --required` prints for the head, and under `names` every name of those rows. With no grade naming the head, the counted ok of an older head whose lanes all stand at ok carries when both patches against `base` match."""
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
+        if missing := max((grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)), key=lambda record: record["seq"], default=None):
+            return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
         if not newest and not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
-        required: dict[str, set[str]] | None = {}
-        if any(grade["text"].startswith(FIDELITY_OK) for grade in newest or grades):
-            required = self.required(pr, sha, base)
-        if required is None:
+        if (required := self.required(pr, sha, base)) is None:
             return Grade(False, max(newest, key=lambda record: record["seq"], default=None), "`rulings.py slice --required` did not read for this head, so no grade counts as ok this pass")
         if not newest:
             carried = self.carried(pr, sha, base, grades, required)
             return Grade(True, carried[0], f"{FIDELITY_OK} at {sha}, patch-identical to {carried[1]}") if carried else none
-        counted, missing = self.settled(newest, required)
-        if missing:
-            return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
-        if counted:
+        if counted := self.counted(newest, required):
             return Grade(True, counted, "")
         grade = max(newest, key=lambda record: record["seq"])
         left = uncovered(whole_line(grade), required)
@@ -3749,13 +3729,17 @@ class Landing:
         return self.slices[(pr, sha)]
 
     def carried(self, pr: str, sha: str, base: str, grades: list[dict], required: dict[str, set[str]]) -> tuple[dict, str] | None:
-        """The counted ok of an older head no open `missing` holds, with that head, when its patch against `base` is identical to `sha`'s."""
+        """The counted ok of an older head whose fidelity lanes all stand at ok, with that head, when its patch against `base` is identical to `sha`'s."""
         graded = dict.fromkeys(
             head
             for record in sorted(grades, key=lambda record: record["seq"], reverse=True)
             if record["text"].startswith(FIDELITY_OK) and (head := graded_head(record["text"])) and not names_head(head, sha)
         )
-        oks = {named: counted for named in graded if (settled := self.settled(self.standing(grades, named), required)) and (counted := settled[0]) and not settled[1]}
+        oks = {
+            named: counted
+            for named in graded
+            if (stand := self.standing(grades, named)) and all(grade["text"].startswith(FIDELITY_OK) for grade in stand) and (counted := self.counted(stand, required))
+        }
         if not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
             return None
         return next(((grade, named) for named, grade in oks.items() if self.patch_id(pr, named, base, escalate=False) == ours), None)
