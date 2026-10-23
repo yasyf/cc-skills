@@ -38,8 +38,9 @@ verbatim. This script is its only writer. Owner captures are read from
 ``<state dir>/owner-prompts.jsonl``; per-ruling cards are written to ``<state dir>/cards/``.
 
 ``round`` puts the next confirmation round on the session's live cc-present board: at most ten queued ruling cards,
-foundational rows first, one card each whose pick is ``Right`` or ``Some wrong``, opened as a new round. Each card goes
-through ``cc-present ask``, so it is asked on the board and in Slack at once, and the first answer on either wins. A row the
+foundational rows first, one card each whose pick is ``Right`` or ``Some wrong``, opened as a new round. The cards go on the
+board first, then one ``cc-present send`` posts them all to Slack, so each is asked on both surfaces and the first answer
+on either wins. A row the
 owner's own pick, tap or reply on a card produced gets no confirmation; its card leaves the queue unsent. Every card the
 round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue holds only what no round has read.
 
@@ -943,8 +944,9 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
     for *_, path, card in taken:
         staged = taken_dir / f"{path.stem}.block.json"
         write_atomic(staged, json.dumps(ask_card(card), ensure_ascii=False, indent=2) + "\n")
-        shell.run(["cc-present", "ask", str(staged)])
+        shell.run(["cc-present", "update-block", str(staged), "--round", "current"])
         path.replace(taken_dir / path.name)
+    shell.run(["cc-present", "send", "--blocks", ",".join(card["waits"] for *_, card in taken)])
     write_atomic(rounds / f"round-{number}.json", json.dumps({"round": number, "keys": [row_of_card(card["waits"]) for *_, card in taken]}, indent=2) + "\n")
     print(f"round {number}: {len(taken)} rulings on the board, foundational rows first")
     return 0
