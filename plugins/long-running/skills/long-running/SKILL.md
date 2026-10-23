@@ -1440,7 +1440,7 @@ with the `waits` id `merge:<n>:<short sha>`, the options `Merge #<n> <short sha>
 `Hold #<n>`, and `recommended` set to the `Merge` option, beside the built-in `Other` and `Explain more` cc-slack draws on a waiting card
 (93037c3), never as an `AskUserQuestion`, so the drive keeps working while the card
 waits. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
-the line names and replies in the card's thread in plain words through `slack_dm_status` with `about` naming the card, so cc-slack opens the reply with the link back to the card itself.
+the line names and replies in the card's thread in plain words through `slack_dm_status` with `about` set to the card's `waits` id, so cc-slack opens the reply with the link back to the card itself.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
