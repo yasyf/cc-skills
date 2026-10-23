@@ -364,7 +364,7 @@ def state(home: Path) -> Path:
 def registered(home: Path, state: Path) -> Path:
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci"}
+    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO}
     (drives / "brook-drive.json").write_text(json.dumps(entry))
     return drives
 
@@ -865,6 +865,18 @@ def test_sweep_of_a_diff_marks_removed_lines_deleted_and_added_lines_open(home: 
     _, out = ran(capsys, RegisterShell(seeded(package)), "sweep", "--diff", str(patch))
 
     assert out.splitlines() == ["open rule/aaaaaaa src/relay/pool.rs:2 parked worker", "deleted rule/aaaaaaa src/relay/pool.rs:2 relay-server"]
+
+
+def test_sweep_paths_resolve_under_root_and_an_absolute_glob_stands_alone(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    tree = tmp_path / "lane-tree"
+    (tree / "notes").mkdir(parents=True)
+    (tree / "notes" / "a.md").write_text("Keep the parked worker.\n")
+
+    rooted = ran(capsys, RegisterShell(seeded(package)), "sweep", "--root", str(tree), "--paths", "notes/*.md")
+    absolute = ran(capsys, RegisterShell(seeded(package)), "sweep", "--paths", str(tree / "notes" / "*.md"))
+
+    assert rooted == (0, "open rule/aaaaaaa notes/a.md:1 parked worker\n")
+    assert absolute == (0, f"open rule/aaaaaaa {tree / 'notes' / 'a.md'}:1 parked worker\n")
 
 
 def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:

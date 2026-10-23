@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import subprocess
 from pathlib import Path
 
 import ledger
 import pytest
-from test_rulings import DIFF, RegisterShell, home, package, ran, registered, seeded, state
+import rulings
+from test_rulings import DIFF, REPO, RegisterShell, home, package, ran, registered, seeded, state
 
 HEAD = "cafef00d"
 CORPUS = "# Tests\n\n- test_drain_on_close: the pool is empty after a run closes.\n"
@@ -25,7 +28,8 @@ The pool empties itself when a run ends.
 """
 LANE_HEAD = {"seq": 10, "kind": "head", "lane": "lane-a", "text": f"lane-a {HEAD}"}
 FINDER_OK = {"seq": 11, "kind": "review", "lane": "finder-a", "text": f"finder: ok {HEAD[:7]}"}
-READBACK = {"seq": 9, "kind": "review", "lane": "fidelity-desk", "text": "readback: ok lane-a 0123456789ab"}
+CONTRACT_SEQ = 8
+STEP = "1.9"
 RESERVED = {
     "kind": "reserved",
     "status": "in-force",
@@ -69,11 +73,14 @@ class CheckShell(RegisterShell):
         reviews: list[dict] | None = None,
         answers: list[dict] | None = None,
         failing: tuple[str, ...] = (),
+        plan: Path | None = None,
+        stamp: str | None = None,
     ) -> None:
-        super().__init__(rows, answers=answers, diff=diff)
+        stamp = stamp or current_stamp(rows, plan)
+        super().__init__(rows, answers=answers, diff=diff, records=[read_back(stamp)])
         self.body = body
         self.pr_records = [LANE_HEAD, FINDER_OK] if records is None else records
-        self.reviews = [READBACK] if reviews is None else reviews
+        self.reviews = [graded(stamp)] if reviews is None else reviews
         self.failing = failing
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
@@ -99,6 +106,26 @@ def pinned(package: Path, corpus: str = CORPUS, pin: str | None = None) -> dict[
     rows = seeded(package) | {"reserved/cloud-delete": dict(RESERVED)}
     rows["corpus/b-tests"]["sha256"] = pin or hashlib.sha256(corpus.encode()).hexdigest()
     return rows
+
+
+def current_stamp(rows: dict[str, dict[str, str]], plan: Path | None) -> str:
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows)) == 0
+    return printed.getvalue().rstrip("\n").rpartition("slice-hash: ")[2]
+
+
+def read_back(stamp: str) -> dict:
+    state = Path.home() / ".claude" / "scratch" / "brook"
+    body = state / "readback-lane-a.md"
+    body.write_text(f"Register slice: lane=lane-a step={STEP}\nslice-hash: {stamp}\n")
+    (state / "runner.json").write_text(json.dumps({"landing": {"fidelity_lane": ["fidelity-desk", "fidelity-desk-2"]}}))
+    return {"seq": CONTRACT_SEQ, "kind": "contract", "lane": "lane-a", "text": "[readback] lane-a", "refs": {"path": str(body)}}
+
+
+def graded(stamp: str, verdict: str = "ok", seq: int = 9, lane: str = "fidelity-desk") -> dict:
+    detail = stamp if verdict == "ok" else "rule/bbbbbbb the drain line is not read back"
+    return {"seq": seq, "kind": "review", "lane": lane, "re": CONTRACT_SEQ, "text": f"readback: {verdict} lane-a {detail}"}
 
 
 def check(capsys: pytest.CaptureFixture[str], shell: ledger.Shell, *extra: str) -> tuple[int, list[str]]:
@@ -135,11 +162,11 @@ def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(p
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
     dropped = {"kind": "pick", "status": "in-force", "words": "Drop test_drain_on_close and test_pool_closes_cleanly.", "answer": '["fffffff"]', "lanes": '["all"]', "paths": "none"}
 
-    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF), "--plan", str(plan)) == (
+    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF, plan=plan), "--plan", str(plan)) == (
         1,
         ["TEST-REMOVED test_drain_on_close", "TEST-REMOVED test_pool_closes_cleanly"],
     )
-    authorized = CheckShell(pinned(package) | {"rule/fffffff": dropped}, body=citing("- fffffff: drop both tests."), diff=TEST_DIFF)
+    authorized = CheckShell(pinned(package) | {"rule/fffffff": dropped}, body=citing("- fffffff: drop both tests."), diff=TEST_DIFF, plan=plan)
     assert check(capsys, authorized, "--plan", str(plan)) == (0, [])
 
 
@@ -149,8 +176,15 @@ def test_a_corpus_that_moved_holds_the_head_and_only_blocks_an_incident_fix(pack
 
     assert check(capsys, CheckShell(moved, diff=TEST_DIFF)) == (1, [f"TESTS-CORPUS {corpus} sha256 differs from the register's pin"])
     assert check(capsys, CheckShell(moved, diff=TEST_DIFF), "--incident") == (0, [f"BLOCKER TESTS-CORPUS {corpus} sha256 differs from the register's pin"])
-    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF), "--incident") == (1, ["TEST-REMOVED test_drain_on_close"])
     assert check(capsys, CheckShell(moved)) == (0, [])
+
+
+def test_an_incident_fix_reads_only_the_appendix_for_removed_tests(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    plan = tmp_path / "plan.md"
+    plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
+
+    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF), "--incident") == (0, [])
+    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF, plan=plan), "--incident", "--plan", str(plan)) == (1, ["TEST-REMOVED test_pool_closes_cleanly"])
 
 
 def test_the_newest_finder_verdict_on_the_head_decides(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -191,18 +225,56 @@ def test_in_your_words_must_be_there_and_read_plainly(package: Path, state: Path
 
 
 def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, registered: Path, capsys) -> None:
-    body = CLEAN.replace("The pool drains when a run closes.", "We decided to keep the retry loop.\nI chose the drain path (bbbbbbb).")
+    body = CLEAN.replace(
+        "The pool drains when a run closes.",
+        "We decided to keep the retry loop.\nI chose the drain path (bbbbbbb).\nI picked the merge order (cafef00d).\nWe went with the slice at 0123456789ab.\nI chose the old bucket (abcdef1).",
+    )
 
-    assert check(capsys, CheckShell(pinned(package), body=body)) == (1, ["LANE-DECIDED We decided to keep the retry loop."])
+    assert check(capsys, CheckShell(pinned(package), body=body, answers=[BUCKET_ANSWER])) == (
+        1,
+        ["LANE-DECIDED We decided to keep the retry loop.", "LANE-DECIDED I picked the merge order (cafef00d).", "LANE-DECIDED We went with the slice at 0123456789ab."],
+    )
 
 
-def test_the_lane_of_the_head_needs_an_accepted_read_back(package: Path, state: Path, registered: Path, capsys) -> None:
+def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slice(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package)
+    stamp = current_stamp(rows, None)
     opened = {"seq": 15, "kind": "opened", "lane": "a0123456789abcdef", "text": "opened acme/app#12"}
+    missing_after = [graded(stamp), graded(stamp, "missing", seq=10, lane="fidelity-desk-2")]
+    ok_after = [graded(stamp, "missing", seq=9), graded(stamp, seq=10, lane="fidelity-desk-2")]
 
-    assert check(capsys, CheckShell(pinned(package), reviews=[])) == (1, ["CONTRACT-MISSING lane-a"])
-    assert check(capsys, CheckShell(pinned(package), reviews=[dict(READBACK, text="readback: ok lane-b 0123456789ab")])) == (1, ["CONTRACT-MISSING lane-a"])
-    assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, opened])) == (0, [])
-    assert check(capsys, CheckShell(pinned(package), records=[FINDER_OK])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
+    assert check(capsys, CheckShell(rows)) == (0, [])
+    assert check(capsys, CheckShell(rows, reviews=ok_after)) == (0, [])
+    assert check(capsys, CheckShell(rows, reviews=[])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
+    assert check(capsys, CheckShell(rows, reviews=[graded(stamp, lane="lane-b")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
+    assert check(capsys, CheckShell(rows, reviews=[dict(graded(stamp), text=f"readback: ok lane-b {stamp}")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
+    assert check(capsys, CheckShell(rows, reviews=missing_after)) == (
+        1,
+        ["CONTRACT-MISSING lane-a: the newest grade, #10, is missing: rule/bbbbbbb the drain line is not read back"],
+    )
+    assert check(capsys, CheckShell(rows, stamp="0" * 12)) == (1, [f"CONTRACT-MISSING lane-a: the grade #9 covers slice-hash {'0' * 12}; the lane's slice is now {stamp}"])
+    assert check(capsys, CheckShell(rows, records=[LANE_HEAD, FINDER_OK, opened])) == (0, [])
+    assert check(capsys, CheckShell(rows, records=[FINDER_OK])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
+
+
+def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package)
+
+    assert ran(capsys, CheckShell(rows), "accepted", "--lane", "lane-a") == (0, "accepted lane-a\n")
+    assert ran(capsys, CheckShell(rows, reviews=[]), "accepted", "--lane", "lane-a") == (1, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n")
+
+
+def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:
+    uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
+
+    assert check(capsys, CheckShell(pinned(package), body=uncited), "--repo", "/second-repo") == (1, ["RULINGS-UNCITED rule/bbbbbbb"])
+
+
+def test_no_drive_running_the_program_passes_with_one_blocker(package: Path, state: Path, capsys) -> None:
+    shell = CheckShell(pinned(package), stamp="0" * 12)
+
+    assert check(capsys, shell) == (0, ["BLOCKER the register: no drive registry entry runs brook"])
+    assert not [argv for argv in shell.calls if argv[:2] == ["ccn", "-R"]]
 
 
 def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_the_first_three(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -220,7 +292,7 @@ def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_th
             "NAME-HIT rule/aaaaaaa src/relay/pool.rs:2 parked worker",
             "RULINGS-PLAIN no ### In your words section",
             "LANE-DECIDED We decided to park the worker.",
-            "CONTRACT-MISSING lane-a",
+            "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back",
         ],
     )
     assert check(capsys, shell, "--incident") == (

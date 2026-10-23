@@ -107,12 +107,15 @@ def test_an_orca_worker_receives_the_register_once_at_start(tools: Path, monkeyp
 
 
 def activated(session: Path) -> Path:
-    handoff.CompactionState(active=True, slug="brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
+    drives = session.parent / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "b7.json").write_text(json.dumps({"drive": "b7", "sessions": [SESSION], "program": "brook", "state_dir": str(session.parent / ".claude" / "scratch" / "brook")}))
+    handoff.CompactionState(active=True, slug="users-plan-stem-of-brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
     return session
 
 
-def spawned(session: Path, tool_name: str, tool_input: dict) -> PreToolUseEvent:
-    return PreToolUseEvent(_raw=raw(tool_name=tool_name, tool_input=tool_input), ctx=ctx(session))
+def spawned(session: Path, tool_name: str, tool_input: dict, **fields: str) -> PreToolUseEvent:
+    return PreToolUseEvent(_raw=raw(tool_name=tool_name, tool_input=tool_input, **fields), ctx=ctx(session))
 
 
 def slicing(calls: list[tuple[str, ...]]):
@@ -135,7 +138,21 @@ def test_an_incident_spawn_passes_with_its_slice_and_captures_written_into_the_p
     assert result.updated_input == tool_input | {
         "prompt": "Fix the api outage.\n\nRegister slice: lane=incident-api-1n80-fix step=incident\n> words\nslice-hash: 0123456789ab\n"
     }
-    assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--program", "brook"))]
+    assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--drive", "b7"))]
+
+
+def test_a_sub_lane_a_lane_spawns_is_refused_without_its_slice_and_refreshed_with_one(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: calls.append(args) or "fresh /tmp/brief.md slice-hash 0123456789ab\n")
+    session = activated(tools / "session")
+    sliced = "Lane lane-a-sub.\nRegister slice: lane=lane-a-sub step=1.9\nslice-hash: 0123456789ab\n"
+
+    refused = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": "Lane lane-a-sub: build the tests."}, agent_id="a1b2c3"))
+    passed = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": sliced}, agent_id="a1b2c3"))
+
+    assert "needs a `Register slice: lane=<name> step=<n>` line" in refused.message
+    assert passed is None
+    assert [(args[:2], args[3:]) for args in calls] == [(("slice", "--refresh"), ("--drive", "b7"))]
 
 
 def test_an_incident_launch_by_hand_gets_its_slice_written_into_the_brief(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:

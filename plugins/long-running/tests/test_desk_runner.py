@@ -5823,7 +5823,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     launch = json.loads(incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].target)
     assert (launch["urgent"], launch["fast"]) == (True, True)
     text = fallback.read_text()
-    assert text.startswith(f"ccx: lane={backup} role=incident effort=xhigh\n") and text.endswith(brief.read_text())
+    assert text.startswith(f"ccx: lane={backup} role=incident effort=xhigh\n") and text.endswith(f"{brief.read_text().rstrip()}\n\nRegister slice: lane={backup} step=incident\n")
     assert f"You are the Opus fallback for `{LANE}`" in text and f"10 minutes after `{LANE}` launched" in text
     assert "had posted no mechanism" in text and "the first PR wins" in text
     assert f"Post on cci as `{backup}`, and address `{LANE}` and `root` on every record." in text

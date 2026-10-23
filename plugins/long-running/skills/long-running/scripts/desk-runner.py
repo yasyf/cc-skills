@@ -64,7 +64,7 @@ per lane, a reply to the lane's latest open question no other reply claims, logg
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
-line and the launch is not an incident fix's. Before any launch the runner refreshes the register slice under that
+line and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
 line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
@@ -1974,7 +1974,7 @@ class Runner:
             return f"{effort} is not an effort: {', '.join(EFFORTS)}"
         if not brief.is_file():
             return f"brief {brief} is not a file"
-        if not SLICE_HEADER.search(brief.read_text()) and not incident_fix(lane, model, brief, role):
+        if not SLICE_HEADER.search(brief.read_text()) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
             return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
         container = lane_container(lane)
         if container in self.book.store.ids():
