@@ -152,6 +152,9 @@ class FakeShell(runner_module.Shell):
         self.check_pr: dict[str, tuple[int, str]] = {}
         self.refreshes: list[list[str]] = []
         self.refresh_error = ""
+        self.pr_cards: list[dict] = []
+        self.pr_card_error = ""
+        self.pr_card_missing = False
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -198,6 +201,16 @@ class FakeShell(runner_module.Shell):
     def run(self, argv, stdin=None, env=None):
         self.calls.append(list(argv))
         name = Path(argv[0]).name
+        if argv[0] == str(self.root / "checkout/tools/ci") and argv[1:3] == ["slack", "pr-card"]:
+            flags = dict(zip(argv[3::2], argv[4::2]))
+            if self.pr_card_missing:
+                raise FileNotFoundError(2, "No such file or directory", argv[0])
+            self.pr_cards.append({"flags": flags, "token": (env or {}).get("GITHUB_TOKEN")})
+            if self.pr_card_error:
+                return runner_module.Done(1, "", self.pr_card_error)
+            return runner_module.Done(0, json.dumps({"channel": "D-OWNER", "ts": flags.get("--ts", f"7.{len(self.pr_cards)}")}), "")
+        if argv == ["gh", "auth", "token"]:
+            return runner_module.Done(0, "gho_test\n", "")
         if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
             self.cards.append(json.loads(argv[argv.index("--card") + 1]))
             return runner_module.Done(1 if self.card_error else 0, "", self.card_error)
@@ -609,6 +622,8 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
                     "release_owner": "peer:sole-51",
                     "release_cli": "tools/ci release",
+                    "card_cli": "tools/ci slack pr-card",
+                    "owner_thread": {"user": "U-OWNER", "ts": "5.1"},
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
             }
@@ -2382,10 +2397,14 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue")
-    assert "options `Merge #29020 cccc333` and `Hold #29020`, and recommended `Merge #29020 cccc333`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers the PR card at ts 7.1 in his DM thread, waiting on `merge:29020:cccc333`")
+    [card] = shell.pr_cards
+    assert card == {
+        "flags": {"--pr": "29020", "--user": "U-OWNER", "--thread": "5.1", "--waits": "merge:29020:cccc333", "--question": "Merge this PR at cccc333? Every PR waits for your answer.", "--recommended": "Merge", "--option": "Hold"},
+        "token": "gho_test",
+    }
+    assert 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line and "send a needs_you" not in line
     assert "the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture" in line
-    assert "ask card with waits `merge:29020:cccc333`" in line and "beside its built-in `Other` and `Explain more` (93037c3), neither listed as an option" in line
     assert "reply in the card's thread in plain words through `slack_dm_status` with `about` `merge:29020:cccc333`, the card's waits id, so cc-slack opens the reply with the link back to the card itself" in line
     assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: merge:29020:cccc333"`' in line
     merge_go(shell, "29020", "merge #29020 at bbbb222")
@@ -2434,7 +2453,8 @@ def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, conf
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK ") and "merge mode high-risk" in line and "it touches api/migrations/0399_run_owner.sql |" in line
+    assert line.startswith("MERGE-ASK ") and "merge mode high-risk" in line
+    assert shell.pr_cards[0]["flags"]["--question"] == "Merge this PR at cccc333? It changes api/migrations/0399_run_owner.sql."
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
@@ -2471,7 +2491,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers
     [line] = escalations(shell)
     assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
     message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
-    assert 'reserved row reserved/user-data: "User data stays where it is.". Merge also authorizes reserved/user-data' in message
+    assert shell.pr_cards[0]["flags"]["--question"].endswith(' It touches your rule reserved/user-data: "User data stays where it is." Merge also allows it.')
     assert "the card quotes reserved/user-data and its words, and the Merge go authorizes it" in message
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
@@ -2491,7 +2511,8 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and "Merge also authorizes reserved/user-data" in line
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and len(shell.pr_cards) == 1
+    assert "It touches your rule reserved/user-data" in shell.pr_cards[0]["flags"]["--question"]
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
@@ -2512,6 +2533,63 @@ def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless
     shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+
+
+def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_posted_twice(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.pr_cards) == 1 and "--ts" not in shell.pr_cards[0]["flags"]
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.pr_cards) == 2 and shell.pr_cards[1]["flags"]["--ts"] == "7.1" and "reserved/user-data" in shell.pr_cards[1]["flags"]["--question"]
+
+
+def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.pr_card_error = "slack: channel_not_found"
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "the merge card for #29020 at cccc333 did not post: slack: channel_not_found; the next pass tries again" in line
+    shell.pr_card_error = ""
+    landing_pass(shell, config)
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
+
+
+def test_a_card_command_that_does_not_start_warns_and_the_desk_keeps_running(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.pr_card_missing = True
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "tools/ci did not start" in line
+    shell.pr_card_missing = False
+    landing_pass(shell, config)
+    assert len(shell.pr_cards) == 1 and [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
+
+
+def test_a_runner_with_no_owner_thread_posts_no_merge_card_and_says_what_to_set(shell, config, tmp_path):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    del raw["landing"]["owner_thread"]
+    config.write_text(json.dumps(raw))
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and shell.pr_cards == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-CARD-FAILED merge-card:unset landing:") and "landing.owner_thread" in line
 
 
 def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_config(shell, config, tmp_path):
