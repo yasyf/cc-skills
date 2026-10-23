@@ -102,7 +102,7 @@ def root(tmp_path, monkeypatch) -> Root:
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
     drives = tmp_path / "config" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    (drives / "brook-drive.json").write_text(json.dumps({"drive": "brook-drive", "sessions": [SESSION], "state_dir": str(tmp_path / "scratch" / "brook")}))
+    (drives / "brook-drive.json").write_text(json.dumps({"drive": "brook-drive", "sessions": [SESSION], "program": "brook", "state_dir": str(tmp_path / "scratch" / "brook")}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     return Root(tmp_path)
 

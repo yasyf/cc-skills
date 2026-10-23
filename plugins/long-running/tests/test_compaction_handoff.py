@@ -751,6 +751,7 @@ def register_drive(home: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) ->
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     entry = {"drive": "b7", "sessions": [SESSION], "state_dir": str(home / ".claude" / "scratch" / "durable-program")} | extra
+    entry["program"] = Path(entry["state_dir"]).name
     (drives / "b7.json").write_text(json.dumps(entry))
     for key in ("CLAUDE_CONFIG_DIR", "CLAUDE_LONG_RUNNING_DRIVE"):
         monkeypatch.delenv(key, raising=False)
