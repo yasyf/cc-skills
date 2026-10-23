@@ -4,7 +4,7 @@
     rulings.py register     (--program SLUG | --drive ID) [--repo PATH]
     rulings.py match        (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--exclude ID]... [--repo PATH] < ACTION
     rulings.py rows         (--program SLUG | --drive ID) [--json]
-    rulings.py classify     (--program SLUG | --drive ID) [CLASSIFICATION...]
+    rulings.py classify     (--program SLUG | --drive ID) [--answer ID] [CLASSIFICATION...]
     rulings.py implications (--program SLUG | --drive ID) KEY
     rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...]
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
@@ -110,6 +110,9 @@ PLACEMENT = re.compile(
     re.IGNORECASE,
 )
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
+DIGEST_CHARS = 16
+OWNER_ANSWER = "from:owner"
+ANSWER_SOURCE = "answer"
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
 CLAUSE_ENDS = (";", ". ", "\n")
@@ -938,9 +941,17 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     }
 
 
+def answer_capture(loaded: Register, identity: str) -> dict:
+    answer = ccn(loaded.shell, loaded.repo, "answer", "show", identity)
+    if OWNER_ANSWER not in answer["tags"]:
+        raise SystemExit(f"NOT-OWNER {identity}: classify --answer reads only an answer labelled {OWNER_ANSWER}, whose body holds the owner's clicked words")
+    return {"digest": answer["id"][:DIGEST_CHARS], "at": answer["created_at"], "source": ANSWER_SOURCE, "text": answer["body"], "answer": answer["id"]}
+
+
 def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    captured = captures(loaded.state)
+    sourced = answer_capture(loaded, args.answer) if args.answer else None
+    captured = {sourced["digest"]: sourced} if sourced else captures(loaded.state)
     if not args.files:
         done = set(loaded.classified())
         for item, capture in captured.items():
@@ -948,6 +959,8 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 print(json.dumps(capture, ensure_ascii=False))
         return 0
     entries = [entry for path in args.files for entry in classifications(Path(path))]
+    if sourced:
+        entries = [{"answer": [sourced["answer"]]} | entry | {"digest": sourced["digest"]} for entry in entries]
     with writing(args, shell) as loaded:
         batch = Batch()
         if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
@@ -1619,6 +1632,7 @@ def build_parser() -> argparse.ArgumentParser:
     rows.add_argument("--json", action="store_true")
     classify = verb("classify", cmd_classify, "write classified owner captures as register rows, or list the unclassified captures")
     classify.add_argument("files", nargs="*", metavar="CLASSIFICATION")
+    classify.add_argument("--answer", metavar="ID", help="classify the owner's words in this cc-notes answer's body instead of a captured prompt")
     classify.add_argument("--plan", metavar="PATH")
     implications = verb("implications", cmd_implications, "print a row's implications with their state")
     implications.add_argument("key")
