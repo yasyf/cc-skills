@@ -52,6 +52,14 @@ def test_the_desk_brief_ok_line_covers_the_rows_it_lists_and_no_others():
     assert runner_module.uncovered(line, {"rule/1068167": {"hourly re-read", "sweep desk"}, "rule/d968e1d": set()}) == ["rule/1068167", "rule/d968e1d"]
 
 
+def test_the_desk_brief_reads_callers_at_the_head_and_carries_a_restack_grade_only_over_the_same_rows():
+    brief = " ".join((SKILL / "reference/fidelity-desk-brief.md").read_text().split())
+    assert "callees on the base branch" not in brief
+    assert "its callers and callees as the head has them" in brief
+    restack = brief.split("A restack whose patch is identical")[1].split("An incident fix")[0]
+    assert "slice --required" in restack and "before any ok" in restack
+
+
 def readme_rows() -> list[list[str]]:
     readme = (FIXTURES / "README.md").read_text()
     return [[cell.strip() for cell in re.split(r"(?<!\\)\|", line)[1:-1]] for line in readme.splitlines() if line.startswith(("| [", "| `"))]

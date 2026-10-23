@@ -91,8 +91,9 @@ reports READY, or when the runner's `blocker` names it ungraded.
 
 1. Print the head's required rows with `slice --required`.
 2. Read the diff at that head, pinned by sha (`git fetch origin <sha>`, then
-   `git diff <base>...<sha>`), never the PR's moving tip, and read the code around every changed symbol (its callers
-   and callees on the base branch), the tests it adds or edits, and the PR body.
+   `git diff <base>...<sha>`), never the PR's moving tip, and read the code around every changed symbol at that sha
+   (its callers and callees as the head has them, and their base versions too when the head deletes or moves
+   behavior), the tests it adds or edits, and the PR body.
 3. Grade every required row.
 4. Post `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, or
    one `fidelity: missing <head7> <key> <one line>` per failing row. The runner
@@ -101,8 +102,10 @@ reports READY, or when the runner's `blocker` names it ungraded.
    the head touches, whatever the grade.
 
 A restack whose patch is identical to a head already graded ok gets the same line
-the minute it is asked, without a re-read ([SKILL.md](../SKILL.md), "A restack
-carries its grade").
+the minute it is asked, without a re-read of the diff ([SKILL.md](../SKILL.md), "A
+restack carries its grade"), only while `slice --required` at the restacked head
+prints no key and no name the earlier grade left out of `checked` and `names`.
+When it prints one, the desk reads the head against that row before any ok.
 
 An incident fix is never graded before it merges and never held. Both grades
 follow within 30 minutes after the merge (d968e1d, option (a)); the runner escalates a merged head still
