@@ -24,6 +24,16 @@ DRIVE_LEDGER = "d" * 40
 STAMP = "2026-10-23T12:00:00Z"
 AT = "2026-10-23T12:30:00Z"
 PROMPT_KEY = "prompt/1023-053000"
+LIVE = [
+    {"lane": "lane-a", "kind": "head", "text": "lane-a 1234567"},
+    {"lane": "root", "kind": "decision", "text": "lane-b: go"},
+    {"lane": "p2-credentials", "kind": "state", "text": "p2-credentials FINAL | verdict: done | #42518 landed"},
+    {"lane": "lane-b", "kind": "state", "text": "lane-b up"},
+    {"lane": "check-pr-grade", "kind": "landed", "text": "check-pr grade landed: acme/app#615"},
+    {"lane": "desk-runner", "kind": "report", "text": "RULING-ASK ruling-ask:round-1"},
+    {"lane": "lane-c", "kind": "review", "text": "finder: clean"},
+    {"lane": "p2-credentials", "kind": "head", "text": "p2-credentials abcdef0"},
+]
 RELAY = [
     ("No relay code lands in relay-server.", "removes"),
     ("relay-server gains no plug-in point for relay code.", "removes"),
@@ -297,16 +307,12 @@ class RegisterShell(ledger.Shell):
         rows: dict[str, dict[str, str]],
         answers: list[dict] | None = None,
         diff: str = "",
-        lanes: list[str] | None = None,
         records: list[dict] | None = None,
-        drive_rows: dict[str, dict[str, str]] | None = None,
     ) -> None:
         self.rows = {key: dict(fields) for key, fields in rows.items()}
         self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
-        self.lanes = lanes or []
         self.records = records or []
-        self.drive_rows = drive_rows or {}
         self.calls: list[list[str]] = []
 
     def writes(self) -> list[list[str]]:
@@ -319,8 +325,6 @@ class RegisterShell(ledger.Shell):
                 return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
             case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
                 return json.dumps({"id": REGISTER_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
-            case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == DRIVE_LEDGER:
-                return json.dumps({"id": DRIVE_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.drive_rows.items()]})
             case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, *flags] if identity == REGISTER_LEDGER:
                 for flag, value in zip(flags[::2], flags[1::2], strict=True):
                     assert flag == "--field"
@@ -345,8 +349,6 @@ class RegisterShell(ledger.Shell):
                 return json.dumps({"baseRefName": "main"})
             case ["git", "-C", "/repo", "remote", "get-url", "origin"]:
                 return "git@github.com:acme/app.git\n"
-            case ["cci", "who", "--drive", "brook-cci", "--json"]:
-                return "".join(json.dumps({"session": "s-root", "drive": "brook-cci", "lane": lane, "name": lane}) + "\n" for lane in self.lanes)
             case ["cci", "post", *_]:
                 return "#1\n"
             case ["cc-present", *_]:
@@ -568,13 +570,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     (state / "briefs").mkdir()
     (state / "briefs" / "lane-a.md").write_text("Brief.\nThe desktop shell keeps its uploads.\n")
     captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
-    registry = {
-        "lane/lane-c": {"lane": "lane-c", "branch_prefix": "lane-c-"},
-        "lane/lane-done": {"lane": "lane-done", "branch_prefix": "lane-done-"},
-        "gone/lane-done": {"lane": "lane-done", "gone_at": STAMP},
-        "41": {"lane": "lane-z", "state": "open"},
-    }
-    shell = RegisterShell(seeded(package), lanes=["lane-a", "root", "lane-b"], drive_rows=registry)
+    shell = RegisterShell(seeded(package), records=LIVE)
     three = [
         {"text": "The desktop shell gains no uploader.", "direction": "removes"},
         {"text": "Shell upload code is deleted.", "direction": "removes"},
@@ -606,17 +602,18 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     }
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
     announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
-    assert announced[0] == f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim."
+    assert announced[0] == f"Register classify, 1 rows: new {PROMPT_KEY}."
+    assert f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim." in announced
     assert "> uploads stay out of the desktop shell." in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
 
 
-def test_classify_posts_one_record_per_row_however_many_captures_touch_it(
+def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_touches(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
-    captured(state, capture("1", "no parked worker here"), capture("2", "no parked worker there"))
-    shell = RegisterShell(seeded(package), lanes=["lane-a"])
+    captured(state, capture("1", "no parked worker here"), capture("2", "no parked worker there"), capture("3", "the probe stays on relay-server"))
+    shell = RegisterShell(seeded(package), records=LIVE)
     one = [{"text": "One more line.", "direction": "removes"}]
 
     code, _ = classify(
@@ -625,13 +622,17 @@ def test_classify_posts_one_record_per_row_however_many_captures_touch_it(
         shell,
         {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker here", "implications": one},
         {"digest": "2" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker there", "implications": one},
+        {"digest": "3" * 16, "extends": "rule/9999999", "words": "the probe stays on relay-server"},
     )
 
     assert code == 0
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
     announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
-    assert announced[0] == "Register extended rule/aaaaaaa (scope): the owner's words and what they mean, verbatim."
+    assert announced[0] == "Register classify, 2 rows: extended rule/aaaaaaa, extended rule/9999999."
+    assert "Register extended rule/aaaaaaa (scope): the owner's words and what they mean, verbatim." in announced
+    assert "Register extended rule/9999999 (pick): the owner's words and what they mean, verbatim." in announced
     assert "> also, Oct 23 5:30 AM PT: no parked worker there" in announced
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
 
 
 @pytest.mark.parametrize("at", [AT, "2026-10-23 5:30 AM PT"])
@@ -668,7 +669,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     (state / "briefs").mkdir()
     (state / "briefs" / "lane-a.md").write_text("Run a parked worker on the relay hook.\n")
     captured(state, capture("5", "how many times: no parked worker on relay-server, and no relay hook either"))
-    shell = RegisterShell(seeded(package), lanes=["lane-a"])
+    shell = RegisterShell(seeded(package), records=LIVE)
     entry = {
         "digest": "5" * 16,
         "extends": "rule/aaaaaaa",
@@ -703,7 +704,7 @@ def test_an_extension_without_repeat_words_is_no_repeat_and_posts_no_sweep(
 ) -> None:
     fidelity_desks(state)
     captured(state, capture("6", "also the parked worker stays off relay-server's health probe"))
-    shell = RegisterShell(seeded(package), lanes=["lane-a"])
+    shell = RegisterShell(seeded(package), records=LIVE)
     entry = {
         "digest": "6" * 16,
         "extends": "rule/aaaaaaa",
@@ -1061,6 +1062,16 @@ def test_sweep_hits_every_line_naming_a_scope_row_across_the_plan_boards_designs
     assert f"open rule/aaaaaaa {package / 'boards' / 'card-confirm.json.pre-spikes'}:1 parked worker" in hits
     assert f"open rule/aaaaaaa {package / 'designs' / 'relay' / 'design.md'}:1 relay-server" in hits
     assert f"open rule/aaaaaaa {state / 'briefs' / 'lane-a.md'}:1 parked worker" in hits
+
+
+def test_sweep_skips_a_name_inside_a_path_or_cite(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    artifact = tmp_path / "plan.md"
+    artifact.write_text(
+        "0.6 checks `rust/crates/relay-server/tests/fork.rs` and spikes/parked-worker/findings.md.\n"
+        "The relay-server keeps its hook.\n"
+    )
+
+    assert ran(capsys, RegisterShell(seeded(package)), "sweep", "--artifact", str(artifact)) == (0, f"open rule/aaaaaaa {artifact}:2 relay-server\n")
 
 
 def test_sweep_of_a_diff_marks_removed_lines_deleted_and_added_lines_open(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:

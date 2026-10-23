@@ -99,6 +99,12 @@ CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board"})
 RECOMMENDED_MARK = " (Recommended)"
 CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
 ROUND_SIZE = 10
+LIVE_WINDOW = "2h"
+LIVE_WIDTH = 200
+LIVE_BUDGET = 10_000_000
+NOT_LANES = frozenset({"root", "main", "desk-runner"})
+FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
+PATH_TOKEN = re.compile(r"\S*/\S*")
 ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
 CARD_REPLIES = frozenset({"slack-action", "slack-reply"})
 TAPS = frozenset({"slack-action", "board"})
@@ -509,9 +515,9 @@ class Sweeper:
         return [
             Hit(hit_status(text, name, self.authorizers, removed), key, source, number, name)
             for number, text in numbered
-            if self.anything.search(text)
+            if self.anything.search(words := PATH_TOKEN.sub(" ", text))
             for key, name in self.wanted
-            if named(text, name)
+            if named(words, name)
         ]
 
     def file(self, path: Path, shown: str) -> list[Hit]:
@@ -928,22 +934,30 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
-def live_lanes(loaded: Register, entry: dict) -> list[str]:
-    peers = {peer["lane"] for line in loaded.shell.run(["cci", "who", "--drive", drive.cci_drive(entry), "--json"]).splitlines() if line.strip() and (peer := json.loads(line)).get("lane")}
-    rows = {row["key"]: row["fields"] for row in ccn(loaded.shell, loaded.repo, "ledger", "show", entry["ledger"])["rows"]}
-    registered = {fields["lane"] for key, fields in rows.items() if key.startswith(ledger.LANE_PREFIX)} - ledger.gone_lanes(rows)
-    return sorted((peers | registered) - {"root", "main"})
+def live_lanes(loaded: Register, cci: str) -> list[str]:
+    newest: dict[str, dict] = {}
+    argv = ["cci", "grep", "--drive", cci, "--json", "--since", LIVE_WINDOW, "--width", str(LIVE_WIDTH), "--budget", str(LIVE_BUDGET), "."]
+    for line in loaded.shell.run(argv).splitlines():
+        if line.strip():
+            record = json.loads(line)
+            newest.setdefault(record["lane"], record)
+    return sorted(lane for lane, record in newest.items() if lane not in NOT_LANES and record["kind"] != "landed" and not FINISHED.search(record["text"]))
 
 
-def announce(loaded: Register, cci: str, live: list[str], key: str, how: str) -> None:
-    fields = loaded.rows[key]
-    lanes = live if is_global(fields) or "all" in listed(fields.get("lanes")) else [lane for lane in live if lane in listed(fields.get("lanes"))]
+def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str]) -> None:
+    lanes: set[str] = set()
+    rows: list[str] = []
+    for key, how in touched.items():
+        fields = loaded.rows[key]
+        lanes |= set(live if is_global(fields) or "all" in listed(fields.get("lanes")) else [lane for lane in live if lane in listed(fields.get("lanes"))])
+        rows += ["", f"Register {how} {key} ({fields.get('kind')}): the owner's words and what they mean, verbatim.", *rendered_row(key, fields)]
     if not lanes:
         return
-    path = loaded.state / "register" / f"announce-{card_id(key)}.md"
-    write_atomic(path, "\n".join([f"Register {how} {key} ({fields.get('kind')}): the owner's words and what they mean, verbatim.", *rendered_row(key, fields)]) + "\n")
+    summary = ", ".join(f"{how} {key}" for key, how in touched.items())
+    path = loaded.state / "register" / f"announce-{utc_now():%Y%m%d-%H%M%S-%f}.md"
+    write_atomic(path, "\n".join([f"Register classify, {len(touched)} rows: {summary}.", *rows]) + "\n")
     argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "decision", "--path", str(path)]
-    for lane in lanes:
+    for lane in sorted(lanes):
         argv += ["--to", lane]
     loaded.shell.run(argv)
 
@@ -1068,11 +1082,10 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
             if result.get("repeated"):
                 repeats[result["key"]] = result["hits"]
         if touched_rows and (drive_entry := entry_of(args)):
-            live = live_lanes(loaded, drive_entry)
-            for key, how in touched_rows.items():
-                announce(loaded, drive.cci_drive(drive_entry), live, key, how)
+            cci = drive.cci_drive(drive_entry)
+            announce(loaded, cci, live_lanes(loaded, cci), touched_rows)
             for key, hits in repeats.items():
-                post_repeat(loaded, drive.cci_drive(drive_entry), key, hits)
+                post_repeat(loaded, cci, key, hits)
     return 0
 
 
