@@ -2553,20 +2553,24 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
 
 
-def test_a_go_at_the_head_enqueues_a_reserved_touch_whose_merge_card_never_posted(shell, config, tmp_path):
+def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_waits_for_a_go_after_it(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    shell.clock += timedelta(minutes=1)
     shell.check_pr["29020"] = (1, RESERVED)
-    shell.pr_card_error = "ci slack: SSM GetParameter: RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and shell.pr_cards == []
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and len(shell.pr_cards) == 1
+    assert "It touches your rule reserved/user-data" in shell.pr_cards[0]["flags"]["--question"]
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
-    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED"]
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
