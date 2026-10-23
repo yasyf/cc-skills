@@ -975,7 +975,13 @@ for a landing or release, and `progress` otherwise. A tap on a card reaches the 
 as a directive on its next tool call. The root never parks waiting for a tap. Every
 owner ask the drive blocks on, a per-PR merge ask under D3 included, is a `needs_you`
 card with its choices as buttons, never an `AskUserQuestion`, and the lane that asked
-stops on that item until the tap (owner answer 01736af). The
+stops on that item until the tap (owner answer 01736af). Every ask card sets a `waits`
+id, so cc-slack draws its fixed `Explain more` button in place of Ack and Pause
+(93037c3), and never lists `Explain more` among its `options`: cc-slack refuses a
+waiting card that repeats it. An `Explain more` tap resolves nothing. The root posts
+`cci post --drive <drive> --lane root --kind ask --to root --text "explain more: <waits id>"`,
+replies in the card's thread in plain words, and the lane stays stopped until an
+answer is tapped. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
@@ -1426,9 +1432,11 @@ Under `every`, and under `high-risk` for a PR whose changed files match a glob i
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
 owner in the turn it arrives as a `needs_you` ask card through `slack_dm_status(card)`,
-with the options `Merge #<n> <short sha>` and `Hold #<n>` beside its fixed `Explain
-more` (93037c3), never as an `AskUserQuestion`, so the drive keeps working while the
-card waits. An `Explain more` tap gets a plain-words reply in the card's thread.
+with the `waits` id `merge:<n>:<short sha>` and the options `Merge #<n> <short sha>`
+and `Hold #<n>`, beside the fixed `Explain more` cc-slack draws on a waiting card
+(93037c3), never as an `AskUserQuestion`, so the drive keeps working while the card
+waits. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
+the line names and replies in the card's thread in plain words.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
