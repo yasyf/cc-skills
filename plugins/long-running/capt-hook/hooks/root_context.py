@@ -276,7 +276,9 @@ def operand_targets(call: Call) -> list[Target]:
     targets = list(call.targets)
     if call.name in SCRIPT_FIRST and not any(flag.split("=")[0] in SCRIPT_FLAGS for flag in call.flags):
         return targets[1:]
-    return targets
+    scripts = {value for flag, value in zip(call.args, call.args[1:]) if flag in SCRIPT_FLAGS}
+    scripts |= {arg.split("=", 1)[1] for arg in call.args if "=" in arg and arg.split("=", 1)[0] in SCRIPT_FLAGS}
+    return [target for target in targets if target.value not in scripts]
 
 
 def paths(call: Call) -> list[Path]:
