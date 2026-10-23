@@ -297,7 +297,7 @@ carries to a head with no finder record when both patches against the PR's base 
 blocker for its failing required checks.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
 which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
-prints a line naming no cause passes the head and logs `RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints.
+prints a line naming no cause passes the head and logs `RULINGS-UNREAD` once per head and error text, the process id in a `refs/rulings/` ref aside, and so does each `BLOCKER` line it prints.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
 `STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Each pass starts with one free `rate_limit` read of the GitHub App
@@ -549,6 +549,7 @@ QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEATS = drive.HEARTBEATS
 DESKS = tuple(HEARTBEATS)
+PINNED_REF_PID = re.compile(r"(refs/rulings/[0-9a-f]+)-[0-9]+")
 RUNNING_VERSION = drive.plugin_manifest()["version"]
 LAUNCH_STALL = timedelta(seconds=60)
 ORPHANED_SEND = timedelta(minutes=2)
@@ -4031,7 +4032,7 @@ class Landing:
                 causes, unread = [], [f"check-pr exited {done.code}: {last[0]}"]
             if unread:
                 text = "; ".join(unread)
-                self.runner.escalate(f"rulings-unread:{hashlib.sha1(text.encode()).hexdigest()[:12]}", "RULINGS-UNREAD", f"#{pr}", f"`rulings.py check-pr` did not read everything for #{pr} at {sha[:10]}, so the head passes the rulings check: {text}")
+                self.runner.escalate(f"rulings-unread:{pr}:{sha[:10]}:{hashlib.sha1(PINNED_REF_PID.sub(r"\1", text).encode()).hexdigest()[:8]}", "RULINGS-UNREAD", f"#{pr}", f"`rulings.py check-pr` did not read everything for #{pr} at {sha[:10]}, so the head passes the rulings check: {text}")
             self.reported[key] = causes
         return self.reported[key]
 
