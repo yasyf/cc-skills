@@ -976,8 +976,8 @@ Every update the root sends to that DM is a status card, `slack_dm_status(card)`
 for an incident, `needs_you` for an owner ask with its choices as `options`, `done`
 for a landing or release, and `progress` otherwise. A tap on a card reaches the root
 as a directive on its next tool call. The root never parks waiting for a tap. Every
-owner ask the drive blocks on, a per-PR merge ask under D3 included, is a `needs_you`
-card with its choices as buttons, never an `AskUserQuestion`, and the lane that asked
+owner ask the drive blocks on is a card with its choices as buttons: a `needs_you`
+card, or for a per-PR merge ask under D3 the PR card the landing runner posts, never an `AskUserQuestion`, and the lane that asked
 stops on that item until the tap (owner answer 01736af). Every ask card sets a `waits`
 id, so cc-slack draws its fixed `Explain more` button in place of Ack and Pause
 (93037c3), and never lists `Explain more` among its `options`: cc-slack refuses a
@@ -1433,12 +1433,17 @@ change is one edit plus an `answer supersede`, with no restart.
 
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
-The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
-owner in the turn it arrives as a `needs_you` ask card through `slack_dm_status(card)`,
-with the `waits` id `merge:<n>:<short sha>`, the options `Merge #<n> <short sha>` and
-`Hold #<n>`, and `recommended` set to the `Merge` option, beside the built-in `Other` and `Explain more` cc-slack draws on a waiting card
-(93037c3), never as an `AskUserQuestion`, so the drive keeps working while the card
-waits. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
+The runner posts the PR's card into the owner's DM thread itself, once per waiting PR
+and head, and logs one `MERGE-ASK` naming it. The card is the pull request card
+ai-oncall draws, through the command `landing.card_cli` names, such as
+`tools/ci slack pr-card`: the PR as a hyperlink, its CI, review, author, size, and
+reviewer findings, and a question in plain words. It waits on `merge:<n>:<short sha>`
+with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3), never an
+`AskUserQuestion`, so the drive keeps working while the card waits. A card already
+open for the head is edited in place, never re-posted. `landing.owner_thread` names
+the owner's Slack id and the root's DM status thread, where the tap reaches the root;
+a missing setting or a failed post logs `MERGE-CARD-FAILED`, and the next pass tries
+again. The root never hand-writes a merge card. An `Explain more` tap resolves nothing: the root posts the `explain more` ask
 the line names and replies in the card's thread in plain words through `slack_dm_status` with `about` set to the card's `waits` id, so cc-slack opens the reply with the link back to the card itself.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
