@@ -53,6 +53,7 @@ def test_start_registers_the_drive_by_its_root_session(repo, capsys):
         "sessions": [ROOT_SESSION],
         "orca_run": "run_7715a23a5657",
         "state_dir": str(Path.home() / ".claude" / "scratch" / "900424b6"),
+        "program": "900424b6",
         "cci_drive": None,
         "root_terminal": None,
         "started_at": "",
@@ -135,6 +136,14 @@ def test_start_writes_the_dashboard_context_from_the_registry(repo, tmp_path):
         "packs": {"lr": str(drive.PACK)},
     }
     assert (drive.PACK / "components.py").exists()
+
+
+def test_start_records_the_program_workers_resolve_and_a_handoff_keeps_it(repo, tmp_path, monkeypatch):
+    entry = started(repo, "--state-dir", str(tmp_path / "release-v3"), "--program", "plan-slug")
+    monkeypatch.setenv(drive.SESSION_ENV, RESUMED_SESSION)
+
+    assert entry["program"] == "plan-slug"
+    assert started(repo, "--drive", "900424b6")["program"] == "plan-slug"
 
 
 def test_context_rewrites_the_dashboard_context_with_the_state_dir_as_the_cci_drive(repo, tmp_path):

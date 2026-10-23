@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The drive registry: which long-running drive, and so which ledger, a session's pull requests belong to.
 
-    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME]
+    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME] [--program SLUG]
     drive.py desk    --name NAME (--terminal HANDLE [--environment NAME] [--supervisor] | --remove) [--drive ID]
     drive.py end     [--drive ID]
     drive.py context [--drive ID]
@@ -21,7 +21,9 @@
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
 the checkout the drive started in, every root session that has run it, its Orca run, and its state
-directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another.
+directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another, and its ``program``:
+the plan slug every worker resolves the register by, set with ``start --program`` and otherwise the
+state directory's name when the entry is first written.
 ``start`` is an upsert: the resumed root of a handoff runs it again and joins ``sessions``.
 Run inside an Orca terminal, it records that terminal as ``root_terminal``, the coordinator's.
 ``desk`` records a standing desk's Orca terminal under ``desks``, with ``--environment`` for one on a
@@ -246,6 +248,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"this session already runs drive {joined['drive']}; end it with drive.py end before starting {drive}")
     cwd = Path.cwd()
     entry = find(drive, None) or {"drive": drive, "sessions": [], "orca_run": None, "started_at": stamp()}
+    state = str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive)
     entry |= {
         "ledger": args.ledger,
         "repo": ledger.origin_repo(ledger.Shell(), cwd),
@@ -253,7 +256,8 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         "checkout": str(cwd),
         "sessions": [*entry["sessions"], session] if session not in entry["sessions"] else entry["sessions"],
         "orca_run": args.orca_run or entry["orca_run"],
-        "state_dir": str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive),
+        "state_dir": state,
+        "program": args.program or entry.get("program") or Path(state).name,
         "cci_drive": args.cci_drive or entry.get("cci_drive"),
         "root_terminal": os.environ.get(TERMINAL_ENV) or entry.get("root_terminal"),
         "updated_at": stamp(),
@@ -548,6 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--orca-run", metavar="ID")
     start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
     start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
+    start.add_argument("--program", metavar="SLUG", help="the plan slug workers resolve the register by; defaults to the state dir's name on a new entry")
     start.set_defaults(handler=cmd_start)
 
     desk = subparsers.add_parser("desk", help="record a standing desk's Orca terminal for the prompt watch, or forget one")

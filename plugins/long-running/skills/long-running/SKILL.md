@@ -2734,7 +2734,7 @@ to join the existing drive. Run `drive.py end` only when the drive is over.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
-drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>]
+drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>]
 drive.py desk --name <desk lane> --terminal <handle> [--environment <name>] [--supervisor]
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
