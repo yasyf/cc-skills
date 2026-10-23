@@ -48,7 +48,6 @@ class FakeShell(ledger.Shell):
         self.broken_checkout = False
         self.fetch_fails = ""
         self.deleted_refs: set[str] = set()
-        self.base_log: list[str] = []
         self.trunk_log: list[str] = []
         self.children: dict[str, list[dict]] = {}
         self.trunk = "dev"
@@ -362,10 +361,14 @@ class FakeShell(ledger.Shell):
             return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
         if verb == "log" and argv[-1] == "--format=%H %cI %s":
             assert self._resolve(argv[4]) == "base-tip", f"read squashes from {argv[4]}"
-            return "".join(f"{line}\n" for line in self.trunk_log)
-        if verb == "log" and argv[-1] == "--format=%x00%H %cI%n%B":
-            assert self._resolve(argv[4]) == "base-tip", f"read messages from {argv[4]}"
-            return "".join(f"\0{entry}\n" for entry in self.base_log)
+            assert "--fixed-strings" in argv
+            grep = [arg.removeprefix("--grep=") for arg in argv if arg.startswith("--grep=")]
+            since = [ledger.parse_iso(arg.removeprefix("--since=")) for arg in argv if arg.startswith("--since=")]
+            return "".join(
+                f"{entry.partition(chr(10))[0]}\n"
+                for entry in self.trunk_log
+                if any(pattern in entry for pattern in grep) and all(ledger.parse_iso(entry.split(" ")[1]) >= bound for bound in since)
+            )
         if verb == "log" and argv[5] == "-1":
             assert self._resolve(argv[4]) == "base-tip", f"named the landing commit from {argv[4]}"
             sha, when = self.delivered[self.diffed[tuple(argv[argv.index("--") + 1 :])]]

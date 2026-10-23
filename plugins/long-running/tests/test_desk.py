@@ -87,6 +87,7 @@ def desk_shell(kind: type[FakeShell] = FakeShell, **pull) -> FakeShell:
         "mergeable_state": "clean",
         "merged": False,
         "merged_at": None,
+        "created_at": "2026-09-01T00:00:00Z",
         **pull,
     }
     shell.pull_heads[PR] = HEAD
@@ -464,7 +465,7 @@ def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR)["state"] == "landed"
-    assert not [argv for argv in shell.calls if argv[-1] == "--format=%x00%H %cI%n%B"], "the base log is never searched by number"
+    assert not [argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"], "the base log is never searched by number"
 
 
 def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
@@ -483,7 +484,7 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
-    shell.base_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00\nci: 🐛 retry buildkite reads (#{PR})"]
+    shell.trunk_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00 ci: 🐛 retry buildkite reads (#{PR})"]
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
@@ -493,13 +494,30 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     assert "which has moved on its files since" in capsys.readouterr().out
 
 
+def test_a_squash_hundreds_of_commits_down_the_trunk_still_lands_its_row(capsys, tmp_path):
+    """#41136, #41113 and #41133 on Oct 22: 786 commits reached dev after their squashes, past the 400 the base log was read to."""
+    shell = desk_shell(state="closed", created_at="2026-10-20T18:00:00Z")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["go/ci/release.go"]
+    shell.trunk_log = [f"{index:040x} 2026-10-22T12:00:00+00:00 ci: later (#{50000 + index})" for index in range(800)]
+    shell.trunk_log.append(f"{SQUASH} 2026-10-20T20:45:13+00:00 release: 🐛 a hotfix ships no Release-With partner (#{PR})")
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert (shell.fields(PR)["state"], shell.fields(PR)["landed_sha"]) == ("landed", SQUASH)
+    [search] = [argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"]
+    assert "--since=2026-10-20T18:00:00Z" in search
+    assert [arg for arg in search if arg.startswith("--grep=")] == [f"--grep=(#{PR})"]
+    assert f"landed #{PR} as {SQUASH[:9]} on dev at 2026-10-20T20:45:13Z" in capsys.readouterr().out
+
+
 def test_a_later_squash_whose_body_cites_the_pr_is_not_its_landing(capsys, tmp_path):
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["rust/crates/sandsql-sql/migrations/journal/0002_steplog.rs"]
-    shell.base_log = [
-        f"45eccdacc083 2026-10-12T04:00:00+00:00\nvm_run: ✨ write run journals as a value store (#35933)\n\nJournal migration 0002 (#{PR}) adds the v2 tables.",
-        f"{SQUASH} 2026-10-12T03:00:00+00:00\nsandsql: ✨ add journal migration 0002 (#{PR})",
+    shell.trunk_log = [
+        f"45eccdacc083 2026-10-12T04:00:00+00:00 vm_run: ✨ write run journals as a value store (#35933)\n\nJournal migration 0002 (#{PR}) adds the v2 tables.",
+        f"{SQUASH} 2026-10-12T03:00:00+00:00 sandsql: ✨ add journal migration 0002 (#{PR})",
     ]
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
@@ -515,7 +533,7 @@ def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the
     shell.deleted_refs.add(f"refs/heads/{parent}")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "base": parent}})
     shell.pr_files[PR] = ["infra/rows/escape-hatch/dns.ts"]
-    shell.base_log = [f"{SQUASH} 2026-09-30T05:10:00+00:00\nescape-hatch: ✨ dns into the box (#{PR})"]
+    shell.trunk_log = [f"{SQUASH} 2026-09-30T05:10:00+00:00 escape-hatch: ✨ dns into the box (#{PR})"]
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
 
@@ -937,6 +955,16 @@ def test_reconcile_reads_the_trunk_once_and_the_forge_only_for_closed_unsquashed
     assert pulled == {"28302"}
 
 
+def test_reconcile_searches_the_whole_trunk_for_each_pending_number_never_to_a_depth():
+    shell = reconcile_shell()
+
+    reconcile(shell)
+
+    [search] = [argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"]
+    assert [arg for arg in search if arg.startswith("--grep=")] == ["--grep=(#28100)", "--grep=(#28230)", "--grep=(#28302)", "--grep=(#28349)"]
+    assert not [arg for arg in search if re.fullmatch(r"-\d+", arg) or arg.startswith("--since")]
+
+
 def closed_board(count: int) -> FakeShell:
     shell = FakeShell(rows=[{"key": str(28400 + index), "fields": {"lane": LANE, "state": "open"}} for index in range(count)])
     for index in range(count):
@@ -947,19 +975,17 @@ def closed_board(count: int) -> FakeShell:
     return shell
 
 
-def test_reconcile_settles_a_closed_board_in_one_message_read_one_object_check_and_one_write(capsys):
+def test_reconcile_settles_a_closed_board_in_one_trunk_search_one_object_check_and_one_write(capsys):
     shell = closed_board(40)
     shell.objects = {pull["head"]["sha"] for pull in shell.pulls.values()}
     shell.delivered["0" * 40] = (SQUASH, "2026-10-01T05:10:00+00:00")
-    shell.base_log = [f"{SQUASH} 2026-10-01T05:10:00+00:00\nb2: 🚚 move (#28401)"]
 
     assert reconcile(shell) == 0
 
     assert shell.fields("28400")["state"] == "landed"
-    assert shell.fields("28401")["state"] == "landed"
-    assert {shell.fields(str(pr))["state"] for pr in range(28402, 28440)} == {"closed-without-squash"}
+    assert {shell.fields(str(pr))["state"] for pr in range(28401, 28440)} == {"closed-without-squash"}
     assert "40 of 40 closed settled" in capsys.readouterr().out
-    assert len([argv for argv in shell.calls if argv[-1] == "--format=%x00%H %cI%n%B"]) == 1
+    assert len([argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"]) == 1
     assert len([argv for argv in shell.calls if argv[3:4] == ["cat-file"]]) == 1
     assert not [argv for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]]
     assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "row"]]

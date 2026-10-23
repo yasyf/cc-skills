@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from datetime import timedelta
 
 import ledger
@@ -178,6 +180,46 @@ def test_refresh_reads_every_row_in_one_shared_cache_call_and_no_gh(lock, red_ro
 
     assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "20961", "20970", "21052"]]
     assert not [argv for argv in shell.calls if argv[0] == "gh"]
+
+
+def test_a_full_refresh_reads_the_cache_in_batches_and_grades_every_row(lock, red_routes, monkeypatch):
+    monkeypatch.setattr(ledger, "REFRESH_BATCH", 2)
+    held = ["20961", "20970", "21052", "21102", "21103"]
+    shell = FakeShell(rows=[{"key": pr, "fields": {"head": "stale"}} for pr in held], routes=red_routes)
+    refresh(shell, lock)
+
+    assert sorted(argv[6:] for argv in shell.state_calls()) == [["20961", "20970"], ["21052", "21102"], ["21103"]]
+    assert all(shell.fields(pr)["head"] != "stale" for pr in held)
+    assert (shell.fields("20961")["head"], shell.fields("21052")["head"]) == (DIRTY_HEAD, MOVED_HEAD)
+
+
+def test_refresh_batches_run_at_most_refresh_workers_at_once(lock, red_routes, monkeypatch):
+    class Counting(FakeShell):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.guard = threading.Lock()
+            self.inflight = 0
+            self.peak = 0
+
+        def _pr_state(self, argv):
+            with self.guard:
+                self.inflight += 1
+                self.peak = max(self.peak, self.inflight)
+            time.sleep(0.05)
+            try:
+                return super()._pr_state(argv)
+            finally:
+                with self.guard:
+                    self.inflight -= 1
+
+    monkeypatch.setattr(ledger, "REFRESH_BATCH", 1)
+    monkeypatch.setattr(ledger, "REFRESH_WORKERS", 2)
+    held = ["20961", "20970", "21052", "21102", "21103", "21104"]
+    shell = Counting(rows=[{"key": pr, "fields": {"head": "stale"}} for pr in held], routes=red_routes)
+    refresh(shell, lock)
+
+    assert len(shell.state_calls()) == len(held)
+    assert shell.peak == 2
 
 
 def test_grade_reads_a_ccx_record():
