@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from ccn_plans import PLAN_ID, PROGRAM, CcnPlans, plan, task
-from hooks import dashboard as hook
+from hooks import prompt_watch as hook
 from hooks import compaction_handoff
 from livedash import registry
 from livedash.context import Context
@@ -198,18 +198,18 @@ def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root
     assert compaction_handoff.script("prompt_watch.py").is_file()
 
 
-def test_serve_starts_the_dashboard_after_writing_the_drive_context(monkeypatch, tmp_path):
+def test_session_start_and_drive_start_launch_the_prompt_watch_and_never_a_dashboard(monkeypatch, tmp_path):
     spawned = []
     monkeypatch.setattr(hook.subprocess, "Popen", lambda argv, **kw: spawned.append(argv))
     monkeypatch.setattr(hook.reqenv, "env_map", dict)
-    monkeypatch.setattr(hook, "dashboard_bin", lambda: Path("/p/live-dashboard"))
+    monkeypatch.setattr(hook, "entry_of", lambda evt: {"drive": "900424b6", "sessions": [], "state_dir": str(tmp_path)})
+    started = SimpleNamespace(session_id="900424b6-0000", cmd=SimpleNamespace(calls=lambda: [SimpleNamespace(name="drive.py", args=("start",))]))
 
-    hook.serve({"drive": "900424b6", "state_dir": str(tmp_path)})
+    assert hook.watch_prompts_on_session_start(started) is None
+    assert hook.watch_prompts_on_drive_start(started) is None
 
-    [(shell, flag, command)] = spawned
-    assert (shell, flag) == ("sh", "-c")
-    assert command.startswith(f"python3 {compaction_handoff.script('drive.py')} context --drive 900424b6 && ")
-    assert command.endswith(f"exec /p/live-dashboard start --dir {tmp_path / 'dashboard'}")
+    watch = ["python3", str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
+    assert spawned == [watch, watch]
 
 
 def test_inbox_files_include_rotated_archives(tmp_path):

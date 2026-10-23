@@ -82,8 +82,8 @@ Never: a post without a recorded grant; a `--ticket` flag; relayed owner words a
   announcing a pending PR as done;
   staging a dictated answer across several messages; a time in UTC or with a zone label.
 Reporter threads, per SKILL.md "Reporter threads":
-  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
-    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Ask a reporter for no evidence: no client version, id, log line, reproduction
+    step, or what they saw. The lanes read telemetry, Sentry, and our records (8ff2abf).
   - Name no cause on the reporter's machine until the evidence shows the failing
     request reached it; call any cause the lanes have not proven "suspected".
   - At most one message between the reporter's messages. A fix going live, a lane's
@@ -183,8 +183,8 @@ Never: a post without the matching channel or thread grant; a reply to a from_cl
   lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
   unglossed code nouns.
 Reporter threads, per SKILL.md "Reporter threads":
-  - Ask a reporter nothing telemetry or our records hold: a client version, an id,
-    a log line, a reproduction step. Ask only for what cannot be read, at most once.
+  - Ask a reporter for no evidence: no client version, id, log line, reproduction
+    step, or what they saw. The lanes read telemetry, Sentry, and our records (8ff2abf).
   - Name no cause on the reporter's machine until the evidence shows the failing
     request reached it; call any cause the lanes have not proven "suspected".
   - At most one message between the reporter's messages. A fix going live, a lane's

@@ -297,7 +297,7 @@ Standing orders, fixed in this template:
   - Reported <report time> PT. The bar is fixed and live within 20 minutes of the
     report, by <due time> PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    for a version, id, or log the platform records; read it from telemetry first.
+    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
     this Mac.
@@ -314,21 +314,20 @@ Do:
   0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
-     Exception, owner answer 2f6cdcf: roll the target back only when a fix forward
-     is not feasible or will take too long, and only when this brief names which of
-     the two and why. A brief that names no such reason is a fix forward; never
-     read a rollback into it.
+     No brief, lane, or exception grants a rollback or a revert. One runs only when
+     the owner's own word names that act, after your diagnosis has found the issue
+     (owner answer 36a298d); never offer one before that.
   1. Start at the named code path now, while evidence is still arriving.
      Never wait for a diagnosis verdict before starting the fix. Your first
      deliverable, before any fix, is the whole failing path: every stage from the
      user's action to the error that can fail, one line each with the telemetry
      that shows whether it failed, attached with `--path` to your `MECHANISM`
      record. A fix to one stage of a path you have not mapped is not the fix. Read the
-     reporter's case from telemetry first: the client versions of their team
+     reporter's case from telemetry: the client versions of their team
      from the metrics, the run, session, or thread record and which component
      served the failing request, server logs and Sentry by user and team id,
-     and the release timeline. Ask the reporter, through comms, only for what
-     none of these hold.
+     and the release timeline. Never ask the reporter for evidence (owner
+     answer 8ff2abf).
   2. Read <evidence lane name>'s findings as they arrive by bus or Orca messages.
      Redirect with the evidence, including to a monitor fix for a monitor defect.
      A muted monitor still gets fixed; use the mute window.

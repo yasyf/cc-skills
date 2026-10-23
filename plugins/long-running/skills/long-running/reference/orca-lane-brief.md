@@ -8,7 +8,7 @@ through `ledger.py`, never a message. Briefs live as attachments on the drive's
 Paste the templates below and fill the angle brackets.
 
 The register is the owner-approved cc-notes doc labeled `standing-rules:<program>`.
-Use the newest doc. It has at most 30 rules and links to full answers by id.
+Use the newest doc. It has at most 35 rules and links to full answers by id.
 The release-v3 register, doc `0cf17c9`, is about 8 KB.
 Its body is mirrored as the plan file's last section.
 
@@ -99,8 +99,10 @@ is listed under Escalate stops for the coordinator: use the preamble's
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
 runner escalates those messages to the root exactly like an ask.
-Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
-take the brief's default, log it with `ccn log append <drive log id>`, and report it.
+Never end a turn waiting and never park. AskUserQuestion is unavailable. A decision
+the brief, the plan, and the owner's answers do not settle stops that item until the
+coordinator answers the ask above; never take a default or a provisional pick (owner
+answers 01736af and 752564a).
 
 A question the plan or a recorded owner ruling already answers is not a question:
 apply the answer, cite it, and never put it in an ask or in an owner-question list.
@@ -247,7 +249,7 @@ Design check: before READY-FOR-SHIP, post `DESIGN-CHECK <symbol at file:line>; <
 Design questions: settle each from this spec, the register, and the base branch yourself and post the choice as a `contract` record. Ask the coordinator only when the choice changes owner-visible behaviour, and keep building the rest meanwhile.
 Stacking: open your PR as soon as its parent's PR exists, never once it lands; restack with `ccx vcs stack submit` after the parent lands.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Carry the owner-approved register's at most 30 rules, never full-answer quotes.
+  Carry the owner-approved register's at most 35 rules, never full-answer quotes.
   Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.

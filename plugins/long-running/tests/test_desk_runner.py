@@ -6729,7 +6729,7 @@ STANDING_ORDERS = """Standing orders, fixed in this template:
   - Reported {} PT. The bar is fixed and live within 20 minutes of the
     report, by {} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    for a version, id, or log the platform records; read it from telemetry first.
+    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
     this Mac.
@@ -6744,7 +6744,8 @@ def test_every_desk_incident_brief_template_carries_the_standing_orders_no_rollb
     assert STANDING_ORDERS.format("{reported}", "{due}") in text
     assert "go build" not in text and "go vet" not in text and "typecheck otherwise" not in text
     assert "  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
-    assert "Exception, owner answer 2f6cdcf: roll the target back only when a fix forward\n     is not feasible or will take too long, and only when this brief names which of\n     the two and why." in text
+    assert "No brief, lane, or exception grants a rollback or a revert. One runs only when\n     the owner's own word names that act, after your diagnosis has found the issue" in text
+    assert "2f6cdcf" not in text and "roll the target back" not in text
 
 
 @pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])

@@ -19,33 +19,32 @@ Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
   - "stop asking people for things you can collect yourself": never ask a reporter
-    for a version, id, or log the platform records; read it from telemetry first.
+    or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
   - Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
 
-Telemetry first. Before any ask reaches the reporter, read what the platform already
-  records about their case, and put each answer in the evidence:
+Telemetry, never the reporter. Read what the platform already records about their
+  case, and put each answer in the evidence:
   - the client build: the reporter's team's client versions from the metrics, and
     the version their failing requests carried;
   - the run, session, or thread record the report names, and which component served
     the failing request: a cloud run is served by the cloud, never by their machine;
   - server logs and Sentry for that request, searched by the user's and team's ids;
   - the release and deploy timeline for the component that served it.
-  Ask the reporter, through comms, only for what none of these hold, such as what
-  they saw on screen. When the same ask recurs, the fix includes the telemetry that
-  makes it unnecessary, such as the client version on every request.
+  Never ask the reporter, or anyone else, for evidence (owner answer 8ff2abf). When
+  the case needs a fact none of these hold, the fix includes the telemetry that
+  records it, such as the client version on every request.
 
 Do:
   0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
-     Exception, owner answer 2f6cdcf: roll the target back only when a fix forward
-     is not feasible or will take too long, and only when this brief names which of
-     the two and why. A brief that names no such reason is a fix forward; never
-     read a rollback into it.
+     No brief, lane, or exception grants a rollback or a revert. One runs only when
+     the owner's own word names that act, after your diagnosis has found the issue
+     (owner answer 36a298d); never offer one before that.
   1. Start at the code path the alert names while evidence is still arriving.
      Never wait for a diagnosis verdict. Your first deliverable, before any fix, is
      the whole failing path: every stage from the user's action to the error that

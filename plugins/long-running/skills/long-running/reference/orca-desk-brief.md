@@ -148,9 +148,8 @@ orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 `reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
 carry a Slack channel name's underscores. `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
 transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
-The alerts desk writes an `incident` line only when it judges a lane necessary,
-and the Slack watch lane writes one for each incident report. For an `incident`
-line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
+The alerts desk writes an `incident` line only when it judges a lane necessary.
+For an `incident` line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
 it to the briefs log as `<slug>-fix.full.md` with `ccn log append --attach
 --replace`, and launches `<slug>-fix` on incident xhigh at once on that
 attachment's `ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
@@ -333,9 +332,8 @@ After `deadlines.hold_minutes` (default 15), the runner writes once per hold:
 DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
 ```
 
-The root resolves it with the named lane before or instead of any open
-`AskUserQuestion` on another subject. That unrelated question goes to a
-non-blocking board or waits. The line reaches the root over the `cci` channel as
+The root resolves it with the named lane ahead of any open owner card on another
+subject; that card keeps waiting for its tap. The line reaches the root over the `cci` channel as
 soon as the runner writes it. The hold verb records
 a decision clock; it does not change the landing holds file or authorize a release.
 

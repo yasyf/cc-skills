@@ -6,7 +6,7 @@
     handoff.py lint     (--doc ID | --file PATH) --program SLUG [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
 ``generate`` reads the newest cc-notes doc labelled ``standing-rules:<program>``.
-The register holds at most 30 owner-approved rules with answer ids linking to the full
+The register holds at most 35 owner-approved rules with answer ids linking to the full
 rulings in cc-notes. Generation never builds or writes a register doc or file.
 The progress record's ``## Standing owner rules`` section names the register doc and its
 rule count; the register itself arrives verbatim after compaction. Once the register
@@ -369,13 +369,6 @@ def rule_lines(handoff: Handoff) -> list[str]:
     return [f"- {rid} [{handoff.sources[rid]}]" for rid in handoff.standing] + [f"- {line}" for line in handoff.retired]
 
 
-def dashboard_line(registry: dict) -> str:
-    server = Path(registry["state_dir"]) / drive.DASHBOARD_SERVER
-    if server.exists():
-        return f"- Dashboard: {drive.dashboard_url(json.loads(server.read_text()))}; give the owner this link in your next reply"
-    return f"- Dashboard: not running; `live-dashboard start --dir {Path(registry['state_dir']) / drive.DASHBOARD_SERVER.parent}` starts it and prints the link for the owner"
-
-
 def standing_section(handoff: Handoff) -> str:
     return standing.section_of(handoff.register, rule_lines(handoff), handoff.narrative, handoff.rows)
 
@@ -398,7 +391,6 @@ def render(handoff: Handoff) -> str:
             f"- Drive `{registry['drive']}`: ledger `{registry['ledger'][:SHORT]}`, Orca run `{registry.get('orca_run') or '-'}`, "
             f"checkout `{registry['checkout']}`, root sessions {', '.join(session[:8] for session in registry['sessions'])}"
         )
-        out.append(dashboard_line(registry))
     out += ["", "## Open owner asks"] + ([f"- {line}" for line in handoff.asks] or ["- none"])
     active = [task for task in handoff.tasks if task["status"] == "in_progress"]
     out += ["", "## Open tasks"]

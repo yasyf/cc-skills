@@ -3,8 +3,7 @@
 Every update the root gives the owner, milestone report or status answer, is this
 table. The owner reads it to learn what is left of the plan, what holds each piece,
 what the drive is doing about it, and what has gone wrong so far. Lead with the
-dashboard link, then the table, then at most three plain sentences on what the owner
-must decide, if anything.
+table, then at most three plain sentences on what the owner must decide, if anything.
 
 ## Shape
 
