@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:d5908f0cff6d — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:67a8d7daad94 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -4590,13 +4590,11 @@ function systemMd(spec,L){
  const ends=s=>s.from===s.to?`in ${name[s.from]}`:`${name[s.from]} to ${name[s.to]}`;
  const MARK={risk:" (a risk)",stop:" (refused on purpose)"};
  const step=(s,i,pad)=>L.push(`${pad}${i+1}. ${plain(s.say)} (${ends(s)})${s.waitsFor?` (waits for step ${s.waitsFor})`:""}${s.mark?MARK[s.mark]:""}`);
+ const group=Object.fromEntries((spec.groups||[]).map(g=>[g.id,plain(g.label)]));
  L.push("");
- spec.blocks.filter(b=>!b.group).forEach(block);
- (spec.groups||[]).forEach(g=>{
-  const inside=spec.blocks.filter(b=>b.group===g.id);
-  if(!inside.length)return;
-  L.push(`\n_${plain(g.label)}_\n`);
-  inside.forEach(block);
+ [...new Set(spec.blocks.map(b=>b.group||null))].forEach(g=>{
+  L.push(g?`\n_${group[g]}_\n`:"");
+  spec.blocks.filter(b=>(b.group||null)===g).forEach(block);
  });
  if(spec.path){
   L.push(`\n_${plain(spec.path.title)}_\n`);
