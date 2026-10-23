@@ -103,6 +103,7 @@ REPEAT_MARKERS = re.compile(
 )
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 QUOTED_WORDS = 4
+PLAIN_WORDS = 3
 PLACEMENT = re.compile(
     r"\b(?:lives?|belongs?|goes|put|puts|placed?|home)\b(?:\W+\w+){0,6}?\W+(?:in|into|inside|outside|under)\b"
     r"|\b(?:not in|out of|in) scope\b|\bonly (?:in|on)\b|\bnever (?:in|on)\b"
@@ -255,6 +256,11 @@ def stored(value: object) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
+def repeat_answers(repeat: dict) -> list[str]:
+    found = repeat.get("answer")
+    return [str(answer) for answer in (found if isinstance(found, list) else [found]) if answer]
+
+
 def first_sentence(words: str) -> str:
     text = " ".join(words.split())
     return match[1] if (match := re.match(r"(.+?[.?!])(?:\s|$)", text)) else text
@@ -390,9 +396,8 @@ class Register:
             for answer in listed(fields.get("answer")):
                 words.setdefault(str(answer)[:SHORT], []).append((fields.get("words") or "", banned))
             for repeat in listed(fields.get("repeats")):
-                for answer in repeat.get("answer") if isinstance(repeat.get("answer"), list) else [repeat.get("answer")]:
-                    if answer:
-                        words.setdefault(str(answer)[:SHORT], []).append((repeat.get("words") or "", banned))
+                for answer in repeat_answers(repeat):
+                    words.setdefault(answer[:SHORT], []).append((repeat.get("words") or "", banned))
         return words
 
 
@@ -1457,6 +1462,24 @@ def cites(head: Head, key: str, fields: dict[str, str]) -> bool:
     return key in head.rulings or bool({str(answer)[:SHORT] for answer in listed(fields.get("answer"))} & head.cited)
 
 
+def folded(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
+    repeats = listed(fields.get("repeats"))
+    answers = {str(answer)[:SHORT] for answer in [*listed(fields.get("answer")), *(found for repeat in repeats for found in repeat_answers(repeat))]}
+    if key not in line and not answers & {token[:SHORT] for token in CITED.findall(line)}:
+        return False
+    said = [folded(words) for words in (fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in repeats)) if words]
+    spans = [span for span in QUOTED.finditer(line) if len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
+    return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
+
+
+def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
+    return any(acknowledges(line, key, fields) for line in head.rulings.splitlines())
+
+
 def op_hits(op: str, diff: Diff) -> bool:
     if "/" in op:
         return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added)
@@ -1571,9 +1594,9 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         return
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
-    authorizers = loaded.answer_words()
-    for hit in Sweeper(loaded, loaded.scope()).diff(head.diff):
-        if hit.status == "open" and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
+    authorizers, scope = loaded.answer_words(), loaded.scope()
+    for hit in Sweeper(loaded, scope).diff(head.diff):
+        if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
     words = head.in_your_words
     findings.refusals += ["RULINGS-PLAIN no ### In your words section"] if words is None else plain_problems(words)

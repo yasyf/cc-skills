@@ -247,6 +247,43 @@ def test_an_added_scope_name_needs_a_cited_answer_whose_words_name_it(package: P
     )
 
 
+EDGE_CASES = {
+    "kind": "scope",
+    "status": "in-force",
+    "global": "yes",
+    "words": "Do not handle weird edge cases. Make it work in the default case, with none of the refusals anyone is having.",
+    "answer": '["5a5a5a5"]',
+    "at": "Oct 22 9:00 AM PT",
+    "said": "1",
+    "names": '["edge cases", "refusals", "default case"]',
+    "steps": '["all"]',
+    "lanes": '["all"]',
+    "paths": "none",
+}
+SERIES_DIFF = DIFF.replace("+    self.drain();", "+    series.Refusals = append(series.Refusals, cause);")
+SERIES_HIT = "NAME-HIT rule/5a5a5a5 src/relay/pool.rs:2 refusals"
+
+
+@pytest.mark.parametrize(
+    ("line", "refusals"),
+    [
+        (None, [SERIES_HIT]),
+        ("- rule/5a5a5a5: leaves out edge cases", [SERIES_HIT]),
+        ('- 5a5a5a5, Oct 22: "never refuse anything at all". The series check refuses only a missing series.', [SERIES_HIT]),
+        ('- 5a5a5a5, Oct 22: "Make it work in the default case".', [SERIES_HIT]),
+        ('- bbbbbbb, Oct 22: "Make it work in the default case". The series check refuses only a missing series.', [SERIES_HIT]),
+        ('- 5a5a5a5, Oct 22: "Make it work in the default case". The series check refuses only a missing or failing series.', []),
+        ('- rule/5a5a5a5: "with none of the refusals anyone is having". A cut waits only on a missing or failing series.', []),
+    ],
+)
+def test_a_hit_on_a_rows_own_name_clears_once_rulings_quote_that_row_and_say_how_the_pr_keeps_it(
+    package: Path, state: Path, registered: Path, capsys, line: str | None, refusals: list[str]
+) -> None:
+    rows = pinned(package) | {"rule/5a5a5a5": dict(EDGE_CASES)}
+    body = citing(line) if line else CLEAN
+    assert check(capsys, CheckShell(rows, body=body, diff=SERIES_DIFF)) == (1 if refusals else 0, refusals)
+
+
 def test_in_your_words_must_be_there_and_read_plainly(package: Path, state: Path, registered: Path, capsys) -> None:
     jargon = CLEAN.replace(
         "The pool empties itself when a run ends.", 'The lane moves `Pool.drain` into src/relay/pool.rs (bbbbbbb) and "keep the relay-server small".'

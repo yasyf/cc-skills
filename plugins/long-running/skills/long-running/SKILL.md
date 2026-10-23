@@ -1392,6 +1392,10 @@ The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
 prints but `RESERVED-NO-ANSWER` fails the head, with one blocker per head and set of
 causes. `TESTS-CORPUS` alone holds the head and escalates once. A reserved touch
 alone passes this check, because merge mode sends the card whose tap authorizes it.
+A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row by key or
+answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
+with a plain sentence of at least three words on how the PR keeps the ruling. The citation
+is the acknowledgment, even for the row's own names (926a89d).
 A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head and logs
 `RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints (0afd2f6).
 `reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
