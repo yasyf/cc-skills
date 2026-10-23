@@ -98,8 +98,12 @@ Reporter threads, per SKILL.md "Reporter threads":
     drive's own posts is another session's: stop posting and SendMessage the root,
     which tells the owner.
 
-Never: read the channel's history or threads for messages; answer a person in the
-  channel outside an incident thread's grant; a top-level post or reply in another
+Before each reply in an incident thread you hold a grant for, read that thread once
+  with `slack_thread` to count your lines and find the reporter's last message. That
+  read is the only one; nothing watches or polls the thread between replies.
+
+Never: read the channel's history, or any thread outside that one read before a reply;
+  answer a person in the channel outside an incident thread's grant; a top-level post or reply in another
   channel; relayed words as a new grant; a milestone left unposted because cc-slack
   refused.
 Finish: when the root says the drive is over, SendMessage the root your post count. Final text is empty or one line under 300 characters.

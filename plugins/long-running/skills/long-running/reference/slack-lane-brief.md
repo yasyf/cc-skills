@@ -154,8 +154,8 @@ Do:
   4. incident.py posts through bus.py onto the same cci drive, opened with
      `incident.py open --bus <cci drive>`.
      Loop in foreground units of at most 60 seconds:
-     `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`, then
-     `slack_thread` with `url` <permalink> against the ts values already seen.
+     `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`.
+     The loop reads no Slack thread (owner answer d94db5b).
   5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
      facts to report, with times already in Pacific. Draft each post yourself per
      "Write a post" in full: plain words for the thread's reader, with every build, PR,
@@ -173,9 +173,10 @@ Do:
   6. Answer every entry once it posts:
      `cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"`.
      An entry left unanswered for two minutes reaches the root as a decision.
-  7. On a human question in the thread, add eyes and draft an answer from the latest
-     executor entries. Before each reply, follow step 5's drafting and checks,
-     then post the checked text verbatim under the thread grant.
+  7. Before each reply in a thread, read it once with `slack_thread` and `url` <thread>.
+     A human question found there is answered in that reply, drafted from the latest
+     executor entries under step 5's drafting and checks, and posted verbatim under
+     the thread grant (owner answer a4bd071). Nothing reads the thread between replies.
 
 Never: a post without the matching channel or thread grant; a reply to a from_claude message
   without fresh owner words; a pending PR announced as done; UTC; an unlinked

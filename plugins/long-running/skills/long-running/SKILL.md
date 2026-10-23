@@ -1019,9 +1019,8 @@ lanes, `long-running` types from a root that started on plugin 0.7.121, carried 
 other Slack tool. The replies went out at 2:30 through the user-level MCP.*
 - Urgency never licenses the root to write Slack. When a Slack lane stalls, the root
   spawns a fresh sender lane whose brief carries the grant and the exact approved or
-  dictated text; it posts first, then watches. The root tells the owner "posting via
-  a lane" and checks the post's ts on disk within 2 minutes. A lane that is mid-watch
-  is never the channel for a new post. In an incident, the executor raises a silent
+  dictated text; it posts and reports the post's ts. The root tells the owner "posting via
+  a lane" and checks the post's ts on disk within 2 minutes. In an incident, the executor raises a silent
   comms lane as a decision. The replacement lane posts the executor's unanswered
   event, so nothing is restated.
 - A post that asks a person to act (a grant, a permission, an approval, an answer)
