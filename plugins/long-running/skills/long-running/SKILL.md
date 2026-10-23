@@ -1073,14 +1073,9 @@ cloud run so what does it have to do with his local sand?", and in the thread it
 updates, the root records the owner's words as the channel's grant and spawns
 `comms-desk` from `reference/comms-desk-brief.md`. The grant is one cc-notes answer
 quoting those words with the label `slack-grant:<id>`. The Slack permission hook reads
-it as a standing grant for top-level posts and for a reply in every thread of the
-channel. It never waits on a board or a second owner ask. Under them the comms desk answers a human's
-question in the channel within 15 minutes without asking the root; only a reply that
-commits the drive to new behaviour goes to the root first.
-
-*Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
-channel, when the drive-start grant covered top-level posts only and the thread grant
-sat on an owner board.*
+it as a standing grant for top-level posts. It never waits on a board or a second owner
+ask. The comms desk posts milestones there; it never reads the channel for messages and
+answers nobody in it (owner answer d94db5b).
 
 **Status posts mark milestones, never a clock.** The drive posts to its updates
 channel at each milestone: a fix live on a named build, a release passed or failed, a
