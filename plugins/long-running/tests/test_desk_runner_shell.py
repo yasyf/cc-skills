@@ -25,3 +25,9 @@ def test_a_child_past_the_timeout_is_killed_and_fails_its_pass(monkeypatch):
     done = runner_module.Shell().run(["sleep", "5"])
 
     assert done == runner_module.Done(runner_module.TIMED_OUT, "", "sleep 5 timed out after 0.2s and was killed")
+
+
+def test_a_diff_holding_a_byte_that_is_not_utf8_reads_with_the_byte_replaced():
+    done = runner_module.Shell().run(["printf", "+caf\\351 \\265s\\n"])
+
+    assert (done.code, done.out) == (0, "+caf\ufffd \ufffds\n")
