@@ -784,8 +784,9 @@ def test_round_puts_at_most_ten_rulings_on_the_board_foundational_first_and_skip
     assert json.loads((state / "cards" / "rounds" / "round-1.json").read_text()) == {"round": 1, "keys": taken}
     presented = [argv for argv in shell.calls if argv[0] == "cc-present"]
     assert presented[0] == ["cc-present", "round", "--title", "Your rulings, read back: round 1"]
-    blocks = [json.loads(Path(argv[2]).read_text()) for argv in presented[1:]]
-    assert [argv[:2] for argv in presented[1:]] == [["cc-present", "ask"]] * len(taken)
+    blocks = [json.loads(Path(argv[2]).read_text()) for argv in presented[1:-1]]
+    assert [[*argv[:2], *argv[3:]] for argv in presented[1:-1]] == [["cc-present", "update-block", "--round", "current"]] * len(taken)
+    assert presented[-1] == ["cc-present", "send", "--blocks", ",".join(rulings.card_id(key) for key in taken)]
     assert [block["id"] for block in blocks] == [rulings.card_id(key) for key in taken]
     assert blocks[0]["title"] == "Did I read \u201crule/aaaaaaa\u201d right?"
     assert blocks[0]["children"] == [

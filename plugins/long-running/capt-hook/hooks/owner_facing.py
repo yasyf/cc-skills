@@ -163,7 +163,7 @@ CC_PRESENT = CommandSchema(
     "cc-present",
     operands=(Operand("verb"), Operand("words", count="*")),
     options=(
-        *(Option(name, (f"--{name}",)) for name in ("after", "block", "body", "cwd", "doc", "note", "root", "round", "round-title", "session", "title")),
+        *(Option(name, (f"--{name}",)) for name in ("after", "block", "blocks", "body", "cwd", "doc", "note", "root", "round", "round-title", "session", "slack", "title")),
         *(Option(name, (f"--{name}",), bool) for name in ("clear", "dry-run", "new")),
     ),
 )

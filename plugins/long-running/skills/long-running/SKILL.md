@@ -833,11 +833,11 @@ down; a running copy never sees the `SendMessage`.
 opening #28594 29 s after its stand-down (2026-10-01).*
 
 **R19. A settled question is applied, never asked.**
-Before an owner question reaches a `needs_you` card or, in a planning round, a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
+Before an owner question reaches the cc-present board (`cc-present start --doc`, `push`, `update-block`) and, through `cc-present send`, its Slack card, the root checks each question against the authorities.
 First read the owner's plan and every plan it names as source of truth, including each plan's Decisions section and the section the question touches. Then check `ccn answer list --label scope:durable` plus the drive's answer labels. Last check the project's feedback memories.
 A question any of them answers is applied: the root writes the ruling to the lanes (R18) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking.
 
-A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Only after the filter does a question go out: on a `needs_you` card during execution, and on a board only in a planning round (owner answer 01736af).
+A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Only after the filter does a question go out: on the board, and during execution also to Slack through `cc-present send` (owner answers 01736af, b4dfb16).
 
 An absolute owner instruction ("nothing is dropped", "every side-feature carries") stays absolute in every brief, ruling, and memory the root writes.
 Never add "unless the owner explicitly drops it" or "or an explicit owner drop": an exit turns the ruling into a decision surface, and audit lanes manufacture questions from it.
@@ -869,7 +869,7 @@ told you", or "the plan is", is recorded the turn it arrives, as an `answer_add`
 `scope:durable` and a line in the plan's Decisions section. When a turn ends without an `answer_add` or
 `answer_edit`, the `root_context` hook queues `owner standing rule not recorded:
 answer_add it (scope:durable) + a plan Decisions line` for the next turn.
-A tap on a `needs_you` card, a tap approving a Slack lane's draft included, is the
+A tap on an ask card, on Slack or the board, a tap approving a Slack lane's draft included, is the
 owner's answer and the authorization for that question (owner answer 01736af). The root
 records it as one `from:owner` answer whose body names the card's permalink and the
 tapped label.
@@ -879,7 +879,7 @@ tapped label.
 **R19a. A gate that wants an owner-recorded answer for a settled decision is satisfied the same turn.**
 Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling`
 taking a cc-notes answer id. When the plan or a board pick already carries the
-decision, the root asks it that turn on a `needs_you` card with the choices as buttons (owner answer 01736af). Otherwise
+decision, the root asks it that turn as a question card on the board, sent with `cc-present send` (owner answers 01736af, b4dfb16). Otherwise
 it records the plan's decision as the ruling and accepts on the owner's behalf, citing the plan line
 or board pick id in the accept reason. The root never ends a turn waiting for the owner to say "ask",
 and never leaves the PRs behind the gate parked.
@@ -952,8 +952,8 @@ approval: the root quotes the owner's words verbatim to the Slack lane that turn
 the lane posts directly with no draft round trip. The Slack permission hook counts the
 root's prompts as the owner's words for a lane's write and mints the ticket for that
 place. Only a post the owner did not ask for goes back to the root as an exact draft.
-The root runs that write, posts the ask card the cc-slack permission hook prints for it
-with `slack_dm_status`, and stops on that post until the owner's tap approves it; then
+The root runs that write, asks the question the cc-slack permission hook prints for it
+with `cc-present ask -` and the hook's board card, and stops on it until the owner's tap approves it; then
 it retries the same write (owner answer 01736af). On a hook refusal for a judge
 timeout, the lane retries once, then reports the verdict to the hook lane and keeps going.
 The root hands the Slack lane facts: what happened, when in Pacific time, who asked,
@@ -973,18 +973,31 @@ write to a lane. `cc-slack dm-status` to the user's own DM stays the root's.
 
 Every update the root sends to that DM is a status card, `slack_dm_status(card)`.
 `drive` is the drive's name and `phase` its current phase. `status` is `incident`
-for an incident, `needs_you` for an owner ask with its choices as `options`, `done`
-for a landing or release, and `progress` otherwise. A tap on a card reaches the root
-as a directive on its next tool call. The root never parks waiting for a tap. Every
-owner ask the drive blocks on is a card with its choices as buttons: a `needs_you`
-card, or for a per-PR merge ask under D3 the PR card the landing runner posts, never an `AskUserQuestion`, and the lane that asked
-stops on that item until the tap (owner answer 01736af). Every ask card sets a `waits`
-id, so cc-slack draws its fixed `Explain more` button in place of Ack and Pause
-(93037c3), and never lists `Explain more` among its `options`: cc-slack refuses a
-waiting card that repeats it. An `Explain more` tap resolves nothing. The root posts
-`cci post --drive <drive> --lane root --kind ask --to root --text "explain more: <waits id>"`,
-replies in the card's thread in plain words, and the lane stays stopped until an
-answer is tapped. The
+for an incident, `done` for a landing or release, and `progress` otherwise. A tap on
+a card reaches the root as a directive on its next tool call. The root never parks
+waiting for a tap. Every owner ask the drive blocks on starts on the root's cc-present
+board, except a per-PR merge ask under D3, which is the PR card the landing runner
+posts (abddb9a). The root puts each question card on the board with `cc-present push`
+or `update-block`: the card's id is the question id, its title the question, and its
+one single-select `choice` holds the answers with exactly one `recommended`. Then one
+call sends them all:
+
+```bash
+cc-present send
+```
+
+It posts every open question card on the board to the status thread as an ask card
+with buttons, edits a card already posted there in place, and links each board card
+to its Slack card, so the first answer on either surface wins (owner answers 01736af,
+b4dfb16, f2029ef). Never an `AskUserQuestion`, and never a question card hand-posted
+with `slack_dm_status`: cc-slack posts one but warns. The lane that asked stops on
+that item until the tap. cc-slack draws the fixed Other and `Explain more` buttons in
+place of Ack and Pause (93037c3), so no card lists either among its answers. An
+`Explain more` tap resolves nothing. The root posts
+`cci post --drive <drive> --lane root --kind ask --to root --text "explain more: <card id>"`,
+then answers in plain words with `cc-present reply --block <card id> --body <answer>`,
+which replies on the board and under the Slack card with a link back to it, and the
+lane stays stopped until an answer is tapped. The
 user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
 cannot join.
 
@@ -3013,7 +3026,7 @@ so it identifies nothing.
   the command in the record and decides.
 - A question dialog on the coordinator's terminal already waits on the owner there, so
   it raises no record, and `show` still lists it. During execution an owner question
-  goes on a `needs_you` card, never that dialog (owner answer 01736af).
+  goes on the board and to Slack through `cc-present send`, never that dialog (owner answers 01736af, b4dfb16).
 - Its own approval cannot wake the coordinator. Register one independent agent as its
   supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
   coordinator's approval is then a `blocker` to that lane, and the watch types the
@@ -3878,7 +3891,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
-17. Am I about to ask the owner anything (a `needs_you` card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
+17. Am I about to ask the owner anything (a question card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Before writing a desk brief or handoff with an owner rule, record each standing
     rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`

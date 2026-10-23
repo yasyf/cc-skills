@@ -63,9 +63,10 @@ Do:
      fix real flags.
   7. Post only when this brief carries <grant id>. Otherwise SendMessage <root agent name>
      the exact draft and stop. The root either records a standing thread grant
-     from the owner's own words and hands back the id, or posts the ask card the
-     cc-slack permission hook prints for the draft and, once the owner's tap approves
-     it, posts the draft itself (owner answer 01736af).
+     from the owner's own words and hands back the id, or asks the question the
+     cc-slack permission hook prints for the draft with `cc-present ask -` and the
+     hook's board card and, once the owner's tap approves it, posts the draft itself
+     (owner answers 01736af, b4dfb16).
   8. Post the thread reply as the cc-slack bot:
      `slack_reply` with `url` <permalink> and `text` <copy>.
      Leave top-level channel posts to <root agent name>.

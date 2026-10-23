@@ -77,7 +77,13 @@ def test_a_draft_the_owner_did_not_ask_for_goes_on_the_permission_hooks_ask_card
     text = flat(Path(__file__).resolve().parents[1] / "skills/long-running" / path)
     assert "AskUserQuestion Send preview" not in text and "`AskUserQuestion` `Send` preview" not in text
     assert "source:askuserquestion" not in text
-    assert "the ask card the cc-slack permission hook prints for" in text
+    assert "the question the cc-slack permission hook prints for" in text and "`cc-present ask -`" in text
+
+
+def test_the_root_puts_questions_on_the_board_then_sends_them_to_slack_in_one_call():
+    text = flat(Path(__file__).resolve().parents[1] / "skills/long-running/SKILL.md")
+    assert "cc-present send" in text and "never a question card hand-posted with `slack_dm_status`" in text
+    assert "`needs_you` for an owner ask" not in text and "on a `needs_you` card during execution" not in text
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "reference/drive-watchdog-brief.md", "reference/owner-report-table.md", "reference/orca-lane-brief.md"])
