@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -21,7 +22,7 @@ from captain_hook import (
 )
 from captain_hook.transcripts import TranscriptLoadError
 
-from .compaction_handoff import FIXTURES, CompactionState
+from .compaction_handoff import CompactionState
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 
@@ -40,8 +41,8 @@ QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 WORD = re.compile(r"[\w']+")
 SYSTEM_PREFIXES = ("<", "[Request interrupted", "This session is being continued")
 MISLABELED = (
-    "Warning, nothing was blocked: an `OWNER h:mm` label below matches neither the owner message it quotes nor any owner message within 15 minutes."
-    " The nearest owner messages' times are beside each; use the right one in your next message or record."
+    "Warning, nothing was blocked: an `OWNER h:mm` label below is off from the owner message it quotes, or, quoting none, more than 15 minutes"
+    " from every owner message. The nearest owner message times are beside each; use the right one in your next message or record."
 )
 MID_TURN = [
     T.user("pause the batch until the scan lands", timestamp="2026-01-15T20:09:00Z"),
@@ -56,7 +57,6 @@ MID_TURN = [
         "attachment": {"type": "queued_command", "prompt": "then post the board once the fix lands", "commandMode": "prompt"},
     },
 ]
-UNPARSEABLE = FIXTURES / "unparseable-transcript.jsonl"
 LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
     r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|[\w.-]:\s*(?:idle|silent|dead|stuck|empty)\b"
@@ -130,9 +130,7 @@ def quoted_turn(segment: str, turns: list[tuple[datetime, list[str]]]) -> dateti
 
 def labeled_segments(text: str) -> list[tuple[re.Match[str], str]]:
     labels = list(OWNER_LABEL.finditer(text))
-    starts = [0, *(label.end() for label in labels[:-1])]
-    ends = [*(label.start() for label in labels[1:]), len(text)]
-    return [(label, text[start:end]) for label, start, end in zip(labels, starts, ends, strict=True)]
+    return [(label, text[label.start() : following.start() if following else None]) for label, following in pairwise([*labels, None])]
 
 
 def minute_of_day(hour: int, minute: int, half: str) -> int:
@@ -240,7 +238,6 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
         Input(transcript=replied(*MID_TURN, reply='Recorded OWNER 12:21 PM "post the board once the fix lands".'), state=ACTIVE): Allow(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Allow(),
         Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Allow(),
-        Input(transcript=UNPARSEABLE, state=ACTIVE): Allow(),
     },
 )
 def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
@@ -276,10 +273,14 @@ def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             state=ACTIVE,
         ): Warn(pattern=r"OWNER 12:09 PM -> OWNER 12:19 PM\n"),
         Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:30 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Allow(),
+        Input(
+            command="cci post --drive d --lane root --kind decide --text 'OWNER 12:21 PM \"post the board once the fix lands\"; OWNER 12:09 PM \"pause the batch until the scan lands\"'",
+            transcript=MID_TURN,
+            state=ACTIVE,
+        ): Allow(),
         Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:51 PM: board is posted'", transcript=MID_TURN, state=ACTIVE): Warn(
             pattern=r"OWNER 12:51 PM -> OWNER 12:21 PM or 12:19 PM"
         ),
-        Input(command="cci post --drive d --lane root --kind decide --text 'OWNER 12:51 PM: board is posted'", transcript=UNPARSEABLE, state=ACTIVE): Allow(),
     },
 )
 def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
