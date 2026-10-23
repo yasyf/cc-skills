@@ -9,7 +9,7 @@ from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 
-from .compaction_handoff import CompactionState, drive_entry
+from .compaction_handoff import CompactionState, drive_entry, script_module
 from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
     CARD_TERMS,
@@ -32,6 +32,7 @@ from .tests.refusal_fixtures import (
     REFUSED_IDENTIFIERS,
     RELISTED,
     RETIRE_AND_RECONVERT,
+    RUST_TESTS_RS,
     SENTINEL_ONLY,
     TEST_ONLY,
     TREE,
@@ -68,10 +69,7 @@ TRUNK = ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
 UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
 TOPLEVEL = ["git", "rev-parse", "--show-toplevel"]
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
-EXEMPT = re.compile(
-    r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__|e2e)/|(?:^|/)[a-z0-9]+(?:test|harness)/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$"
-    r"|\.(?:md|mdx|txt|rst|lock|sum)$|(?:^|/)package-lock\.json$"
-)
+EXEMPT = re.compile(rf"{script_module('testfiles').TEST_FILE.pattern}|\.(?:md|mdx|txt|rst|lock|sum)$|(?:^|/)package-lock\.json$")
 COMMENT = re.compile(r"^\s*(?:#|//|--\s|/\*|\*\s|\*$)")
 TEST_LINE = re.compile(r"\b(?:Input|Block|Allow|Warn|Ask|Rewrite)\(")
 KIND = re.compile(r"""["'`](?P<name>[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)+)["'`]""")
@@ -400,6 +398,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(ON_BASE)): Warn(pattern=r"refusal kind MERGE-ASK"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(E2E_AND_HARNESS)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(REFUSED_IDENTIFIERS)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RUST_TESTS_RS)): Allow(),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Warn(),

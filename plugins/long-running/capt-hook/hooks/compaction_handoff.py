@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shutil
@@ -7,7 +8,9 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from functools import cache
 from pathlib import Path
+from types import ModuleType
 from typing import Literal
 
 from captain_hook import (
@@ -105,6 +108,14 @@ def newest(root: Path) -> Path:
 
 def script(name: str) -> Path:
     return newest(Path(__file__).parents[2]) / SCRIPTS / name
+
+
+@cache
+def script_module(name: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"long_running_{name}", script(f"{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
