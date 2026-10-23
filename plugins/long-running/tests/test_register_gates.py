@@ -122,7 +122,7 @@ def test_a_register_read_error_passes_the_call_and_posts_one_blocker(root):
     assert root.fire(PreToolUseEvent, tool_name="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}) == []
 
     texts = [option(blocker, "--text") for blocker in root.blockers()]
-    assert [text.split()[0] for text in texts] == ["register_gate", "owner_question_gate"]
+    assert [text.split()[0] for text in texts] == ["register_gate", "go_and_cut_gate", "owner_question_gate"]
     assert all("could not read the register (ccn: no ledger titled register: brook)" in text for text in texts)
 
 
@@ -204,8 +204,8 @@ def landed(pr: str, minutes_ago: int, step: str, head: str) -> dict:
     return {"pr": pr, "state": "landed", "landed_at": stamp(minutes_ago), "head": head, "step": step}
 
 
-def graded(pr: str, head: str, *keys: str) -> dict:
-    return {"kind": "review", "text": f"fidelity: ok {head[:7]} checked {','.join(keys) or 'rule/0a1b2c3'}", "at": stamp(1), "refs": {"prs": [f"{REPO}#{pr}"]}}
+def graded(pr: str, head: str) -> dict:
+    return {"kind": "review", "text": f"fidelity: ok {head[:7]} checked rule/0a1b2c3", "at": stamp(1), "refs": {"prs": [f"{REPO}#{pr}"]}}
 
 
 def cut(bus: Bus, rows: dict, verb: str = "cut", incident: bool = False, repairs: tuple[str, ...] = ()) -> dict:
@@ -224,48 +224,46 @@ def test_c227_outside_an_incident_the_cut_waits_on_an_owed_watch():
     bus = Bus([released(300)], [landed("41", 200, "1.5", A)])
     bus.records.append({"seq": 99, "kind": "review", **graded("41", A)})
 
-    assert keys(cut(bus, {"rule/1a2b3c4": WATCH})["refusals"]) == ["gate:rule/1a2b3c4"]
+    assert keys(cut(bus, {"rule/1a2b3c4": WATCH})["stops"]) == ["gate:rule/1a2b3c4"]
 
 
 def test_c227_after_r1b_a_cut_spanning_two_plan_steps_is_refused():
     bus = Bus([released(300, "R1b"), graded("41", A), graded("42", B)], [landed("41", 20, "1.5", A), landed("42", 10, "1.9", B)])
 
-    assert keys(cut(bus, {})["refusals"]) == ["steps"]
+    assert keys(cut(bus, {})["stops"]) == ["steps"]
 
 
 def test_c227_r1as_cut_carries_two_steps_and_passes():
     bus = Bus([released(300, "R1a"), graded("41", A), graded("42", B)], [landed("41", 20, "1.5", A), landed("42", 10, "1.9", B)])
 
-    assert cut(bus, {}) == {"refusals": [], "blockers": []}
+    assert cut(bus, {}) == {"stops": [], "blockers": []}
 
 
 def test_c227_a_head_ungraded_thirty_minutes_after_merge_is_refused():
     bus = Bus([released(300)], [landed("41", 45, "1.5", A), landed("42", 10, "1.5", B)])
 
-    assert keys(cut(bus, {})["refusals"]) == ["ungraded:41"]
+    assert keys(cut(bus, {})["stops"]) == ["ungraded:41"]
 
 
-def test_c227_a_broken_reserved_row_is_refused_until_a_riding_head_is_graded_against_it():
-    rows = {"rule/5b6c7d8": RESERVED}
-    unchecked = Bus([released(300), graded("41", A, "rule/0a1b2c3")], [landed("41", 20, "1.5", A)])
-    checked = Bus([released(300), graded("41", A, "rule/0a1b2c3", "rule/5b6c7d8")], [landed("41", 20, "1.5", A)])
+def test_c227_a_broken_reserved_row_refuses_the_cut_until_it_is_back_in_force():
+    bus = Bus([released(300), graded("41", A)], [landed("41", 20, "1.5", A)])
 
-    assert keys(cut(unchecked, rows)["refusals"]) == ["broken:rule/5b6c7d8"]
-    assert cut(checked, rows)["refusals"] == []
+    assert keys(cut(bus, {"rule/5b6c7d8": RESERVED})["stops"]) == ["broken:rule/5b6c7d8"]
+    assert cut(bus, {"rule/5b6c7d8": RESERVED | {"status": "in-force"}})["stops"] == []
 
 
 def test_c227_the_testing_bar_blocks_the_flag_widening_and_not_the_cut():
     bus = Bus([released(300)], [])
     rows = {"rule/7e8f901": TESTING_BAR}
 
-    assert keys(cut(bus, rows, verb="widen")["refusals"]) == ["gate:rule/7e8f901"]
-    assert cut(bus, rows)["refusals"] == []
+    assert keys(cut(bus, rows, verb="widen")["stops"]) == ["gate:rule/7e8f901"]
+    assert cut(bus, rows)["stops"] == []
 
 
 def test_c227_prs_landed_before_the_targets_last_release_do_not_ride():
     bus = Bus([released(30, "R1b")], [landed("41", 200, "1.5", A), landed("42", 100, "1.9", B)])
 
-    assert cut(bus, {}) == {"refusals": [], "blockers": []}
+    assert cut(bus, {}) == {"stops": [], "blockers": []}
 
 
 def test_c228_during_an_incident_a_cut_carrying_the_declared_fix_passes_with_a_blocker():
@@ -273,8 +271,14 @@ def test_c228_during_an_incident_a_cut_carrying_the_declared_fix_passes_with_a_b
 
     outcome = cut(bus, {"rule/1a2b3c4": WATCH}, incident=True, repairs=("41555",))
 
-    assert outcome["refusals"] == []
+    assert outcome["stops"] == []
     assert keys(outcome["blockers"]) == ["gate:rule/1a2b3c4", "ungraded:41555"]
+
+
+def test_c228_a_declared_fix_released_by_an_earlier_cut_still_counts_as_carried():
+    bus = Bus([released(30)], [landed("41555", 45, "1.5", A)])
+
+    assert cut(bus, {}, incident=True, repairs=("41555",))["stops"] == []
 
 
 def test_c228_during_an_incident_a_cut_without_the_declared_fix_is_refused():
@@ -282,5 +286,5 @@ def test_c228_during_an_incident_a_cut_without_the_declared_fix_is_refused():
 
     outcome = cut(bus, {}, incident=True, repairs=("41555",))
 
-    assert keys(outcome["refusals"]) == ["fix:41555"]
+    assert keys(outcome["stops"]) == ["fix:41555"]
     assert outcome["blockers"] == []

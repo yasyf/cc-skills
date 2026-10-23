@@ -2,9 +2,9 @@
 """Decide whether a release cut or a flag widening may run, for the go-and-cut hook.
 
 `cut_gate.py check --verb cut|widen --target T ... --drive D --ledger L --repo OWNER/NAME --started ISO [--incident --repair N ...]`
-reads the register's `rulings.py rows --json` payload on stdin and prints `{"refusals": [...], "blockers": [...]}`,
-each entry `{"key", "text"}`. Outside an incident every finding is a refusal; during one only a cut that leaves out the
-incident's declared fix is refused, and every other finding becomes a blocker.
+reads the register's `rulings.py rows --json` payload on stdin and prints `{"stops": [...], "blockers": [...]}`,
+each entry `{"key", "text"}`. Outside an incident every finding stops the call; during one only a cut that leaves out the
+incident's declared fix stops, and every other finding becomes a blocker.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ RELEASED = re.compile(r"^RELEASED\b")
 RELEASE_KINDS = frozenset({"release", "fix-live"})
 LAST_ONE_RELEASE_CUT = "R1b"
 FIDELITY_OK = re.compile(r"^fidelity: ok (?P<head>[0-9a-f]{7,40})\b")
-CHECKED = re.compile(r"\bchecked (?P<keys>\S+)")
 SHORT = 7
 GATE = "gate"
 OWED = "owed"
@@ -49,7 +48,6 @@ class Riding:
     landed_at: datetime
     head: str
     step: str
-    checked: frozenset[str]
     graded: bool
 
 
@@ -96,40 +94,39 @@ def ungraded(riding: list[Riding], now: datetime) -> list[Finding]:
     ]
 
 
-def broken_rows(rows: dict[str, dict], riding: list[Riding]) -> list[Finding]:
-    checked = frozenset().union(*(ride.checked for ride in riding if ride.graded))
+def broken_rows(rows: dict[str, dict]) -> list[Finding]:
     return [
-        Finding(f"broken:{key}", f"{row['kind']} row {key} is broken and no head graded ok against it rides this cut")
+        Finding(f"broken:{key}", f"{row['kind']} row {key} is broken until its fixing head is graded ok and the row is back in force")
         for key, row in rows.items()
-        if row.get("kind") in GLOBAL_KINDS and row.get("status") == BROKEN and key not in checked
+        if row.get("kind") in GLOBAL_KINDS and row.get("status") == BROKEN
     ]
 
 
-def missing_fixes(repairs: list[str], riding: list[Riding]) -> list[Finding]:
-    carried = {ride.pr for ride in riding}
-    return [Finding(f"fix:{pr}", f"the open incident's declared fix #{pr} has not landed, so this cut does not carry it") for pr in repairs if pr not in carried]
+def missing_fixes(repairs: list[str], landed: set[str]) -> list[Finding]:
+    return [Finding(f"fix:{pr}", f"the open incident's declared fix #{pr} has not landed, so this cut does not carry it") for pr in repairs if pr not in landed]
 
 
 def verdict(
-    rows: dict[str, dict], verb: str, targets: list[str], riding: list[Riding], releases: list[dict], repairs: list[str], incident: bool, now: datetime
+    rows: dict[str, dict],
+    verb: str,
+    targets: list[str],
+    riding: list[Riding],
+    releases: list[dict],
+    repairs: list[str],
+    landed: set[str],
+    incident: bool,
+    now: datetime,
 ) -> dict[str, list[dict]]:
     findings = owed_gates(rows, verb, targets)
     if verb == "cut":
-        findings += [*(step_span(riding) if after_last_one_release_cut(releases) else []), *ungraded(riding, now), *broken_rows(rows, riding)]
-    fixes = missing_fixes(repairs, riding) if incident and verb == "cut" else []
-    refusals, blockers = (fixes, findings) if incident else (findings, [])
-    return {"refusals": [vars(finding) for finding in refusals], "blockers": [vars(finding) for finding in blockers]}
+        findings += [*(step_span(riding) if after_last_one_release_cut(releases) else []), *ungraded(riding, now), *broken_rows(rows)]
+    fixes = missing_fixes(repairs, landed) if incident and verb == "cut" else []
+    stops, blockers = (fixes, findings) if incident else (findings, [])
+    return {"stops": [vars(finding) for finding in stops], "blockers": [vars(finding) for finding in blockers]}
 
 
-def grades(records: list[dict]) -> list[tuple[str, frozenset[str]]]:
-    found = []
-    for record in records:
-        if record["kind"] == "review" and (ok := FIDELITY_OK.match(record["text"])):
-            path = (record.get("refs") or {}).get("path")
-            text = Path(path).read_text() if path and Path(path).is_file() else record["text"]
-            keys = frozenset(match["keys"].split(",")) if (match := CHECKED.search(text)) else frozenset()
-            found.append((ok["head"], keys))
-    return found
+def graded_heads(records: list[dict]) -> list[str]:
+    return [ok["head"] for record in records if record["kind"] == "review" and (ok := FIDELITY_OK.match(record["text"]))]
 
 
 def same_head(graded: str, head: str) -> bool:
@@ -139,8 +136,7 @@ def same_head(graded: str, head: str) -> bool:
 
 def ride(row: dict, records: list[dict]) -> Riding:
     head = current_head(row)
-    matching = [keys for graded, keys in grades(records) if same_head(graded, head)]
-    return Riding(row["pr"], parse_iso(row["landed_at"]), head, row.get("step", ""), frozenset().union(*matching), bool(matching))
+    return Riding(row["pr"], parse_iso(row["landed_at"]), head, row.get("step", ""), any(same_head(graded, head) for graded in graded_heads(records)))
 
 
 def landed_since(rows: list[dict], since: datetime) -> list[dict]:
@@ -158,7 +154,8 @@ def check(args: argparse.Namespace, run: Callable[[list[str]], str], register: d
     ledger_rows = json.loads(run([sys.executable, str(LEDGER_SCRIPT), "list", "--ledger", args.ledger, "--repo", args.repo, "--json"]))
     riding = [ride(row, cci.records(run, args.drive, "--kind", "review", "--pr", f"{args.repo}#{row['pr']}")) for row in landed_since(ledger_rows, since)]
     releases += cci.records(run, args.drive, "--topic", LAST_ONE_RELEASE_CUT)
-    return verdict(register["rows"], args.verb, args.target, riding, releases, args.repair, args.incident, now)
+    landed = {row["pr"] for row in ledger_rows if row.get("state") == LANDED}
+    return verdict(register["rows"], args.verb, args.target, riding, releases, args.repair, landed, args.incident, now)
 
 
 def main(argv: list[str] | None = None) -> int:
