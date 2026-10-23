@@ -154,6 +154,7 @@ WORD = re.compile(r"[a-z][a-z'-]+")
 SLACK_ACTION = re.compile(r"(\{\"type\":\s*\"slack\.action\".*?\})\s*</channel>", re.DOTALL)
 CARD_FILE = re.compile(r"@(\S+\.json)")
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
 HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
 CCI_TEXT = 400
@@ -675,6 +676,8 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     if not checkout or ledger.origin_repo(shell, Path(checkout)).lower() != repo.lower():
         return compare(shell, repo, base, head)
     git = ["git", "-C", checkout]
+    if not FULL_SHA.fullmatch(head):
+        head = shell.run(["gh", "api", f"repos/{repo}/commits/{head}", "--jq", ".sha"]).strip()
     pinned = f"refs/rulings/{head}-{os.getpid()}"
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
     try:
