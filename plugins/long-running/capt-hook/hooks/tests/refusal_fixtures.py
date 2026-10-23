@@ -7,7 +7,7 @@ CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
-ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approve: start the drive"}'
+ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approved"}'
 
 LAUNCH_STALLED = """\
 diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
@@ -21,9 +21,9 @@ diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/p
 """
 
 UPLOAD_BUDGET = """\
-diff --git a/go/sand/internal/iris/threadupload/upload.go b/go/sand/internal/iris/threadupload/upload.go
---- a/go/sand/internal/iris/threadupload/upload.go
-+++ b/go/sand/internal/iris/threadupload/upload.go
+diff --git a/service/upload/upload.go b/service/upload/upload.go
+--- a/service/upload/upload.go
++++ b/service/upload/upload.go
 @@ -40,0 +41,5 @@ func (u *Uploader) Upload(ctx context.Context) error {
 +const uploadBudget = 15 * time.Second
 +
@@ -33,18 +33,18 @@ diff --git a/go/sand/internal/iris/threadupload/upload.go b/go/sand/internal/iri
 """
 
 RETIRE_AND_RECONVERT = """\
-diff --git a/go/sand/internal/iris/values.go b/go/sand/internal/iris/values.go
---- a/go/sand/internal/iris/values.go
-+++ b/go/sand/internal/iris/values.go
-@@ -177,9 +177,16 @@ func convertWriter(ctx context.Context, host *sessionhost.Host, old *sessiondb.S
-+		_, marked, err := agent.Reader().Setting(ctx, sessionhost.SettingConversion)
+diff --git a/service/store/open.go b/service/store/open.go
+--- a/service/store/open.go
++++ b/service/store/open.go
+@@ -120,2 +120,9 @@ func openWriter(ctx context.Context, store *Store) (*Writer, error) {
++		done, err := store.Converted(ctx)
 +		if err != nil {
 +			return nil, err
 +		}
-+		if !marked {
-+			_ = writerStats.Incr(metricReadOnlyOpen, []string{"cause:unfinished_conversion"}, 1)
-+			slog.Warn("iris session database holds an unfinished conversion; opened read-only from its retained rows instead of retired and reconverted", "stage", "reconvert")
-+			return nil, errOldSession
++		if !done {
++			stats.Incr("store.open", []string{"cause:unfinished_conversion"}, 1)
++			log.Warn("store holds an unfinished conversion; opened read-only instead of reconverted", "stage", "reconvert")
++			return nil, errReadOnly
 +		}
 """
 

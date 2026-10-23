@@ -327,7 +327,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(
-            pattern=r"values\.go:\d+ refusal or retry"
+            pattern=r"open\.go:\d+ refusal or retry"
         ),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
@@ -338,8 +338,8 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
             pattern=r"LAUNCH-STALLED"
         ),
-        ship(f"gh pr edit 41464 -R Forge-AI/monorepo --body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(),
-        ship("gh pr edit 41464 --add-label docs", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Allow(),
+        ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(),
+        ship("gh pr edit 101 --add-label docs", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Allow(),
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Block(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id=LANE, commands=sources(LAUNCH_STALLED)): Allow(),
