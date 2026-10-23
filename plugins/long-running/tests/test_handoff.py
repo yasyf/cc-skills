@@ -96,7 +96,6 @@ class FakeCcn(ledger.Shell):
         self.lane_records: list[dict] = []
         self.register_rows: dict = {"ledger": None, "program": "brook", "rows": {}, "classified": []}
         self.rows_error: str | None = None
-        self.posts: list[list[str]] = []
 
     def rule(self, kind: str, text: str, **fields) -> None:
         self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
@@ -125,9 +124,6 @@ class FakeCcn(ledger.Shell):
             if self.rows_error:
                 raise subprocess.CalledProcessError(2, argv, stderr=self.rows_error)
             return json.dumps(self.register_rows)
-        if argv[:2] == ["cci", "post"]:
-            self.posts.append(argv)
-            return ""
         assert argv[1:3] == ["-R", REPO], argv
         verb = argv[3:5]
         labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
@@ -806,7 +802,11 @@ def scope_rows(count: int) -> dict:
     return rows
 
 
-def test_generate_prints_every_scope_row_in_the_owners_words_past_the_size_cap(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_generate_prints_every_scope_row_in_the_owners_words_past_the_size_cap(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(standing, "post_blocker", lambda program, text: posted.append((program, text)))
     shell = shell_with(register=False)
     shell.register_rows = {"ledger": "0d4cfee", "program": "brook", "rows": scope_rows(60), "classified": []}
 
@@ -819,10 +819,14 @@ def test_generate_prints_every_scope_row_in_the_owners_words_past_the_size_cap(d
         assert f"- `{key}` (in-force, said 1): “{fields['words']}”\n" in body
         assert all(f"  - implication {i['n']}, removes, proposed: {i['text']}\n" in body for i in json.loads(fields["implications"]))
     assert standing.lint(handoff.lint_view(body), None, None, set(), standing.Rows(rows=shell.register_rows["rows"])) == []
-    assert shell.posts == []
+    assert posted == []
 
 
-def test_a_failed_register_read_still_generates_and_posts_one_blocker(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_failed_register_read_still_generates_and_posts_one_blocker(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(standing, "post_blocker", lambda program, text: posted.append((program, text)))
     shell = shell_with(register=False)
     shell.rows_error = "rulings.py: error: no register ledger for brook\n"
 
@@ -830,8 +834,8 @@ def test_a_failed_register_read_still_generates_and_posts_one_blocker(drive_home
 
     body = shell.docs[out["id"]]
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n\n- #2 [cci #2]\n\n- the register rows did not load (rulings.py: error: no register ledger for brook)" in body
-    [post] = shell.posts
-    assert post[:10] == ["cci", "post", "--drive", "brook", "--lane", "root", "--kind", "blocker", "--to", "root"]
+    [(program, text)] = posted
+    assert program == "brook" and text.startswith("The register rows for brook did not load for the handoff: rulings.py: error: no register ledger for brook.")
 
 
 def test_lint_fails_the_aff1d7d4_handoff_against_the_register(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

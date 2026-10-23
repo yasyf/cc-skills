@@ -172,6 +172,7 @@ ROWS = standing.Rows(
         "rule/140cfe6": {"kind": "gate", "status": "met", "words": "plan mode starts once the incident work is done", "answer": '["140cfe6"]', "updated_at": "2026-10-21T08:00:00Z", "evidence": "R1 watch passed"},
         "rule/6f75431": {"kind": "pick", "status": "superseded", "words": "high-risk heads only", "answer": '["6f75431"]', "updated_at": "2026-10-21T08:00:00Z", "evidence": "superseded by 3f34533"},
         "corpus/b-tests": {"kind": "corpus", "status": "in-force", "updated_at": "2026-10-23T11:58:25Z", "evidence": "pinned"},
+        "corpus/fault-run": {"kind": "corpus", "status": "broken", "updated_at": "2026-10-21T08:00:00Z", "evidence": "the 15-minute fault run failed"},
     },
     read_at=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc),
 )
@@ -227,7 +228,8 @@ def test_the_section_prints_every_scope_row_in_the_owners_words_and_lints_clean(
     risk = section.partition("### Rows at risk or broken\n\n")[2].partition("\n\n")[0]
     assert risk == (
         "- `rule/140cfe6` (met): “plan mode starts once the incident work is done”\n  - evidence: R1 watch passed\n"
-        "- `rule/6f75431` (superseded): “high-risk heads only”\n  - evidence: superseded by 3f34533"
+        "- `rule/6f75431` (superseded): “high-risk heads only”\n  - evidence: superseded by 3f34533\n"
+        "- `corpus/fault-run` (broken): no words\n  - evidence: the 15-minute fault run failed"
     )
     unconfirmed = section.partition("### Unconfirmed implications\n\n")[2]
     assert unconfirmed == (
@@ -242,10 +244,12 @@ def test_a_linked_id_is_checked_and_a_copied_heading_exempts_no_owner_gate_line(
         "## Standing owner rules\n\n### Scope rows, in the owner's words\n\n"
         "- [f958522](https://example.com/f958522): the app shows no syncing state.\n"
         "- release waits on owner approval\n"
+        "- release waits on owner approval (of `rule/f958522`)\n"
     )
 
     assert standing.lint(body, None, None, set(), ROWS) == [
         "owner-gate line cites no live answer id: - release waits on owner approval",
+        "owner-gate line cites no live answer id: - release waits on owner approval (of `rule/f958522`)",
         "`f958522` cites without its words register row `rule/f958522`: - [f958522](https://example.com/f958522): the app shows no syncing state."
         + verbatim(SYNCING),
     ]
@@ -260,14 +264,14 @@ def test_the_doc_sentence_stays_only_until_the_register_ledger_is_read(rows: sta
     assert "no `standing-rules` register doc" not in standing.section_of(REGISTER, [], "", rows)
 
 
-def test_register_rows_read_through_rulings_and_a_failed_read_posts_one_blocker() -> None:
+def test_register_rows_read_through_rulings_and_a_failed_read_posts_one_blocker(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(standing, "post_blocker", lambda program, text: posted.append((program, text)))
 
     def run(payload):
         def answer(argv: list[str]) -> str:
             calls.append(argv)
-            if argv[:2] == ["cci", "post"]:
-                raise OSError("cci not found")
             if isinstance(payload, Exception):
                 raise payload
             return payload
@@ -279,16 +283,31 @@ def test_register_rows_read_through_rulings_and_a_failed_read_posts_one_blocker(
     assert calls == [[standing.sys.executable, str(standing.RULINGS), "rows", "--program", "brook", "--repo", "/repo", "--json"]]
     assert standing.register_rows(run(json.dumps({"ledger": None, "rows": {}})), "/repo", "brook") is None
     assert standing.register_rows(run("null"), "/repo", "brook") is None
+    assert posted == []
 
-    calls.clear()
     failed = standing.register_rows(run(subprocess.CalledProcessError(2, ["rulings.py"], stderr="rulings.py: error: invalid choice: 'rows'\n")), "/repo", "brook")
 
     assert failed.failure == "rulings.py: error: invalid choice: 'rows'"
-    [read, post] = calls
-    assert post[:11] == ["cci", "post", "--drive", "brook", "--lane", "root", "--kind", "blocker", "--to", "root", "--id"]
-    assert post[11].startswith("register-rows:brook:")
-    assert post[12:] == [
-        "--text",
-        "The register rows for brook did not load for the handoff: rulings.py: error: invalid choice: 'rows'. "
-        "Read them with `rulings.py rows --program brook --json` and carry the scope rows' words by hand.",
+    assert posted == [
+        (
+            "brook",
+            "The register rows for brook did not load for the handoff: rulings.py: error: invalid choice: 'rows'. "
+            "Read them with `rulings.py rows --program brook --json` and carry the scope rows' words by hand.",
+        )
     ]
+
+
+def test_the_blocker_post_never_waits_and_passes_when_cci_cannot_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    spawned: list[tuple[list[str], dict]] = []
+    monkeypatch.setattr(standing.subprocess, "Popen", lambda argv, **kwargs: spawned.append((argv, kwargs)))
+
+    standing.post_blocker("brook", "rows did not load")
+
+    [(argv, kwargs)] = spawned
+    assert argv[:11] == ["cci", "post", "--drive", "brook", "--lane", "root", "--kind", "blocker", "--to", "root", "--id"]
+    assert argv[11].startswith("register-rows:brook:") and argv[12:] == ["--text", "rows did not load"]
+    assert kwargs["start_new_session"] is True
+
+    monkeypatch.undo()
+    monkeypatch.setenv("PATH", str(tmp_path))
+    standing.post_blocker("brook", "rows did not load")

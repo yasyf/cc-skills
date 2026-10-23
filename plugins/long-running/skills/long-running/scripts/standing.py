@@ -60,7 +60,6 @@ KINDS = ("go", "correction")
 RULINGS = Path(__file__).with_name("rulings.py")
 NO_REGISTER_DOC = re.compile(r"no `?standing-rules`? register doc")
 ROW_BULLET = re.compile(r"^(\s*)(?:[-*]|\d+\.)\s+[*`\[]*([a-z]+/[\w.-]+|[0-9a-f]{7,40})\b")
-ROW_OF = re.compile(r"\(of `([a-z]+/[\w.-]+)`\)$")
 QUOTED = re.compile(r"[“\"][^”\"]+[”\"]")
 CONTINUATION = 4
 LIVE_ROWS = frozenset({"in-force", "pending-owner"})
@@ -187,9 +186,10 @@ def indent_of(line: str) -> int:
 def register_lines(lines: list[str], rows: Rows | None) -> set[int]:
     if rows is None or rows.failure:
         return set()
+    unconfirmed = set(unconfirmed_lines(rows))
     quoted: set[int] = set()
     for at, line in enumerate(lines):
-        if (match := ROW_OF.search(line)) and match[1] in rows.rows:
+        if line in unconfirmed:
             quoted.add(at)
         if (match := ROW_BULLET.match(line)) and cited_rows(match[2], rows.rows):
             quoted.add(at)
@@ -222,12 +222,12 @@ def failure_of(failed: Exception) -> str:
     return "printed no JSON"
 
 
-def post_blocker(run: Callable[[list[str]], str], program: str, text: str) -> None:
+def post_blocker(program: str, text: str) -> None:
     hour = datetime.now(timezone.utc).strftime("%Y%m%dT%H")
     argv = ["cci", "post", "--drive", program, "--lane", "root", "--kind", "blocker", "--to", "root", "--id", f"register-rows:{program}:{hour}", "--text", text]
     try:
-        run(argv)
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
         return
 
 
@@ -237,7 +237,6 @@ def register_rows(run: Callable[[list[str]], str], repo: str, program: str) -> R
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as failed:
         reason = failure_of(failed)
         post_blocker(
-            run,
             program,
             f"The register rows for {program} did not load for the handoff: {reason}. "
             f"Read them with `rulings.py rows --program {program} --json` and carry the scope rows' words by hand.",
@@ -288,17 +287,23 @@ def rows_section(rows: Rows) -> list[str]:
     out += [
         line
         for key, fields in rows.rows.items()
-        if fields.get("words") and fields.get("status") != IN_FORCE
-        for line in [*quoted_words(key, fields, fields.get("status") or "no status"), f"  - evidence: {fields.get('evidence') or 'none recorded'}"]
+        if fields.get("status") != IN_FORCE
+        for line in [
+            *(quoted_words(key, fields, fields.get("status") or "no status") if fields.get("words") else [f"- `{key}` ({fields.get('status') or 'no status'}): no words"]),
+            f"  - evidence: {fields.get('evidence') or 'none recorded'}",
+        ]
     ] or ["- none"]
     out += ["", "### Unconfirmed implications", ""]
-    unconfirmed = [
+    return out + (unconfirmed_lines(rows) or ["- none"]) + [""]
+
+
+def unconfirmed_lines(rows: Rows) -> list[str]:
+    return [
         f"- {implication_line(implication)} (of `{key}`)"
-        for key, fields in current.items()
+        for key, fields in current_rows(rows).items()
         for implication in listed(fields, "implications")
         if implication["state"] == "proposed"
     ]
-    return out + (unconfirmed or ["- none"]) + [""]
 
 
 def ccn(repo: str, *args: str) -> str:
