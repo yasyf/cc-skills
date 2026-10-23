@@ -8,6 +8,11 @@ UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
 ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approved"}'
+NAMED_ANSWER = (
+    '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Page a stalled launch?",'
+    ' "body": "Yes: add LAUNCH-STALLED with a STALL_SECONDS clock."}'
+)
+SENTINEL_ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Open it read-only?", "body": "Yes, return errReadOnlyView."}'
 
 LAUNCH_STALLED = """\
 diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
@@ -85,6 +90,20 @@ diff --git a/plugins/long-running/capt-hook/hooks/register_gate.py b/plugins/lon
 +    except OSError as error:
 +        return failed_open(evt, "register_gate", error)
 """
+
+SENTINEL_ONLY = """\
+diff --git a/service/store/view.go b/service/store/view.go
+--- a/service/store/view.go
++++ b/service/store/view.go
+@@ -10,0 +11 @@ func openView(ctx context.Context) (*View, error) {
++	return nil, errReadOnly
+"""
+
+SENTINEL_BODY = """ccx vcs ship -m 'store: open views read-only' --pr-body-file - <<'EOF'
+## Rulings
+
+- 317cfd6: the owner's answer orders `errReadOnlyView`.
+EOF"""
 
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings

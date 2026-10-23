@@ -18,9 +18,13 @@ from .tests.refusal_fixtures import (
     HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
+    NAMED_ANSWER,
     NO_DRIVE,
     PLAIN,
     RETIRE_AND_RECONVERT,
+    SENTINEL_ANSWER,
+    SENTINEL_BODY,
+    SENTINEL_ONLY,
     TEST_ONLY,
     UNCITED,
     UNNAMED,
@@ -35,6 +39,16 @@ SHOWN = 12
 RULINGS_SHOWN = 1500
 TEXT_SHOWN = 160
 SHIP_BODY = ("--pr-body-file",)
+SHIP_VALUES = frozenset(
+    {
+        "-m", "--message", "--bookmark", "--branch", "--budget", "--expect-remote", "--landed", "--new-pr", "--only-hunk",
+        "--parent", "--pr-body-file", "--pr-title", "--skip-hunk",
+    }
+)
+SHIP_OPTIONAL_VALUES = frozenset({"--new-branch", "--create"})
+GH_HEAD = ("--head", "-H")
+STDIN_FILE = re.compile(r"(?<![<\d])<\s*(?P<path>[^\s<>|&;]+)")
+RULING_ITEM = re.compile(r"\n(?=\s*(?:[-*]|\d+\.)\s)")
 GH_BODY = ("--body", "-b")
 GH_BODY_FILE = ("--body-file", "-F")
 GH_EDIT_VALUES = frozenset(
@@ -71,7 +85,6 @@ REFUSAL_HINT = re.compile(
 NAME_GROUPS = ("name", "sentinel", "cause")
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
-UNREADABLE = ""
 CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
@@ -112,6 +125,8 @@ class Request:
     texts: tuple[str, ...]
     edit: tuple[str, ...] | None
     worktree: bool
+    paths: tuple[str, ...] = ()
+    head: str | None = None
 
 
 def run(argv: list[str], cwd: Path | None) -> subprocess.CompletedProcess[str] | None:
@@ -126,12 +141,12 @@ def read(argv: list[str], cwd: Path | None) -> str | None:
     return done.stdout if done is not None and done.returncode == 0 else None
 
 
-def parsed(text: str | None) -> dict:
+def parsed(text: str | None) -> dict | None:
     try:
         value = json.loads(text or "{}")
     except ValueError:
-        return {}
-    return value if isinstance(value, dict) else {}
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def text_of(path: Path) -> str | None:
@@ -144,6 +159,27 @@ def text_of(path: Path) -> str | None:
 def values(args: tuple[str, ...], flags: tuple[str, ...]) -> list[str]:
     found = [value for flag, value in zip(args, args[1:], strict=False) if flag in flags]
     return found + [arg.split("=", 1)[1] for arg in args for flag in flags if flag.startswith("--") and arg.startswith(f"{flag}=")]
+
+
+def ship_paths(args: tuple[str, ...]) -> tuple[str, ...]:
+    paths, index = [], 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            paths.extend(args[index + 1 :])
+            break
+        if arg in SHIP_VALUES or (arg in SHIP_OPTIONAL_VALUES and args[index + 1 : index + 2] and not args[index + 1].startswith("-")):
+            index += 2
+        elif arg.startswith("-"):
+            index += 1
+        else:
+            paths.append(arg)
+            index += 1
+    return tuple(paths)
+
+
+def in_scope(req: Request, path: str) -> bool:
+    return not req.paths or any(path == scope.rstrip("/") or path.startswith(scope.rstrip("/") + "/") for scope in req.paths)
 
 
 def selector(args: tuple[str, ...]) -> tuple[str, ...]:
@@ -162,12 +198,17 @@ def request(evt: BaseHookEvent, call: Call) -> Request | None:
     cwd = call.cwd or evt.cwd
     if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args:
         parent = values(call.args, ("--parent",))
-        return Request(str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True)
+        return Request(
+            str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True, ship_paths(call.args[2:])
+        )
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else ()
     repo = ("-R", found) if (found := named_repo(call)) else ()
     if argv[:3] == ("gh", "pr", "create"):
-        base = values(argv, ("--base", "-B"))
-        return Request(str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False)
+        base, head = values(argv, ("--base", "-B")), values(argv, GH_HEAD)
+        return Request(
+            str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False,
+            head=head[0] if head else None,
+        )
     if argv[:3] == ("gh", "pr", "edit") and (values(argv, GH_BODY) or values(argv, GH_BODY_FILE)):
         return Request(str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False)
     return None
@@ -213,7 +254,7 @@ def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
     base = f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
     if not base:
         return
-    span = ["--merge-base", base] if req.worktree else [f"{base}...HEAD"]
+    span = ["--merge-base", base] if req.worktree else [f"{base}...{req.head or 'HEAD'}"]
     yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or "")
     if req.worktree:
         yield from untracked(req.cwd)
@@ -231,7 +272,7 @@ def kind_of(name: str) -> str:
 
 
 def declared(text: str, match: re.Match[str]) -> bool:
-    return text[match.end() :].lstrip()[:1] in DECLARING or bool(ASSIGNED.match(text))
+    return text[match.end() :].lstrip()[:1] in DECLARING
 
 
 def classify(path: str, line: int, text: str) -> list[Finding]:
@@ -241,9 +282,9 @@ def classify(path: str, line: int, text: str) -> list[Finding]:
         return kinds
     if match := REFUSAL_NAME.search(text):
         return [Finding(kind_of(match["name"]), match["name"], path, line, text, True)]
-    for kind, pattern in (("retry", RETRY), ("clock", CLOCK), ("budget", BUDGET)):
+    for kind, pattern, definite in (("retry", RETRY, False), ("clock", CLOCK, True), ("budget", BUDGET, True)):
         if match := pattern.search(text):
-            return [Finding(kind, named(text, match), path, line, text, True)]
+            return [Finding(kind, named(text, match), path, line, text, definite)]
     if match := REFUSAL_HINT.search(text):
         return [Finding("refusal or retry", named(text, match), path, line, text, False)]
     return []
@@ -251,7 +292,10 @@ def classify(path: str, line: int, text: str) -> list[Finding]:
 
 def body_file(req: Request, value: str) -> str | None:
     if value == "-":
-        return req.raw
+        if "<<" in req.raw:
+            return req.raw
+        redirect = STDIN_FILE.search(req.raw)
+        return text_of(Path(req.cwd or ".") / redirect["path"]) if redirect else None
     candidates = (Path(req.cwd or ".") / part for part in dict.fromkeys((value, value.split("=", 1)[-1])))
     return next((text for path in candidates if path.is_file() and (text := text_of(path)) is not None), None)
 
@@ -263,16 +307,34 @@ def body_text(req: Request, view: dict) -> str | None:
     return None if None in files else "\n".join([*req.texts, *files])
 
 
-def owner_answer(evt: BaseHookEvent, req: Request, rulings: str) -> str | None:
+def answer_texts(evt: BaseHookEvent, req: Request, ids: list[str]) -> dict[str, str] | None:
+    if not ids:
+        return {}
     if (entry := drive_entry(evt)) is None:
-        return UNREADABLE
-    for answer in dict.fromkeys(ANSWER_ID.findall(rulings)):
+        return None
+    found = {}
+    for answer in ids:
         done = run(["ccn", "-R", entry["checkout"], "answer", "show", answer, "--json"], req.cwd)
         if done is None or done.returncode not in (0, CCN_NOT_FOUND):
-            return UNREADABLE
-        if done.returncode == 0 and parsed(done.stdout).get("id"):
-            return answer
-    return None
+            return None
+        if done.returncode == CCN_NOT_FOUND:
+            continue
+        if (record := parsed(done.stdout)) is None:
+            return None
+        if record.get("id"):
+            found[answer] = f"{record.get('title') or ''}\n{record.get('body') or ''}"
+    return found
+
+
+def mentions(text: str, name: str) -> bool:
+    return bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE))
+
+
+def coverage(finding: Finding, items: list[str], answers: dict[str, str]) -> str:
+    cited = [answers[answer] for item in items if mentions(item, finding.name) for answer in ANSWER_ID.findall(item) if answer in answers]
+    if any(mentions(text, finding.name) for text in cited):
+        return "named"
+    return "cited" if cited else "open"
 
 
 def evidence(findings: list[Finding], rulings: str) -> str:
@@ -287,17 +349,18 @@ def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     if view is None and not (req.bodies or req.texts):
         return None
     view = view or {}
-    findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
+    findings = [finding for path, line, text in diff_lines(req, view) if in_scope(req, path) for finding in classify(path, line, text)]
     if not findings or (body := body_text(req, view)) is None:
         return None
     rulings = found.group(0) if (found := RULINGS.search(body)) else ""
-    if (answer := owner_answer(evt, req, rulings) if rulings else None) == UNREADABLE:
+    if (answers := answer_texts(evt, req, list(dict.fromkeys(ANSWER_ID.findall(rulings))))) is None:
         return None
-    folded = rulings.casefold()
-    open_findings = [finding for finding in findings if not (answer and finding.name.casefold() in folded)]
+    items = RULING_ITEM.split(rulings)
+    states = {finding: coverage(finding, items, answers) for finding in findings}
+    open_findings = [finding for finding in findings if states[finding] != "named"]
     if not open_findings:
         return None
-    if answer is None and any(finding.definite for finding in open_findings):
+    if any(finding.definite and states[finding] == "open" for finding in open_findings):
         return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings)}")
     return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings)}", confirm=NAMES_IT)
 
@@ -313,23 +376,34 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
             pattern=r"^A drive lane's PR may not add a refusal kind[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
         ),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=UNCONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="not json")): Allow(),
+        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(f"gh pr edit 1 --body-file - < {UNCITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="")): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(3, "not-found: entity not found"))): Block(
             pattern=r"cites an owner answer"
         ),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
-        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET), decide=CONFIRMED): Block(
-            pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
+        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Block(
+            pattern=r"cites an owner answer[\s\S]*upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET), decide=UNCONFIRMED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
+        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer naming it"),
+        ship(SENTINEL_BODY, commands=sources(SENTINEL_ONLY, answer=SENTINEL_ANSWER), decide=CONFIRMED): Block(pattern=r"view\.go:11 .* errReadOnly"),
+        ship(SENTINEL_BODY.replace("errReadOnlyView", "errReadOnly"), commands=sources(SENTINEL_ONLY, answer=SENTINEL_ANSWER.replace("errReadOnlyView", "errReadOnly"))): Allow(),
+        ship(f"ccx vcs ship -m 'drive: digest' plugins/long-running/skills/long-running/scripts/drive.py --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship -m 'runner: page' plugins/long-running/skills/long-running/scripts --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(),
+        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr="not json")): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=CONFIRMED): Block(pattern=r"UPLOAD-STARTED"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}.missing", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer"),
+        ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Block(
+            pattern=r"cites an owner answer"
+        ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Block(pattern=r"cites an owner answer"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(
             pattern=r"open\.go:\d+ refusal or retry"
@@ -337,7 +411,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN), decide=CONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(pattern=r"open\.go:127 .* errReadOnly"),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
