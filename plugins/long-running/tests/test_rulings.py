@@ -33,7 +33,7 @@ PLAN = """# Plan
 ### Step 1. Tooling
 
 9. **Register**: cards quote the words; a parked worker is never kept.
-   - Nothing of ours lands in relay-server (aaaaaaa).
+   - The relay-server keeps its health probe (9999999).
 
 10. Next item.
 
@@ -272,6 +272,19 @@ def seeded(package: Path) -> dict[str, dict[str, str]]:
             "lanes": '["all"]',
             "paths": "none",
         },
+        "rule/9999999": {
+            "kind": "pick",
+            "status": "in-force",
+            "global": "no",
+            "words": "The relay-server may keep its health probe.",
+            "answer": '["9999999"]',
+            "at": "Oct 22 4:00 PM PT",
+            "said": "1",
+            "steps": '["7.1"]',
+            "lanes": '["all"]',
+            "paths": "none",
+            "symbols": "none",
+        },
         "no/0123456789abcdef": {"no": "chatter", "at": STAMP},
         "corpus/b-tests": {"kind": "corpus", "path": str(package / "plan" / "B-tests.md"), "status": "in-force"},
     }
@@ -450,6 +463,43 @@ def test_classify_refuses_a_repeat_that_adds_a_second_row(home: Path, package: P
     assert out.strip() == f"REPEAT {'6' * 16}: the words carry how many times; extend rule/aaaaaaa with extends=<key>, never a second row"
 
 
+def test_classify_refuses_two_new_rows_under_one_key_in_one_batch(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    captured(state, capture("1", "the shell never uploads"), capture("2", "the journal keeps the queue"))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "1" * 16, "kind": "pick", "words": "the shell never uploads"},
+        {"digest": "2" * 16, "kind": "pick", "words": "the journal keeps the queue"},
+    )
+
+    assert (code, out.strip()) == (1, f"KEY-TAKEN {'2' * 16}: {PROMPT_KEY} already exists or comes twice in this batch; extend it or pass another key")
+    assert shell.writes() == []
+
+
+def test_classify_refuses_a_restated_mechanism_and_a_supersede_that_names_nothing_it_covers(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+) -> None:
+    captured(state, capture("1", "keep the parked worker off the desktop app"), capture("2", "drain only on shutdown"))
+    three = [{"text": f"Line {n}.", "direction": "removes"} for n in range(3)]
+
+    code, out = classify(
+        tmp_path,
+        capsys,
+        RegisterShell(seeded(package)),
+        {"digest": "1" * 16, "key": "rule/1111111", "kind": "scope", "words": "keep the parked worker off the desktop app", "implications": three, "names": ["parked worker"]},
+        {"digest": "2" * 16, "key": "rule/2222222", "kind": "pick", "words": "drain only on shutdown", "supersedes": "rule/aaaaaaa"},
+    )
+
+    assert code == 1
+    assert out.splitlines() == [
+        f"REPEAT {'1' * 16}: the words carry names of rule/aaaaaaa; extend rule/aaaaaaa with extends=<key>, never a second row",
+        f"SUPERSEDES-UNNAMED {'2' * 16}: only owner words naming what rule/aaaaaaa covers supersede it",
+    ]
+
+
 def test_classify_refuses_a_pick_that_widens_a_scope_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("a", "run the uploader beside relay-server too"))
 
@@ -500,7 +550,10 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
         "waits": "prompt:1023-053000",
     }
     [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
-    assert post[post.index("--text") + 1] == f"Register new {PROMPT_KEY} (scope), the owner's words: uploads stay out of the desktop shell."
+    announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
+    assert announced[0] == f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim."
+    assert "> uploads stay out of the desktop shell." in announced
+    assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
 
 
@@ -581,25 +634,36 @@ def test_implications_show_what_binds_now_and_what_waits_for_a_tick(home: Path, 
     )
 
 
-def test_confirm_takes_only_a_tap_or_reply_on_the_rows_card(home: Path, package: Path, state: Path, capsys) -> None:
-    captured(state, capture("b", "Right", source="slack-action", block="rule:aaaaaaa"), capture("c", "sounds good"))
+def test_confirm_takes_only_a_right_tap_or_a_reply_naming_the_lines_on_the_rows_card(home: Path, package: Path, state: Path, capsys) -> None:
+    captured(
+        state,
+        capture("b", "Right", source="slack-action", block="rule:aaaaaaa"),
+        capture("c", "sounds good"),
+        capture("e", "Some wrong", source="slack-action", block="rule:aaaaaaa"),
+        capture("f", "2 is wrong, 1 and 3 stand", source="slack-reply", block="rule:aaaaaaa"),
+    )
     shell = RegisterShell(seeded(package))
 
     assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "c" * 16, "--tick", "all") == (
         1,
         f"CAPTURE-NOT-ON-CARD {'c' * 16}: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
     )
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "e" * 16, "--strike", "2")[1].startswith(f"CONFIRM-TAP {'e' * 16}: ")
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "b" * 16, "--tick", "1", "--strike", "2")[1].startswith(f"CONFIRM-TAP {'b' * 16}: ")
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "f" * 16, "--tick", "all")[1].startswith(f"CONFIRM-UNNAMED {'f' * 16}: ")
     assert shell.writes() == []
 
-    code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "b" * 16, "--tick", "1,3", "--strike", "2")
+    code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "f" * 16, "--tick", "1,3", "--strike", "2")
 
     assert code == 0
     assert [(item["state"], item["proof"]) for item in json.loads(shell.rows["rule/aaaaaaa"]["implications"])] == [
-        ("ticked", "b" * 16),
-        ("struck", "b" * 16),
-        ("ticked", "b" * 16),
+        ("ticked", "f" * 16),
+        ("struck", "f" * 16),
+        ("ticked", "f" * 16),
     ]
     assert out.splitlines()[2] == "3. [permits, ticked, binds now] Relay cleanup may live in the desktop app."
+
+    assert ran(capsys, RegisterShell(seeded(package)), "confirm", "rule/aaaaaaa", "--capture", "b" * 16, "--tick", "all")[0] == 0
 
 
 def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(home: Path, package: Path, state: Path, capsys) -> None:
@@ -624,7 +688,7 @@ def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(ho
         "> Cards quote the words they ask about.",
         "9. **Register**: cards quote the words; a parked worker is never kept.",
         f"open rule/aaaaaaa {package / 'plan' / 'plan.md'}:5 parked worker",
-        f"authorized aaaaaaa rule/aaaaaaa {package / 'plan' / 'plan.md'}:6 relay-server",
+        f"authorized 9999999 rule/aaaaaaa {package / 'plan' / 'plan.md'}:6 relay-server",
     ):
         assert line in lines
     assert "10. Next item." not in lines
@@ -703,8 +767,11 @@ def test_sweep_prints_each_hit_open_deleted_or_authorized(home: Path, package: P
     artifact = tmp_path / "card.md"
     artifact.write_text(
         "A parked worker waits on the relay-server.\n"
-        "[STRUCK by the owner] parked workers are gone.\n"
+        "Parked workers are gone [STRUCK by the owner, answer 1234abc]; nothing else changed.\n"
         "Nothing of ours lands in relay-server (aaaaaaa).\n"
+        "The relay-server keeps its health probe (9999999).\n"
+        "~~old parked worker~~ keep the parked worker\n"
+        "~~drop the parked worker~~ for good\n"
         "relay-servers2 is another word.\n"
     )
 
@@ -716,7 +783,10 @@ def test_sweep_prints_each_hit_open_deleted_or_authorized(home: Path, package: P
             f"open rule/aaaaaaa {artifact}:1 relay-server",
             f"open rule/aaaaaaa {artifact}:1 parked worker",
             f"deleted rule/aaaaaaa {artifact}:2 parked worker",
-            f"authorized aaaaaaa rule/aaaaaaa {artifact}:3 relay-server",
+            f"open rule/aaaaaaa {artifact}:3 relay-server",
+            f"authorized 9999999 rule/aaaaaaa {artifact}:4 relay-server",
+            f"open rule/aaaaaaa {artifact}:5 parked worker",
+            f"deleted rule/aaaaaaa {artifact}:6 parked worker",
         ],
     )
 
@@ -750,10 +820,11 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     hits = [line for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
     rows = ["rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone"]
 
-    def read_back(*lines: str) -> RegisterShell:
+    def read_back(*lines: str, lane: str = "lane-a") -> RegisterShell:
         body = tmp_path / "readback.md"
         body.write_text("\n".join(lines) + "\n")
-        return RegisterShell(seeded(package), records=[{"seq": 501, "text": "read-back"}, {"seq": 500, "text": "read-back", "refs": {"path": str(body)}}])
+        records = [{"seq": 501, "kind": "contract", "lane": lane, "text": "read-back"}, {"seq": 500, "kind": "contract", "lane": lane, "text": "read-back", "refs": {"path": str(body)}}]
+        return RegisterShell(seeded(package), records=records)
 
     marked = [f"{hit} - keep: the line states the ban" for hit in hits]
     header = ["Register slice: lane=lane-a step=1.9", f"slice-hash: {current}"]
@@ -767,6 +838,9 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     assert f"READBACK-HIT-UNMARKED {hits[0]}" in out.splitlines()
     code, out = ran(capsys, read_back("Register slice: lane=lane-a step=1.9", "slice-hash: 000000000000", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500")
     assert (code, out) == (1, f"READBACK-STALE lane-a: the read-back covers slice-hash 000000000000; the lane's slice is now {current}\n")
+    assert ran(capsys, read_back(*header, *rows), "readback", "--lane", "lane-a", "--contract", "500") == (1, f"READBACK-HIT-UNMARKED {hits[0]}\n")
+    assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-a", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
+    assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
 
 
 def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:
@@ -835,10 +909,10 @@ def transcript(home: Path, *entries: dict) -> None:
     path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
 
 
-def card_posted(body: str) -> list[dict]:
+def card_posted(body: str, label: str = "Merge") -> list[dict]:
     tool = {"type": "tool_use", "id": "toolu_1", "name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "input": {"card": {"title": "Merge #12?", "body": body}}}
     result = {"type": "tool_result", "tool_use_id": "toolu_1", "content": json.dumps({"ok": True, "ts": CARD_TS})}
-    action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": "Merge", "id": "merge-12"}
+    action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": label, "id": "merge-12"}
     channel = f'<channel source="plugin:cc-slack:cc-slack" type="slack.action">\n{json.dumps(action, separators=(",", ":"))}\n</channel>'
     return [
         {"type": "assistant", "message": {"content": [tool]}},
@@ -878,6 +952,29 @@ def test_authorize_refuses_a_go_with_no_tap_a_card_or_answer_naming_no_row_and_a
     assert refused([OWNER_TAP], "--row", "rule/bbbbbbb", "--action", TAP_TS) == "AUTHORIZE-CARD-NAMES-NO-ROW"
     assert refused([silent], "--row", "rule/aaaaaaa", "--action", TAP_TS) == "AUTHORIZE-ANSWER-NAMES-NO-ROW"
     assert refused([OWNER_TAP], "--row", "rule/aaaaaaa", "--prompt", "d" * 16) == "AUTHORIZE-PROMPT-NAMES-NO-ROW"
+
+
+def test_authorize_refuses_a_tap_that_grants_nothing(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    transcript(home, *card_posted(QUOTING_CARD, label="Hold"))
+    shell = RegisterShell(seeded(package), answers=[OWNER_TAP])
+
+    assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (
+        1,
+        "AUTHORIZE-NOT-AFFIRMATIVE rule/aaaaaaa: the tap was 'Hold', which grants nothing\n",
+    )
+    assert "authorizes:rule/aaaaaaa" not in shell.answers[0]["tags"]
+
+
+def test_pr_block_cites_only_an_authorization_that_names_this_pr(home: Path, package: Path, state: Path, capsys) -> None:
+    diff = DIFF.replace("+    self.drain();", "+    let pool = Pool::new();")
+    granted = {"id": "2222222" + "0" * 33, "title": "Merge #12?", "body": "Merge also authorizes rule/bbbbbbb.", "tags": ["authorizes:rule/bbbbbbb"]}
+    elsewhere = {"id": "3333333" + "0" * 33, "title": "Merge #9?", "body": "Merge also authorizes rule/bbbbbbb.", "tags": ["authorizes:rule/bbbbbbb"]}
+
+    _, cited = ran(capsys, RegisterShell(seeded(package), answers=[elsewhere, granted], diff=diff), "pr-block", "--pr", "12", "--head", "cafef00d", "--base", "main", "--lane", "lane-b")
+    _, left = ran(capsys, RegisterShell(seeded(package), answers=[elsewhere], diff=diff), "pr-block", "--pr", "12", "--head", "cafef00d", "--base", "main", "--lane", "lane-b")
+
+    assert "- rule/bbbbbbb: authorized by 2222222" in cited.splitlines()
+    assert "- rule/bbbbbbb: leaves out Pool.drain" in left.splitlines()
 
 
 def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Path, state: Path, capsys) -> None:

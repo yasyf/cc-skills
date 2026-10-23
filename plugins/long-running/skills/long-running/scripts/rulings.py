@@ -101,10 +101,15 @@ PLACEMENT = re.compile(
     re.IGNORECASE,
 )
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
-STRUCK = re.compile(r"\[STRUCK\b|~~")
+STRUCK_SPAN = re.compile(r"~~.+?~~")
+STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
+CLAUSE_ENDS = (";", ". ", "\n")
+AFFIRMATIVE = re.compile(r"^(?:merge|yes|right|approve|authorize)\b", re.IGNORECASE)
+RIGHT = "right"
+NUMBER = re.compile(r"\b\d+\b")
 ANCHOR_SUFFIX = re.compile(r"(?::\d+(?:-\d+)?)?(?:\s+@\s+\S+)?$")
 DATE = re.compile(r"^([A-Z][a-z]{2} \d{1,2})")
-PR_REF = re.compile(r"(?:[\w.-]+/[\w.-]+)?#\d+")
+PR_REF = re.compile(r"[\w.-]+/[\w.-]+#\d+")
 DIFF_GIT = re.compile(r"^diff --git a/(?P<old>\S+) b/(?P<new>\S+)$")
 HUNK = re.compile(r"^@@ -(?P<old>\d+)(?:,\d+)? \+(?P<new>\d+)(?:,\d+)? @@")
 WORD = re.compile(r"[a-z][a-z'-]+")
@@ -294,7 +299,7 @@ class Register:
         for name, value in values.items():
             argv += ["--field", f"{name}={value}"]
         self.shell.run(argv)
-        self.rows[key] = self.rows.get(key, {}) | values | {"updated_at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")}
+        self.rows[key] = self.rows.get(key, {}) | values | {"updated_at": stamp()}
 
     def row(self, key: str) -> dict[str, str]:
         if key not in self.rows:
@@ -323,15 +328,16 @@ class Register:
             found.update(match for proof in proofs for match in DIGEST_PROOF.findall(proof))
         return sorted(found)
 
-    def answer_words(self) -> dict[str, list[str]]:
-        words: dict[str, list[str]] = {}
+    def answer_words(self) -> dict[str, list[tuple[str, frozenset[str]]]]:
+        words: dict[str, list[tuple[str, frozenset[str]]]] = {}
         for fields in self.rulings().values():
+            banned = frozenset(name.lower() for name in names_of(fields))
             for answer in listed(fields.get("answer")):
-                words.setdefault(str(answer)[:SHORT], []).append(fields.get("words") or "")
+                words.setdefault(str(answer)[:SHORT], []).append((fields.get("words") or "", banned))
             for repeat in listed(fields.get("repeats")):
                 for answer in repeat.get("answer") if isinstance(repeat.get("answer"), list) else [repeat.get("answer")]:
                     if answer:
-                        words.setdefault(str(answer)[:SHORT], []).append(repeat.get("words") or "")
+                        words.setdefault(str(answer)[:SHORT], []).append((repeat.get("words") or "", banned))
         return words
 
 
@@ -392,11 +398,18 @@ def parse_diff(text: str) -> Diff:
     return diff
 
 
-def hit_status(text: str, name: str, authorizers: dict[str, list[str]], removed: bool) -> str:
-    if removed or STRUCK.search(text):
+def struck(text: str, name: str) -> bool:
+    spans = [(match.start(), match.end()) for match in STRUCK_SPAN.finditer(text)]
+    spans += [(max(text.rfind(end, 0, mark.start()) for end in CLAUSE_ENDS) + 1, mark.end()) for mark in STRUCK_MARK.finditer(text)]
+    found = list(name_pattern(name).finditer(text))
+    return bool(found) and all(any(start <= match.start() and match.end() <= end for start, end in spans) for match in found)
+
+
+def hit_status(text: str, name: str, authorizers: dict[str, list[tuple[str, frozenset[str]]]], removed: bool) -> str:
+    if removed or struck(text, name):
         return "deleted"
     for cited in CITED.findall(text):
-        if any(named(words, name) for words in authorizers.get(cited[:SHORT], [])):
+        if any(name.lower() not in banned and named(words, name) for words, banned in authorizers.get(cited[:SHORT], [])):
             return f"authorized {cited[:SHORT]}"
     return "open"
 
@@ -566,10 +579,15 @@ def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
 
 
 def symbol_lines(fields: dict[str, str], diff: Diff) -> list[tuple[str, str, int]]:
+    homes = anchors(fields)
     found = []
     for symbol in symbols(fields):
         pattern = name_pattern(symbol.rsplit(".", 1)[-1])
-        found += [(symbol, file, number) for file, number, text in diff.added if pattern.search(text)]
+        found += [
+            (symbol, file, number)
+            for file, number, text in diff.added
+            if pattern.search(text) and (not homes or any(fnmatch.fnmatch(file, home) for home in homes))
+        ]
     return found
 
 
@@ -659,7 +677,7 @@ def new_key(entry: dict, capture: dict) -> str:
     return f"prompt/{datetime.fromisoformat(capture['at']).astimezone(PACIFIC):%m%d-%H%M%S}"
 
 
-def refusals(loaded: Register, captured: dict[str, dict], entry: dict) -> list[str]:
+def refusals(loaded: Register, captured: dict[str, dict], entry: dict, taken: set[str]) -> list[str]:
     item = entry["digest"]
     if item not in captured:
         return [f"UNKNOWN-CAPTURE {item}: no capture with this digest in {loaded.state / 'owner-prompts.jsonl'}"]
@@ -682,16 +700,26 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict) -> list[s
     if any(implication.get("direction") not in DIRECTIONS or not implication.get("text") for implication in implications):
         found.append(f"IMPLICATION {item}: each implication is one plain sentence marked removes or permits")
     markers = repeat_markers(loaded, words)
+    supersedes = entry.get("supersedes")
+    repeated = [key for key in named_rows(loaded, words) if kind != "pick" and key != supersedes]
     if kind == "order" and (markers or PLACEMENT.search(words) or named_rows(loaded, words)):
         because = ", ".join(markers) or (f"a placement rule ({match.group(0)})" if (match := PLACEMENT.search(words)) else f"names of {', '.join(named_rows(loaded, words))}")
         found.append(f"ORDER-IS-SCOPE {item}: the words carry {because}; a repeat extends its row and a placement is a scope row")
     if extends and extends not in loaded.rulings():
         found.append(f"EXTENDS {item}: {extends} is no in-force row")
-    if markers and not extends:
+    if (markers or repeated) and not extends:
         candidates = ", ".join(named_rows(loaded, words)) or "the row it repeats"
-        found.append(f"REPEAT {item}: the words carry {', '.join(markers)}; extend {candidates} with extends=<key>, never a second row")
-    if not extends and (key := new_key(entry, captured[item])) in loaded.rows:
-        found.append(f"KEY-TAKEN {item}: {key} already exists; extend it or pass another key")
+        because = ", ".join(markers) or f"names of {', '.join(repeated)}"
+        found.append(f"REPEAT {item}: the words carry {because}; extend {candidates} with extends=<key>, never a second row")
+    if not extends:
+        key = new_key(entry, captured[item])
+        if key in loaded.rows or key in taken:
+            found.append(f"KEY-TAKEN {item}: {key} already exists or comes twice in this batch; extend it or pass another key")
+        taken.add(key)
+    if supersedes and not (target := loaded.rulings().get(supersedes)):
+        found.append(f"SUPERSEDES {item}: {supersedes} is no in-force row")
+    elif supersedes and not any(named(words, name) for name in [*names_of(target), *map(str, listed(target.get("surfaces")))]):
+        found.append(f"SUPERSEDES-UNNAMED {item}: only owner words naming what {supersedes} covers supersede it")
     if kind == "pick" and (widening := widened(loaded, entry)):
         key, surfaces = widening
         if entry.get("supersedes") != key or not all(named(words, surface) for surface in surfaces):
@@ -699,8 +727,15 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict) -> list[s
     return found
 
 
+def stamp() -> str:
+    return utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def numbered(implications: list[dict], start: int, proof: str) -> list[dict]:
-    return [{"n": start + index, "text": item["text"], "direction": item["direction"], "state": "proposed", "proof": proof} for index, item in enumerate(implications)]
+    return [
+        {"n": start + index, "text": item["text"], "direction": item["direction"], "state": "proposed", "proof": proof, "at": stamp()}
+        for index, item in enumerate(implications)
+    ]
 
 
 def union(left: list, right: list) -> list:
@@ -740,7 +775,9 @@ def announce(loaded: Register, args: argparse.Namespace, key: str, how: str) -> 
         lanes = [lane for lane in lanes if lane in listed(fields.get("lanes"))]
     if not lanes:
         return
-    argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "decision", "--text", f"Register {how} {key} ({fields.get('kind')}), the owner's words: {fields['words']}"]
+    path = loaded.state / "register" / f"announce-{card_id(key)}.md"
+    write_atomic(path, "\n".join([f"Register {how} {key} ({fields.get('kind')}): the owner's words and what they mean, verbatim.", *rendered_row(key, fields)]) + "\n")
+    argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "decision", "--path", str(path)]
     for lane in lanes:
         argv += ["--to", lane]
     loaded.shell.run(argv)
@@ -807,7 +844,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
             loaded.write(supersedes, status="superseded", superseded_by=[key], evidence=f"superseded by {key}: “{first_sentence(words)}”")
     hits = Sweeper(loaded, {key: loaded.rows[key]}).files(default_files(loaded, loaded.plan(args.plan)))
     if how == "extended":
-        write_atomic(repeat_file(loaded, key), json.dumps({"key": key, "opened_at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"), "hits": [str(hit) for hit in hits], "posted": None}, indent=2) + "\n")
+        write_atomic(repeat_file(loaded, key), json.dumps({"key": key, "opened_at": stamp(), "hits": [str(hit) for hit in hits], "posted": None}, indent=2) + "\n")
     cards = write_cards(loaded, key, entry.get("confirms") or [])
     announce(loaded, args, key, how)
     row = loaded.rows[key]
@@ -838,7 +875,8 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 print(json.dumps(capture, ensure_ascii=False))
         return 0
     entries = [entry for path in args.files for entry in classifications(Path(path))]
-    if refused := [line for entry in entries for line in refusals(loaded, captured, entry)]:
+    taken: set[str] = set()
+    if refused := [line for entry in entries for line in refusals(loaded, captured, entry, taken)]:
         print("\n".join(refused))
         return 1
     for entry in entries:
@@ -867,12 +905,20 @@ def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
     fields = loaded.row(args.key)
     capture = captures(loaded.state).get(args.capture)
     card = card_id(args.key)
-    on_card = capture and (capture.get("block") == card or args.key in capture.get("text", "") or card in capture.get("text", ""))
+    text = (capture or {}).get("text", "")
+    on_card = capture and (capture.get("block") == card or args.key in text or card in text)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
         print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {args.key}'s card")
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
+    if capture["source"] == "slack-action" and (text.strip().lower() != RIGHT or args.tick != "all" or strikes):
+        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines")
+        return 1
+    named_lines = {int(number) for number in NUMBER.findall(text)}
+    if capture["source"] != "slack-action" and (args.tick == "all" or not (ticks | strikes) <= named_lines):
+        print(f"CONFIRM-UNNAMED {args.capture}: a reply ticks or strikes only the lines it names by number")
+        return 1
     for item in implications:
         if item["n"] in strikes:
             item |= {"state": "struck", "proof": args.capture}
@@ -939,12 +985,18 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; readback reads the lane's contract from its cci drive")
     record = record_of(shell, drive.cci_drive(entry), args.contract)
+    if record.get("kind") != "contract" or record.get("lane") != args.lane:
+        print(f"READBACK-NOT-LANES #{args.contract}: the read-back is {args.lane}'s own contract record")
+        return 1
     attached = (record.get("refs") or {}).get("path")
     body = "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
     if not (header := SLICE_HEADER.search(body)) or not (stamp := SLICE_HASH.search(body)):
         print(f"READBACK-NO-SLICE #{args.contract}: the read-back names no `{SLICE_LINE}` line and `slice-hash:` line")
         return 1
     want = Want.parse(header)
+    if want.lane != args.lane:
+        print(f"READBACK-NOT-LANES #{args.contract}: the read-back covers lane {want.lane}'s slice, not {args.lane}'s")
+        return 1
     fresh = lane_slice(loaded, want, plan_path(args, loaded))
     current = SLICE_HASH.search(fresh)["hash"]
     problems = []
@@ -953,8 +1005,10 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     keys = re.findall(r"^### (\S+) \|", fresh, re.MULTILINE)
     lines = body.splitlines()
     problems += [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
-    unmarked = [line for line in lines if OPEN_HIT.match(line) and not VERDICT.search(OPEN_HIT.sub("", line))]
-    problems += [f"READBACK-HIT-UNMARKED {line}" for line in unmarked]
+    tree = sorted(path for glob in want.paths for path in Path(args.repo).glob(glob) if path.is_file())
+    expected = [line for line in fresh.splitlines() if OPEN_HIT.match(line)]
+    expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(tree, args.repo) if hit.status == "open"]
+    problems += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
     if problems:
         print("\n".join(problems))
         return 1
@@ -967,8 +1021,8 @@ def answers_for(loaded: Register, *labels: str) -> list[dict]:
     return ccn(loaded.shell, loaded.repo, "answer", "list", *flags, "--limit", "0") or []
 
 
-def authorizing(loaded: Register, key: str) -> str | None:
-    found = answers_for(loaded, f"authorizes:{key}")
+def authorizing(loaded: Register, key: str, number: str) -> str | None:
+    found = [answer for answer in answers_for(loaded, f"authorizes:{key}") if re.search(rf"#{number}\b", f"{answer.get('title', '')}\n{answer.get('body', '')}")]
     return found[0]["id"][:SHORT] if found else None
 
 
@@ -990,7 +1044,7 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
             symbol, file, line = found[0]
             rulings.append(f"- {key}: met by {symbol} at {file}:{line}")
             words.append(f"- {sentence}; this change does it.")
-        elif answer := authorizing(loaded, key):
+        elif answer := authorizing(loaded, key, number):
             rulings.append(f"- {key}: authorized by {answer}")
             words.append(f"- {sentence}; this change deletes under it, on your answer {answer}.")
         else:
@@ -1033,8 +1087,10 @@ def ordered(rows: dict[str, dict[str, str]]) -> list[tuple[str, dict[str, str]]]
 
 
 def unconfirmed(fields: dict[str, str], now: datetime) -> bool:
-    waiting = any(item["direction"] == "permits" and item["state"] == "proposed" for item in listed(fields.get("implications")))
-    return waiting and datetime.fromisoformat(fields["updated_at"]) < now - UNCONFIRMED_AFTER
+    return any(
+        item["state"] == "proposed" and datetime.fromisoformat(item.get("at") or fields["updated_at"]) < now - UNCONFIRMED_AFTER
+        for item in listed(fields.get("implications"))
+    )
 
 
 def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -1056,7 +1112,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
     for title, rows in parts:
         lines += [f"**{title}**", "", *(table(ordered(rows)) if rows else ["None."]), ""]
     print("\n".join(lines).rstrip())
-    write_atomic(cursor, json.dumps({"at": now.strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
+    write_atomic(cursor, json.dumps({"at": stamp()}) + "\n")
     return 0
 
 
@@ -1153,6 +1209,9 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
             print(f"AUTHORIZE-NO-TAP {key}: the root transcript holds no slack.action tap with ts {args.action}; a root go is no authorization")
             return 1
         action, shown = tapped
+        if not AFFIRMATIVE.match(action.get("label") or ""):
+            print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the tap was {action.get('label')!r}, which grants nothing")
+            return 1
         if not quotes_row(shown, key, fields):
             print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
             return 1
