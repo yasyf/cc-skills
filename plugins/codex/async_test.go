@@ -1029,8 +1029,11 @@ func serveInProcess(t *testing.T) *daemon.Server {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ctx) }()
+	served := make(chan struct{})
+	go func() {
+		_ = srv.Serve(ctx)
+		close(served)
+	}()
 	t.Cleanup(func() {
 		cancel()
 		<-served

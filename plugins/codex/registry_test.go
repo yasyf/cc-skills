@@ -559,8 +559,8 @@ func TestForegroundLaneLockSurvivesGC(t *testing.T) {
 	repDone := make(chan error, 1)
 	go func() { repDone <- replacement.Wait() }()
 	select {
-	case <-repDone:
-		t.Fatalf("same-lane replacement escaped the foreground lock:\n%s%s", repOut.String(), repErr.String())
+	case err := <-repDone:
+		t.Fatalf("same-lane replacement escaped the foreground lock (%v):\n%s%s", err, repOut.String(), repErr.String())
 	case <-time.After(1500 * time.Millisecond):
 	}
 

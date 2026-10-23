@@ -278,7 +278,7 @@ loop:
 	}
 	// The exclusive lane lock makes this reset and the replacement metadata one
 	// publication: --await cannot observe the transient empty generation.
-	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd", "register"} {
+	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd", "register", "sid"} {
 		_ = os.Remove(join(sdir, stale)) //nolint:gosec // best-effort sweep of the lane's own stale state files
 	}
 	cwd, _ := os.Getwd()

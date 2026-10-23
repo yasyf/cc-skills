@@ -364,6 +364,7 @@ func collectMode(root string) {
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --collect scratch root
 		die(fmt.Sprintf("codex-ask: --collect: no such directory: %s", root), 2)
 	}
+	reapRuns(reapAge, false, false)
 	if isFile(join(root, "meta")) || isFile(join(root, "status")) || isFile(join(root, "pid")) {
 		collectLane(root, ".")
 	} else {
@@ -400,6 +401,7 @@ func runMtime(d string) float64 {
 // record, expand fan-out containers into lane children, reap only terminal-and-aged
 // codex-ask dirs.
 func psMode() {
+	reapRuns(reapAge, false, false)
 	base := runsBase()
 	now := nowSec()
 	entries, _ := os.ReadDir(base)
