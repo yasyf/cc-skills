@@ -144,15 +144,23 @@ def test_a_root_merge_carrying_a_refusal_is_advised_and_never_blocked(tmp_path, 
     assert check[check.index("--pr") + 1] == "Forge-AI/monorepo#41700" and check[check.index("--head") + 1] == HEAD and "--incident" not in check
 
 
-def test_an_incident_lane_merge_is_advised_only_on_the_three_incident_refusals(tmp_path, monkeypatch):
+def test_an_incident_lane_merge_is_refused_on_any_of_the_three_incident_checks(tmp_path, monkeypatch):
     drive_registry(tmp_path, monkeypatch)
     subagent(tmp_path, "a1f2e3d4", name="incident-api-500s", agentType="long-running:lane-ship")
     calls = check_pr_stub(monkeypatch, 1, "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\nFINDER-MAJOR cccc333\n")
 
-    [advice] = advise(tmp_path, f"gh pr merge https://github.com/Forge-AI/monorepo/pull/41700 --squash --match-head-commit {HEAD}", "a1f2e3d4")
+    [refused] = advise(tmp_path, f"gh pr merge https://github.com/Forge-AI/monorepo/pull/41700 --squash --match-head-commit {HEAD}", "a1f2e3d4")
 
-    assert "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is." in advice and "FINDER-MAJOR" not in advice
+    assert refused == lane_landing.INCIDENT_MERGE_REFUSED.format(causes="RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.", pr="41700", head=HEAD[:10])
     assert [call[:3] for call in calls if call[:3] == ["gh", "pr", "view"]] == [] and "--incident" in calls[-1]
+
+
+def test_an_incident_lane_merge_passes_when_only_checks_outside_the_three_fire(tmp_path, monkeypatch):
+    drive_registry(tmp_path, monkeypatch)
+    subagent(tmp_path, "a1f2e3d4", name="incident-api-500s", agentType="long-running:lane-ship")
+    check_pr_stub(monkeypatch, 1, "FINDER-MAJOR cccc333\n")
+
+    assert advise(tmp_path, f"gh pr merge 41700 -R Forge-AI/monorepo --squash --match-head-commit {HEAD}", "a1f2e3d4") == []
 
 
 @pytest.mark.parametrize(

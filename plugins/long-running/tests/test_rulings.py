@@ -293,7 +293,7 @@ def seeded(package: Path) -> dict[str, dict[str, str]]:
 class RegisterShell(ledger.Shell):
     def __init__(self, rows: dict[str, dict[str, str]], answers: list[dict] | None = None, diff: str = "", lanes: list[str] | None = None, records: list[dict] | None = None) -> None:
         self.rows = {key: dict(fields) for key, fields in rows.items()}
-        self.answers = [dict(answer, tags=list(answer["tags"])) for answer in answers or []]
+        self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
         self.lanes = lanes or []
         self.records = records or []
@@ -320,6 +320,8 @@ class RegisterShell(ledger.Shell):
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])
                 return json.dumps([answer for answer in self.answers if wanted <= set(answer["tags"])])
+            case ["ccn", "-R", "/repo", "answer", "show", identity, "--json"]:
+                return json.dumps(next(answer for answer in self.answers if answer["id"].startswith(identity)))
             case ["ccn", "-R", "/repo", "answer", "edit", identity, "--add-label", label]:
                 next(answer for answer in self.answers if answer["id"] == identity)["tags"].append(label)
                 return ""
@@ -1096,3 +1098,89 @@ def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Pat
     assert (shell.rows["rule/bbbbbbb"]["status"], shell.rows["rule/bbbbbbb"]["superseded_by"]) == ("superseded", '["rule/ccccccc"]')
     assert shell.rows["rule/bbbbbbb"]["evidence"] == "superseded by rule/ccccccc: “Cards quote the words they ask about.”"
     assert shell.rows["rule/ccccccc"]["supersedes"] == '["rule/bbbbbbb"]'
+
+
+ROUND_TWO = {
+    "id": "5eed0c0de1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "title": "Round 2: confirms?",
+    "body": (
+        "Board round 2, 10:00 PM Oct 21: approved r2-pool-confirm (old jobs per 1234567), r2-op9-approval (a run missing its state opens read-only with Retry),"
+        " r2-drain-approval, r2-relay-confirm (one reader, two writers), r2-stream-confirm (events stream both ways, nothing polled), r2-cache-confirm."
+    ),
+    "tags": ["from:owner", "program:brook", "scope:durable"],
+    "created_at": "2026-10-22T05:00:10Z",
+}
+ROUND_TWO_ROW = {
+    "kind": "pick",
+    "status": "in-force",
+    "global": "no",
+    "words": "No old job is deleted until a later card. Approve?",
+    "answer": '["5eed0c0"]',
+    "at": "Oct 21 10:00 PM PT",
+    "said": "1",
+    "steps": '["1.9"]',
+    "lanes": '["all"]',
+    "paths": "none",
+    "symbols": "none",
+    "tests": '["C233"]',
+    "evidence": "census",
+}
+APPROVED = (
+    "approved r2-pool-confirm (old jobs per 1234567), r2-op9-approval (a run missing its state opens read-only with Retry), r2-drain-approval,"
+    " r2-relay-confirm (one reader, two writers), r2-stream-confirm (events stream both ways, nothing polled), r2-cache-confirm"
+)
+
+
+def answer_sourced(tmp_path: Path, words: str = APPROVED) -> Path:
+    path = tmp_path / "round-two.json"
+    implication = {"text": "A run missing its state opens read-only, with Retry.", "direction": "permits"}
+    path.write_text(json.dumps([{"extends": "rule/5eed0c0", "words": words, "implications": [implication]}]))
+    return path
+
+
+def test_classify_answer_extends_the_row_with_the_owners_six_approvals_and_the_answer_as_proof(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[ROUND_TWO])
+
+    code, _ = ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path)))
+
+    row = shell.rows["rule/5eed0c0"]
+    [repeat] = json.loads(row["repeats"])
+    assert code == 0
+    assert (repeat["key"], repeat["answer"], repeat["words"], repeat["proof"]) == ("rule/5eed0c0", [ROUND_TWO["id"]], APPROVED, "proof:answer:5eed0c0de1b2c3d4")
+    assert row["said"] == "2"
+    assert [item["text"] for item in json.loads(row["implications"])] == ["A run missing its state opens read-only, with Retry."]
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path))) == (
+        1,
+        "CLASSIFIED 5eed0c0de1b2c3d4: this capture is already in the register or earlier in this batch\n",
+    )
+
+
+def test_classify_answer_takes_only_words_in_an_owner_answer_body(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    rows = seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}
+    reading = answer_sourced(tmp_path, "the owner approved opening old runs read-only")
+
+    code, out = ran(capsys, RegisterShell(rows, answers=[ROUND_TWO]), "classify", "--answer", "5eed0c0", str(reading))
+    assert code == 1
+    assert out.startswith("NOT-VERBATIM 5eed0c0de1b2c3d4: ")
+
+    unlabelled = {key: value for key, value in ROUND_TWO.items() if key != "tags"}
+    for written in (dict(ROUND_TWO, tags=["program:brook", "scope:durable"]), unlabelled):
+        with pytest.raises(SystemExit, match=r"^NOT-OWNER 5eed0c0: "):
+            rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]))
+
+
+def test_one_answer_extends_several_rows_in_one_batch_and_never_again(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[ROUND_TWO])
+    path = tmp_path / "round-two-rows.json"
+    path.write_text(
+        json.dumps([
+            {"extends": "rule/5eed0c0", "words": "r2-op9-approval (a run missing its state opens read-only with Retry)"},
+            {"extends": "rule/bbbbbbb", "words": "r2-drain-approval"},
+        ])
+    )
+
+    code, _ = ran(capsys, shell, "classify", "--answer", "5eed0c0", str(path))
+
+    assert code == 0
+    assert [json.loads(shell.rows[key]["repeats"])[0]["proof"] for key in ("rule/5eed0c0", "rule/bbbbbbb")] == ["proof:answer:5eed0c0de1b2c3d4"] * 2
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(path))[0] == 1
