@@ -687,7 +687,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert json.loads(row["names"]) == ["relay-server", "parked worker", "relay hook"]
     assert [(item["n"], item["text"]) for item in json.loads(row["implications"])][-1] == (4, "relay-server exposes no relay hook.")
     assert json.loads(row["repeats"]) == [
-        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": entry["words"], "proof": f"proof:prompt:{'5' * 16}"}
+        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": entry["words"], "proof": f"proof:prompt:{'5' * 16}", "repeat": True}
     ]
     brief = state / "briefs" / "lane-a.md"
     hits = json.loads(out)["hits"]
@@ -716,7 +716,7 @@ def test_an_extension_without_repeat_words_is_no_repeat_and_posts_no_sweep(
 
     assert code == 0
     assert shell.rows["rule/aaaaaaa"]["said"] == "1"
-    assert len(json.loads(shell.rows["rule/aaaaaaa"]["repeats"])) == 1
+    assert [repeat["repeat"] for repeat in json.loads(shell.rows["rule/aaaaaaa"]["repeats"])] == [False]
     assert sweep_posts(shell, state) == []
 
 
@@ -724,17 +724,24 @@ def test_names_removes_a_name_and_a_wrongly_attached_repeat_citing_the_answer(ho
     rows = seeded(package)
     rows["rule/aaaaaaa"] |= {
         "said": "2",
-        "repeats": json.dumps([{"key": "prompt/1023-090000", "answer": [], "at": "Oct 23 9:00 AM PT", "words": "no parked worker", "proof": "proof:prompt:1"}]),
+        "repeats": json.dumps(
+            [
+                {"key": "prompt/1023-090000", "answer": [], "at": "Oct 23 9:00 AM PT", "words": "no parked worker", "proof": "proof:prompt:1"},
+                {"key": "prompt/1023-091000", "answer": [], "at": "Oct 23 9:10 AM PT", "words": "the parked worker again", "proof": "proof:prompt:2", "repeat": False},
+            ]
+        ),
     }
     shell = RegisterShell(rows)
 
-    code, out = ran(capsys, shell, "names", "rule/aaaaaaa", "--remove", "parked worker", "--drop-repeat", "prompt/1023-090000", "--why", "c4cdc50")
+    code, out = ran(
+        capsys, shell, "names", "rule/aaaaaaa", "--remove", "parked worker", "--drop-repeat", "prompt/1023-090000", "--drop-repeat", "prompt/1023-091000", "--why", "c4cdc50"
+    )
 
-    assert (code, out) == (0, "rule/aaaaaaa narrowed under c4cdc50: removed parked worker, prompt/1023-090000\n")
+    assert (code, out) == (0, "rule/aaaaaaa narrowed under c4cdc50: removed parked worker, prompt/1023-090000, prompt/1023-091000\n")
     row = shell.rows["rule/aaaaaaa"]
     assert (json.loads(row["names"]), json.loads(row["repeats"]), row["said"]) == (["relay-server"], [], "1")
     [narrowed] = json.loads(row["narrowed"])
-    assert (narrowed["removed"], narrowed["repeats"], narrowed["why"]) == (["parked worker"], ["prompt/1023-090000"], "c4cdc50")
+    assert (narrowed["removed"], narrowed["repeats"], narrowed["why"]) == (["parked worker"], ["prompt/1023-090000", "prompt/1023-091000"], "c4cdc50")
 
 
 def test_names_refuses_a_name_the_row_does_not_carry(home: Path, package: Path, state: Path, capsys) -> None:
@@ -1345,7 +1352,7 @@ def test_classify_answer_extends_the_row_with_the_owners_six_approvals_and_the_a
     [repeat] = json.loads(row["repeats"])
     assert code == 0
     assert (repeat["key"], repeat["answer"], repeat["words"], repeat["proof"]) == ("rule/5eed0c0", [ROUND_TWO["id"]], APPROVED, "proof:answer:5eed0c0de1b2c3d4")
-    assert row["said"] == "2"
+    assert row["said"] == "1"
     assert [item["text"] for item in json.loads(row["implications"])] == ["A run missing its state opens read-only, with Retry."]
     assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path))) == (
         1,

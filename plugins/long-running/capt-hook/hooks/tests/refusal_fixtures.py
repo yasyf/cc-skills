@@ -174,6 +174,20 @@ diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/p
 +        \"\"\"Hold a PR whose `MERGE-ASK`, `RULING-ASK` lines the owner has not tapped.\"\"\"
 """
 
+E2E_AND_HARNESS = """\
+diff --git a/dashboard/e2e/irisServe.e2e.ts b/dashboard/e2e/irisServe.e2e.ts
+--- a/dashboard/e2e/irisServe.e2e.ts
++++ b/dashboard/e2e/irisServe.e2e.ts
+@@ -200,0 +201,2 @@ test("serve", async () => {
++  const refused = new Set<string>();
++  await new Promise((resolve) => setTimeout(resolve, 5000));
+diff --git a/go/sand/internal/macharness/run.go b/go/sand/internal/macharness/run.go
+--- a/go/sand/internal/macharness/run.go
++++ b/go/sand/internal/macharness/run.go
+@@ -10,0 +11 @@ package macharness
++var errStalled = errors.New("stalled")
+"""
+
 DESK_RUNNER_ON_BASE = 'ESCALATION_KINDS = {"MERGE-ASK": "report", "RULING-ASK": "report"}\n'
 
 

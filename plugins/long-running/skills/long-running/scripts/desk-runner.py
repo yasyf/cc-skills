@@ -4963,7 +4963,7 @@ class Landing:
             return
         number = len(list((state / RULING_ROUNDS).glob("round-*.json"))) + 1
         self.runner.escalate(
-            f"ruling-ask:round-{number}",
+            f"ruling-ask:round-{number}:{min(queued).stem}",
             "RULING-ASK",
             f"round-{number}",
             f"{len(queued)} ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive {self.runner.config.drive}`:"

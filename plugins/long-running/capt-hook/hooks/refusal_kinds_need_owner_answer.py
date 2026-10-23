@@ -18,6 +18,7 @@ from .tests.refusal_fixtures import (
     DESK_RUNNER_ON_BASE,
     DIGIT_ID_BODY,
     DURATION_FIELDS,
+    E2E_AND_HARNESS,
     FAILS_OPEN,
     HELPER_PACKAGE_CLOCK,
     HELPER_TRANSCRIPT,
@@ -67,7 +68,7 @@ UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "--full-name",
 TOPLEVEL = ["git", "rev-parse", "--show-toplevel"]
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 EXEMPT = re.compile(
-    r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__)/|(?:^|/)[a-z0-9]+test/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec)\.\w+$"
+    r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__|e2e)/|(?:^|/)[a-z0-9]+(?:test|harness)/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$"
     r"|\.(?:md|mdx|txt|rst|lock|sum)$|(?:^|/)package-lock\.json$"
 )
 COMMENT = re.compile(r"^\s*(?:#|//|--\s|/\*|\*\s|\*$)")
@@ -398,6 +399,7 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(ON_BASE, base=DESK_RUNNER_ON_BASE)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(ON_BASE)): Warn(pattern=r"refusal kind MERGE-ASK"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(E2E_AND_HARNESS)): Allow(),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Warn(),

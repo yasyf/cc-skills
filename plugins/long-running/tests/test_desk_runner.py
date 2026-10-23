@@ -2448,7 +2448,7 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
         ruling_card(cards, f"rule:5c0e9a{index}", f"\u201cruling {index}\u201d")
     landing_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("RULING-ASK")]
-    assert line.startswith("RULING-ASK ruling-ask:round-1 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
+    assert line.startswith("RULING-ASK ruling-ask:round-1:rule:5c0e9a0 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
     assert "on the live cc-present board as round 1, foundational rows first, never as an AskUserQuestion or a bare Slack card" in line
     assert "`rulings.py confirm <key> --tick all --capture <digest>`" in line
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
@@ -2456,7 +2456,17 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
     rounds.mkdir()
     (rounds / "round-1.json").write_text("{}")
     landing_pass(shell, config)
-    assert [line.split(" ", 2)[1] for line in escalations(shell) if line.startswith("RULING-ASK")] == ["ruling-ask:round-1", "ruling-ask:round-2"]
+    skipped = rounds / "skipped"
+    skipped.mkdir()
+    for card in cards.glob("*.json"):
+        card.replace(skipped / card.name)
+    ruling_card(cards, "rule:5c0e9b0", "\u201cruling after a drained queue\u201d")
+    landing_pass(shell, config)
+    assert [line.split(" ", 2)[1] for line in escalations(shell) if line.startswith("RULING-ASK")] == [
+        "ruling-ask:round-1:rule:5c0e9a0",
+        "ruling-ask:round-2:rule:5c0e9a0",
+        "ruling-ask:round-2:rule:5c0e9b0",
+    ]
 
 
 def test_the_landing_pass_logs_no_ruling_ask_while_no_ruling_card_queues(shell, config, tmp_path):
@@ -4798,7 +4808,7 @@ def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, 
         "at": shell.clock.isoformat(),
         "config": str(config.resolve()),
         "terminal": "term_root",
-        "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca > {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
+        "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca >> {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
         "version": runner_module.RUNNING_VERSION,
     }
 

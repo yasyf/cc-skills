@@ -100,13 +100,12 @@ RECOMMENDED_MARK = " (Recommended)"
 CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
 ROUND_SIZE = 10
 LIVE_WINDOW = "2h"
-LIVE_WIDTH = 200
 LIVE_BUDGET = 10_000_000
 NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
 PATH_TOKEN = re.compile(r"\S*/\S*")
 ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
-CARD_REPLIES = frozenset({"slack-action", "slack-reply"})
+CARD_REPLIES = frozenset({"slack-action", "slack-reply", "board"})
 TAPS = frozenset({"slack-action", "board"})
 PROOF_SOURCE = re.compile(r"^proof:([\w-]+):")
 CONFIRMS_OPTIONS = ["Yes", "No"]
@@ -936,7 +935,7 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def live_lanes(loaded: Register, cci: str) -> list[str]:
     newest: dict[str, dict] = {}
-    argv = ["cci", "grep", "--drive", cci, "--json", "--since", LIVE_WINDOW, "--width", str(LIVE_WIDTH), "--budget", str(LIVE_BUDGET), "."]
+    argv = ["cci", "grep", "--drive", cci, "--json", "--since", LIVE_WINDOW, "--budget", str(LIVE_BUDGET), "."]
     for line in loaded.shell.run(argv).splitlines():
         if line.strip():
             record = json.loads(line)
@@ -990,7 +989,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         loaded.write(
             key,
             **reclassified,
-            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": words, "proof": proof}],
+            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": words, "proof": proof, "repeat": repeated}],
             said=str(int(fields.get("said") or 1) + repeated),
             names=union(names_of(fields), entry.get("names") or []),
             surfaces=union(listed(fields.get("surfaces")), entry.get("surfaces") or []),
@@ -1512,11 +1511,12 @@ def cmd_names(args: argparse.Namespace, shell: ledger.Shell) -> int:
             print(f"NOT-ON-ROW {args.key}: {', '.join(absent)} is not on the row")
             return 1
         kept = [repeat for repeat in repeats if repeat.get("key") not in args.drop_repeat]
+        counted = sum(bool(repeat.get("repeat", True)) for repeat in repeats if repeat.get("key") in args.drop_repeat)
         loaded.write(
             args.key,
             names=[name for name in names if name not in args.remove],
             repeats=kept,
-            said=str(int(fields.get("said") or 1) - (len(repeats) - len(kept))),
+            said=str(int(fields.get("said") or 1) - counted),
             narrowed=[*listed(fields.get("narrowed")), {"removed": args.remove, "repeats": args.drop_repeat, "why": args.why, "at": stamp()}],
         )
     print(f"{args.key} narrowed under {args.why}: removed {', '.join([*args.remove, *args.drop_repeat])}")
