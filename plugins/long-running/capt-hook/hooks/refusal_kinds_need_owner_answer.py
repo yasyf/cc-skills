@@ -273,6 +273,23 @@ def evidence(findings: list[Finding], rulings: str) -> str:
     return "\n".join(["```", *shown, *more, "", cited, "```"])
 
 
+def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
+    view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
+    findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
+    if not findings or (body := body_text(req, view)) is None:
+        return None
+    rulings = found.group(0) if (found := RULINGS.search(body)) else ""
+    if (answer := owner_answer(evt, req, rulings) if rulings else None) == UNREADABLE:
+        return None
+    folded = rulings.casefold()
+    open_findings = [finding for finding in findings if not (answer and finding.name.casefold() in folded)]
+    if not open_findings:
+        return None
+    if answer is None and any(finding.definite for finding in open_findings):
+        return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings)}")
+    return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings)}", confirm=NAMES_IT)
+
+
 def ship(command: str, **extra: object) -> Input:
     return Input(command=command, agent_id=LANE, state=ACTIVE, env=DRIVE_ENV, **extra)
 
@@ -318,22 +335,5 @@ def ship(command: str, **extra: object) -> Input:
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },
 )
-def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
-    view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
-    findings = [finding for path, line, text in diff_lines(req, view) for finding in classify(path, line, text)]
-    if not findings or (body := body_text(req, view)) is None:
-        return None
-    rulings = found.group(0) if (found := RULINGS.search(body)) else ""
-    if (answer := owner_answer(evt, req, rulings) if rulings else None) == UNREADABLE:
-        return None
-    folded = rulings.casefold()
-    open_findings = [finding for finding in findings if not (answer and finding.name.casefold() in folded)]
-    if not open_findings:
-        return None
-    if answer is None and any(finding.definite for finding in open_findings):
-        return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings)}")
-    return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings)}", confirm=NAMES_IT)
-
-
 def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
     return next((result for req in lane_prs(evt) if (result := verdict(evt, req)) is not None), None)
