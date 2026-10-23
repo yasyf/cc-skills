@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from cc_transcript.models import UserEvent
@@ -39,7 +40,7 @@ MISLABELED = (
     "An `OWNER h:mm` label carries the stamp of the owner turn it quotes, read from the transcript."
     " Relabel each one below with the time shown, then send again."
 )
-LANE_STATUS = re.compile(r"\bdrive\.py\s+lane-status\b")
+LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
     r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|[\w.-]:\s*(?:idle|silent|dead|stuck|empty)\b"
     r"|\bno (?:code|commits|work|progress)\b|\b(?:did|has done|done) nothing\b"
@@ -53,7 +54,6 @@ UNREAD_LANE = (
 IDLE_JUDGE = Confirm(
     rule="Block only when the reply calls a named lane idle, silent, dead, or empty, or stands one down or relaunches it, with no lane-status read this turn."
 )
-LAUNCHED_LANE = re.compile(r"\b(?:orca-launch\.sh|desk-launch\.py)\s+(?:launch\s+)?([\w.-]+)|\bcci\s+post\b[^\n]*--kind[ =]go\b[^\n]*--to[ =]([\w.,-]+)")
 DEFECT_ADMITTED = re.compile(
     r"\bmy bad\b|\bI (?:missed|forgot|should have|didn'?t)\b|\b(?:tooling|tool|hook|runner|desk)\s+(?:defect|bug|gap|is broken|was broken|misfired)\b"
     r"|\bdead lane\b|\blane (?:is|was) dead\b|\bmissed (?:a|the) step\b|\bstep (?:was )?skipped\b",
@@ -115,14 +115,31 @@ def mislabeled(evt: BaseHookEvent, text: str) -> list[str]:
     return wrong
 
 
+def turn_commands(evt: BaseHookEvent) -> list[tuple[str, ...]]:
+    return [tuple(cmd.argv) for use in evt.ctx.turn.tool_calls.named("Bash").items for cmd in use.call.command_line]
+
+
+def script_args(argv: tuple[str, ...], names: frozenset[str]) -> tuple[str, ...] | None:
+    at = next((index for index, word in enumerate(argv[:3]) if Path(word).name in names), None)
+    return None if at is None else argv[at + 1 :]
+
+
 def lane_status_read(evt: BaseHookEvent, lanes: set[str]) -> bool:
-    commands = [use.call.command for use in evt.ctx.turn.tool_calls.named("Bash").items if LANE_STATUS.search(use.call.command)]
-    return bool(commands) and all(any(re.search(rf"(?<![\w.-]){re.escape(lane)}(?![\w.-])", command) for command in commands) for lane in lanes)
+    reads = [set(args[1:]) for argv in turn_commands(evt) if (args := script_args(argv, frozenset({"drive.py"}))) and args[0] == "lane-status"]
+    return bool(reads) and all(any(lane in read for read in reads) for lane in lanes)
+
+
+def launched_lanes(argv: tuple[str, ...]) -> list[str]:
+    if (args := script_args(argv, LAUNCHERS)) is not None:
+        return [next((arg for arg in args if not arg.startswith("-") and arg != "launch"), "")]
+    if argv[:2] == ("cci", "post") and ("--kind", "go") in zip(argv, argv[1:]):
+        return [value for flag, value in zip(argv, argv[1:]) if flag == "--to"] + [arg.removeprefix("--to=") for arg in argv if arg.startswith("--to=")]
+    return []
 
 
 def fix_named(evt: BaseHookEvent, reply: str) -> bool:
     spawned = [use.call.raw.get("name") for use in evt.ctx.turn.tool_calls.named("Agent").items]
-    launched = [name for use in evt.ctx.turn.tool_calls.named("Bash").items for match in LAUNCHED_LANE.finditer(use.call.command) for name in filter(None, match.groups())]
+    launched = [name for argv in turn_commands(evt) for name in launched_lanes(argv)]
     names = {part for name in [*spawned, *launched] if name for part in name.split(",") if part}
     return any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w.-])", reply) for name in names)
 

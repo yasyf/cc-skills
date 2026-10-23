@@ -236,43 +236,53 @@ def revert(command: str = "", **extra: object) -> Input:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Agent")],
+    only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     tests={
         revert("git revert 5d0c9e1", commands={"ccn": (3, "not-found")}): Block(pattern=r"^A revert runs only on an owner answer that orders this revert"),
         revert("git revert 7aa0e21 && git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": REVERT_ANSWER}): Block(),
         revert("gh pr revert 1201 -R acme/service  # owner a9e1075b", commands={"ccn": DECLINED_REVERT}): Block(),
-        revert(tool="Agent", tool_input={"name": "inc-revert-1202", "prompt": "Revert #1202 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Block(),
         revert("gh pr revert 1201 -R acme/service"): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": REVERT_ANSWER}): Allow(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": PLAN_ANSWER}): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": SUPERSEDED_REVERT}): Block(),
-        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": OTHER_REVERT_ANSWER}, decide=CONFIRMED): Allow(),
-        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert #1201 and #1202 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Block(),
         revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": OTHER_REVERT_ANSWER}): Block(),
         revert("gh pr revert 1201 -R acme/service  # owner a9e1075b", commands={"ccn": PR_REVERT_ANSWER}): Allow(),
+        revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": (2, "not a git repository")}): Allow(),
+        revert("git revert 5d0c9e1", agent_id=LANE): Allow(),
+        Input(command="git revert 5d0c9e1"): Allow(),
+    },
+)
+def reverts_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
+    if not (calls := reverts(evt)) or not CompactionState.load(evt).active:
+        return None
+    command = str(evt.command)
+    unordered = [call for call in calls if not order_cited(evt, command, REVERT, tuple(filter(None, [revert_target(call)])))]
+    return evt.block(UNORDERED_REVERT) if unordered else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Agent")],
+    skip_if=[FromSubagent()],
+    tests={
+        revert(tool="Agent", tool_input={"name": "inc-revert-1202", "prompt": "Revert #1202 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Block(),
+        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert 7aa0e21 per owner a9e1075b."}, commands={"ccn": OTHER_REVERT_ANSWER}, decide=CONFIRMED): Allow(),
+        revert(tool="Agent", tool_input={"name": "inc-revert", "prompt": "Revert #1201 and #1202 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Block(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201 per owner a9e1075b."}, commands={"ccn": PLAN_ANSWER}, decide=CONFIRMED): Block(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201 per owner a9e1075b."}, commands={"ccn": PR_REVERT_ANSWER}, decide=CONFIRMED): Allow(),
-        revert("git revert 5d0c9e1  # owner a9e1075b", commands={"ccn": (2, "not a git repository")}): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201; it regressed the reader."}, decide=CONFIRMED): Block(),
         revert(tool="Agent", tool_input={"name": "inc-revert-1201", "prompt": "Revert #1201; it regressed the reader."}, decide=UNCONFIRMED): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-reader-fix", "prompt": "Fix the reader forward; do not revert #1201."}, decide=UNCONFIRMED): Allow(),
         revert("cci post --drive d --lane root --kind go --to inc-fix --text 'roll back the executor to 4120'", decide=CONFIRMED): Block(),
         revert("cci post --drive d --lane root --kind head --text 'reverted the local edit'", decide=CONFIRMED): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-reader-fix", "prompt": "Fix the reader forward."}, decide=CONFIRMED): Allow(),
-        revert("git revert 5d0c9e1", agent_id=LANE): Allow(),
-        Input(command="git revert 5d0c9e1"): Allow(),
+        revert("git revert 5d0c9e1", commands={"ccn": (3, "not-found")}, decide=CONFIRMED): Allow(),
     },
 )
-def reverts_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
-        return None
-    if calls := reverts(evt):
-        command = str(evt.command)
-        unordered = [call for call in calls if not order_cited(evt, command, REVERT, tuple(filter(None, [revert_target(call)])))]
-        return evt.block(UNORDERED_REVERT) if unordered else None
+def revert_orders_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
     text = ordered_text(evt)
-    if not REVERT.search(text) or text_order_cited(evt, text):
+    if not REVERT.search(text) or not CompactionState.load(evt).active or text_order_cited(evt, text):
         return None
     return evt.block(UNORDERED_REVERT, confirm=REVERT_JUDGE)
 
