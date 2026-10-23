@@ -29,10 +29,10 @@ affected user who spoke in a thread, the comms desk records that thread's grant 
 before its first reply there:
 
 ```bash
-ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <user id> reported <incident>?" --body "Reply grant for error and incident threads, answers 763620a and a4bd071" --label slack-grant:<channel id>
+ccn answer add "May the drive reply in <channel id> thread <thread ts>, where <user id> reported <incident>?" --body "Reply grant for error and incident threads, answers 763620a and a4bd071" --label slack-grant:<channel id>/<thread ts>
 ```
 
-The desk then replies only in that thread. Every other thread, and every top-level post
+The thread-scoped label grants that one thread, so the desk then replies only there. Every other thread, and every top-level post
 in that channel, stays silent unless the owner names it.
 
 The Slack watch lane relays human messages in this channel to the comms desk, not the
