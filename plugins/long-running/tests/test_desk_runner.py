@@ -2383,8 +2383,10 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue")
-    assert "`Merge #29020 cccc333` and `Hold #29020`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
-    assert "ask card with waits `merge:29020:cccc333`" in line and "beside its fixed `Explain more` (93037c3), never listed as an option" in line
+    assert "options `Merge #29020 cccc333` and `Hold #29020`, and recommended `Merge #29020 cccc333`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
+    assert "the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture" in line
+    assert "ask card with waits `merge:29020:cccc333`" in line and "beside its built-in `Other` and `Explain more` (93037c3), neither listed as an option" in line
+    assert "reply in the card's thread in plain words through `slack_dm_status` with `about` `merge:29020:cccc333`, the card's waits id, so cc-slack opens the reply with the link back to the card itself" in line
     assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: merge:29020:cccc333"`' in line
     merge_go(shell, "29020", "merge #29020 at bbbb222")
     landing_pass(shell, config)
@@ -2408,6 +2410,7 @@ def test_the_landing_pass_asks_the_owner_once_per_ruling_card_and_again_when_cla
     assert line.startswith("RULING-ASK ruling-ask:rule:5c0e9a1:") and " rule:5c0e9a1: \u201ca note started on the phone is out of scope\u201d | " in line
     assert f"`cc-slack dm-status --card @{card}`" in line and "never as an AskUserQuestion" in line
     assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: rule:5c0e9a1"`' in line
+    assert "Right, the card's recommended option, ticks every line" in line and "through `slack_dm_status` with `about` `rule:5c0e9a1`, the card's waits id, so cc-slack opens the reply with the link back to the card itself" in line
     card.write_text(json.dumps(ruling | {"body": "This also means:\n1. Nothing copies it to the laptop.\n2. Nothing copies it back."}))
     landing_pass(shell, config)
     assert len(escalations(shell)) == 2
