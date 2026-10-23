@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, WorkflowState, on, workflow_state
 from captain_hook.util import reqenv
 from pydantic import BaseModel, create_model
 
@@ -32,6 +32,7 @@ Sharing a word, a system, or a topic is not enough: the action must make the ver
 CANDIDATE = "- 1984bf6 May a migration ship behind a flag?\n  > No. Delete or replace.\n"
 MATCH = {f"{sys.executable} {script('rulings.py')} match": CANDIDATE}
 ACTIVE = CompactionState(active=True, slug="brook")
+ROOT = "main:"
 
 
 @workflow_state("long_running_ruling_judge")
@@ -96,7 +97,7 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     if not (found := moment(evt)) or not found[1].strip() or not (which := drive_args(evt)):
         return None
     kind, text = found
-    lane = f"{evt.agent_id or 'main'}:"
+    lane = f"{evt.agent_id}:" if evt.agent_id else ROOT
     excluded = [arg for key in JudgedAnswers.load(evt).injected if key.startswith(lane) for arg in ("--exclude", key.removeprefix(lane))]
     try:
         candidates = rulings(
@@ -125,3 +126,20 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
         state.injected.append(key)
     block = next(block for block in re.split(r"(?m)^(?=- [0-9a-f]{7} )", candidates) if block.startswith(f"- {answer} "))
     return evt.context(f"Durable owner answer `{answer}` bears on this call and binds it.", f"{REGISTER_FENCE}\n{block}{REGISTER_FENCE}")
+
+
+@on(
+    Event.SessionStart,
+    skip_if=[FromSubagent()],
+    tests={
+        Input(source="compact", state=[JudgedAnswers(injected=["main:1984bf6", "a1b2c3:1984bf6"])]): Allow(),
+        Input(source="resume", state=[JudgedAnswers(injected=["main:1984bf6"])]): Allow(),
+        Input(source="compact"): Allow(),
+    },
+)
+def forget_root_answers_after_compaction(evt: BaseHookEvent) -> HookResult | None:
+    if evt.source != "compact":
+        return None
+    with JudgedAnswers.mutate(evt) as state:
+        state.injected = [key for key in state.injected if not key.startswith(ROOT)]
+    return None

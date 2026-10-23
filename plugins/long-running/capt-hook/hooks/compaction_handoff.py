@@ -75,6 +75,8 @@ RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
+SWEEP_FIRST = "Run `rulings.py sweep --program {slug}` before the first plan or card edit."
+ROOT_LANE = "root"
 DOC_ADD_TOOL = "mcp__plugin_cc-notes_cc-notes__doc_add"
 PROGRESS_TITLE = re.compile(r"\bprogress\b|\bpre-compact\b", re.IGNORECASE)
 CCN_DOC_ADD = CommandSchema(
@@ -105,7 +107,12 @@ def script(name: str) -> Path:
     return newest(Path(__file__).parents[2]) / SCRIPTS / name
 
 
-NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null"}
+NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
+ROOT_SLICE = NO_REGISTER | {
+    f"{sys.executable} {script('rulings.py')} slice": (
+        "scope `1e9a64d`: “I fcking told you starting one in teh cloud then wrtiing on mac is not in scope”\nslice-hash: 0123456789ab\n"
+    )
+}
 
 
 @workflow_state("long_running_compaction")
@@ -127,6 +134,7 @@ class CompactionState(WorkflowState):
     narrative: str | None = None
     register_doc: str | None = None
     register_body: str | None = None
+    root_slice: str | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -280,17 +288,21 @@ def compact_instructions(state: CompactionState) -> str:
     )
 
 
-def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
+def register_parts(register: dict) -> tuple[str, ...]:
     name = register["id"][:SHORT]
     if len(register["body"]) > REGISTER_CONTEXT_CHARS:
-        return evt.context(
+        return (
             f"Standing rules register `{name}` is over the injection budget and binds this session; "
-            f"read it in full with `ccn doc show {name}` before acting."
+            f"read it in full with `ccn doc show {name}` before acting.",
         )
-    return evt.context(
+    return (
         f"Standing rules register `{name}`, verbatim; it binds this session and every lane brief, and outranks any summary.",
         f"{REGISTER_FENCE}\n{register['body'].rstrip()}\n{REGISTER_FENCE}",
     )
+
+
+def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
+    return evt.context(*register_parts(register))
 
 
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
@@ -305,6 +317,46 @@ def register_of(cwd: str, *which: str) -> dict | None:
 def queue_register(state: CompactionState, cwd: str) -> None:
     if state.store == "ccn" and state.slug and (register := register_of(cwd, "--program", state.slug)):
         state.register_doc, state.register_body = register["id"], register["body"]
+
+
+def drive_entry(evt: BaseHookEvent) -> dict | None:
+    drives = Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
+    drive = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
+    for path in sorted(drives.glob("*.json")):
+        entry = json.loads(path.read_text())
+        if entry["drive"] == drive or (not drive and evt.session_id in entry["sessions"]):
+            return entry
+    return None
+
+
+def post_blocker(evt: BaseHookEvent, text: str) -> None:
+    if not (entry := drive_entry(evt)):
+        return
+    drive = entry.get("cci_drive") or Path(entry["state_dir"]).name
+    argv = ["cci", "post", "--drive", drive, "--lane", ROOT_LANE, "--kind", "blocker", "--to", ROOT_LANE, "--text", text]
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
+def failure_of(failed: subprocess.CalledProcessError | subprocess.TimeoutExpired) -> str:
+    if isinstance(failed, subprocess.TimeoutExpired):
+        return f"timed out after {failed.timeout:g}s"
+    return next(iter(failed.stderr.strip().splitlines()[-1:]), f"exit {failed.returncode}")
+
+
+def queue_root_slice(state: CompactionState, evt: BaseHookEvent) -> None:
+    if not (state.store == "ccn" and state.slug):
+        return
+    try:
+        state.root_slice = rulings(str(evt.cwd), "slice", "--root", "--program", state.slug).rstrip("\n") or None
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
+        post_blocker(
+            evt,
+            f"The root's register slice did not load at SessionStart {evt.source}: {failure_of(failed)}. "
+            f"Run `rulings.py slice --root --program {state.slug}` and read it before the first plan or card edit.",
+        )
 
 
 def handoff_nudge(state: CompactionState) -> str:
@@ -614,6 +666,14 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             source="compact", commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
+        Input(
+            source="compact", commands=ROOT_SLICE, state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
+        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: "),
+        Input(
+            source="resume",
+            commands={**ROOT_SLICE, "ccn": "[]"},
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")],
+        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: .*they supersede the conversation so far\.$"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
         Input(source="resume", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]): Allow(),
         Input(
@@ -639,6 +699,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
+            queue_root_slice(state, evt)
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
@@ -655,6 +716,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             return None
         resolve_record(state, evt.cwd)
         queue_register(state, evt.cwd)
+        queue_root_slice(state, evt)
     if digest:
         return evt.context(digest + pending)
     follow_up = (
@@ -684,22 +746,27 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"^Standing rules register `eeeeeee` is over the injection budget and binds this session; "
             r"read it in full with `ccn doc show eeeeeee` before acting\.$"
         ),
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, slug="brook", root_slice="scope `1e9a64d`: rule")]): Warn(
+            pattern=r"^scope `1e9a64d`: rule\nRun `rulings\.py sweep --program brook` before the first plan or card edit\.$"
+        ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
             agent_id="a1b2c3",
-            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n")],
+            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope `1e9a64d`: rule")],
         ): Allow(),
     },
 )
 def deliver_register(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).register_body:
+    if not ((queued := CompactionState.load(evt)).register_body or queued.root_slice):
         return None
     with CompactionState.mutate(evt) as state:
         body, state.register_body = state.register_body, None
-        name = state.register_doc or ""
-    return register_context(evt, {"id": name, "body": body}) if body else None
+        root, state.root_slice = state.root_slice, None
+        name, slug = state.register_doc or "", state.slug
+    parts = (*(register_parts({"id": name, "body": body}) if body else ()), *((root, SWEEP_FIRST.format(slug=slug)) if root else ()))
+    return evt.context(*parts) if parts else None
 
 
 def send_compact(handle: str, instructions: str, transcript: Path) -> None:
