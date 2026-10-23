@@ -147,9 +147,8 @@ CONTRACT_MISSING = "CONTRACT-MISSING "
 ACCEPTED = "accepted "
 ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
 READBACK_MISSING = (
-    "Lane `{lane}` has no read-back a fidelity desk accepted for its current register slice, so it cannot open a PR or report READY yet."
-    " Post your `rulings.py readback` as a `contract` record with `[readback]` in its text to a fidelity desk,"
-    " wait for its `readback: ok {lane} <slice-hash>` review, then run this again.\n\n{why}"
+    "Lane `{lane}` opens no first PR and reports no READY until a fidelity desk accepts its read-back."
+    " Post `rulings.py readback` as a `[readback]` contract and wait for `readback: ok {lane}`."
 )
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a", "CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
 READY_REPORT = "python3 ledger.py report --ledger L1 --drive brook-drive --pr 42 --head abc1234 --lane lane-a --verdict clean --text 'READY #42 green'"
@@ -837,14 +836,14 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
     tests={
         gated("ccx vcs ship -m 'long-running: ✨ x' --new-branch lane-a-x"): Allow(),
         gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Block(
-            pattern=r"^Lane `lane-a` has no read-back a fidelity desk accepted[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back$"
+            pattern=r"^Lane `lane-a` opens no first PR and reports no READY until a fidelity desk accepts its read-back\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
         ),
         gated("gh pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"): Block(pattern=r"the newest grade, #9, is missing"),
-        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Block(pattern=r"cannot open a PR"),
+        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Block(pattern=r"opens no first PR"),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n", prs=OPEN_PR): Allow(),
         gated("ccx vcs stack continue", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Allow(),
-        gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Block(pattern=r"cannot open a PR"),
-        gated(READY_REPORT, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", prs=OPEN_PR): Block(pattern=r"cannot open a PR or report READY"),
+        gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Block(pattern=r"opens no first PR"),
+        gated(READY_REPORT, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", prs=OPEN_PR): Block(pattern=r"opens no first PR and reports no READY"),
         gated(READY_REPORT.replace("READY #42 green", "STATE #42 waiting on CI"), "CONTRACT-MISSING lane-a: none\n"): Allow(),
         gated("git push origin HEAD", "CONTRACT-MISSING lane-a: none\n"): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING x: none\n", env={"CLAUDE_LONG_RUNNING_LANE": ""}): Allow(),
@@ -871,4 +870,4 @@ def readback_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "readback_gate", error)
         return None
-    return evt.block(READBACK_MISSING.format(lane=lane, why=said.strip())) if said.startswith(CONTRACT_MISSING) else None
+    return evt.block("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())])) if said.startswith(CONTRACT_MISSING) else None
