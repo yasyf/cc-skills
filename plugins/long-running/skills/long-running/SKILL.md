@@ -1690,10 +1690,11 @@ in `runner.json`, a cci `--to` address such as `peer:<session>`, and the landing
 process requires it to start.
 
 The release owner starts the release and posts
-`cci post --drive <drive> --lane <lane> --kind release --pr <pr> --target <component> --text <build>`.
-The release tooling posts nothing to cci, so the release owner and every lane that
-starts, freezes, or watches a release post the start claim, the applying announcement to
-peer roots, and the freeze's owner and hold themselves, as `reference/release-lanes.md` shows.
+`cci post --drive <drive> --lane <lane> --kind release --pr <pr> --target <component> --build <build url> --text <release id>`.
+The release tooling posts nothing to cci. The orca runner claims each build such a record
+names for its lane with `cci claim --for`, posts the applying announcement to peer roots,
+and posts the lift asks for each freeze a lane's `hold` record names, as
+`reference/release-lanes.md` shows; the lane posts only the release and hold records.
 A `release` record on the drive from another lane, stamped after the landing, that
 names one of the components with `--target` or the PR with `--pr` settles the landing.
 A `release` record on another drive settles nothing. Until one arrives the runner
@@ -1954,8 +1955,9 @@ Question-reply actions currently complete on send without those worker acks.
 **O6. Never end a session.** The runner never stops, signals, releases, or closes
 Claude, Codex, Orca, terminals, PTY daemons, or their supervisors. A settled
 worker keeps its session open. No launch receipt or missing heartbeat changes this.
-The sweep names each newly settled dispatch once in a `RECLAIM` line with the
-config's `orca.gc` command, and the root runs that command under R195. The root,
+The sweep names each newly settled dispatch once in a `RECLAIM` line with
+`desk-runner.py gc` and then the config's `orca.gc` command, and the root runs both
+under R195. The root,
 not the runner, ends a lane it has decided is done (stood down, superseded, or its
 deliverable on disk) with `<orca.gc> --run <run> --done <ctx>`. It never messages
 the lane to send `worker_done` first.

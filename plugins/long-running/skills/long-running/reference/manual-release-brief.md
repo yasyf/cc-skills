@@ -15,7 +15,7 @@ Do, in order:
 1. Read `cci tail --drive {drive} --lane {release_lane} --since 30m`. When
    `{release_lane}` has since posted a `release` record with `--build` for
    {component}, watch that build instead of starting another.
-2. Start the release: `tools/ci release start --emergency {component}` at commit
+2. Start the release: `{release} start --emergency {component}` at commit
    `{commit}` or newer. Post `--kind release --target {component} --build <url>` with
    the release id `releases/<id>` in the text the moment the build exists.
 3. When the standard start refuses, post the refusal verbatim as
@@ -23,8 +23,8 @@ Do, in order:
    `{hand}`. Fill `--env` and each claimed `<component>/<env>` from the release
    skill's target table when they read `<env>`. A claim that refuses names the
    owner of an overlapping incident or rollout claim: post it to root as a
-   `blocker`, since only that owner can hand it over with `tools/ci release transfer`.
-4. Watch to the publish. `tools/ci release live <id> --json` names the live version;
+   `blocker`, since only that owner can hand it over with `{release} transfer`.
+4. Watch to the publish. `{release} live <id> --json` names the live version;
    post `--kind fix-live --target {component} --build <url>` with
    `RELEASED {component} <version> (<build>)` as its text.
 

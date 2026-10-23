@@ -15,6 +15,7 @@
     drive.py lane-status LANE [--drive ID]
     drive.py pr-owed LANE [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
+    drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
@@ -70,6 +71,10 @@ Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence,
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
+
+``release`` is the desk runner's entry point when a lane's ``release --build`` record names a build: it records
+the build under ``releases`` in the registry entry of the drive whose cci drive is ``--cci-drive``, with its owner
+``<lane>@<drive>``, its release id, and the time, and exits 1 when no registered drive posts to that cci drive.
 """
 
 from __future__ import annotations
@@ -324,6 +329,16 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_release(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (entry := next((entry for entry in drives() if cci_drive(entry) == args.cci_drive), None)):
+        print(f"no registered drive posts to cci drive {args.cci_drive}; build {args.build} not recorded", file=sys.stderr)
+        return 1
+    entry.setdefault("releases", {})[args.build] = {"owner": args.owner, "release": args.release, "at": stamp()}
+    save(entry)
+    print(f"build {args.build} owned by {args.owner}")
+    return 0
+
+
 def cmd_landed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := find(args.drive, args.session)):
         return 0
@@ -556,6 +571,13 @@ def build_parser() -> argparse.ArgumentParser:
     worktree.add_argument("--session")
     worktree.add_argument("--drive")
     worktree.set_defaults(handler=cmd_worktree)
+
+    release = subparsers.add_parser("release", help="record which lane owns a release build the drive started")
+    release.add_argument("--cci-drive", required=True, metavar="NAME", help="the cci drive the owning lane posts to")
+    release.add_argument("--owner", required=True, metavar="LANE@DRIVE")
+    release.add_argument("--build", required=True, help="the build id or URL the lane's release record names")
+    release.add_argument("--release", default="", metavar="ID", help="the release id, such as releases/<date>/<n>")
+    release.set_defaults(handler=cmd_release)
 
     return parser
 

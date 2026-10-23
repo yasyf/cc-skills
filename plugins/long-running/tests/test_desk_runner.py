@@ -140,6 +140,11 @@ class FakeShell(runner_module.Shell):
         self.pr_lists: dict[str, list[dict]] = {}
         self.drives: list[str] = ["d1"]
         self.flake_code = 0
+        self.claims: list[list[str]] = []
+        self.claim_error = ""
+        self.registered: list[list[str]] = []
+        self.root_drives: list[str] = ["d1"]
+        self.builds: dict[str, dict] = {}
         self.ledger_outs: dict[str, tuple[int, str]] = {}
         self.cards: list[dict] = []
         self.card_error = ""
@@ -283,6 +288,17 @@ class FakeShell(runner_module.Shell):
             return self.cci_tail(argv)
         if argv == ["cci", "drive", "ls", "--json"]:
             return runner_module.Done(0, json.dumps([{"drive": drive} for drive in self.drives]), "")
+        if argv[:2] == ["cci", "claim"]:
+            self.claims.append(argv[2:])
+            return runner_module.Done(1, "", self.claim_error) if self.claim_error else runner_module.Done(0, f"started build:{argv[argv.index('--build') + 1]}\n", "")
+        if argv[:3] == [sys.executable, str(runner_module.SCRIPTS / "drive.py"), "release"]:
+            self.registered.append(argv[3:])
+            return runner_module.Done(0, "recorded\n", "")
+        if argv == ["cci", "who", "--role", "root", "--json"]:
+            return runner_module.Done(0, "".join(json.dumps({"lane": "root", "drive": drive}) + "\n" for drive in self.root_drives), "")
+        if argv[:4] == [str(self.root / "checkout/tools/ci"), "bk", "api", "/pipelines/release/builds/8748"]:
+            build = self.builds["8748"]
+            return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True}) + "\n", "")
@@ -573,6 +589,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "merge_mode": "auto",
                     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
                     "release_owner": "peer:sole-51",
+                    "release_cli": "tools/ci release",
                     "policy": {"rule": "prefix", "revision": "a1b2c3d4e5", "source": "Forge-AI/monorepo#28601"},
                 },
             }
@@ -2318,6 +2335,26 @@ def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, t
     assert line.startswith("MERGE-MODE-UNSET ") and "names no landing.merge_mode of every, high-risk, auto" in line
 
 
+def test_a_config_without_a_release_cli_is_refused_with_every_missing_member_in_one_line(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    del raw["landing"]["release_cli"]
+    del raw["landing"]["adapter"]
+    config.write_text(json.dumps(raw))
+    cli_path = tmp_path / "checkout" / "tools" / "ci"
+    cli_path.parent.mkdir(parents=True, exist_ok=True)
+    cli_path.write_text("")
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MQ-CONFIG-INVALID ") and "names no landing.adapter.kind" in line and "names no landing.release_cli" in line
+    assert line.endswith(': "adapter": {"kind": "label"}, "release_cli": "tools/ci release"')
+
+
+def test_the_release_cli_resolves_its_first_word_under_the_landing_checkout(tmp_path):
+    assert runner_module.release_cli(tmp_path / "checkout", {"release_cli": "bin/deploy --profile 'prod east'"}) == [str(tmp_path / "checkout/bin/deploy"), "--profile", "prod east"]
+
+
 def test_a_fidelity_lane_added_to_runner_json_counts_without_a_restart(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.", lane="fidelity-desk-10")
@@ -2971,6 +3008,7 @@ def test_a_label_refusal_its_lane_must_fix_routes_as_the_adapters_blocker_and_a_
         (lambda landing: landing.update(adapter={"kind": "graphite-stack-enqueue"}), "names no landing.adapter.script", '"adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(checks=["hold", "lint"]), "lists lint under landing.checks", '"checks": ["hold"]'),
         (lambda landing: landing.update(merge_mode="high-risk"), "runs merge mode high-risk with no landing.high_risk_paths globs", '"high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]'),
+        (lambda landing: landing.pop("release_cli"), "names no landing.release_cli", '"release_cli": "<release command line>"'),
     ],
 )
 def test_the_landing_desk_refuses_to_start_on_a_merge_queue_config_it_cannot_run_and_names_the_members_that_fix_it(shell, config, tmp_path, change, named, member):
@@ -3928,7 +3966,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
     assert len([call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]]) == 1
-    assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
+    assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
 
 
@@ -3938,7 +3976,7 @@ def test_a_large_settled_set_names_the_whole_run(shell, config, tmp_path):
         shell.launch(f"lane-{index:02d}", f"ctx_{index:02d}", status="failed")
     orca_pass(shell, config)
     [reclaim] = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
-    assert " and 2 more; run .agents/skills/orca/scripts/orca-gc --run run_1" in reclaim
+    assert f" and 2 more; run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then .agents/skills/orca/scripts/orca-gc --run run_1" in reclaim
     assert reclaim.endswith("--run run_1")
 
 
@@ -3946,7 +3984,7 @@ def test_without_a_gc_the_line_names_the_r195_bar(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a", status="completed")
     orca_pass(shell, config)
     [reclaim] = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
-    assert reclaim.endswith("close each idle terminal and remove each finished worktree under R195")
+    assert reclaim.endswith(f"run {runner_module.SCRIPTS / 'desk-runner.py'} gc --config {config.resolve()}, then close each other idle terminal and remove each finished worktree under R195")
 
 
 @pytest.mark.parametrize(("flag", "value"), [("--model", "gemini"), ("--effort", "extreme")])
@@ -6734,3 +6772,141 @@ def test_the_drive_root_card_stays_inside_cc_slacks_limits_on_a_large_ledger(she
     assert len(card["rollup"]["prs"]) == 50
     detail = card["rollup"]["lanes"][0]["detail"]
     assert len(detail) <= 200 and detail.endswith("more")
+
+
+BUILD = "https://buildkite.com/forge/release/builds/8748"
+
+
+def with_applying(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["applying"] = {"build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}", "step": r"apply-(?P<component>.+?)--(?P<env>.+)", "components": ["sandsql", "api", "executor", "rsw-*"]}
+    config.write_text(json.dumps(raw))
+
+
+def release_started(shell: FakeShell, lane: str = WALKER) -> int:
+    return cci_record(shell, lane=lane, kind="release", refs={"builds": [BUILD], "targets": ["api"]}, at=actions.stamp(shell.now()), text="CUT releases/2026-10-01/3 build 8748")
+
+
+def apply_job(job: str, key: str, state: str) -> dict:
+    return {"id": job, "step_key": key, "state": state}
+
+
+def applying_posts(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["kind"] == "release" and post["lane"] == "desk-runner"]
+
+
+def test_a_lanes_release_build_is_claimed_for_the_lane_and_recorded_in_the_registry(shell, config, tmp_path):
+    orca_pass(shell, config)
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.claims == [["--for", f"{WALKER}@d1", "--build", BUILD, "--rel", "started"]]
+    assert shell.registered == [["--cci-drive", "d1", "--owner", f"{WALKER}@d1", "--build", BUILD, "--release", "releases/2026-10-01/3"]]
+    assert [line for line in escalations(shell) if "CLAIM" in line] == []
+
+
+def test_a_release_record_from_before_the_runner_started_is_never_claimed(shell, config, tmp_path):
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.claims == []
+
+
+def test_a_refused_claim_escalates_once(shell, config, tmp_path):
+    shell.claim_error = f"cci: --for {WALKER}@d1: no live session on this machine is bound as lane {WALKER} in drive d1"
+    orca_pass(shell, config)
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = [line for line in escalations(shell) if line.startswith("RELEASE-CLAIM-FAILED ")]
+    assert f"build {BUILD} started by {WALKER}@d1: `cci claim --for {WALKER}@d1 --build {BUILD} --rel started` exited 1: cci: --for" in line
+
+
+def test_a_running_apply_is_announced_once_to_every_live_drive_root(shell, config, tmp_path):
+    with_applying(config)
+    shell.root_drives = ["d1", "d2", "d3"]
+    shell.builds["8748"] = {"commit": "94d61b91951aa", "jobs": [apply_job("job_plan", "plan-api--prod", "running"), apply_job("job_web", "apply-web--prod", "running"), apply_job("job_api", "apply-api--prod", "scheduled")], "finished_at": None}
+    orca_pass(shell, config)
+    release_started(shell)
+    orca_pass(shell, config)
+    assert applying_posts(shell) == []
+    shell.builds["8748"]["jobs"][2]["state"] = "running"
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [post] = applying_posts(shell)
+    assert post["text"] == "applying api/prod 94d61b91 (releases/2026-10-01/3)"
+    assert post["to"] == "root,root@d2,root@d3" and post["id"] == "applying:job_api" and post["stack"] == "api/prod" and post["build"] == BUILD
+
+
+def test_a_build_reader_that_prints_no_json_escalates_and_the_desk_keeps_running(shell, config, tmp_path):
+    with_applying(config)
+    shell.builds["8748"] = "not json"
+    orca_pass(shell, config)
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = [line for line in escalations(shell) if line.startswith("APPLYING-UNREAD ")]
+    assert "printed no JSON" in line
+
+
+def test_a_finished_build_is_read_no_more(shell, config, tmp_path):
+    with_applying(config)
+    shell.builds["8748"] = {"commit": "94d61b91951aa", "jobs": [], "finished_at": "2026-10-01T18:30:00Z"}
+    orca_pass(shell, config)
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    reads = [call for call in shell.calls if call[1:3] == ["bk", "api"]]
+    assert len(reads) == 1
+
+
+def test_an_applying_config_without_named_groups_refuses_to_start(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["applying"] = {"build": "tools/ci bk api /builds/{number}", "step": "apply-.+", "components": ["api"]}
+    config.write_text(json.dumps(raw))
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    [line] = escalations(shell)
+    assert line.startswith("APPLYING-CONFIG-INVALID ") and "no `component` and `env` named groups" in line
+
+
+def frozen(shell: FakeShell, until: datetime, lane: str = WALKER) -> int:
+    return cci_record(shell, lane=lane, kind="hold", status="open", refs={"targets": ["api"]}, at=actions.stamp(shell.now()), text=f"froze api/prod until {actions.stamp(until)} as freeze frz_77: canary reads back")
+
+
+def lift_asks(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(post["to"], post["text"]) for post in shell.posts if post["kind"] == "ask"]
+
+
+def test_a_freeze_past_its_until_gets_one_lift_ask_to_its_lane(shell, config, tmp_path):
+    orca_pass(shell, config)
+    frozen(shell, shell.clock + timedelta(minutes=30))
+    orca_pass(shell, config)
+    assert lift_asks(shell) == []
+    shell.clock += timedelta(minutes=31)
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=1)
+    orca_pass(shell, config)
+    [(to, text)] = lift_asks(shell)
+    assert to == WALKER and text.startswith("lift freeze frz_77 on api/prod: it ran to its until")
+
+
+def test_a_freeze_whose_lane_is_gone_gets_one_lift_ask_to_root(shell, config, tmp_path):
+    orca_pass(shell, config)
+    frozen(shell, shell.clock + timedelta(hours=4))
+    shell.gone.add(WALKER)
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=1)
+    orca_pass(shell, config)
+    [(to, text)] = lift_asks(shell)
+    assert to == "root" and "lane " + WALKER + ", its owner, has no live session; run `tools/ci release unfreeze frz_77`" in text
+
+
+def test_a_lifted_freeze_is_asked_about_no_more(shell, config, tmp_path):
+    orca_pass(shell, config)
+    seq = frozen(shell, shell.clock + timedelta(minutes=5))
+    orca_pass(shell, config)
+    next(record for record in shell.records if record["seq"] == seq)["status"] = "resolved"
+    shell.clock += timedelta(minutes=10)
+    orca_pass(shell, config)
+    assert lift_asks(shell) == []
+    assert runner_module.FREEZES not in incident(tmp_path, "desk-runner").facts or incident(tmp_path, "desk-runner").facts[runner_module.FREEZES] == {}

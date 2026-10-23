@@ -467,3 +467,15 @@ def test_a_link_from_a_session_in_no_drive_fails(repo, tmp_path):
 def test_watch_refuses_a_malformed_message_ts(repo):
     with pytest.raises(SystemExit):
         watch("--message", "1790901997")
+
+
+def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo, capsys):
+    started(repo, "--cci-drive", "release-v3")
+    build = "https://buildkite.com/forge/release/builds/8748"
+
+    assert drive.main(["release", "--cci-drive", "release-v3", "--owner", "release-walker-4@release-v3", "--build", build, "--release", "releases/2026-10-22/3"]) == 0
+    assert drive.main(["release", "--cci-drive", "other-drive", "--owner", "walker@other-drive", "--build", "1"]) == 1
+
+    releases = json.loads((drive.drives_dir() / "900424b6.json").read_text())["releases"]
+    assert releases == {build: {"owner": "release-walker-4@release-v3", "release": "releases/2026-10-22/3", "at": releases[build]["at"]}}
+    assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
