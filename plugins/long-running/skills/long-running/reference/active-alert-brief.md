@@ -323,10 +323,11 @@ Do:
      user's action to the error that can fail, one line each with the telemetry
      that shows whether it failed, attached with `--path` to your `MECHANISM`
      record. A fix to one stage of a path you have not mapped is not the fix. Read the
-     reporter's case from telemetry: the client versions of their team from the
-     metrics, the run, session, or thread record and which component served the
-     failing request, server logs and Sentry by user and team id, and the release
-     timeline. Never ask the reporter for evidence (owner answer 8ff2abf).
+     reporter's case from telemetry: the client versions of their team
+     from the metrics, the run, session, or thread record and which component
+     served the failing request, server logs and Sentry by user and team id,
+     and the release timeline. Never ask the reporter for evidence (owner
+     answer 8ff2abf).
   2. Read <evidence lane name>'s findings as they arrive by bus or Orca messages.
      Redirect with the evidence, including to a monitor fix for a monitor defect.
      A muted monitor still gets fixed; use the mute window.
