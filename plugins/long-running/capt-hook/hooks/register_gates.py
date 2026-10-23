@@ -28,11 +28,14 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, CompactionState, bus_name, ccn, drive_entry, post_blocker, rulings, script
-from .lane_landing import lane_name, program
+from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
+from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, declared_fixes, inbox_text, incident_spawn, open_incidents, posted_text, prose
-from .register_injection import drive_args
+from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, declared_fixes, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
+from .pr_ledger import OPENERS
+from .register_injection import drive_args, helper
 from .root_context import FILE_WRITES
+from .session_tree import nearest_name
 from .tests.register_fixtures import (
     ACTIVE,
     CLEAR,
@@ -140,6 +143,19 @@ TARGET_FLAGS = frozenset({"--targets", "--target", "--groups"})
 RELEASE_VALUE_FLAGS = TARGET_FLAGS | {"--env", "--commit", "--stack"}
 GO_WAITS = "A GO naming `{tokens}` waits while gate row `{key}` is owed. Meet the gate first, then post the GO."
 CUT_REFUSED = "This {verb} is refused while the register's cut rules below hold. Clear each one, then run it again."
+CONTRACT_MISSING = "CONTRACT-MISSING "
+ACCEPTED = "accepted "
+ACCEPTED_CHECK = f"{sys.executable} {script('rulings.py')} accepted"
+READBACK_MISSING = (
+    "Lane `{lane}` opens no first PR and reports no READY until a fidelity desk accepts its read-back."
+    " Post `rulings.py readback` as a `[readback]` contract and wait for `readback: ok {lane}`."
+)
+LANE = {"CLAUDE_LONG_RUNNING_LANE": "lane-a", "CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
+READY_REPORT = "python3 ledger.py report --ledger L1 --drive brook-drive --pr 42 --head abc1234 --lane lane-a --verdict clean --text 'READY #42 green'"
+LEDGER_LIST = f"{sys.executable} {script('ledger.py')} -C /repo list"
+OPEN_PR = json.dumps([{"pr": "41", "lane": "lane-a"}])
+SHIP = ("ccx", "vcs", "ship")
+NEW_BRANCH = "--new-branch"
 CACHE_ENV = {"CLAUDE_CONFIG_DIR": DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]}
 CACHE = Path(DRIVE_CONFIG["CLAUDE_CONFIG_DIR"]) / "plugins" / "cache" / "skills" / "long-running" / "0.7.217"
 HOOK_EDIT = (
@@ -753,3 +769,105 @@ def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
         return None
     verb, reasons = held[0]
     return evt.block("\n".join([CUT_REFUSED.format(verb=RELEASE_NOUNS[verb]), fenced("\n".join(f"- {found['text']}" for found in reasons))]))
+
+
+def unflagged(argv: tuple[str, ...]) -> tuple[str, ...]:
+    kept: list[str] = []
+    values = iter(argv)
+    for arg in values:
+        if arg in GH_REPO_FLAGS:
+            next(values, None)
+        elif not arg.startswith(("--repo=", "-R=")):
+            kept.append(arg)
+    return tuple(kept)
+
+
+def runs(evt: BaseHookEvent) -> list[tuple[str, ...]]:
+    return [unflagged(program((call.name, *call.args))) for call in evt.command.calls()]
+
+
+def opens_pr(run: tuple[str, ...]) -> bool:
+    return any(run[: len(argv)] == argv for argv in OPENERS)
+
+
+def new_branch(run: tuple[str, ...]) -> bool:
+    return run[:3] == SHIP and any(arg == NEW_BRANCH or arg.startswith(f"{NEW_BRANCH}=") for arg in run)
+
+
+def reports_ready(run: tuple[str, ...]) -> bool:
+    return "ledger.py" in {Path(arg).name for arg in run[:2]} and "report" in run and any(text.startswith("READY") for text in option(run, "--text"))
+
+
+def owning_lane(evt: BaseHookEvent) -> str | None:
+    return (evt.agent_id and nearest_name(evt, helper)) or lane_name(evt)
+
+
+def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
+    return bool(INCIDENT_LANE.match(lane) or (FIX_LANE.search(lane) and open_incidents(evt, read_incident_source)))
+
+
+def has_pr(entry: dict, lane: str) -> bool:
+    argv = [sys.executable, str(script("ledger.py")), "-C", entry["checkout"], "list", "--ledger", entry["ledger"], "--repo", entry["repo"], "--lane", lane, "--json"]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    done.check_returncode()
+    return bool(json.loads(done.stdout))
+
+
+def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
+    try:
+        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive)
+    except subprocess.CalledProcessError as refused:
+        if not (refused.stdout or "").startswith(CONTRACT_MISSING):
+            raise
+        said = refused.stdout
+    if not said.startswith((ACCEPTED, CONTRACT_MISSING)):
+        raise ValueError(f"`rulings.py accepted` printed {said.strip()[:EXCERPT]!r}")
+    return said
+
+
+def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = LANE, incidents: str | tuple[int, str] = "[]", prs: str | tuple[int, str] = "[]") -> Input:
+    commands = {ACCEPTED_CHECK: said, LEDGER_LIST: prs, "cci post": "#1", " ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}"}
+    return Input(command=command, cwd=CWD, env=DRIVE_CONFIG | env, commands=commands)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        gated("ccx vcs ship -m 'long-running: ✨ x' --new-branch lane-a-x"): Allow(),
+        gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Block(
+            pattern=r"^Lane `lane-a` opens no first PR and reports no READY until a fidelity desk accepts its read-back\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
+        ),
+        gated("gh pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb\n"): Block(pattern=r"the newest grade, #9, is missing"),
+        gated("gh -R yasyf/cc-skills pr create --title x --body-file b.md", "CONTRACT-MISSING lane-a: none\n"): Block(pattern=r"opens no first PR"),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n", prs=OPEN_PR): Allow(),
+        gated("ccx vcs stack continue", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Allow(),
+        gated("ccx vcs ship -m x --new-branch lane-a-y", "CONTRACT-MISSING lane-a: none\n", prs=OPEN_PR): Block(pattern=r"opens no first PR"),
+        gated(READY_REPORT, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", prs=OPEN_PR): Block(pattern=r"opens no first PR and reports no READY"),
+        gated(READY_REPORT.replace("READY #42 green", "STATE #42 waiting on CI"), "CONTRACT-MISSING lane-a: none\n"): Allow(),
+        gated("git push origin HEAD", "CONTRACT-MISSING lane-a: none\n"): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING x: none\n", env={"CLAUDE_LONG_RUNNING_LANE": ""}): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING x: none\n", env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING inc-api-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "inc-api-fix"}): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=OPEN_FIX): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Block(pattern=r"`alerts-api-0305-fix`"),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Allow(),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Allow(),
+        gated("ccx vcs ship -m x", "Traceback: boom\n"): Allow(),
+    },
+)
+def readback_gate(evt: BaseHookEvent) -> HookResult | None:
+    called = runs(evt)
+    always = any(new_branch(run) or reports_ready(run) for run in called)
+    if not always and not any(opens_pr(run) for run in called):
+        return None
+    try:
+        if not (lane := owning_lane(evt)) or not (entry := drive_entry(evt)) or incident_lane(evt, lane):
+            return None
+        if not always and has_pr(entry, lane):
+            return None
+        said = acceptance(evt, lane, entry["drive"])
+    except READ_ERRORS as error:
+        failed_open(evt, "readback_gate", error)
+        return None
+    return evt.block("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())])) if said.startswith(CONTRACT_MISSING) else None

@@ -305,20 +305,25 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
     return evt.block(INCIDENT_ROUTE) if authorized else evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX)
 
 
-def incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
+def read_incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
     env = dict(reqenv.env_map()) | {"CLAUDE_CODE_SESSION_ID": evt.session_id}
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=INCIDENT_SOURCE_TIMEOUT_SECONDS, env=env)
+    done.check_returncode()
+    return done.stdout
+
+
+def incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=INCIDENT_SOURCE_TIMEOUT_SECONDS, env=env)
-    except (OSError, subprocess.TimeoutExpired):
+        return read_incident_source(evt, argv)
+    except (OSError, subprocess.SubprocessError):
         return ""
-    return done.stdout if done.returncode == 0 else ""
 
 
-def stored_incidents(evt: BaseHookEvent) -> list[dict]:
+def stored_incidents(evt: BaseHookEvent, source: Callable[[BaseHookEvent, list[str]], str] = incident_source) -> list[dict]:
     since = datetime.now(UTC) - INCIDENT_WINDOW
     return [
         record
-        for record in json.loads(incident_source(evt, INCIDENT_STORE) or "[]")
+        for record in json.loads(source(evt, INCIDENT_STORE) or "[]")
         if record["status"] not in SETTLED_INCIDENT and not record["facts"].get("not_ours") and datetime.fromisoformat(record["opened_at"]) >= since
     ]
 
@@ -327,11 +332,11 @@ def declared_fixes(evt: BaseHookEvent) -> list[str]:
     return [str(record["facts"]["repair_pr"]) for record in stored_incidents(evt) if record["facts"].get("repair_pr")]
 
 
-def open_incidents(evt: BaseHookEvent) -> list[tuple[str, ...]]:
-    stored = [(record["incident_id"], record["facts"].get("target"), record["facts"].get("alert")) for record in stored_incidents(evt)]
+def open_incidents(evt: BaseHookEvent, source: Callable[[BaseHookEvent, list[str]], str] = incident_source) -> list[tuple[str, ...]]:
+    stored = [(record["incident_id"], record["facts"].get("target"), record["facts"].get("alert")) for record in stored_incidents(evt, source)]
     posted = [
         (f"#{record['seq']}", record.get("topic"), record.get("id"), *((record.get("refs") or {}).get("targets") or []))
-        for record in json.loads(incident_source(evt, INCIDENT_DIGEST) or "{}").get("open_incidents") or []
+        for record in json.loads(source(evt, INCIDENT_DIGEST) or "{}").get("open_incidents") or []
     ]
     return [tuple(name for name in names if name) for names in stored + posted]
 
