@@ -269,7 +269,7 @@ def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, 
         1,
         ["LANE-DECIDED We decided to keep the retry loop.", "LANE-DECIDED I picked the merge order (cafef00d).", "LANE-DECIDED We went with the slice at 0123456789ab."],
     )
-    quoted = CLEAN.replace("The pool drains when a run closes.", "On Oct 22 you said “Yes (my pick)” (rule/bbbbbbb), so the pool drains on close.")
+    quoted = CLEAN.replace("The pool drains when a run closes.", "- On Oct 22 you said “Yes (my pick)”; this change leaves it alone.")
     assert check(capsys, CheckShell(pinned(package), body=quoted)) == (0, [])
     in_words = CLEAN.replace("The pool empties itself when a run ends.", "We decided to keep the retry loop.")
     assert check(capsys, CheckShell(pinned(package), body=in_words)) == (1, ["LANE-DECIDED We decided to keep the retry loop."])
