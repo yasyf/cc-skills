@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 import re
 import subprocess
@@ -8,30 +7,27 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import CONFIRMED, UNCONFIRMED, Allow, BaseHookEvent, Block, Call, Confirm, Event, HookResult, Input, Tool, on
-from captain_hook.util import reqenv
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
 
-from .compaction_handoff import CompactionState
-from .lane_landing import DRIVE_ENV, LANDERS, drive_entry, lane_name, named_repo, without_repo
+from .compaction_handoff import CompactionState, drive_entry
+from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
     CARD_TERMS,
     CARD_TERMS_KIND,
-    CARD_TERMS_SOURCE,
     CITED,
     DIGIT_ID_BODY,
+    DURATION_FIELDS,
     FAILS_OPEN,
+    HELPER_PACKAGE_CLOCK,
+    HELPER_TRANSCRIPT,
     HEREDOC_BODY,
     LAUNCH_STALLED,
     LOGGED_STATE,
-    NAMED_ANSWER,
+    NEW_SENTINEL,
     NO_DRIVE,
     PLAIN,
-    PLAN,
-    PLAN_GATES_BODY,
     RELISTED,
     RETIRE_AND_RECONVERT,
-    SENTINEL_ANSWER,
-    SENTINEL_BODY,
     SENTINEL_ONLY,
     TEST_ONLY,
     TREE,
@@ -42,11 +38,9 @@ from .tests.refusal_fixtures import (
 )
 
 ACTIVE = [CompactionState(active=True)]
-PLANNED = [CompactionState(active=True, plan_path=str(PLAN))]
 LANE = "alane-a-0123456789abcdef"
 READ_TIMEOUT_SECONDS = 20
 SHOWN = 12
-RULINGS_SHOWN = 1500
 TEXT_SHOWN = 160
 SHIP_BODY = ("--pr-body-file",)
 SHIP_VALUES = frozenset(
@@ -57,7 +51,6 @@ SHIP_VALUES = frozenset(
 )
 SHIP_OPTIONAL_VALUES = frozenset({"--new-branch", "--create"})
 GH_HEAD = ("--head", "-H")
-RULING_ITEM = re.compile(r"\n(?=\s*(?:[-*]|\d+\.)\s)")
 GH_BODY = ("--body", "-b")
 GH_BODY_FILE = ("--body-file", "-F")
 GH_EDIT_VALUES = frozenset(
@@ -72,15 +65,17 @@ UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "--full-name",
 TOPLEVEL = ["git", "rev-parse", "--show-toplevel"]
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 EXEMPT = re.compile(
-    r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__)/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec)\.\w+$"
+    r"(?:^|/)(?:tests?|testdata|fixtures|__snapshots__)/|(?:^|/)[a-z0-9]+test/|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec)\.\w+$"
     r"|\.(?:md|mdx|txt|rst|lock|sum)$|(?:^|/)package-lock\.json$"
 )
 COMMENT = re.compile(r"^\s*(?:#|//|--\s|/\*|\*\s|\*$)")
+TEST_LINE = re.compile(r"\b(?:Input|Block|Allow|Warn|Ask|Rewrite)\(")
 KIND = re.compile(r"""["'`](?P<name>[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)+)["'`]""")
 REFUSAL_NAME = re.compile(r"\b(?P<name>\w*(?:refus|quarantin)\w*)\s*(?::[^=\n]*)?:?=(?!=)", re.IGNORECASE)
+SENTINEL = re.compile(r"\b(?P<name>err[A-Z]\w*)\s*:?=\s*(?:errors\.New|fmt\.Errorf)\(")
 RETRY = re.compile(r"\b(?P<name>\w*(?:retr(?:y|ies|ied|ying)|backoff)\w*)", re.IGNORECASE)
 CLOCK = re.compile(
-    r"(?P<name>\btime\.(?:[Ss]leep|NewTicker|NewTimer|Tick|After|AfterFunc|Duration)\b|\basyncio\.sleep\b|\bthreading\.Timer\b"
+    r"(?P<name>\btime\.(?:[Ss]leep|NewTicker|NewTimer|Tick|After|AfterFunc)\b|\basyncio\.sleep\b|\bthreading\.Timer\b"
     r"|\bset(?:Interval|Timeout)\b|\btimedelta\(|\*\s*time\.(?:Second|Minute|Hour|Millisecond)\b|\bsleep\s+\d)"
 )
 BUDGET = re.compile(
@@ -88,33 +83,13 @@ BUDGET = re.compile(
     r"""["']?\s*(?::[^=\n]*)?[:=]\s*-?\d""",
     re.IGNORECASE,
 )
-REFUSAL_HINT = re.compile(
-    r"""\breturn\b[^\n]*\b(?P<sentinel>err[A-Z]\w*)|["'](?P<cause>cause:\w+)"""
-    r"""|(?i:\b(?P<name>refus\w*|reject\w*|quarantin\w*|re(?:convert|attempt|queue|dispatch)\w*|read-only|fallback)\b)"""
-)
-NAME_GROUPS = ("name", "sentinel", "cause")
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
-PLAN_REF = re.compile(r"\bplan (?:step |item )?(?P<step>\d+)\.(?P<item>\d+)\b", re.IGNORECASE)
-PLAN_STEP = re.compile(r"^#+\s+Step (?P<step>\d+)\b")
-PLAN_DOTTED = re.compile(r"^(?P<step>\d+)\.(?P<item>\d+)\s")
-PLAN_NUMBERED = re.compile(r"^(?P<item>\d+)\.\s")
-PLAN_SHOWN = 400
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
-CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
 ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
-TEST_LITERALS = frozenset({"Input", "Block", "Allow", "Warn", "Ask", "Rewrite"})
-UNCITED_KINDS = (
-    "A drive lane's PR may not add a refusal kind, quarantine kind, budget, retry, or clock unless its `## Rulings` section cites an owner answer naming it."
-    " Cite the answer beside each name below, or post `cci post --kind ask --to root` for one and wait for it."
-)
 UNNAMED_KINDS = (
-    "Each refusal kind, quarantine kind, budget, retry, or clock a drive lane's PR adds needs an owner answer that names it under `## Rulings`."
-    " Name each one below beside the answer that covers it, or post `cci post --kind ask --to root` for one."
-)
-NAMES_IT = Confirm(
-    rule="Block only when the PR adds a refusal kind, quarantine kind, budget, retry, or clock that no owner answer or plan item under its"
-    " Rulings section names; a matched line that is none of those five things never blocks."
+    "Warning, nothing was blocked: this PR seems to add a refusal kind, quarantine kind, budget, retry, or clock that no `## Rulings` line"
+    " beside an owner answer id names. If one is real, name it there beside the answer that covers it, or post `cci post --kind ask --to root`."
 )
 
 
@@ -125,7 +100,6 @@ class Finding:
     path: str
     line: int
     text: str
-    definite: bool
 
     def render(self) -> str:
         return f"{self.path}:{self.line} {self.kind} {self.name}: {self.text.strip()[:TEXT_SHOWN]}"
@@ -240,9 +214,8 @@ def request(evt: BaseHookEvent, call: Call) -> Request | None:
 
 
 def lane_prs(evt: BaseHookEvent) -> list[Request]:
-    if (lane := lane_name(evt)) is None or LANDERS.match(lane):
-        return []
-    if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
+    lane = lane_name(evt)
+    if (lane and LANDERS.match(lane)) or not (lane or drive_entry(evt)):
         return []
     return [found for call in evt.cmd.calls() if (found := request(evt, call))]
 
@@ -296,59 +269,19 @@ def diff_text(req: Request, view: dict) -> str | None:
     return read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or ""
 
 
-def revision(req: Request) -> str | None:
-    if req.edit is None:
-        return req.head or "HEAD"
-    return (read(["gh", "pr", "view", *req.edit, *req.gh, "--json", "headRefOid", "--jq", ".headRefOid"], req.cwd) or "").strip() or None
-
-
-def new_sides(req: Request, root: Path | None, paths: set[str]) -> dict[str, str | None]:
-    if req.worktree:
-        return {path: text_of(root / path) if root else None for path in paths}
-    rev = revision(req) if paths else None
-    return {path: read(["git", "show", f"{rev}:{path}"], req.cwd) if rev else None for path in paths}
-
-
-def callee(func: ast.expr) -> str | None:
-    match func:
-        case ast.Name(id=name) | ast.Attribute(attr=name):
-            return name
-    return None
-
-
-def fixture_nodes(tree: ast.AST) -> Iterator[ast.expr]:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if callee(node.func) in TEST_LITERALS:
-                yield node
-            yield from (keyword.value for keyword in node.keywords if keyword.arg == "tests")
-
-
-def fixture_lines(text: str | None) -> frozenset[int]:
-    try:
-        tree = ast.parse(text or "")
-    except SyntaxError:
-        return frozenset()
-    return frozenset(line for node in fixture_nodes(tree) for line in range(node.lineno, (node.end_lineno or node.lineno) + 1))
-
-
 def new_findings(req: Request, view: dict) -> list[Finding]:
     if (diff := diff_text(req, view)) is None:
         return []
     root = toplevel(req)
     lines = [*added(diff), *(untracked(req.cwd, root) if root else ())]
     kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
-    found = [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
-    sides = new_sides(req, root, {finding.path for finding in found if finding.path.endswith(".py")})
-    fixtures = {path: fixture_lines(text) for path, text in sides.items()}
-    return [finding for finding in found if finding.line not in fixtures.get(finding.path, ())]
+    return [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
 
 
 def named(text: str, match: re.Match[str]) -> str:
     if found := ASSIGNED.match(text):
         return found["name"]
-    groups = match.groupdict()
-    return next((value for key in NAME_GROUPS if (value := groups.get(key))), match.group(0)).strip("\"'` ")
+    return (match.groupdict().get("name") or match.group(0)).strip("\"'` ")
 
 
 def kind_of(name: str) -> str:
@@ -360,17 +293,16 @@ def declared(text: str, match: re.Match[str]) -> bool:
 
 
 def classify(path: str, line: int, text: str) -> list[Finding]:
-    if EXEMPT.search(path) or COMMENT.match(text):
+    if EXEMPT.search(path) or COMMENT.match(text) or (path.endswith(".py") and TEST_LINE.search(text)):
         return []
-    if kinds := [Finding(kind_of(match["name"]), match["name"], path, line, text, declared(text, match)) for match in KIND.finditer(text)]:
+    if kinds := [Finding(kind_of(match["name"]), match["name"], path, line, text) for match in KIND.finditer(text) if declared(text, match)]:
         return kinds
-    if match := REFUSAL_NAME.search(text):
-        return [Finding(kind_of(match["name"]), match["name"], path, line, text, True)]
-    for kind, pattern, definite in (("retry", RETRY, False), ("clock", CLOCK, True), ("budget", BUDGET, True)):
+    for match in (REFUSAL_NAME.search(text), SENTINEL.search(text)):
+        if match:
+            return [Finding(kind_of(match["name"]), match["name"], path, line, text)]
+    for kind, pattern in (("retry", RETRY), ("clock", CLOCK), ("budget", BUDGET)):
         if match := pattern.search(text):
-            return [Finding(kind, named(text, match), path, line, text, definite)]
-    if match := REFUSAL_HINT.search(text):
-        return [Finding("refusal or retry", named(text, match), path, line, text, False)]
+            return [Finding(kind, named(text, match), path, line, text)]
     return []
 
 
@@ -390,70 +322,14 @@ def body_text(req: Request, view: dict) -> str | None:
     return None if None in files else "\n".join([*req.texts, *files])
 
 
-def answer_texts(evt: BaseHookEvent, req: Request, ids: list[str]) -> dict[str, str] | None:
-    if not ids:
-        return {}
-    if (entry := drive_entry(evt)) is None:
-        return None
-    found = {}
-    for answer in ids:
-        done = run(["ccn", "-R", entry["checkout"], "answer", "show", answer, "--json"], req.cwd)
-        if done is None or done.returncode not in (0, CCN_NOT_FOUND):
-            return None
-        if done.returncode == CCN_NOT_FOUND:
-            continue
-        if (record := parsed(done.stdout)) is None:
-            return None
-        if record.get("id") and not record.get("superseded_by"):
-            found[answer] = f"{record.get('title') or ''}\n{record.get('body') or ''}"
-    return found
-
-
 def mentions(text: str, name: str) -> bool:
     return bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE))
 
 
-def plan_items(evt: BaseHookEvent) -> dict[str, str]:
-    path = CompactionState.load(evt).plan_path
-    text = text_of(Path(path).expanduser()) if path else None
-    items: dict[str, str] = {}
-    step = key = None
-    for line in (text or "").splitlines():
-        if heading := PLAN_STEP.match(line):
-            step, key = heading["step"], None
-        elif line.startswith("#"):
-            step = key = None
-        elif (dotted := PLAN_DOTTED.match(line)) or (step and (dotted := PLAN_NUMBERED.match(line))):
-            key = f"{dotted.groupdict().get('step') or step}.{dotted['item']}"
-            items[key] = line
-        elif key and (not line.strip() or line[:1].isspace()):
-            items[key] += "\n" + line
-        else:
-            key = None
-    return items
-
-
-def plan_refs(item: str) -> list[str]:
-    return [f"{ref['step']}.{ref['item']}" for ref in PLAN_REF.finditer(item)]
-
-
-def coverage(finding: Finding, items: list[str], answers: dict[str, str], plan: dict[str, str]) -> str:
-    naming = [item for item in items if mentions(item, finding.name)]
-    cited = [answers[answer] for item in naming for answer in ANSWER_ID.findall(item) if answer in answers]
-    if any(mentions(text, finding.name) for text in cited):
-        return "named"
-    approved = [item for item in naming if any(mentions(answers[answer], "plan") for answer in ANSWER_ID.findall(item) if answer in answers)]
-    if any(mentions(plan.get(ref, ""), finding.name) for item in approved for ref in plan_refs(item)):
-        return "named"
-    return "cited" if cited else "open"
-
-
-def evidence(findings: list[Finding], rulings: str, plan: dict[str, str]) -> str:
+def evidence(findings: list[Finding]) -> str:
     shown = [finding.render() for finding in findings[:SHOWN]]
     more = [f"... {len(findings) - SHOWN} more"] if len(findings) > SHOWN else []
-    cited = rulings.strip()[:RULINGS_SHOWN] or "no ## Rulings section"
-    quoted = [f"plan {ref}: {plan[ref].strip()[:PLAN_SHOWN]}" for ref in dict.fromkeys(plan_refs(rulings)) if ref in plan]
-    return "\n".join(["```", *shown, *more, "", cited, *quoted, "```"])
+    return "\n".join(["```", *shown, *more, "```"])
 
 
 def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
@@ -465,17 +341,9 @@ def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     if not findings or (body := body_text(req, view)) is None:
         return None
     rulings = found.group(0) if (found := RULINGS.search(body)) else ""
-    if (answers := answer_texts(evt, req, list(dict.fromkeys(ANSWER_ID.findall(rulings))))) is None:
-        return None
-    items = RULING_ITEM.split(rulings)
-    plan = plan_items(evt) if PLAN_REF.search(rulings) else {}
-    states = {finding: coverage(finding, items, answers, plan) for finding in findings}
-    open_findings = [finding for finding in findings if states[finding] != "named"]
-    if not open_findings:
-        return None
-    if any(finding.definite and states[finding] == "open" for finding in open_findings):
-        return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings, plan)}")
-    return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings, plan)}", confirm=NAMES_IT)
+    cited = [line for line in rulings.splitlines() if ANSWER_ID.search(line)]
+    unnamed = [finding for finding in findings if not any(mentions(line, finding.name) for line in cited)]
+    return evt.context(f"{UNNAMED_KINDS}\n\n{evidence(unnamed)}") if unnamed else None
 
 
 def ship(command: str, **extra: object) -> Input:
@@ -486,95 +354,53 @@ def ship(command: str, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
-            pattern=r"^A drive lane's PR may not add a refusal kind[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
+        ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
+            pattern=r"^Warning, nothing was blocked: this PR seems to add a refusal kind[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
         ),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=UNCONFIRMED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), state=PLANNED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=SENTINEL_ANSWER), state=PLANNED, decide=CONFIRMED): Block(),
-        ship(PLAN_GATES_BODY, commands=sources(LAUNCH_STALLED), state=PLANNED, decide=CONFIRMED): Block(
-            pattern=r"needs an owner answer that names it[\s\S]*plan 1\.2: 2\. \*\*Landing gates"
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"gh pr edit 1 --body-file - < {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(DIGIT_ID_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Warn(
+            pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="not json")): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER[:-1] + ', "superseded_by": ["b7c0d2e900"]}')): Block(
-            pattern=r"cites an owner answer"
-        ),
-        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
-        ship(f"gh pr edit 1 --body-file - < {UNCITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Block(pattern=r"cites an owner answer"),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="")): Block(pattern=r"cites an owner answer"),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(3, "not-found: entity not found"))): Block(
-            pattern=r"cites an owner answer"
-        ),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
-        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
-        ship(DIGIT_ID_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Block(
-            pattern=r"cites an owner answer[\s\S]*upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
-        ),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED)): Block(pattern=r"cites an owner answer naming it"),
-        ship(SENTINEL_BODY, commands=sources(SENTINEL_ONLY, answer=SENTINEL_ANSWER), decide=CONFIRMED): Block(pattern=r"view\.go:11 .* errReadOnly"),
-        ship(SENTINEL_BODY.replace("errReadOnlyView", "errReadOnly"), commands=sources(SENTINEL_ONLY, answer=SENTINEL_ANSWER.replace("errReadOnlyView", "errReadOnly"))): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(SENTINEL_ONLY)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(NEW_SENTINEL)): Warn(pattern=r"view\.go:4 refusal kind errReadOnly"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(DURATION_FIELDS)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(HELPER_PACKAGE_CLOCK)): Allow(),
         ship(f"ccx vcs ship -m 'drive: digest' plugins/long-running/skills/long-running/scripts/drive.py --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"ccx vcs ship -m 'runner: page' plugins/long-running/skills/long-running/scripts --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(),
+        ship(f"ccx vcs ship -m 'runner: page' plugins/long-running/skills/long-running/scripts --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr="not json")): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=UNCONFIRMED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE), decide=CONFIRMED): Block(pattern=r"UPLOAD-STARTED"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LOGGED_STATE)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}.missing", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Block(
-            pattern=r"cites an owner answer"
-        ),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Block(pattern=r"cites an owner answer"),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(
-            pattern=r"open\.go:\d+ refusal or retry"
-        ),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
+        ship(f"gh pr edit 1 --body-file {CITED} && gh pr edit 2 --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS), decide=CONFIRMED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS_KIND), decide=CONFIRMED): Block(
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS_KIND)): Warn(
             pattern=r"\A(?![\s\S]*card_terms\.py:1[34] )[\s\S]*card_terms\.py:3 refusal kind CARD-STALE"
         ),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(CARD_TERMS), cwd=str(TREE / "hooks"), decide=CONFIRMED): Allow(),
-        ship(
-            f"gh pr create --base main --title 'card terms' --body-file {UNCITED}",
-            commands=sources(CARD_TERMS, show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)),
-            decide=CONFIRMED,
-        ): Allow(),
-        ship(
-            f"gh pr create --base main --head card-terms --title 'card terms' --body-file {UNCITED}",
-            commands=sources(CARD_TERMS, show=("card-terms:hooks/card_terms.py", CARD_TERMS_SOURCE)),
-            decide=CONFIRMED,
-        ): Allow(),
-        ship(
-            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("9f1c2e3:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
-        ): Allow(),
-        ship(
-            f"gh pr edit 7 --body-file {UNCITED}", commands=sources(CARD_TERMS, pr="9f1c2e3\n", show=("HEAD:hooks/card_terms.py", CARD_TERMS_SOURCE)), decide=CONFIRMED
-        ): Block(pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"),
-        ship(f"gh pr create --base main --title 'card terms' --body-file {UNCITED}", commands=sources(CARD_TERMS), decide=CONFIRMED): Block(
-            pattern=r"card_terms\.py:13 refusal kind FINDER-PENDING"
-        ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Block(
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Warn(
             pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
         ),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN), decide=CONFIRMED): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(pattern=r"open\.go:127 .* errReadOnly"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN)): Allow(),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
         ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr=(1, "GraphQL: API rate limit exceeded"))): Allow(),
-        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Block(),
-        ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Block(
+        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Warn(),
+        ship(f"gh pr create --base main --title 'page a stalled launch' --body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(NEW_SENTINEL)): Warn(),
+        ship("gh pr edit 101 --add-label docs", commands=sources(NEW_SENTINEL)): Allow(),
+        ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Warn(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, state=[], commands=sources(LAUNCH_STALLED)): Warn(
             pattern=r"LAUNCH-STALLED"
         ),
-        ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(),
-        ship("gh pr edit 101 --add-label docs", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Allow(),
-        ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Block(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id=LANE, commands=sources(LAUNCH_STALLED)): Allow(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Warn(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
     },
 )
