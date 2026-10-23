@@ -5,7 +5,6 @@ from pathlib import Path
 
 from captain_hook import (
     Allow,
-    Block,
     BaseHookEvent,
     CommandSchema,
     CustomCondition,
@@ -97,22 +96,22 @@ hook(
         "Run `codex-ask` in the foreground, never with `&`, `nohup`, `setsid`, or `run_in_background`. "
         f"For async work run `{PLUGIN_BIN} --dispatch --owner <agent-id>` and park on the await tool."
     ),
-    block=True,
+    max_fires=1,
     tests={
-        Input(command="codex-ask x & echo launched"): Block(pattern="foreground"),
-        Input(command="(codex-ask x >log 2>&1 &)"): Block(),
+        Input(command="codex-ask x & echo launched"): Warn(pattern="foreground"),
+        Input(command="(codex-ask x >log 2>&1 &)"): Warn(),
         Input(
             command="codex-ask -s /tmp/x/lane review",
             tool_input={"command": "codex-ask -s /tmp/x/lane review", "run_in_background": True},
-        ): Block(),
-        Input(command="nohup codex-ask -s /tmp/x/lane review"): Block(),
-        Input(command="setsid codex-ask -s /tmp/x/lane review"): Block(),
-        Input(command="codex-ask -s /tmp/x/lane review & disown"): Block(),
-        Input(command="codex-ask -s /tmp/x/lane review &"): Block(),
-        Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ &"): Block(),
-        Input(command="bash -c 'codex-ask x &'"): Block(),
-        Input(command="setsid nohup codex-ask review"): Block(),
-        Input(command="setsid bash -c 'codex-ask x &'"): Block(),
+        ): Warn(),
+        Input(command="nohup codex-ask -s /tmp/x/lane review"): Warn(),
+        Input(command="setsid codex-ask -s /tmp/x/lane review"): Warn(),
+        Input(command="codex-ask -s /tmp/x/lane review & disown"): Warn(),
+        Input(command="codex-ask -s /tmp/x/lane review &"): Warn(),
+        Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ &"): Warn(),
+        Input(command="bash -c 'codex-ask x &'"): Warn(),
+        Input(command="setsid nohup codex-ask review"): Warn(),
+        Input(command="setsid bash -c 'codex-ask x &'"): Warn(),
         Input(command="codex-ask x; sleep 5 &"): Allow(),
         Input(command='echo "codex-ask &"'): Allow(),
         Input(command="codex-ask 'compare foo &'"): Allow(),
@@ -125,16 +124,16 @@ hook(
         Input(command="codex-ask -l r - <<'Q'\ngrow & shed races under the mutex\nQ"): Allow(),
         Input(command="cd /tmp && codex-ask -l r - <<'Q'\ngrow & shed\nQ"): Allow(),
         Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ\ncodex-ask -l s - <<'R'\nfoo & bar\nR"): Allow(),
-        Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ &"): Block(),
+        Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ &"): Warn(),
         Input(
             command="cat > /n/ask.md <<'EOF'\nSubject `stack: 🐛 <what>`\nEOF\n"
             "cd /w && codex-ask -m astra /n/ask.md 2>&1 | grep AWAIT"
         ): Allow(),
         Input(command="echo 🐛 && codex-ask -m astra /n/ask.md 2>&1 | grep AWAIT"): Allow(),
-        Input(command="echo 🐛 && codex-ask -m astra /n/ask.md >log 2>&1 &"): Block(),
+        Input(command="echo 🐛 && codex-ask -m astra /n/ask.md >log 2>&1 &"): Warn(),
         Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff'"): Allow(),
         Input(command="codex-ask --watch --all"): Allow(),
-        Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff' &"): Block(),
+        Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff' &"): Warn(),
         Input(command="codex-ask --await /tmp/x/lane && echo done"): Allow(),
         Input(command="grep codex-ask notes.md"): Allow(),
         Input(command="sleep 5 &"): Allow(),
@@ -153,7 +152,7 @@ hook(
         "`setsid`, or `run_in_background`. For a long prose run use `retro.py prose <dir> --detach`, "
         "then rerun `retro.py prose <dir> --await` in the foreground."
     ),
-    block=True,
+    max_fires=1,
     tests={
         Input(
             command=f"R={RETRO}; D=/r/x; python3 $R prose $D --stale > log 2>&1; echo EXIT $?",
@@ -161,13 +160,13 @@ hook(
                 "command": f"R={RETRO}; D=/r/x; python3 $R prose $D --stale > log 2>&1; echo EXIT $?",
                 "run_in_background": True,
             },
-        ): Block(pattern="--detach"),
-        Input(command=f'RETRO="python3 {RETRO}"; $RETRO prose /r/x &'): Block(),
-        Input(command=f"D=/r/x R={RETRO}; python3 ${{R}} prose $D &"): Block(),
-        Input(command=f"nohup python3 {RETRO} prose /r/x"): Block(),
-        Input(command=f"python3 {DESIGN} plainify /d/x &"): Block(),
-        Input(command=f"bash -c 'python3 {RETRO} prose /r/x &'"): Block(),
-        Input(command=f"{RETRO} prose /r/x --detach &"): Block(),
+        ): Warn(pattern="--detach"),
+        Input(command=f'RETRO="python3 {RETRO}"; $RETRO prose /r/x &'): Warn(),
+        Input(command=f"D=/r/x R={RETRO}; python3 ${{R}} prose $D &"): Warn(),
+        Input(command=f"nohup python3 {RETRO} prose /r/x"): Warn(),
+        Input(command=f"python3 {DESIGN} plainify /d/x &"): Warn(),
+        Input(command=f"bash -c 'python3 {RETRO} prose /r/x &'"): Warn(),
+        Input(command=f"{RETRO} prose /r/x --detach &"): Warn(),
         Input(command=f"python3 {RETRO} prose /r/x --detach"): Allow(),
         Input(command=f"python3 {RETRO} prose /r/x --await"): Allow(),
         Input(command=f"python3 {RETRO} prose /r/x --stale"): Allow(),
@@ -181,8 +180,8 @@ hook(
         Input(
             command=f"uv run {DESIGN} plainify /d/x",
             tool_input={"command": f"uv run {DESIGN} plainify /d/x", "run_in_background": True},
-        ): Block(),
-        Input(command="python3 $SKILL/scripts/retro.py prose /r/x > log 2>&1 &"): Block(),
+        ): Warn(),
+        Input(command="python3 $SKILL/scripts/retro.py prose /r/x > log 2>&1 &"): Warn(),
         Input(
             command='UV_NO_CACHE=1 timeout 600 "$H" package-install > /tmp/x.log 2>&1',
             tool_input={
@@ -209,19 +208,19 @@ hook(
         "Route every codex dispatch through `codex-ask`, never `codex exec`. "
         f"Rerun as `{PLUGIN_BIN} [-s <lane>] - <<'Q'` in the foreground."
     ),
-    block=True,
+    max_fires=1,
     tests={
-        Input(command="codex exec -c model=gpt-6-astra -c model_reasoning_effort=xhigh review"): Block(
+        Input(command="codex exec -c model=gpt-6-astra -c model_reasoning_effort=xhigh review"): Warn(
             pattern="codex-ask"
         ),
-        Input(command="codex -c model=y exec review"): Block(),
-        Input(command="codex --oss e review"): Block(),
-        Input(command="codex --strict-config exec review"): Block(),
-        Input(command="setsid codex exec review"): Block(),
-        Input(command="/opt/homebrew/bin/codex exec review"): Block(),
-        Input(command="env X=1 codex exec review"): Block(),
-        Input(command="timeout 600 codex exec review"): Block(),
-        Input(command="bash -c 'codex exec review'"): Block(),
+        Input(command="codex -c model=y exec review"): Warn(),
+        Input(command="codex --oss e review"): Warn(),
+        Input(command="codex --strict-config exec review"): Warn(),
+        Input(command="setsid codex exec review"): Warn(),
+        Input(command="/opt/homebrew/bin/codex exec review"): Warn(),
+        Input(command="env X=1 codex exec review"): Warn(),
+        Input(command="timeout 600 codex exec review"): Warn(),
+        Input(command="bash -c 'codex exec review'"): Warn(),
         Input(command="codex login status"): Allow(),
         Input(command="codex resume"): Allow(),
         Input(command="codex --version"): Allow(),
@@ -239,6 +238,7 @@ hook(
         "This prompt restates a reply format the plugin already ships. "
         "Pass `--lane <name>` (review, refute, security, diagnose, implement, recon) to sharpen it."
     ),
+    max_fires=1,
     tests={
         Input(
             command="codex-ask -s /tmp/x/lane - <<'Q'\nReview this diff. Reply as a finding list: "

@@ -354,6 +354,7 @@ def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreToolUse,
     only_if=[Tool("TaskUpdate"), FromSubagent(), DriveActive()],
+    max_fires=1,
     tests={
         Input(
             tool="TaskUpdate",

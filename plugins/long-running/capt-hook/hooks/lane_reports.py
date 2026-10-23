@@ -28,6 +28,7 @@ def final_text(evt: BaseHookEvent) -> str:
 @on(
     Event.Stop | Event.SubagentStop,
     only_if=[FromSubagent(), DriveActive()],
+    max_fires=1,
     tests={
         Input(agent_id="alanding-desk-1a1a1a1a1a1a1a1a", state=ACTIVE): Allow(),
         Input(agent_id="a44fd2b6534c7cc71", agent_type="general-purpose", state=ACTIVE): Allow(),

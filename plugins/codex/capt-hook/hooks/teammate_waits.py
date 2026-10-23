@@ -4,7 +4,6 @@ from captain_hook import (
     Allow,
     And,
     BaseHookEvent,
-    Block,
     Call,
     CustomCondition,
     Event,
@@ -13,6 +12,7 @@ from captain_hook import (
     Or,
     Tool,
     ToolInput,
+    Warn,
     hook,
 )
 
@@ -56,7 +56,7 @@ hook(
         "An in-process teammate is never woken by a Monitor event or a background Bash completion. Run the wait as "
         f"foreground Bash with `timeout: {POLL_UNIT_MS}` and rerun it until it reports completion."
     ),
-    block=True,
+    max_fires=1,
     tests={
         Input(command="sleep 600", tool_input={"command": "sleep 600", "run_in_background": True}): Allow(),
         Input(
@@ -71,7 +71,7 @@ hook(
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "cc-slack watch --session s1"},
-        ): Block(pattern=r"never woken"),
+        ): Warn(pattern=r"never woken"),
     },
 )
 
@@ -82,20 +82,20 @@ hook(
         "A foreground wait past 60 seconds holds your parent's messages undelivered. Rerun it as foreground Bash with "
         f"`timeout: {POLL_UNIT_MS}` or less until it reports completion."
     ),
-    block=True,
+    max_fires=1,
     tests={
         Input(
             command="cc-slack watch --session s1",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "cc-slack watch --session s1", "timeout": 590000},
-        ): Block(pattern=r"timeout: 60000"),
+        ): Warn(pattern=r"timeout: 60000"),
         Input(
             command="until gh pr checks 12; do sleep 30; done",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "until gh pr checks 12; do sleep 30; done"},
-        ): Block(pattern="parent's messages"),
+        ): Warn(pattern="parent's messages"),
         Input(
             command="cc-slack watch --session s1",
             agent_id=MATE,
@@ -128,13 +128,13 @@ hook(
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "desk-wait.sh 540 -- bk build watch 4292", "timeout": 570000},
-        ): Block(pattern="parent's messages"),
+        ): Warn(pattern="parent's messages"),
         Input(
             command="desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600", "timeout": 600000},
-        ): Block(pattern="parent's messages"),
+        ): Warn(pattern="parent's messages"),
         Input(
             command="cc-slack watch --session s1",
             agent_id="a266d86820f8d3efd",

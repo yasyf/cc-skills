@@ -359,6 +359,7 @@ def ship(command: str, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash")],
+    max_fires=1,
     tests={
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
             pattern=r"^Warning, nothing was blocked: this PR seems to add a refusal kind[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
