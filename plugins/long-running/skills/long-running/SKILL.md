@@ -1019,9 +1019,8 @@ lanes, `long-running` types from a root that started on plugin 0.7.121, carried 
 other Slack tool. The replies went out at 2:30 through the user-level MCP.*
 - Urgency never licenses the root to write Slack. When a Slack lane stalls, the root
   spawns a fresh sender lane whose brief carries the grant and the exact approved or
-  dictated text; it posts first, then watches. The root tells the owner "posting via
-  a lane" and checks the post's ts on disk within 2 minutes. A lane that is mid-watch
-  is never the channel for a new post. In an incident, the executor raises a silent
+  dictated text; it posts and reports the post's ts. The root tells the owner "posting via
+  a lane" and checks the post's ts on disk within 2 minutes. In an incident, the executor raises a silent
   comms lane as a decision. The replacement lane posts the executor's unanswered
   event, so nothing is restated.
 - A post that asks a person to act (a grant, a permission, an approval, an answer)
@@ -1073,14 +1072,9 @@ cloud run so what does it have to do with his local sand?", and in the thread it
 updates, the root records the owner's words as the channel's grant and spawns
 `comms-desk` from `reference/comms-desk-brief.md`. The grant is one cc-notes answer
 quoting those words with the label `slack-grant:<id>`. The Slack permission hook reads
-it as a standing grant for top-level posts and for a reply in every thread of the
-channel. It never waits on a board or a second owner ask. Under them the comms desk answers a human's
-question in the channel within 15 minutes without asking the root; only a reply that
-commits the drive to new behaviour goes to the root first.
-
-*Prevents the 2026-10-12 drive's 25-minute wait on a human question in its updates
-channel, when the drive-start grant covered top-level posts only and the thread grant
-sat on an owner board.*
+it as a standing grant for top-level posts. It never waits on a board or a second owner
+ask. The comms desk posts milestones there; it never reads the channel for messages and
+answers nobody in it (owner answer d94db5b).
 
 **Status posts mark milestones, never a clock.** The drive posts to its updates
 channel at each milestone: a fix live on a named build, a release passed or failed, a
