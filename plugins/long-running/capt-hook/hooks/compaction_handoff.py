@@ -110,7 +110,7 @@ def script(name: str) -> Path:
 NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
 ROOT_SLICE = NO_REGISTER | {
     f"{sys.executable} {script('rulings.py')} slice": (
-        "scope 1e9a64d: “I fcking told you starting one in teh cloud then wrtiing on mac is not in scope”\nslice-hash: 0123456789ab\n"
+        "scope `1e9a64d`: “I fcking told you starting one in teh cloud then wrtiing on mac is not in scope”\nslice-hash: 0123456789ab\n"
     )
 }
 
@@ -754,22 +754,22 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
                     slug="brook",
                     register_doc="e" * 40,
                     register_body="1. rule\n",
-                    root_slice="\n".join(["scope 1e9a64d: rule"] * 600),
+                    root_slice="\n".join(["scope `1e9a64d`: rule"] * 600),
                 )
             ],
         ): Warn(
-            pattern=r"^Standing rules register `eeeeeee`, verbatim; .*\n~{12}\n1\. rule\n~{12}\n(?:scope 1e9a64d: rule\n){600}"
+            pattern=r"^Standing rules register `eeeeeee`, verbatim; .*\n~{12}\n1\. rule\n~{12}\n(?:scope `1e9a64d`: rule\n){600}"
             r"Run `rulings\.py sweep --program brook` before the first plan or card edit\.$"
         ),
-        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, slug="brook", root_slice="scope 1e9a64d: rule")]): Warn(
-            pattern=r"^scope 1e9a64d: rule\nRun `rulings\.py sweep --program brook` before the first plan or card edit\.$"
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True, slug="brook", root_slice="scope `1e9a64d`: rule")]): Warn(
+            pattern=r"^scope `1e9a64d`: rule\nRun `rulings\.py sweep --program brook` before the first plan or card edit\.$"
         ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
             agent_id="a1b2c3",
-            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope 1e9a64d: rule")],
+            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n", root_slice="scope `1e9a64d`: rule")],
         ): Allow(),
     },
 )
