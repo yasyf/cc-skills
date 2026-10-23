@@ -5007,7 +5007,7 @@ class Landing:
             "RULING-ASK",
             f"round-{number}",
             f"{len(queued)} ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive {self.runner.config.drive}`:"
-            f" it puts at most ten of them on the live cc-present board as round {number}, foundational rows first, never as an AskUserQuestion or a bare Slack card;"
+            f" it asks at most ten of them through `cc-present ask`, in Slack and on the live cc-present board as round {number}, foundational rows first, never as an AskUserQuestion or a bare Slack card;"
             " a pick or a note on a ruling there is a capture: Right ticks every line with `rulings.py confirm <key> --tick all --capture <digest>`,"
             " and Some wrong waits for the owner's note naming the lines",
         )
