@@ -9,20 +9,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 from captain_hook import (
-    CONFIRMED,
-    UNCONFIRMED,
     Allow,
     Annotated,
     BaseHookEvent,
     Block,
     Call,
-    Confirm,
     Event,
     FromSubagent,
     HookResult,
     Input,
     TaskCall,
     Tool,
+    Warn,
     on,
 )
 from captain_hook.util import reqenv
@@ -85,20 +83,11 @@ UNCLASSIFIED = (
     "Classify it with `rulings.py classify` before the next key moment."
 )
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
-QUESTION_OPEN = (
-    "An owner question is open, so a reply or writer brief quotes the words, sentence and rows below and says from them whether"
-    " the thing should exist before any code read. It never defines the term or writes the answer for the writer."
-)
 UNQUOTED = (
-    "This reply or brief does not quote the open owner question below. Quote its words, sentence and rows, and say from them"
-    " whether the thing should exist before any code read."
+    "An owner question is open and this reply or brief touches it without quoting it. Quote its words, sentence and rows below,"
+    " and say from them whether the thing should exist before any code read."
 )
 CAPTURES = "owner-prompts.jsonl"
-QUESTION_JUDGE = Confirm(
-    rule="Block when a reply or writer brief, written while the owner's question is open, leaves out his words, the sentence"
-    " under question or the register rows bearing on it, or reads code before saying from those rulings whether the thing"
-    " exists at all; block too when it defines the thing from code or the root's own reading, or writes the answer for the writer."
-)
 WORDS_SHOWN = 200
 NOTE_CLIS = frozenset({"ccn", "cc-notes"})
 REPO_FLAGS = frozenset({"-R", "--repo"})
@@ -163,6 +152,7 @@ HOOK_EDIT = (
     " Fix the check in a worktree and ship it as a pull request."
 )
 TIMERS = fixture("brief-158695")
+ROSTER = "Lane lane-x: drop the roster refresh timer."
 
 
 def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
@@ -347,8 +337,14 @@ def open_questions(register: dict) -> list[dict]:
     return [question for _, question in register_files(register, "question-*.json") if not question.get("closed")]
 
 
+def bears(question: dict, text: str, blocks: set[str], rows: dict) -> bool:
+    names = [name for key in question["rows"] if key in rows for name in json.loads(rows[key].get("names") or "[]")]
+    needles = (question["term"], question["sentence"], *question["rows"], *names)
+    return bool(blocks & set(question["blocks"])) or any(folded(needle) in folded(text) for needle in needles if needle.strip())
+
+
 def quotes(text: str, question: dict) -> bool:
-    return any(folded(needle) in folded(text) for needle in (question["text"], question["term"]) if needle.strip())
+    return folded(question["text"]) in folded(text)
 
 
 def asked(question: dict, rows: dict) -> str:
@@ -379,27 +375,27 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
     only_if=[DriveActive(), Tool("Bash", "Agent")],
     skip_if=[Annotated("raw")],
     tests={
-        asks("reply-lookup", fixture("brief-158585"), "question-lookup", decide=CONFIRMED): Block(
-            pattern=r'^An owner question is open, .*\n~{12}\n- The owner asked: "why does it need this lookup\?"\n  Sentence under question: "6\. How does'
-            r' the export learn a report\'s owner\?"\n  Row rule/4d5e6f7: "The export never needs to know about laptop-only reports\."\n~{12}$'
+        asks("reply-lookup", fixture("brief-158585"), "question-lookup"): Allow(),
+        asks("timers-writer", TIMERS, "question-timers"): Allow(),
+        question(reply("c7-timers", fixture("correction-1244")), "question-timers"): Warn(pattern=r"touches it without quoting it"),
+        asks("ship-pr", 'The owner asked "what is a relay slot? why is this here?"; this PR touches none of it. Open the PR.', "question-timers"): Allow(),
+        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Allow(),
+        asks("register-seed", "Lane register-seed: classify the eleven queued captures.", "question-chat"): Allow(),
+        asks("register-seed", "Lane register-seed: classify the record repair step captures.", "question-chat"): Warn(pattern=r'"what is this record repair step\?'),
+        asks("lane-x", "Lane lane-x: explain the relay slot from src/relay/slot.go.", "question-timers"): Warn(pattern=r"touches it without quoting it"),
+        asks("lane-x", ROSTER, "question-timers"): Warn(
+            pattern=r'^An owner question is open and this reply or brief touches it without quoting it\..*\n~{12}\n- The owner asked: "what is a relay slot\? why is this here\?"'
         ),
-        asks("timers-writer", TIMERS, "question-timers", decide=CONFIRMED): Block(pattern=r'"what is a relay slot\? why is this here\?"'),
-        question(reply("c7-timers", fixture("correction-1244")), "question-timers", decide=UNCONFIRMED): Allow(),
-        asks("timers-writer", TIMERS, "question-timers", decide=UNCONFIRMED): Allow(),
-        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-timers"): Block(pattern=r"^This reply or brief does not quote the open owner question below\."),
-        question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Block(pattern=r"does not quote"),
-        question(f"orca-launch.sh timers-writer standard xhigh {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(
-            pattern=r"relay slot"
-        ),
-        question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=CONFIRMED): Block(pattern=r"relay slot"),
-        question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers", decide=UNCONFIRMED): Allow(),
-        asks("lane-x", "Lane lane-x: fix the flaky api test.", "question-closed"): Allow(),
-        asks("lane-x", "Lane lane-x: fix the flaky api test.", "quiet"): Allow(),
-        asks("incident-api-500s-fix", "Fix the api 500s.", "question-timers"): Allow(),
+        question(reply("c7-timers", "Every 30 s a worker asks the server for new jobs."), "question-timers"): Warn(pattern=r"touches it without quoting it"),
+        question(f"orca-launch.sh roster-writer standard xhigh {OWNER_QUESTION / 'brief-roster.md'}", "question-timers"): Warn(pattern=r"roster refresh"),
+        question(f"codex-ask -m sol {OWNER_QUESTION / 'brief-158695.md'}", "question-timers"): Allow(),
+        asks("lane-x", ROSTER, "question-closed"): Allow(),
+        asks("lane-x", ROSTER, "quiet"): Allow(),
+        asks("incident-api-500s-fix", f"Fix the api 500s. {ROSTER}", "question-timers"): Allow(),
         question("cc-present push /tmp/board.json", "question-timers"): Allow(),
         question("ls", "question-timers"): Allow(),
-        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
-        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": "Fix it."}, cwd=CWD, commands=readings("question-timers")): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": ROSTER}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-x", "prompt": ROSTER}, cwd=CWD, commands=readings("question-timers")): Allow(),
     },
 )
 def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
@@ -410,16 +406,15 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
         if not text:
             return None
         register = read_register(evt, which)
-        if not (questions := open_questions(register)):
-            return None
-        shown = [fenced("\n".join(asked(question, register["rows"]) for question in questions)), *([fenced(briefs.strip())] if briefs else [])]
-        quoted = all(quotes(text, question) for question in questions)
+        blocks = {block for args in replies(evt) for block in option(args, "--block")}
+        unquoted = [found for found in open_questions(register) if bears(found, text, blocks, register["rows"]) and not quotes(text, found)]
     except READ_ERRORS as error:
         failed_open(evt, "owner_question_gate", error)
         return None
-    if quoted:
-        return evt.block("\n".join([QUESTION_OPEN, *shown]), confirm=QUESTION_JUDGE)
-    return evt.block("\n".join([UNQUOTED, *shown]))
+    if not unquoted:
+        return None
+    shown = [fenced("\n".join(asked(found, register["rows"]) for found in unquoted)), *([fenced(briefs.strip())] if briefs else [])]
+    return evt.context("\n".join([UNQUOTED, *shown]))
 
 
 def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: str) -> None:
