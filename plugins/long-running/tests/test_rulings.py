@@ -811,6 +811,40 @@ def test_the_required_slice_lists_every_global_pending_and_touched_row_with_its_
     assert out.splitlines()[:-1] == ["exception/E1\t", "rule/1234567\t", "rule/aaaaaaa\trelay-server|parked worker", "rule/bbbbbbb\t"]
 
 
+class SiblingBase(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        match argv:
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
+                return json.dumps({"baseRefName": "lane-b"})
+            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA]:
+                return self.diff
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
+                raise AssertionError("the required slice compared against main, not the PR's base branch")
+        return super().run(argv, stdin, cwd)
+
+
+def test_the_required_slice_compares_against_the_base_branch_the_pr_names(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, SiblingBase(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d")
+
+    assert code == 0
+    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+
+
+def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_names(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--repo", "acme/app")
+
+    assert code == 0
+    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+
+
+def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    tree = tmp_path / "cc-skills"
+    tree.mkdir()
+    (tree / "notes.md").write_text("Keep the parked worker.\n")
+
+    assert ran(capsys, RegisterShell(seeded(package)), "sweep", "--repo", str(tree), "--paths", "*.md") == (0, "open rule/aaaaaaa notes.md:1 parked worker\n")
+
+
 def test_the_required_slice_includes_a_row_whose_symbol_a_caller_elsewhere_adds(home: Path, package: Path, state: Path, capsys) -> None:
     caller = "diff --git a/src/caller.rs b/src/caller.rs\n--- a/src/caller.rs\n+++ b/src/caller.rs\n@@ -1,1 +1,2 @@\n fn main() {\n+    pool.drain();\n"
 

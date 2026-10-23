@@ -177,3 +177,16 @@ def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
 
     assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": prompt})) is None
     assert posted == [("slice_on_spawn: the register slice for lane-a did not read: no register for brook", {"key": "slice-on-spawn:lane-a"})]
+
+
+def test_a_brief_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[tuple[str, dict]] = []
+    monkeypatch.setattr(injection, "post_blocker", lambda evt, text, **flags: posted.append((text, flags)))
+    brief = tools / "lane-a.md"
+    brief.write_bytes(b"Lane lane-a.\n\xff\xfe\n")
+
+    assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": f"Your brief is {brief}; read it."})) is None
+    assert len(posted) == 1
+    assert posted[0][0].startswith("slice_on_spawn: the spawn's brief did not read: ")
+    assert posted[0][1] == {"key": "slice-on-spawn:brief"}
+

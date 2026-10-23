@@ -333,7 +333,7 @@ class FakeShell(runner_module.Shell):
         assert repo == "Forge-AI/monorepo"
         if verb == "check-pr":
             return runner_module.Done(*self.check_pr.get(pr + (" --incident" if "--incident" in flags else ""), (0, "")), "")
-        assert verb == "slice" and flags[4] == "--required" and flags[flags.index("--base") + 1]
+        assert verb == "slice" and flags[4] == "--required" and "--base" not in flags
         return runner_module.Done(*self.slices.get(flags[flags.index("--head") + 1], (0, "slice-hash: 000000000000\n")), "")
 
     def graphql(self, query: str) -> runner_module.Done:

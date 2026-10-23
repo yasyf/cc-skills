@@ -170,6 +170,41 @@ def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(p
     assert check(capsys, authorized, "--plan", str(plan)) == (0, [])
 
 
+RUST_DIFF = """diff --git a/src/pool.rs b/src/pool.rs
+--- a/src/pool.rs
++++ b/src/pool.rs
+@@ -1,7 +1,4 @@
+-fn open() -> Pool {
+-    Pool::new()
+-}
+ #[test]
+-fn drains_on_close() {
++fn drains_when_closed() {
+     assert!(pool().drain().is_empty());
+ }
+"""
+
+
+def test_a_removed_rust_test_is_one_its_test_attribute_marks_even_as_context(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    plan = tmp_path / "plan.md"
+    plan.write_text("# Plan\n\n## Appendix\n\n- drains_on_close proves the pool empties; open the pool once.\n")
+
+    assert check(capsys, CheckShell(pinned(package), diff=RUST_DIFF, plan=plan), "--plan", str(plan)) == (1, ["TEST-REMOVED drains_on_close"])
+    assert check(capsys, CheckShell(pinned(package), diff=RUST_DIFF, plan=plan), "--incident", "--plan", str(plan)) == (1, ["TEST-REMOVED drains_on_close"])
+
+
+def test_an_unreadable_plan_file_is_a_blocker_beside_every_other_finding(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    plan = tmp_path / "plan.md"
+    plan.write_bytes(b"# Plan\n\n\xff\xfe not text\n")
+    uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
+
+    code, lines = check(capsys, CheckShell(pinned(package), body=uncited, diff=DIFF + TEST_DIFF, stamp="0" * 12), "--plan", str(plan))
+
+    assert code == 1
+    assert lines[0] == "RULINGS-UNCITED rule/bbbbbbb"
+    assert any(line.startswith("BLOCKER the removed tests: ") for line in lines[1:])
+
+
 def test_a_corpus_that_moved_holds_the_head_and_only_blocks_an_incident_fix(package: Path, state: Path, registered: Path, capsys) -> None:
     corpus = package / "plan" / "B-tests.md"
     moved = pinned(package, pin="0" * 64)
@@ -234,6 +269,8 @@ def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, 
         1,
         ["LANE-DECIDED We decided to keep the retry loop.", "LANE-DECIDED I picked the merge order (cafef00d).", "LANE-DECIDED We went with the slice at 0123456789ab."],
     )
+    quoted = CLEAN.replace("The pool drains when a run closes.", "On Oct 22 you said “Yes (my pick)” (rule/bbbbbbb), so the pool drains on close.")
+    assert check(capsys, CheckShell(pinned(package), body=quoted)) == (0, [])
     in_words = CLEAN.replace("The pool empties itself when a run ends.", "We decided to keep the retry loop.")
     assert check(capsys, CheckShell(pinned(package), body=in_words)) == (1, ["LANE-DECIDED We decided to keep the retry loop."])
     unread = CheckShell(pinned(package), body=body, answers=[BUCKET_ANSWER], failing=("ccn -R /repo answer list --limit 0",))

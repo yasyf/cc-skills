@@ -8,7 +8,7 @@
     rulings.py implications (--program SLUG | --drive ID) KEY
     rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...]
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
-    rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA --base REF
+    rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
     rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH] [--posted REF]
     rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ [--root DIR]
     rulings.py accepted     (--program SLUG | --drive ID) --lane NAME
@@ -133,6 +133,8 @@ RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.D
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
+RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
+RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 TEST_DEFINITION = re.compile(
     r"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?P<go>Test\w+)\s*\(|(?:async\s+)?def\s+(?P<py>test_\w+)\s*\("
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
@@ -422,10 +424,12 @@ class Diff:
     files: list[str]
     added: list[tuple[str, int, str]]
     removed: list[tuple[str, int, str]]
+    kept_before: list[tuple[str, int, str]]
+    kept_after: list[tuple[str, int, str]]
 
 
 def parse_diff(text: str) -> Diff:
-    diff = Diff([], [], [])
+    diff = Diff([], [], [], [], [])
     old_file = new_file = ""
     old_line = new_line = 0
     in_hunk = False
@@ -444,6 +448,8 @@ def parse_diff(text: str) -> Diff:
             diff.removed.append((old_file, old_line, line[1:]))
             old_line += 1
         elif line.startswith(" "):
+            diff.kept_before.append((old_file, old_line, line[1:]))
+            diff.kept_after.append((new_file, new_line, line[1:]))
             old_line += 1
             new_line += 1
     return diff
@@ -1008,10 +1014,11 @@ def plan_path(args: argparse.Namespace, loaded: Register) -> Path | None:
 def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if args.required:
-        if not (args.pr and args.head and args.base):
-            raise SystemExit("slice --required needs --pr, --head and --base")
-        repo, _ = pull(args, shell)
-        sys.stdout.write(required_slice(loaded, compare(shell, repo, args.base, args.head)))
+        if not (args.pr and args.head):
+            raise SystemExit("slice --required needs --pr and --head")
+        repo, number = pull(args, shell)
+        base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+        sys.stdout.write(required_slice(loaded, compare(shell, repo, base, args.head)))
     elif args.root:
         sys.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -1450,11 +1457,13 @@ def authorized(loaded: Register, head: Head, key: str) -> bool:
     return any(answer["id"][:SHORT] in head.cited for answer in answers_for(loaded, f"authorizes:{key}")) or bool(authorizing(loaded, key, head.number))
 
 
-def defined_tests(lines: list[tuple[str, int, str]]) -> dict[str, str]:
+def defined_tests(lines: list[tuple[str, int, str]], kept: list[tuple[str, int, str]]) -> dict[str, str]:
+    texts = {(file, number): text for file, number, text in [*kept, *lines]}
     found = {}
-    for file, _, text in lines:
+    for file, number, text in lines:
         match = TEST_DEFINITION.match(text)
-        if match and (name := match["go"] or match["py"] or match["ts"] or (match["rs"] if file.endswith(".rs") else None)):
+        rust = RUST_TEST_FILE.search(file) or RUST_TEST.match(texts.get((file, number - 1), ""))
+        if match and (name := match["go"] or match["py"] or match["ts"] or (match["rs"] if rust else None)):
             found[name] = file
     return found
 
@@ -1478,8 +1487,8 @@ def corpus_text(loaded: Register, findings: Findings, incident: bool) -> str:
 
 
 def removed_tests(loaded: Register, head: Head, findings: Findings, incident: bool, plan: Path | None) -> list[str]:
-    kept = defined_tests(head.diff.added)
-    gone = [name for name in defined_tests(head.diff.removed) if name not in kept]
+    kept = defined_tests(head.diff.added, head.diff.kept_after)
+    gone = [name for name in defined_tests(head.diff.removed, head.diff.kept_before) if name not in kept]
     if not gone:
         return []
     corpus = corpus_text(loaded, findings, incident)
@@ -1488,7 +1497,7 @@ def removed_tests(loaded: Register, head: Head, findings: Findings, incident: bo
     return [
         f"TEST-REMOVED {name}"
         for name in gone
-        if (name in named_in or named(named_in, name))
+        if named(named_in, name)
         and not any(named(words, name) for cited in head.cited for words, _ in authorizers.get(cited, []))
     ]
 
@@ -1529,7 +1538,8 @@ def cites_answer(line: str, answers: set[str] | None) -> bool:
 def decided(body: str, answers: set[str] | None) -> list[str]:
     own = found[0] if (found := RULINGS_LINES.search(body)) else ""
     prose = FENCED.sub(" ", body.replace(own, " ") if own else body)
-    return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line in prose.splitlines() if DECISION.search(line) and not cites_answer(line, answers)]
+    lines = [(line, OWNER_QUOTED.sub(" ", line)) for line in prose.splitlines()]
+    return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line, own in lines if DECISION.search(own) and not cites_answer(line, answers)]
 
 
 def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings) -> None:

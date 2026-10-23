@@ -3818,7 +3818,7 @@ class Landing:
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
         if not newest and not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
-        if (required := self.required(pr, sha, base)) is None:
+        if (required := self.required(pr, sha)) is None:
             return Grade(False, max(newest, key=lambda record: record["seq"], default=None), "`rulings.py slice --required` did not read for this head, so no grade counts as ok this pass")
         if not newest:
             carried = self.carried(pr, sha, base, grades, required)
@@ -3829,10 +3829,10 @@ class Landing:
         left = uncovered(whole_line(grade), required)
         return Grade(False, grade, f"{grade['lane']}'s ok on cci #{grade['seq']} leaves out {len(left)} required row(s) under `checked` or `names`: {', '.join(left[:8])}{' and more' if len(left) > 8 else ''}")
 
-    def required(self, pr: str, sha: str, base: str) -> dict[str, set[str]] | None:
-        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against `base`, or the trunk when the row names none, read once per head a pass; None when it does not read, which escalates once per head."""
+    def required(self, pr: str, sha: str) -> dict[str, set[str]] | None:
+        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against the PR's own base branch, read once per head a pass; None when it does not read, which escalates once per head."""
         if (pr, sha) not in self.slices:
-            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha, "--base", base or TRUNK)
+            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha)
             if done.code:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(f"slice:{pr}:{sha}", "SLICE-READ-FAILED", f"#{pr}", f"`rulings.py slice --required` exited {done.code} for {sha[:10]}: {last[0]}; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass")
@@ -4000,11 +4000,11 @@ class Landing:
             if graded.rows.get(pr, {}).get("rules_blocked")
         }
 
-    def rulings_report(self, pr: str, sha: str, base: str, incident: bool = False) -> list[str]:
+    def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
         """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause; it and every `BLOCKER` line go to the root once as `RULINGS-UNREAD`. The check fails open on what it cannot read (0afd2f6), and a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha, incident)
         if key not in self.reported:
-            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--base", base) if base else ()), *(("--incident",) if incident else ()))
+            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
             lines = [line.strip() for line in done.out.splitlines() if line.strip()]
             causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
             unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
@@ -4028,7 +4028,7 @@ class Landing:
         """Each head `rulings.py check-pr` refuses fails, with one blocker to its lane per head and set of causes. A head whose only cause is `TESTS-CORPUS` waits, escalated once. A reserved touch alone passes here: merge mode sends the card whose tap authorizes it, and holds the head until then."""
         states = {}
         for pr, sha in graded.heads.items():
-            causes = self.rulings_report(pr, sha, graded.rows.get(pr, {}).get("base") or "")
+            causes = self.rulings_report(pr, sha)
             if refusals := [line for line in causes if cause(line) not in (RESERVED_TOUCH, TESTS_CORPUS)]:
                 states[pr] = merge_queue.State(merge_queue.FAIL, f"`rulings.py check-pr` refuses {sha[:10]}: {'; '.join(refusals)}")
             elif corpus := [line for line in causes if cause(line) == TESTS_CORPUS]:
@@ -4068,18 +4068,18 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
 
     def check_merge_mode(self, graded: Graded) -> dict[str, merge_queue.State]:
-        if (asks := self.owner_asks(graded.heads, graded.rows)) is None:
+        if (asks := self.owner_asks(graded.heads)) is None:
             return {pr: merge_queue.State(merge_queue.PENDING, "merge mode high-risk reads the changed files first, and they did not read") for pr in graded.heads}
-        waiting = self.unanswered(graded.heads, asks, graded.rows)
+        waiting = self.unanswered(graded.heads, asks)
         if graded.act and waiting:
-            self.ask_owner(graded.heads, waiting, graded.rows)
+            self.ask_owner(graded.heads, waiting)
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
 
     @property
     def merge_mode(self) -> str:
         return self.landing_config["merge_mode"]
 
-    def owner_asks(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, list[str]] | None:
+    def owner_asks(self, heads: dict[str, str]) -> dict[str, list[str]] | None:
         """The PRs of `heads` the merge mode leaves for the owner to answer, each with the high-risk paths that put it there: every one under `every`, under `high-risk` each whose changed files a `landing.high_risk_paths` glob names, and in every mode each whose head touches a reserved row no answer authorizes yet. None when a changed-files read failed, and then nothing in the prefix is enqueued that pass."""
         mode = self.merge_mode
         if mode == "auto" or self.lands_green:
@@ -4091,7 +4091,7 @@ class Landing:
             if any(paths is None for paths in risky.values()):
                 return None
             asks = {pr: paths for pr, paths in risky.items() if paths}
-        return asks | {pr: [] for pr, sha in heads.items() if pr not in asks and self.reserved_touches(pr, sha, rows)}
+        return asks | {pr: [] for pr, sha in heads.items() if pr not in asks and self.reserved_touches(pr, sha)}
 
     @property
     def lands_green(self) -> bool:
@@ -4101,9 +4101,9 @@ class Landing:
             self.viewer = done.out.strip() if done.code == 0 else ""
         return bool(self.viewer) and self.repo.split("/")[0].casefold() == self.viewer.casefold()
 
-    def reserved_touches(self, pr: str, sha: str, rows: dict[str, dict]) -> list[tuple[str, str]]:
+    def reserved_touches(self, pr: str, sha: str) -> list[tuple[str, str]]:
         """Each reserved row `pr` touches at `sha` that no answer authorizes yet, with the first sentence of its words: `check-pr`'s `RESERVED-NO-ANSWER` lines."""
-        return [reserved_row(line) for line in self.rulings_report(pr, sha, rows.get(pr, {}).get("base") or "") if cause(line) == RESERVED_TOUCH]
+        return [reserved_row(line) for line in self.rulings_report(pr, sha) if cause(line) == RESERVED_TOUCH]
 
     def risky_paths(self, pr: str, sha: str) -> list[str] | None:
         """The changed files of `pr` at `sha` that a `landing.high_risk_paths` glob names, read once per head; None when GitHub refuses the read, which escalates once per head."""
@@ -4123,12 +4123,12 @@ class Landing:
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
         return {pr for pr in prs if any(names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"])) for record in gos)}
 
-    def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]], rows: dict[str, dict]) -> dict[str, list[str]]:
+    def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
         """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that no answer labeled `authorizes:<key>` covers, which `rulings.py authorize` writes from the card's tap."""
         if not asks:
             return {}
         merged = self.merged_by_owner(heads, list(asks))
-        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr], rows)}
+        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr])}
 
     def batch_posted(self) -> set[str] | None:
         """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
@@ -4140,11 +4140,11 @@ class Landing:
         entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
 
-    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
+    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence on its card, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
         merged = self.merged_by_owner(heads, list(waiting))
-        asking = [pr for pr in waiting if pr not in merged or self.reserved_touches(pr, heads[pr], rows)]
+        asking = [pr for pr in waiting if pr not in merged or self.reserved_touches(pr, heads[pr])]
         if not asking or (posted := self.batch_posted()) is None:
             return
         if owed := [pr for pr in asking if pr not in posted]:
@@ -4160,7 +4160,7 @@ class Landing:
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
             waits = f"merge:{pr}:{short}"
-            reserved = self.reserved_touches(pr, heads[pr], rows)
+            reserved = self.reserved_touches(pr, heads[pr])
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"it touches {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}" if paths else "every PR waits for the owner" if mode == "every" and not self.lands_green else "it touches a reserved row"
             touched = "".join(f"; reserved row {key}: \"{sentence}\". Merge also authorizes {key}" for key, sentence in reserved)
@@ -4389,7 +4389,7 @@ class Landing:
             return
         if not required or any(check["bucket"] != SQUASH_PASS for check in required):
             return
-        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], row.get("base") or TRUNK, incident=True) if cause(line) in INCIDENT_REFUSALS]:
+        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_REFUSALS]:
             text = "; ".join(refusals)
             self.runner.escalate(
                 f"rulings-refused:{pr}@{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
