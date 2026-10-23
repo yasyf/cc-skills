@@ -787,6 +787,9 @@ def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: P
     assert first.startswith("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n")
     assert first.endswith(f"slice-hash: {fresh}\n\nDo the work.\n")
     assert ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief)) == (0, f"fresh {brief} slice-hash {fresh}\n")
+    brief.write_text(f"Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\nslice-hash: {fresh}\n\nDo the work.\n")
+    assert ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief)) == (0, f"refreshed {brief} slice-hash {fresh} -> {fresh}\n")
+    assert brief.read_text() == first
 
     rows["rule/ccccccc"]["words"] = "Cards quote the words they ask about, verbatim."
     code, out = ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief))

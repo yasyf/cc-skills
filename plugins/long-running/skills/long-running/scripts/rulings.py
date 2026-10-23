@@ -63,6 +63,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import cci
 import drive
 import ledger
 
@@ -129,20 +130,18 @@ VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
 CCI_TEXT = 400
 READ_ERRORS = (OSError, ValueError, KeyError, subprocess.SubprocessError, SystemExit)
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
 TEST_DEFINITION = re.compile(
     r"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?P<go>Test\w+)\s*\(|(?:async\s+)?def\s+(?P<py>test_\w+)\s*\("
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
 )
-RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
-RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
 LANE_KINDS = ("head", "opened")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
-RECORD_WINDOW = "168h"
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
@@ -668,7 +667,7 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
     new = SLICE_HASH.search(fresh)["hash"]
-    if old == new:
+    if old == new and text[header.start() : end] == fresh.rstrip("\n"):
         return f"fresh {brief} slice-hash {new}"
     write_atomic(brief, text[: header.start()] + fresh.rstrip("\n") + text[end:])
     return f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
@@ -1113,7 +1112,11 @@ def fidelity_lanes(loaded: Register) -> set[str]:
 
 def unaccepted(loaded: Register, cci: str, lane: str, plan: Path | None, reviews: list[dict]) -> str | None:
     desks = fidelity_lanes(loaded)
-    graded = [(record, found) for record in reviews if record.get("lane") in desks and (found := READBACK_GRADE.match(record.get("text") or "")) and found["lane"] == lane]
+    graded = [
+        (record, found)
+        for record in reviews
+        if record.get("kind") == "review" and record.get("lane") in desks and (found := READBACK_GRADE.match(record.get("text") or "")) and found["lane"] == lane
+    ]
     if not graded:
         return "no fidelity desk has graded a read-back"
     record, newest = max(graded, key=lambda item: item[0]["seq"])
@@ -1448,13 +1451,11 @@ def authorized(loaded: Register, head: Head, key: str) -> bool:
 
 
 def defined_tests(lines: list[tuple[str, int, str]]) -> dict[str, str]:
-    found, previous = {}, ("", 0, "")
-    for file, number, text in lines:
+    found = {}
+    for file, _, text in lines:
         match = TEST_DEFINITION.match(text)
-        rust = previous[0] == file and previous[1] == number - 1 and RUST_TEST.match(previous[2])
-        if match and (name := match["go"] or match["py"] or match["ts"] or (match["rs"] if rust or RUST_TEST_FILE.search(file) else None)):
+        if match and (name := match["go"] or match["py"] or match["ts"] or (match["rs"] if file.endswith(".rs") else None)):
             found[name] = file
-        previous = (file, number, text)
     return found
 
 
@@ -1492,9 +1493,8 @@ def removed_tests(loaded: Register, head: Head, findings: Findings, incident: bo
     ]
 
 
-def pr_records(shell: ledger.Shell, cci: str, *flags: str) -> list[dict]:
-    argv = ["cci", "tail", "--drive", cci, "--since", RECORD_WINDOW, "--json", "--budget", "10000000", *flags]
-    return [json.loads(line) for line in shell.run(argv).splitlines() if line.strip()]
+def pr_records(shell: ledger.Shell, bus: str, *flags: str) -> list[dict]:
+    return cci.records(shell.run, bus, *flags)
 
 
 def finder_major(records: list[dict], sha: str) -> str | None:
@@ -1515,18 +1515,21 @@ def plain_problems(text: str) -> list[str]:
     return list(dict.fromkeys(f'RULINGS-PLAIN {kind} "{hit[0]}"' for kind, pattern in UNPLAIN for hit in pattern.finditer(seen)))
 
 
-def card_answers(loaded: Register, findings: Findings) -> set[str]:
-    listed_answers = findings.read("the owner's answers", lambda: answers_for(loaded)) or []
+def card_answers(loaded: Register, findings: Findings) -> set[str] | None:
+    if (listed_answers := findings.read("the owner's answers", lambda: answers_for(loaded))) is None:
+        return None
     return set(loaded.answer_words()) | {str(answer["id"])[:SHORT] for answer in listed_answers}
 
 
-def decided(body: str, rulings: str, answers: set[str]) -> list[str]:
-    prose = FENCED.sub(" ", body.replace(rulings, " ")) if rulings else FENCED.sub(" ", body)
-    return [
-        f"LANE-DECIDED {line.strip()[:CCI_TEXT]}"
-        for line in prose.splitlines()
-        if DECISION.search(line) and not {token[:SHORT] for token in CITED.findall(line)} & answers
-    ]
+def cites_answer(line: str, answers: set[str] | None) -> bool:
+    cited = {token[:SHORT] for token in CITED.findall(line)}
+    return bool(cited) if answers is None else bool(cited & answers)
+
+
+def decided(body: str, answers: set[str] | None) -> list[str]:
+    own = found[0] if (found := RULINGS_LINES.search(body)) else ""
+    prose = FENCED.sub(" ", body.replace(own, " ") if own else body)
+    return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line in prose.splitlines() if DECISION.search(line) and not cites_answer(line, answers)]
 
 
 def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings) -> None:
@@ -1542,7 +1545,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         if fields.get("kind") == "reserved" and (key in touches or any(op_hits(op, head.diff) for op in ops)):
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
                 findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
-    findings.refusals += removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))
+    findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
     if args.incident:
         return
     if records is not None and (major := finder_major(records, head.sha)):
@@ -1553,7 +1556,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
     words = head.in_your_words
     findings.refusals += ["RULINGS-PLAIN no ### In your words section"] if words is None else plain_problems(words)
-    findings.refusals += decided(head.body, head.rulings, card_answers(loaded, findings))
+    findings.refusals += decided(head.body, card_answers(loaded, findings))
     if records is None:
         return
     if not (lane := lane_of(records)):

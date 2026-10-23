@@ -89,10 +89,10 @@ class CheckShell(RegisterShell):
         match argv:
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName"]:
                 return json.dumps({"body": self.body, "baseRefName": "main"})
-            case ["cci", "tail", "--drive", "brook-cci", "--since", "168h", "--json", "--budget", _, "--pr", "acme/app#12"]:
-                return "".join(json.dumps(record) + "\n" for record in self.pr_records)
-            case ["cci", "tail", "--drive", "brook-cci", "--since", "168h", "--json", "--budget", _, "--kind", "review"]:
-                return "".join(json.dumps(record) + "\n" for record in self.reviews)
+            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
+                return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
+            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--kind", "review"]:
+                return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since))
         return super().run(argv, stdin, cwd)
 
 
@@ -234,6 +234,13 @@ def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, 
         1,
         ["LANE-DECIDED We decided to keep the retry loop.", "LANE-DECIDED I picked the merge order (cafef00d).", "LANE-DECIDED We went with the slice at 0123456789ab."],
     )
+    in_words = CLEAN.replace("The pool empties itself when a run ends.", "We decided to keep the retry loop.")
+    assert check(capsys, CheckShell(pinned(package), body=in_words)) == (1, ["LANE-DECIDED We decided to keep the retry loop."])
+    unread = CheckShell(pinned(package), body=body, answers=[BUCKET_ANSWER], failing=("ccn -R /repo answer list --limit 0",))
+    code, lines = check(capsys, unread)
+    assert code == 1
+    assert lines[:1] == ["LANE-DECIDED We decided to keep the retry loop."]
+    assert lines[1].startswith("BLOCKER the owner's answers: ") and len(lines) == 2
 
 
 def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slice(package: Path, state: Path, registered: Path, capsys) -> None:

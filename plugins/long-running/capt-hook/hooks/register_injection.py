@@ -24,6 +24,7 @@ INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
 BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
 LANE_FLAGS = ("--lane", "-l")
 FRESH = "fresh "
+UNREAD = (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
 NO_SLICE = "A drive lane's brief needs a `Register slice: lane=<name> step=<n>` line. Add it, run `rulings.py slice --refresh {brief}`, and spawn again."
 STALE_SLICE = "This spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` and spawn again."
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
@@ -96,6 +97,10 @@ def launch_spawn(evt: BaseHookEvent) -> Spawn | None:
     return None
 
 
+def why(failed: BaseException) -> str:
+    return failure_of(failed) if isinstance(failed, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) else str(failed)
+
+
 def refreshed(evt: BaseHookEvent, which: list[str], spawn: Spawn) -> tuple[str, str]:
     text = spawn.text if SLICE_HEADER.search(spawn.text) else f"{spawn.text.rstrip()}\n\n{INCIDENT_SLICE.format(lane=spawn.lane)}\n"
     with tempfile.TemporaryDirectory() as staging:
@@ -137,22 +142,25 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
 def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
-    if not (found := agent_spawn(evt.as_input(TaskCall)) if evt.tool_name == "Agent" else launch_spawn(evt)):
+    try:
+        found = agent_spawn(evt.as_input(TaskCall)) if evt.tool_name == "Agent" else launch_spawn(evt)
+    except UNREAD as failed:
+        post_blocker(evt, f"slice_on_spawn: the spawn's brief did not read: {why(failed)}", key="slice-on-spawn:brief")
+        return None
+    if not found:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
         return evt.block(NO_SLICE.format(brief=found.shown))
     try:
         said, fresh = refreshed(evt, which, found)
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
-        why = str(failed) if isinstance(failed, OSError) else failure_of(failed)
-        post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why}", key=f"slice-on-spawn:{found.lane}")
+        if found.incident and not found.inline:
+            found.brief.write_text(fresh)
+    except UNREAD as failed:
+        post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why(failed)}", key=f"slice-on-spawn:{found.lane}")
         return None
     if not found.incident:
         return None if said.startswith(FRESH) else evt.block(STALE_SLICE.format(brief=found.shown))
-    if found.inline:
-        return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE)
-    found.brief.write_text(fresh)
-    return None
+    return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
 
 
 @on(
