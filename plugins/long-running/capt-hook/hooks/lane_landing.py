@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry
+from .compaction_handoff import CompactionState, drive_entry, script
 from .owner_facing import INCIDENT_NAME
 from .session_tree import nearest_name
 
@@ -24,6 +25,11 @@ GH_REPO_FLAGS = frozenset({"-R", "--repo"})
 FIELD_FLAGS = ("--raw-field=", "--field=", "-f", "-F")
 REPO_FLAGS = frozenset({"-R", "--repo"})
 REPO_IN_ARG = re.compile(r"(?:^|/)repos/(?P<api>[\w.-]+/[\w.-]+)/|github\.com/(?P<url>[\w.-]+/[\w.-]+)/pull/")
+MERGE_VALUE_FLAGS = frozenset({"--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A"})
+PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?")
+CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
+INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
+CHECK_PR_TIMEOUT_SECONDS = 60
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 ACTIVE = [CompactionState(active=True)]
@@ -37,6 +43,10 @@ REFUSAL = (
 STEERING_REFUSAL = (
     "Only the root steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
     "Send the root a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
+)
+RULINGS_ADVICE = (
+    "`rulings.py check-pr` names {causes} for #{pr} at {head}. The landing desk refuses a head on these; "
+    "this hook only advises (0afd2f6), so settle each one before the merge lands."
 )
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
@@ -233,6 +243,8 @@ def landing_verb(call: Call) -> str | None:
         Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"plain squash"),
         Input(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Block(pattern=r"^Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
         Input(command="stack-enqueue 36050 --check", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
+        Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
         Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=ENQUEUE, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id=LANE): Allow(),
@@ -261,6 +273,81 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+
+
+def merge_target(call: Call) -> tuple[str, str]:
+    """The selector a `gh pr merge` names, a number, URL, or branch, empty for the current branch's PR, and the head its `--match-head-commit` pins, or empty."""
+    rest = without_repo((call.name, *call.args))[3:]
+    target, head, index = "", "", 0
+    while index < len(rest):
+        arg = rest[index]
+        if arg in MERGE_VALUE_FLAGS:
+            head = rest[index + 1] if arg == "--match-head-commit" and index + 1 < len(rest) else head
+            index += 2
+            continue
+        if arg.startswith("--match-head-commit="):
+            head = arg.split("=", 1)[1]
+        elif not arg.startswith("-"):
+            target = target or arg
+        index += 1
+    return target, head
+
+
+def merged_pr(call: Call, repo: str, cwd: str) -> tuple[str, str] | None:
+    """The number and head of the PR a `gh pr merge` call merges: a number or URL with a pinned head reads nothing, and any other selector asks `gh pr view`; None when that does not read."""
+    target, head = merge_target(call)
+    if (found := PULL.fullmatch(target)) and head:
+        return found["pr"], head
+    selector = [target, "--repo", repo] if target else []
+    viewed = run_quietly(["gh", "pr", "view", *selector, "--json", "number,headRefOid", "--jq", '"\\(.number) \\(.headRefOid)"'], cwd)
+    if viewed is None or viewed.returncode or len(fields := viewed.stdout.split()) != 2:
+        return None
+    return fields[0], head or fields[1]
+
+
+def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=CHECK_PR_TIMEOUT_SECONDS, cwd=cwd)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def merge_advice(call: Call, entry: dict, cwd: str, incident: bool) -> str | None:
+    """The advice for one `gh pr merge` call, naming each refusal `rulings.py check-pr` prints for its PR and head; None when it prints none or anything does not read."""
+    repo = named_repo(call) or entry["repo"]
+    if (merged := merged_pr(call, repo, cwd)) is None:
+        return None
+    pr, head = merged
+    done = run_quietly([sys.executable, str(script("rulings.py")), "check-pr", "--repo", cwd, "--drive", entry["drive"], "--pr", f"{repo}#{pr}", "--head", head, *(["--incident"] if incident else [])], cwd)
+    if done is None or done.returncode not in (0, 1):
+        return None
+    lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
+    named = [line for line in lines if line.split(" ", 1)[0] in CHECK_PR_CAUSES]
+    if any(line.split(" ", 1)[0] not in CHECK_PR_CAUSES | {"BLOCKER"} for line in lines) or (done.returncode == 1) != bool(named):
+        return None
+    causes = [line for line in named if line.split(" ", 1)[0] in (INCIDENT_CAUSES if incident else CHECK_PR_CAUSES)]
+    return RULINGS_ADVICE.format(causes="; ".join(causes), pr=pr, head=head[:10]) if causes else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="gh pr merge 36023 --squash"): Allow(),
+        Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", env=DRIVE_ENV): Allow(),
+        Input(command="gh pr view 36023 -R o/r --json mergedAt", env=DRIVE_ENV): Allow(),
+    },
+)
+def rulings_merge_advice(evt: BaseHookEvent) -> HookResult | None:
+    if (entry := drive_entry(evt)) is None:
+        return None
+    incident = bool(INCIDENT_NAME.match(lane_name(evt) or ""))
+    advice = [
+        line
+        for call in evt.cmd.calls()
+        if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (line := merge_advice(call, entry, str(call.cwd or evt.cwd), incident))
+    ]
+    return evt.context("\n".join(advice)) if advice else None
 
 
 @on(

@@ -45,6 +45,13 @@ def test_the_desk_brief_head_grades_are_the_lines_the_landing_runner_reads_for_t
     assert not filled(missing, HEAD).startswith(runner_module.FIDELITY_OK)
 
 
+def test_the_desk_brief_ok_line_covers_the_rows_it_lists_and_no_others():
+    _, ok = head_grades()
+    line = filled(ok, HEAD)
+    assert runner_module.uncovered(line, {"rule/1068167": {"hourly re-read"}}) == []
+    assert runner_module.uncovered(line, {"rule/1068167": {"hourly re-read", "sweep desk"}, "rule/d968e1d": set()}) == ["rule/1068167", "rule/d968e1d"]
+
+
 def readme_rows() -> list[list[str]]:
     readme = (FIXTURES / "README.md").read_text()
     return [[cell.strip() for cell in re.split(r"(?<!\\)\|", line)[1:-1]] for line in readme.splitlines() if line.startswith(("| [", "| `"))]

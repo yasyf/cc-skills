@@ -425,8 +425,8 @@ drive start along with `landing.high_risk_paths`. Use
 `{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
 when the checkout carries that script, and `{"kind": "label"}` otherwise, for a queue that
 takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
-check registry in order, from `hold`, `rules-review`, `fidelity`, `merge-mode`,
-`approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
+check registry in order, from `hold`, `rules-review`, `rulings`, `fidelity`, `finder`,
+`merge-mode`, `approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
 or a high-risk setting it cannot run, the landing runner exits and posts `MQ-CONFIG-INVALID`,
 ending with the exact `landing` members that fix every fault at once.
 

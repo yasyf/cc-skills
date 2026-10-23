@@ -1347,8 +1347,10 @@ checks in order, and every built-in runs when it lists none:
 
 - `hold`: the holds file, the `hold` label, and the PR's cci `hold` and `ready` records, read fresh just before the enqueue call.
 - `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
+- `rulings`: `rulings.py check-pr` at the head, below.
 - `fidelity`: the fidelity lane's cci `review` grade at the head, below.
-- `merge-mode`: the owner's merge mode, below.
+- `finder`: the sol finder's cci `review` record at the head, below.
+- `merge-mode`: the owner's merge mode, below, read at accept and again just before the enqueue call.
 - `approvals` and `required-ci`: the adapter's own verdict on the PR.
 
 The first check that refuses a prefix posts its blocker or ask and stops it there.
@@ -1385,17 +1387,38 @@ the lane that registered its ledger row; a cci blocker also goes to the root
 when `cci who` lists no live session for that lane.
 
 The runner also requires a fidelity ok at every prefix head. It reads the cci
-`review` records the fidelity lane posted about each PR with `--pr <n>`, keeps
-those whose text starts `fidelity: ok` or `fidelity: missing` and names the PR's
-current head by a short sha, and takes the newest. Only `fidelity: ok` passes.
-A head graded `missing`, graded ok only at an older head, or never graded gets
+`review` records the fidelity lanes posted about each PR with `--pr <owner/repo>#<n>`,
+which cci also matches to a post that named the bare number, and keeps those whose
+text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
+PR's current head. Each lane's newest grade of the head stands for that lane, so a
+`missing` blocks until the same lane grades the head ok; a later ok from another
+lane never clears it. An ok counts only when its whole line lists under `checked`
+every key `rulings.py slice --required` prints for the head and under `names` every
+name of those rows. cci keeps the first 400 characters of a longer line, so the
+runner reads the whole line from the file the record's `path` names. A slice that
+does not read logs `SLICE-READ-FAILED` once per head, and no grade counts for that
+head that pass.
+A head graded `missing`, graded ok only at an older head, graded by an ok that
+leaves a required row out, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
 lane, and nothing in its prefix is enqueued. The check runs again just before
 the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
-name or a list of lane names when grading is sharded: a grade from any
-listed lane counts and the newest decides. The runner re-reads the lane from
+name or a list of lane names when grading is sharded. The runner re-reads the lane from
 `runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
+
+The `finder` check needs the newest `finder:` review record naming the head, from
+any lane, to read `finder: ok`. A head with none, or whose newest is `finder: major`,
+gets one `FINDER-PENDING #<n>` blocker per head to its lane. A finder pass answers a
+major with a new head's record or a later `finder: ok <head7> answered: <how>`.
+
+The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
+--pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass. Any cause it
+prints but `RESERVED-NO-ANSWER` fails the head, with one blocker per head and set of
+causes. `TESTS-CORPUS` alone holds the head and escalates once. A reserved touch
+alone passes this check, because merge mode sends the card whose tap authorizes it.
+A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head and logs
+`RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints (0afd2f6).
 `reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
 `reference/finder-brief.md` is the sol finder's.
 
@@ -1405,7 +1428,7 @@ it landed as 2b06f105 without its test, because the gate read only
 `stack-enqueue --check` and the holds.*
 
 A restack carries its grade. When no grade names the current head, the runner
-takes each head an older `fidelity: ok` names whose own newest grade is ok, and
+takes each head an older `fidelity: ok` names whose own newest grades are ok, one of them counted, and
 compares `git patch-id --stable` of both heads' diffs against the PR's base, read
 from GitHub's compare. Equal patch ids carry the ok to the new head in that pass,
 cited as `fidelity: ok at <new head>, patch-identical to <graded head>` with the
@@ -1437,9 +1460,10 @@ change is one edit plus an `answer supersede`, with no restart.
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner logs one `MERGE-ASK` per waiting PR and head. The root sends each to the
-owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`,
-with the options `Merge #<n> <short sha>` and `Hold #<n>`, never as an
-`AskUserQuestion`, so the drive keeps working while the card waits.
+owner in the turn it arrives as a `needs_you` ask card through `slack_dm_status(card)`,
+with the options `Merge #<n> <short sha>` and `Hold #<n>` beside its fixed `Explain
+more` (93037c3), never as an `AskUserQuestion`, so the drive keeps working while the
+card waits. An `Explain more` tap gets a plain-words reply in the card's thread.
 
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
@@ -1447,15 +1471,40 @@ and the runner enqueues the prefix on its next pass once a root `go` names every
 waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`.
 An answer covers only the head it names, so a new head asks again. A changed-files
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
-until it reads. Incident fixes still land by plain squash under every mode.
+until it reads.
+
+A repository the runner's own GitHub account owns, the login `gh api user` prints,
+lands once green under every merge mode, with no card (de6c88c). A reserved touch
+there still asks.
+
+A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
+grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
+the row's key and the first sentence of its words, and says the merge also
+authorizes it. The card quotes both, and its tap is the authorization: the root
+records it with `rulings.py authorize --row <key> --action <tap ts>`, and the head
+waits until `check-pr` stops naming the row, as well as for the root's `go`.
+
+A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
+each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
+--note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress` entry with an
+artifact lists logs one `BATCH-POST-OWED` per batch instead of its `MERGE-ASK`.
+
+Incident fixes still land by plain squash under every mode. Before the merge, an
+approved, green fix meets only `check-pr --incident`'s `RULINGS-UNCITED`,
+`RESERVED-NO-ANSWER`, and `TEST-REMOVED`, each logged `RULINGS-REFUSED`, and the
+holds file is read again just before `gh pr merge`. Neither grade gates it: a fix
+whose head has no counted fidelity ok or no finder ok 30 minutes after it lands
+logs `UNGRADED-30` once (d968e1d).
 
 *Prevents a fixed landing policy the owner never chose. On 2026-10-21 the owner ruled
 (1fe20ee) that the drive asks at the start which of the three modes it runs in, and
 that each per-PR ask is a card with buttons, never a blocking `AskUserQuestion`.*
 
 The runner posts no commit status and adds or removes no label. Its check registry
-alone enforces holds, rules-review, and fidelity: no required check carries them,
-so a hand `gt merge`, a web-UI enqueue, or a hand adapter call bypasses all three.
+alone enforces holds, rules-review, the rulings, fidelity, and the finder: no required
+check carries them, so a hand `gt merge`, a web-UI enqueue, or a hand adapter call
+bypasses all of them. The pack's `rulings_merge_advice` hook runs `check-pr` on a
+`gh pr merge` in a drive session and advises with each cause, never blocking (0afd2f6).
 The root reads `mq.py why <n>` before any of those.
 
 The holds file stays the root's interface. A `hold` label on a PR holds it too,

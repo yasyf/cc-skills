@@ -145,9 +145,12 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
-        self.ledger_outs: dict[str, tuple[int, str]] = {}
+        self.ledger_outs: dict[str, tuple[int, str]] = {"show": (0, json.dumps({"rows": []}))}
+        self.viewer = "desk-owner"
         self.cards: list[dict] = []
         self.card_error = ""
+        self.check_pr: dict[str, tuple[int, str]] = {}
+        self.slices: dict[str, tuple[int, str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -239,6 +242,8 @@ class FakeShell(runner_module.Shell):
             if head in self.compare_errors:
                 return runner_module.Done(1, "", self.compare_errors[head])
             return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+        if argv == ["gh", "api", "user", "--jq", ".login"]:
+            return runner_module.Done(0, f"{self.viewer}\n", "")
         if argv[:3] == ["gh", "api", "--paginate"]:
             assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[].filename"]
             if self.files_error:
@@ -275,6 +280,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
+        if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
+            return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
@@ -313,6 +320,16 @@ class FakeShell(runner_module.Shell):
                 self.post_ids[flags["--id"]] = len(self.posts)
             return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def rulings(self, argv: list[str]) -> runner_module.Done:
+        verb, flags = argv[0], argv[1:]
+        assert flags[:4] == ["--repo", str(self.root / "checkout"), "--drive", "d1"]
+        repo, _, pr = flags[flags.index("--pr") + 1].rpartition("#")
+        assert repo == "Forge-AI/monorepo"
+        if verb == "check-pr":
+            return runner_module.Done(*self.check_pr.get(pr + (" --incident" if "--incident" in flags else ""), (0, "")), "")
+        assert verb == "slice" and flags[4] == "--required" and flags[flags.index("--base") + 1]
+        return runner_module.Done(*self.slices.get(flags[flags.index("--head") + 1], (0, "slice-hash: 000000000000\n")), "")
 
     def graphql(self, query: str) -> runner_module.Done:
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
@@ -1191,9 +1208,17 @@ def gate(*lines: str, would: str = "") -> str:
     return "\n".join(lines) + (f"\nwould enqueue {would} in one call\n" if would else "\nenqueued nothing: the bottom PR is BLOCKED\n")
 
 
-def grade(shell: FakeShell, pr: str, text: str, lane: str = "fidelity-desk") -> int:
+def grade(shell: FakeShell, pr: str, text: str, lane: str = "fidelity-desk", finder: bool = True) -> int:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": [int(pr)]}, "text": f"fidelity: {text}"})
+    if finder and text.startswith("ok") and (head := runner_module.graded_head(text)):
+        finder_verdict(shell, pr, f"ok {head} no findings")
+    return seq
+
+
+def finder_verdict(shell: FakeShell, pr: str, text: str, lane: str = LANE) -> int:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"finder: {text}"})
     return seq
 
 
@@ -2333,8 +2358,17 @@ def merge_go(shell: FakeShell, pr: str, text: str) -> None:
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text})
 
 
+POSTED = {"at": "2026-10-01T18:00:00Z", "note": "#29020 #29031", "artifacts": ["https://example.slack.com/archives/C0/p1"]}
+
+
+def batch_posts(shell: FakeShell, *entries: dict) -> None:
+    fields = {"text": "post each PR batch before its merge cards", "lane": "root"} | {f"progress_{index + 1:06d}": json.dumps(entry) for index, entry in enumerate(entries)}
+    shell.ledger_outs["show"] = (0, json.dumps({"rows": [{"key": "29020", "fields": {"state": "open"}}, {"key": "ask/000007", "fields": fields}]}))
+
+
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
+    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -2343,6 +2377,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue")
     assert "`Merge #29020 cccc333` and `Hold #29020`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
+    assert "ask card" in line and "beside its fixed `Explain more` (93037c3)" in line and "Explain more gets a plain-words reply in the card's thread" in line
     merge_go(shell, "29020", "merge #29020 at bbbb222")
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -2362,6 +2397,7 @@ def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(she
 
 def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, config, tmp_path):
     merge_mode(config, "high-risk")
+    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     shell.files["29020"] = ["api/src/routes/runs.ts", "api/migrations/0399_run_owner.sql"]
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -2388,6 +2424,88 @@ def test_merge_mode_high_risk_enqueues_nothing_while_the_changed_files_do_not_re
     shell.files["29020"] = ["README.md"]
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
+
+
+RESERVED = "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\n"
+
+
+@pytest.mark.parametrize("mode", ["every", "auto"])
+def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_for_its_authorization(shell, config, tmp_path, mode):
+    merge_mode(config, mode)
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and blockers(shell) == []
+    [line] = escalations(shell)
+    assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
+    message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
+    assert 'reserved row reserved/user-data: "User data stays where it is.". Merge also authorizes reserved/user-data' in message
+    assert "`rulings.py authorize --row reserved/user-data --action <ts>`" in message
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.check_pr["29020"] = (0, "")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+
+
+def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and "Merge also authorizes reserved/user-data" in line
+
+
+@pytest.mark.parametrize("mode", ["every", "high-risk"])
+def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
+    merge_mode(config, mode)
+    batch_posts(shell, POSTED)
+    shell.viewer = "forge-ai"
+    lone_green_pr(shell)
+    shell.files["29020"] = ["api/migrations/0399_run_owner.sql"]
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-ASK"]
+    shell.check_pr["29020"] = (0, "")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+
+
+def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_config(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on the ledger lists them" in line
+    batch_posts(shell, POSTED)
+    landing_pass(shell, config)
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED", "MERGE-ASK"]
+
+
+def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):
+    merge_mode(config, "every")
+    shell.ledger_outs["show"] = (1, "ccn: ledger unreachable\n")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("BATCH-READ-FAILED ") and "the ledger did not read for its batch posts: ccn: ledger unreachable; no MERGE-ASK goes out until it reads" in line
 
 
 def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, tmp_path):
@@ -2567,6 +2685,18 @@ def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shel
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["QUOTA-READ-FAILED"]
 
 
+def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    batch_posts(shell, POSTED)
+    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    shell.check_pr["29020"] = (1, RESERVED)
+    landing_of(shell, config, tmp_path).enqueue()
+    assert shell.enqueues() == []
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
+
+
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -2592,8 +2722,9 @@ def test_a_restack_with_the_graded_heads_patch_carries_its_ok_and_cites_that_hea
     lone_green_pr(shell)
     seq = grade(shell, "29020", "ok F307 at bbbb222.")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
     carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333", "dev")
-    assert (carried["seq"], carried["text"]) == (seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
+    assert (carried.ok, carried.record["seq"], carried.why) == (True, seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
     shell.calls.clear()
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
@@ -2633,12 +2764,22 @@ def test_no_ok_carries_from_a_head_whose_newest_grade_is_missing(shell, config, 
 
 def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(shell, config, tmp_path):
     lone_green_pr(shell)
-    grade(shell, "29020", "ok F307: the restack onto dev 9057dda of bbbb222 has a range-diff of '='.")
+    grade(shell, "29020", "ok 9057dda: the restack onto dev has a range-diff of '='.")
     shell.compare_errors["9057dda"] = "gh: Not Found (HTTP 404)"
+    shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and escalations(shell) == []
+    assert compare_calls(shell) == ["dev...cccc333333", "dev...9057dda"]
+
+
+def test_a_register_key_a_grade_lists_after_its_head_is_never_probed_as_a_head(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok bbbb222 checked rule/d968e1d,rule/1068167 names grade window|hourly pass")
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and escalations(shell) == []
-    assert compare_calls(shell)[:3] == ["dev...cccc333333", "dev...9057dda", "dev...bbbb222"]
+    assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
 
 
 def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, config, tmp_path):
@@ -2651,6 +2792,149 @@ def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, confi
     assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [
         "PATCH-READ-FAILED patch:29020:cccc333333 #29020: GitHub refused the diff of dev...cccc333333: gh: API rate limit exceeded (HTTP 403); no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass"
     ]
+
+
+def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    finder_verdict(shell, "29020", "ok bbbb222 no findings")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"] == LANE and blocker["topic"] == "29020"
+    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+
+
+def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"FINDER-PENDING #29020: {LANE} posted on cci #{seq}: finder: major cccc333 1 open: go/a.go:12" in blocker["text"]
+    finder_verdict(shell, "29020", "ok cccc333 answered: the PR rebuts it with the sealed-read test")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(blockers(shell)) == 1
+
+
+def test_a_head_check_pr_refuses_is_held_with_one_blocker_naming_each_cause(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, "RULINGS-UNCITED rule/abc1234\nTEST-REMOVED TestAnOpenOldChatReadsItsRows\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"] == LANE
+    assert blocker["text"].endswith("`rulings.py check-pr` refuses cccc333333: RULINGS-UNCITED rule/abc1234; TEST-REMOVED TestAnOpenOldChatReadsItsRows")
+    shell.check_pr["29020"] = (0, "")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_an_unreadable_test_corpus_holds_the_head_and_escalates_once(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, "TESTS-CORPUS plan/B-tests.md sha256 differs from corpus/b-tests\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and [post["to"] for post in blockers(shell)] == ["root"]
+    [line] = escalations(shell)
+    assert line.startswith("TESTS-CORPUS ") and "cannot read the pinned test corpus at cccc333333: TESTS-CORPUS plan/B-tests.md" in line
+
+
+@pytest.mark.parametrize(
+    ("code", "out"),
+    [
+        (2, "usage: rulings.py: error: argument command: invalid choice: 'check-pr'\n"),
+        (1, "SOMETHING-NEW rule/x\n"),
+        (0, "BLOCKER gh pr view 29020 failed: HTTP 502\n"),
+        (0, "RULINGS-UNCITED rule/abc1234 the body cites no answer\n"),
+    ],
+)
+def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_escalates_once(shell, config, tmp_path, code, out):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (code, out)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and [post["to"] for post in blockers(shell)] == ["root"]
+    [line] = escalations(shell)
+    assert line.startswith("RULINGS-UNREAD ") and "so the head passes the rulings check" in line
+
+
+def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another_repo_does_not(shell, config, tmp_path):
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["yasyf/cc-skills#29020"]}, "text": "fidelity: ok cccc333"})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333"})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    tails = [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--lane" in call and "fidelity-desk" in call]
+    assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
+
+
+def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", "missing cccc333 scope/progress a second progress state is shown", lane="fidelity-desk-7")
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|progress bar")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert f"fidelity-desk-7 graded this head on cci #{seq}: fidelity: missing cccc333 scope/progress" in blocker["text"]
+    grade(shell, "29020", "ok cccc333", lane="fidelity-desk-7")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+REQUIRED = "reserved/user-data\tuser data|bucket purge\nscope/progress\tprogress bar|Progress\nslice-hash: 0123456789ab\n"
+
+
+def test_an_ok_counts_only_when_its_checked_set_covers_every_required_row_and_its_names(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.slices["cccc333333"] = (0, REQUIRED)
+    seq = grade(shell, "29020", "ok cccc333 checked reserved/user-data,scope/progress names user data|bucket purge|progress bar")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["text"].endswith(f"fidelity-desk's ok on cci #{seq} leaves out 1 required row(s) under `checked` or `names`: scope/progress")
+    grade(shell, "29020", "ok cccc333 checked reserved/user-data, scope/progress names user data|bucket purge|progress bar|Progress")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_clipped_ok_is_read_whole_from_the_file_its_record_names(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.slices["cccc333333"] = (0, REQUIRED)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    line = "fidelity: ok cccc333 checked reserved/user-data,scope/progress," + ",".join(f"rule/{n:07x}" for n in range(40)) + " names user data|bucket purge|progress bar|Progress"
+    blob = tmp_path / "grade.txt"
+    blob.write_text(line + "\n")
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": [29020], "path": str(blob)}, "text": line[:399] + "…"})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
+def test_a_slice_that_does_not_read_counts_no_grade_and_escalates_once_per_head(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.slices["cccc333333"] = (1, "slice: GitHub refused the compare dev...cccc333333\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert [line for line in escalations(shell) if line.startswith("SLICE-READ-FAILED")] == [
+        "SLICE-READ-FAILED slice:29020:cccc333333 #29020: `rulings.py slice --required` exited 1 for cccc333333: slice: GitHub refused the compare dev...cccc333333; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass"
+    ]
+    shell.slices.clear()
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
 
 
 def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, config, tmp_path):
@@ -2854,7 +3138,7 @@ def mq(shell: FakeShell, config: Path, *argv: str) -> int:
     return mq_module.main(["--config", str(config), *argv], shell)
 
 
-QUIET_WHY = ["hold pass", "rules-review pass", "fidelity pass", "merge-mode pass", "approvals pass", "required-ci pass"]
+QUIET_WHY = ["hold pass", "rules-review pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
 
 
 @pytest.mark.parametrize(
@@ -2862,13 +3146,21 @@ QUIET_WHY = ["hold pass", "rules-review pass", "fidelity pass", "merge-mode pass
     [
         ("hold", "hold fail the holds-file line `#29020 owner review`"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
+        ("finder", "finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"),
+        ("rulings", "rulings fail `rulings.py check-pr` refuses cccc333333: RULINGS-UNCITED rule/abc1234"),
         ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
     ],
 )
 def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
     lone_green_pr(shell)
-    if blocked != "fidelity":
+    if blocked == "fidelity":
+        finder_verdict(shell, "29020", "ok cccc333 no findings")
+    elif blocked == "finder":
+        grade(shell, "29020", "ok cccc333", finder=False)
+    else:
         grade_gated_heads_ok(shell)
+    if blocked == "rulings":
+        shell.check_pr["29020"] = (1, "RULINGS-UNCITED rule/abc1234\n")
     if blocked == "hold":
         (tmp_path / "holds.md").write_text("#29020 owner review\n")
     if blocked == "rules-review":
@@ -3113,7 +3405,7 @@ def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config,
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and blockers(shell) == []
     assert mq(shell, config, "checks") == 0
-    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept", "approvals adapter check", "required-ci adapter check"]
+    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
@@ -3199,6 +3491,66 @@ def test_a_held_incident_fix_is_not_merged(shell, config, tmp_path):
     (tmp_path / "holds.md").write_text("#36650 root holds the sand fix\n")
     landing_pass(shell, config)
     assert merges(shell) == []
+
+
+def test_an_incident_fix_check_pr_refuses_is_never_merged_and_escalates_once(shell, config, tmp_path):
+    incident_pr(shell)
+    shell.check_pr["36650 --incident"] = (1, "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\n")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == []
+    [line] = escalations(shell)
+    assert line.startswith(f"RULINGS-REFUSED rulings-refused:36650@{INCIDENT_HEAD}:")
+    assert "`rulings.py check-pr --incident` refuses the approved, green incident fix at ffff666666, so the runner does not merge it: RESERVED-NO-ANSWER reserved/user-data" in line
+
+
+def test_an_incident_fix_merges_past_every_cause_but_the_three_it_must_meet_before_merge(shell, config, tmp_path):
+    incident_pr(shell)
+    shell.check_pr["36650 --incident"] = (0, "BLOCKER the finder record is read after the merge\n")
+    shell.check_pr["36650"] = (1, "FINDER-MAJOR ffff666\n")
+    landing_pass(shell, config)
+    assert len(merges(shell)) == 1
+    [check] = [call for call in shell.calls if len(call) > 2 and Path(call[1]).name == "rulings.py"]
+    assert check[2] == "check-pr" and "--incident" in check
+
+
+def test_a_hold_all_written_after_the_pass_read_its_holds_stops_the_incident_squash(shell, config, tmp_path):
+    incident_pr(shell)
+    inner = shell.rulings
+
+    def rulings(argv: list[str]) -> runner_module.Done:
+        (tmp_path / "holds.md").write_text("hold:all the owner stopped every merge\n")
+        return inner(argv)
+
+    shell.rulings = rulings
+    landing_pass(shell, config)
+    assert merges(shell) == []
+
+
+@pytest.mark.parametrize("late", [2, 66])
+def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalates_once(shell, config, tmp_path, late):
+    incident_pr(shell)
+    landing_pass(shell, config)
+    assert len(merges(shell)) == 1
+    finder_verdict(shell, "36650", f"ok {INCIDENT_HEAD[:7]} no findings")
+    shell.sleep(29 * 60)
+    landing_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("UNGRADED-30")]
+    shell.sleep(late * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("UNGRADED-30")] == [
+        f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 {29 + late} minutes ago and has no fidelity ok at that head; both grades are owed within 30 minutes of the merge (d968e1d)"
+    ]
+
+
+def test_an_incident_fix_graded_by_both_within_thirty_minutes_escalates_nothing(shell, config, tmp_path):
+    incident_pr(shell)
+    landing_pass(shell, config)
+    grade(shell, "36650", f"ok {INCIDENT_HEAD[:7]}")
+    shell.sleep(31 * 60)
+    landing_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("UNGRADED-30")]
 
 
 def live_clock(tmp_path: Path, shell: FakeShell, lane: str = "sand-fix") -> None:
