@@ -2689,10 +2689,9 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     batch_posts(shell, POSTED)
-    landing = landing_of(shell, config, tmp_path)
-    landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
     shell.check_pr["29020"] = (1, RESERVED)
-    landing.enqueue()
+    landing_of(shell, config, tmp_path).enqueue()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
     assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
