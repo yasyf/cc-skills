@@ -656,7 +656,7 @@ def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READE
         return []
     prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", text=text)
     verdict = evt.llm(prompt, Undefined, size="small")
-    return [f'plain words: the owner would need "{term}" defined' for term in verdict.terms] if verdict else []
+    return [f'plain words: the owner would need "{term}" defined' for term in verdict.terms if term in text] if verdict else []
 
 
 def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
@@ -712,7 +712,9 @@ def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
         return started_boards(evt, reads)
     said = reads.said() or []
     options = [("card option", option) for option in card.get("options") or []]
-    return [(where, unquoted(text, said)) for where, text in [("card title", card.get("title") or ""), ("card body", card.get("body") or ""), *options] if text]
+    facts = [("card fact", f"{fact.get('label') or ''}: {fact.get('value') or ''}") for fact in card.get("facts") or []]
+    fields = [("card title", card.get("title") or ""), ("card body", card.get("body") or ""), *options, *facts, ("card phase", card.get("phase") or "")]
+    return [(where, unquoted(text, said)) for where, text in fields if text]
 
 
 def status_card(llm: dict | None = None, **card: object) -> Input:
@@ -792,6 +794,16 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
         status_card({"terms": ["chat-list"]}, title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"]): Block(
             pattern=r'the owner would need "chat-list" defined'
         ),
+        status_card(
+            {"terms": ["finder-pending", "briefs/tooling-explain-more.md", "#61", "--pr filter", "110800", "codex-wrapper", "slack_dm_status", "rule 23"]},
+            title="Send the loss list to the team?",
+            body="It names every chat that lost its last turn, by person.",
+            options=["Send", "Hold"],
+        ): Allow(),
+        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], facts=[{"label": "Lane", "value": "the chat-list fix"}]): Block(
+            pattern=r'card fact has a drive word, "Lane"'
+        ),
+        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], phase="graded by the desk"): Block(pattern=r'card phase has a drive word, "desk"'),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
             state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
