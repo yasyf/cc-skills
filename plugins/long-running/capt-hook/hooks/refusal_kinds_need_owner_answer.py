@@ -47,7 +47,6 @@ SHIP_VALUES = frozenset(
 )
 SHIP_OPTIONAL_VALUES = frozenset({"--new-branch", "--create"})
 GH_HEAD = ("--head", "-H")
-STDIN_FILE = re.compile(r"(?<![<\d])<\s*(?P<path>[^\s<>|&;]+)")
 RULING_ITEM = re.compile(r"\n(?=\s*(?:[-*]|\d+\.)\s)")
 GH_BODY = ("--body", "-b")
 GH_BODY_FILE = ("--body-file", "-F")
@@ -127,6 +126,7 @@ class Request:
     worktree: bool
     paths: tuple[str, ...] = ()
     head: str | None = None
+    stdin: str | None = None
 
 
 def run(argv: list[str], cwd: Path | None) -> subprocess.CompletedProcess[str] | None:
@@ -194,12 +194,17 @@ def selector(args: tuple[str, ...]) -> tuple[str, ...]:
     return ()
 
 
+def stdin_file(call: Call) -> str | None:
+    return next((redirect.target for redirect in call.redirects if redirect.op == "<" and redirect.fd in (None, 0)), None)
+
+
 def request(evt: BaseHookEvent, call: Call) -> Request | None:
     cwd = call.cwd or evt.cwd
     if call.name == "ccx" and call.args[:2] == ("vcs", "ship") and "--no-pr" not in call.args:
         parent = values(call.args, ("--parent",))
         return Request(
-            str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True, ship_paths(call.args[2:])
+            str(evt.command), cwd, (), parent[0] if parent else None, tuple(values(call.args, SHIP_BODY)), (), None, True, ship_paths(call.args[2:]),
+            stdin=stdin_file(call),
         )
     argv = without_repo((call.name, *call.args)) if call.name == "gh" else ()
     repo = ("-R", found) if (found := named_repo(call)) else ()
@@ -207,10 +212,13 @@ def request(evt: BaseHookEvent, call: Call) -> Request | None:
         base, head = values(argv, ("--base", "-B")), values(argv, GH_HEAD)
         return Request(
             str(evt.command), cwd, repo, base[0] if base else None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), None, False,
-            head=head[0] if head else None,
+            head=head[0] if head else None, stdin=stdin_file(call),
         )
     if argv[:3] == ("gh", "pr", "edit") and (values(argv, GH_BODY) or values(argv, GH_BODY_FILE)):
-        return Request(str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False)
+        return Request(
+            str(evt.command), cwd, repo, None, tuple(values(argv, GH_BODY_FILE)), tuple(values(argv, GH_BODY)), selector(argv[3:]), False,
+            stdin=stdin_file(call),
+        )
     return None
 
 
@@ -292,10 +300,9 @@ def classify(path: str, line: int, text: str) -> list[Finding]:
 
 def body_file(req: Request, value: str) -> str | None:
     if value == "-":
-        if "<<" in req.raw:
-            return req.raw
-        redirect = STDIN_FILE.search(req.raw)
-        return text_of(Path(req.cwd or ".") / redirect["path"]) if redirect else None
+        if req.stdin:
+            return text_of(Path(req.cwd or ".") / req.stdin)
+        return req.raw if "<<" in req.raw else None
     candidates = (Path(req.cwd or ".") / part for part in dict.fromkeys((value, value.split("=", 1)[-1])))
     return next((text for path in candidates if path.is_file() and (text := text_of(path)) is not None), None)
 
