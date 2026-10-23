@@ -2382,7 +2382,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue")
     assert "options `Merge #29020 cccc333` and `Hold #29020`, and recommended `Merge #29020 cccc333`" in line and 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line
-    assert "Other waits for the owner's reply in the card's thread and merges nothing" in line
+    assert "the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture" in line
     assert "ask card with waits `merge:29020:cccc333`" in line and "beside its built-in `Other` and `Explain more` (93037c3), neither listed as an option" in line
     assert "reply in the card's thread in plain words through `slack_dm_status` with `about` naming the card, so cc-slack opens the reply with the link back to the card itself" in line
     assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: merge:29020:cccc333"`' in line

@@ -1445,8 +1445,9 @@ the line names and replies in the card's thread in plain words through `slack_dm
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
 and the runner enqueues the prefix on its next pass once a root `go` names every
-waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`. An `Other` tap merges nothing: the
-root waits for the owner's reply in the card's thread and classifies it as a capture.
+waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`. `Other` opens a Slack modal, and
+the text the owner types there reaches the root as the card's capture. It merges nothing,
+and the root classifies it as a capture.
 An answer covers only the head it names, so a new head asks again. A changed-files
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.

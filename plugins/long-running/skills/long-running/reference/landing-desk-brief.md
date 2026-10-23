@@ -29,8 +29,8 @@ under `auto`. The root asks it once at execution start and records the answer. E
 `MERGE-ASK` the runner logs goes to the owner as a `needs_you` ask card whose `waits` id
 the line names, with `Merge #<n> <short sha>` and `Hold #<n>` buttons and `recommended` set to
 `Merge`, beside the built-in `Other` and `Explain more` cc-slack draws on a waiting card (93037c3),
-never as an `AskUserQuestion`. An `Explain more` tap resolves nothing, and an `Other` tap merges
-nothing while the root waits for the owner's reply in the card's thread.
+never as an `AskUserQuestion`. An `Explain more` tap resolves nothing. The text the owner types
+in `Other`'s modal reaches the root as the card's capture and merges nothing.
 A repository the runner's own GitHub account owns lands once green with no card
 (de6c88c). A `Merge` tap becomes a root `go`
 record naming the PR and its head, which the runner enqueues on; a `Hold` tap becomes
