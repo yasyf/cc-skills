@@ -33,7 +33,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, script
 from .nudges import queue_nudge
-from .root_context import reads_stdin
+from .root_context import operand_targets, reads_stdin
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
 from .tests.incident_fixtures import (
@@ -97,19 +97,21 @@ RECORD_SEQ = re.compile(r"#\d")
 OFF_INCIDENT_ASK = "the alert is active: no owner question on other work; the incident's own ask names {names}"
 ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
-SCRATCH_ROOTS = (Path.home() / ".claude", Path("/tmp"), Path("/private/tmp"))
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 PLAN_CONDITIONAL = re.compile(
-    r"\bplan[ -]?mode\b[^.\n]{0,40}?\b(?:without|until|first|before|after|only (?:when|once|after))\b|\b(?:until|after|once)\b[^.\n]{0,40}?\bplan[ -]?mode\b",
+    r"\bplan[ -]?mode\b[^.\n]{0,40}?\b(?:without|until|before|after|only (?:when|once|after))\b[^.\n]{0,60}?\b(?:incident|outage|fix\w*|done|resolved|closed|green|live)\b"
+    r"|\b(?:until|after|once)\b[^.\n]{0,60}?\b(?:incident|outage|fix\w*|done|resolved|closed|green|live)\b[^.\n]{0,40}?\bplan[ -]?mode\b",
     re.IGNORECASE,
 )
 PLAN_FORBIDDEN = re.compile(
-    r"\b(?:dont|don'?t|do not|never|no|not)\s+(?:\w+\s+){0,3}?(?:(?:enter|endter|go (?:in)?to|start|use|re-?enter)\s+)?plan[ -]?mode\b", re.IGNORECASE
+    r"\b(?:dont|don'?t|do not|never|no|not)\s+(?:\w+\s+){0,3}?(?:(?:enter|endter|go (?:in)?to|start|use|re-?enter)\s+)?(?:plan[ -]?mode|replan)\b",
+    re.IGNORECASE,
 )
 PLAN_ORDERED = re.compile(r"\b(?:enter|endter|go (?:in)?to|start|use|re-?enter|get into)\b[^.\n]{0,20}?\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 OUTAGE_STOP_WORDS = (
     "a second outage means we stop patching, re-enter plan mode, and find the fundamental fix"
 )
+CAUSE_RECORD = Path(__file__).parent / "tests" / "fixtures" / "root-cause" / "autoscaler.txt"
 NO_PLAN_BEFORE_FIX = "dont enter plan mode without fixing the incident first"
 PLAN_WHEN_DONE = "check every incident item is done, then enter plan mode only when everything is done"
 PLAN_MODE_FORBIDDEN = (
@@ -271,6 +273,9 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
         plan_mode("EnterPlanMode", OUTAGE_0820, agent_id="a1b2c3"): Allow(),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Block(pattern="latest word on plan mode forbids it"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("no plan mode today")]): Block(),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("do not enter plan mode until I ask")]): Block(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("don't replan")]): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont enter plan mode yet"), T.user("ok now re-enter plan mode and replan")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("no, go into plan mode")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont fix anything else, enter plan mode now")]): Allow(),
@@ -462,15 +467,15 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
 
 
 def scratch(value: str) -> bool:
-    path = Path(value).expanduser()
-    return path.is_absolute() and any(path.is_relative_to(root) for root in SCRATCH_ROOTS)
+    path = Path.home() / value[2:] if value.startswith("~/") else Path(value)
+    return path.is_absolute() and any(path.is_relative_to(root) for root in (Path.home() / ".claude", Path("/tmp"), Path("/private/tmp")))
 
 
 def product_read(call: Call, calls: list[Call]) -> bool:
     searches = call.name == "rg" or call.verb_argv[:2] == ("git", "show") or (call.name == "ccx" and call.args[:1] == ("code",))
     if not searches or (call.name == "rg" and reads_stdin(call, calls)):
         return False
-    places = [target.value for target in call.targets if target.value and "/" in target.value]
+    places = [target.value for target in operand_targets(call) if target.value and "/" in target.value]
     return not places or not all(scratch(place) for place in places)
 
 
@@ -507,6 +512,8 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
         probe("ccx code read service/store/open.go --section 170-200", SAND_NOT_MIGRATED): Block(),
         probe("ccx code search 'who retires a store'", SAND_NOT_MIGRATED): Block(),
         probe("rg -n MECHANISM ~/.claude/scratch/drive/inbox", SAND_NOT_MIGRATED): Allow(),
+        probe("rg -n 'api/health' /tmp/records", SAND_NOT_MIGRATED): Allow(),
+        probe("rg -n '~nobody/x' /tmp/records", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | rg -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | grep -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
         probe("git status", SAND_NOT_MIGRATED): Allow(),
@@ -535,9 +542,18 @@ def mechanism_cited(evt: BaseHookEvent, drive: tuple, refs: list[str]) -> bool |
     return False
 
 
+def attached(values: dict[str, tuple]) -> str:
+    paths = [Path(str(value)).expanduser() for key in ("path", "body-file") for value in values.get(key, ()) if value]
+    return "\n".join(path.read_text(errors="replace") for path in paths if path.is_file())
+
+
 def causal_records(evt: BaseHookEvent) -> list[tuple[dict[str, tuple], str]]:
     posts = [values for call in evt.command.calls("cci") if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)]
-    return [(values, text) for values in posts if CAUSE_KINDS & set(values.get("kind", ())) and CAUSE.search(text := record_text(values))]
+    return [
+        (values, text)
+        for values in posts
+        if CAUSE_KINDS & set(values.get("kind", ())) and CAUSE.search(text := f"{record_text(values)}\n{attached(values)}")
+    ]
 
 
 def cause(command: str, **extra: object) -> Input:
@@ -564,6 +580,7 @@ def cause(command: str, **extra: object) -> Input:
         cause("cci post --drive release-v3 --lane root --kind go --to landing-desk --pr 41464 --text 'land it'"): Allow(),
         cause("cci post --drive release-v3 --lane root --kind head --text 'p1 abc because rebased'"): Allow(),
         cause("cci tail --drive release-v3 --cursor root"): Allow(),
+        cause(f"cci post --drive release-v3 --lane root --kind go --to worker-fix --path {CAUSE_RECORD}"): Block(),
         Input(command="cci post --drive release-v3 --lane root --kind go --text 'the autoscaler caused it'", decide=CONFIRMED): Allow(),
         cause("cci post --drive release-v3 --lane x --kind go --text 'the autoscaler caused it'", agent_id="a1b2c3"): Allow(),
     },
