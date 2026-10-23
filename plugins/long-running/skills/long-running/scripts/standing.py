@@ -191,13 +191,27 @@ def register_lines(lines: list[str], rows: Rows | None) -> set[int]:
     for at, line in enumerate(lines):
         if line in unconfirmed:
             quoted.add(at)
-        if (match := ROW_BULLET.match(line)) and cited_rows(match[2], rows.rows):
-            quoted.add(at)
-            for below in range(at + 1, len(lines)):
-                if indent_of(lines[below]) <= len(match[1]):
-                    break
+        if not (match := ROW_BULLET.match(line)) or not (cited := cited_rows(match[2], rows.rows)):
+            continue
+        quoted.add(at)
+        indent = len(match[1])
+        words = [flat(fields["words"]) for fields in cited.values()]
+        children = {child for fields in cited.values() for child in child_lines(fields)}
+        for below in range(at + 1, len(lines)):
+            if indent_of(lines[below]) <= indent:
+                break
+            continued = indent_of(lines[below]) >= indent + CONTINUATION and any(flat(lines[below]).strip("“”") in text for text in words)
+            if continued or lines[below] in children:
                 quoted.add(below)
     return quoted
+
+
+def child_lines(fields: dict) -> list[str]:
+    return [
+        *(f"  - {implication_line(implication)}" for implication in listed(fields, "implications")),
+        f"  - names: {' | '.join(listed(fields, 'names'))}",
+        f"  - evidence: {fields.get('evidence') or 'none recorded'}",
+    ]
 
 
 def lint(body: str, previous: str | None, register: dict | None, live: set[str], rows: Rows | None = None) -> list[str]:
@@ -267,8 +281,7 @@ def rows_section(rows: Rows) -> list[str]:
     for key, fields in current.items():
         if fields["kind"] == "scope":
             out += quoted_words(key, fields, f"{fields['status']}, said {fields.get('said') or 1}")
-            out += [f"  - {implication_line(implication)}" for implication in listed(fields, "implications")]
-            out += [f"  - names: {' | '.join(listed(fields, 'names'))}"]
+            out += child_lines(fields)[:-1]
     since = rows.read_at - TOUCHED_WINDOW
     touched = {key: fields for key, fields in rows.rows.items() if (updated := fields.get("updated_at")) and datetime.fromisoformat(updated) >= since}
     out += ["", "### Rows touched in the last 24 hours", ""]
@@ -290,7 +303,7 @@ def rows_section(rows: Rows) -> list[str]:
         if fields.get("status") != IN_FORCE
         for line in [
             *(quoted_words(key, fields, fields.get("status") or "no status") if fields.get("words") else [f"- `{key}` ({fields.get('status') or 'no status'}): no words"]),
-            f"  - evidence: {fields.get('evidence') or 'none recorded'}",
+            child_lines(fields)[-1],
         ]
     ] or ["- none"]
     out += ["", "### Unconfirmed implications", ""]

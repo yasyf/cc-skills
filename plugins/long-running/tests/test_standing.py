@@ -255,6 +255,21 @@ def test_a_linked_id_is_checked_and_a_copied_heading_exempts_no_owner_gate_line(
     ]
 
 
+def test_a_verbatim_row_exempts_only_its_own_lines_from_the_owner_gate_check() -> None:
+    body = (
+        f"## Standing owner rules\n\n- `rule/7ab71e2` (owed): “{RELEASES}”\n"
+        "  - release waits on owner approval\n"
+        "    - and owner approval again\n"
+        f"- `rule/f958522` (in-force, said 2): “{SYNCING.replace(chr(10), chr(10) + '    ')}”\n"
+        "  - implication 2, permits, ticked: The downloading bar shows on a share without the owner's word.\n"
+    )
+
+    assert standing.lint(body, None, None, set(), ROWS) == [
+        "owner-gate line cites no live answer id: - release waits on owner approval",
+        "owner-gate line cites no live answer id: - and owner approval again",
+    ]
+
+
 @pytest.mark.parametrize(("rows", "sentence"), [(None, True), (standing.Rows(failure="exit 2"), True), (standing.Rows(), False)])
 def test_the_doc_sentence_stays_only_until_the_register_ledger_is_read(rows: standing.Rows | None, sentence: bool) -> None:
     section = standing.section_of(None, [], "", rows)
