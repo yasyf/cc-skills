@@ -457,7 +457,7 @@ def ledger_targets(evt: BaseHookEvent) -> list[str]:
     ]
     tool = evt.tool_name or ""
     if tool.startswith("mcp__") and tool.endswith(tuple(LEDGER_TOOLS)):
-        targets.append(str((evt.tool_input or {}).get("id") or ""))
+        targets.append(str(evt._tool_input.get("id") or ""))
     return targets
 
 
@@ -480,7 +480,7 @@ def writes_authorizes(evt: BaseHookEvent) -> bool:
         str(label)
         for suffix, field in ANSWER_TOOLS.items()
         if tool.startswith("mcp__") and tool.endswith(suffix)
-        for label in (evt.tool_input or {}).get(field) or ()
+        for label in evt._tool_input.get(field) or ()
     ]
     return any(label.startswith(AUTHORIZES) for label in written)
 
