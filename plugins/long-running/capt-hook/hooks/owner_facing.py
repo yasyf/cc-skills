@@ -42,7 +42,7 @@ from pydantic import BaseModel
 from .compaction_handoff import CompactionState, drive_entry, post_blocker, rulings, script
 from .nudges import queue_nudge
 from .pr_ledger import lane_name
-from .register_injection import drive_args
+from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
 from .tests.board_fixtures import GLOSSARY, ROWS, board
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
@@ -59,8 +59,6 @@ from .tests.incident_fixtures import (
 )
 
 ACTIVE = [CompactionState(active=True)]
-INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
-INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
@@ -252,15 +250,6 @@ CCI_POST = CommandSchema(
         Option("json", ("--json",), bool),
     ),
 )
-
-
-def prose(call: TaskCall) -> list[str]:
-    lines = (line.strip() for line in (call.raw.get("prompt") or "").splitlines())
-    return [line for line in lines if line and not line.startswith("ccx:")]
-
-
-def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
-    return bool(INCIDENT_NAME.match(call.agent_name or "") or any(INCIDENT_BRIEF.search(line) for line in lines))
 
 
 def refused_on_load(evt: BaseHookEvent, lane: str) -> bool:

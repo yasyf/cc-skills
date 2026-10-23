@@ -10,7 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, script
-from .owner_facing import INCIDENT_NAME
+from .register_injection import INCIDENT_NAME
 from .session_tree import nearest_name
 
 LANDERS = re.compile(r"^(?:desk-runner|merge-train)(?:-.+)?$|^(?:\w+-)*desk(?:-\d+)?$")

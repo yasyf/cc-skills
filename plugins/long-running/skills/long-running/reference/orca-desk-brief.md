@@ -96,8 +96,14 @@ only `incident` runs on the fast tier, and plain `sol` is the standard tier. A l
 `inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
 <ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
 and launches nothing for a lane with a live dispatch or a launch still in flight,
-a key that already holds an action, a model or effort `launch` refuses, or a brief
-that is not a file. A line that says `orca-desk: launch` outside the form logs
+a key that already holds an action, a model or effort `launch` refuses, a brief
+that is not a file, or a brief with no `Register slice: lane=<lane> step=<n>` line
+unless the launch is an incident fix's. Before it launches, the runner refreshes the
+slice under that line with `rulings.py slice --refresh <brief>`, writing
+`Register slice: lane=<lane> step=incident` into an incident brief that has none, and
+it writes the slice into every alert, case, fallback and manual release brief it
+attaches. A slice that does not read logs `SLICE-UNREAD` and the launch goes ahead.
+A line that says `orca-desk: launch` outside the form logs
 `LAUNCH-FAILED <key> inbox`.
 
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
@@ -836,6 +842,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT-CLOCK` | Send the line to the owner as an `incident` status card in the turn it arrives, with `cc-slack dm-status --card`, ahead of any other work in that turn. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
 | `MERGE-ASK` | Send the line to the owner in the turn it arrives as a `needs_you` card through `slack_dm_status(card)`, with the `waits` id and the options `Merge #<n> <short sha>` and `Hold #<n>` the line names, never as an `AskUserQuestion`; the `waits` id draws cc-slack's fixed `Explain more` (93037c3), which is never an option. On a `Merge` tap, post the `cci post --kind go` record the line names; on a `Hold` tap, run `holds.py add --pr <n>`; on an `Explain more` tap, post the `explain more` ask the line names and reply in the card's thread in plain words, which resolves nothing. The key is the PR and head. |
 | `RULING-ASK` | Send the card file the line names to the owner in the turn it arrives with `cc-slack dm-status --card @<path>`, never as an `AskUserQuestion`. A tap or a reply on it is a capture: a `Right` tap runs `rulings.py confirm <key> --tick all --capture <digest>`, and `Some wrong` waits for the owner's reply naming the lines. The card file's `waits` id draws cc-slack's fixed `Explain more`; its tap resolves nothing: post the `explain more` ask the line names and reply in the card's thread in plain words. Silence decides nothing. The key is the card and its text. |
+| `SLICE-UNREAD` | Read the named `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane, which launched without it. The key is the launch. |
 | `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
 | `MQ-CONFIG-INVALID` | Add the members the line ends with to the `landing` object of `runner.json`, replacing any of the same name, adjust the suggested `high_risk_paths` globs to the repository, and start the landing runner again. |
 | `FLAKE-RETRY-FAILED` | Read `mq.py why <n>`; when the head is still flaky, `mq.py requeue <n>` tries the same head again, and otherwise route the red to the lane. |

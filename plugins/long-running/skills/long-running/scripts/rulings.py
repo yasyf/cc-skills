@@ -8,9 +8,10 @@
     rulings.py implications (--program SLUG | --drive ID) KEY
     rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...]
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
-    rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA --base REF
-    rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--diff FILE] [--plan PATH] [--posted REF]
-    rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ
+    rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
+    rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH] [--posted REF]
+    rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ [--root DIR]
+    rulings.py accepted     (--program SLUG | --drive ID) --lane NAME
     rulings.py pr-block     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] --lane NAME
     rulings.py table        (--program SLUG | --drive ID) [--since-last-update] [--full]
     rulings.py glossary     (--program SLUG | --drive ID)
@@ -18,6 +19,7 @@
     rulings.py status       (--program SLUG | --drive ID) KEY STATE --evidence REF
     rulings.py anchor       (--program SLUG | --drive ID) KEY [--paths P]... [--symbols S]... [--ops O]...
     rulings.py supersede    (--program SLUG | --drive ID) OLD --by NEW
+    rulings.py check-pr     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
 
 The standing-rules doc is the newest cc-notes doc labelled ``standing-rules:<program>``.
 ``register`` prints it as JSON ``{id, body}``, or ``null`` when none exists.
@@ -34,28 +36,34 @@ verbatim. This script is its only writer. Owner captures are read from
 ``<state dir>/owner-prompts.jsonl``; per-ruling cards are written to ``<state dir>/cards/``.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
-resolves the program and the state directory from the drive registry. ``--repo`` names the
-checkout whose cc-notes hold the register and defaults to the current directory. Standard
-library only.
+resolves the program and the state directory from the drive registry. The register is read
+from the checkout the drive's registry entry names; ``--repo``, which defaults to the current
+directory, names it only when no drive runs the program. ``check-pr`` reads the register only
+through the registry entry and uses ``--repo`` for the PR's own checkout. ``--paths`` globs
+resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
+Standard library only.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import glob
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from functools import cache
+from functools import cache, cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import cci
 import drive
 import ledger
 
@@ -119,6 +127,35 @@ CARD_FILE = re.compile(r"@(\S+\.json)")
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
+CCI_TEXT = 400
+READ_ERRORS = (OSError, ValueError, KeyError, subprocess.SubprocessError, SystemExit)
+RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
+IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
+APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
+RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
+RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
+TEST_DEFINITION = re.compile(
+    r"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?P<go>Test\w+)\s*\(|(?:async\s+)?def\s+(?P<py>test_\w+)\s*\("
+    r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
+)
+FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
+TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
+LANE_KINDS = ("head", "opened")
+READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
+PARENTHESIZED = re.compile(r"\([^()\n]*\)")
+FENCED = re.compile(r"```.*?```", re.DOTALL)
+DECISION = re.compile(r"\b(?:I|we)\s+(?:decided|chose|picked|went with|settled on|opted for)\b|\bdecided to\b|\b(?:my|our) (?:pick|choice|decision)\b", re.IGNORECASE)
+UNPLAIN = (
+    ("an internal id", re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")),
+    ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
+    ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
+    ("a file path", re.compile(r"(?<![\w/.:~-])(?:[\w.-]+(?:/[\w.-]+){2,}|[\w-]+(?:/[\w.-]+)*\.(?:py|go|rs|ts|tsx|js|json|md|toml|ya?ml|sh|sql)\b)")),
+    ("a code symbol", re.compile(r"`[^`\n]+`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|\b\w+\(\)")),
+    ("a drive word", re.compile(r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?)\b", re.IGNORECASE)),
+)
 
 
 def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
@@ -129,6 +166,10 @@ def entry_of(args: argparse.Namespace) -> dict | None:
     if args.drive:
         return drive.load(drive.drives_dir() / f"{args.drive}.json")
     return next((entry for entry in drive.drives() if entry.get("program") == args.program), None)
+
+
+def register_repo(args: argparse.Namespace) -> str:
+    return (entry_of(args) or {}).get("checkout") or args.repo
 
 
 def program_of(args: argparse.Namespace) -> str:
@@ -283,7 +324,7 @@ def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:
 
 @contextmanager
 def writing(args: argparse.Namespace, shell: ledger.Shell) -> Iterator[Register]:
-    with ledger.locked(ledger.default_lock(ledger_of(shell, args.repo, program_of(args)))):
+    with ledger.locked(ledger.default_lock(ledger_of(shell, register_repo(args), program_of(args)))):
         yield Register.load(args, shell)
 
 
@@ -297,12 +338,13 @@ class Register:
     rows: dict[str, dict[str, str]]
 
     @classmethod
-    def load(cls, args: argparse.Namespace, shell: ledger.Shell) -> Register:
+    def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None) -> Register:
         program = program_of(args)
-        identity = ledger_of(shell, args.repo, program)
-        shown = ccn(shell, args.repo, "ledger", "show", identity)
+        repo = repo or register_repo(args)
+        identity = ledger_of(shell, repo, program)
+        shown = ccn(shell, repo, "ledger", "show", identity)
         rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
-        return cls(shell, args.repo, program, state_dir(args), identity, rows)
+        return cls(shell, repo, program, state_dir(args), identity, rows)
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}
@@ -382,10 +424,12 @@ class Diff:
     files: list[str]
     added: list[tuple[str, int, str]]
     removed: list[tuple[str, int, str]]
+    kept_before: list[tuple[str, int, str]]
+    kept_after: list[tuple[str, int, str]]
 
 
 def parse_diff(text: str) -> Diff:
-    diff = Diff([], [], [])
+    diff = Diff([], [], [], [], [])
     old_file = new_file = ""
     old_line = new_line = 0
     in_hunk = False
@@ -404,6 +448,8 @@ def parse_diff(text: str) -> Diff:
             diff.removed.append((old_file, old_line, line[1:]))
             old_line += 1
         elif line.startswith(" "):
+            diff.kept_before.append((old_file, old_line, line[1:]))
+            diff.kept_after.append((new_file, new_line, line[1:]))
             old_line += 1
             new_line += 1
     return diff
@@ -459,6 +505,11 @@ class Sweeper:
     def diff(self, diff: Diff) -> list[Hit]:
         added = [hit for file, number, text in diff.added for hit in self.lines(file, [(number, text)])]
         return added + [hit for file, number, text in diff.removed for hit in self.lines(file, [(number, text)], removed=True)]
+
+
+def globbed(root: str, globs: list[str]) -> list[Path]:
+    found = (Path(path) for pattern in globs for path in (glob.glob(pattern, recursive=True) if os.path.isabs(pattern) else Path(root).glob(pattern)))
+    return sorted(path for path in found if path.is_file())
 
 
 def readable(path: Path) -> str | None:
@@ -520,11 +571,11 @@ class Want:
     def matches(self, fields: dict[str, str]) -> bool:
         if self.lane in listed(fields.get("lanes")) or steps_match(listed(fields.get("steps")), self.step):
             return True
-        return any(fnmatch.fnmatch(anchor, glob) or fnmatch.fnmatch(glob, anchor) for anchor in anchors(fields) for glob in self.paths)
+        return any(fnmatch.fnmatch(anchor, pattern) or fnmatch.fnmatch(pattern, anchor) for anchor in anchors(fields) for pattern in self.paths)
 
     @classmethod
     def parse(cls, header: re.Match[str]) -> Want:
-        return cls(header["lane"], header["step"], [glob for glob in (header["paths"] or "").split(",") if glob], bool(header["codex"]))
+        return cls(header["lane"], header["step"], [pattern for pattern in (header["paths"] or "").split(",") if pattern], bool(header["codex"]))
 
 
 def write_in_first(item: tuple[str, dict[str, str]]) -> tuple[bool, str]:
@@ -622,14 +673,14 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
     if (stamp := SLICE_HASH.search(text, header.end())) and not SLICE_HEADER.search(text, header.end(), stamp.start()):
         old, end = stamp["hash"], stamp.end()
     new = SLICE_HASH.search(fresh)["hash"]
-    if old == new:
+    if old == new and text[header.start() : end] == fresh.rstrip("\n"):
         return f"fresh {brief} slice-hash {new}"
     write_atomic(brief, text[: header.start()] + fresh.rstrip("\n") + text[end:])
     return f"refreshed {brief} slice-hash {old or 'none'} -> {new}"
 
 
 def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    print(json.dumps(register(shell, args.repo, program_of(args))))
+    print(json.dumps(register(shell, register_repo(args), program_of(args))))
     return 0
 
 
@@ -963,10 +1014,11 @@ def plan_path(args: argparse.Namespace, loaded: Register) -> Path | None:
 def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if args.required:
-        if not (args.pr and args.head and args.base):
-            raise SystemExit("slice --required needs --pr, --head and --base")
-        repo, _ = pull(args, shell)
-        sys.stdout.write(required_slice(loaded, compare(shell, repo, args.base, args.head)))
+        if not (args.pr and args.head):
+            raise SystemExit("slice --required needs --pr and --head")
+        repo, number = pull(args, shell)
+        base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+        sys.stdout.write(required_slice(loaded, compare(shell, repo, base, args.head)))
     elif args.root:
         sys.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -991,7 +1043,7 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     sweeper = Sweeper(loaded, {args.key: loaded.row(args.key)} if args.key else loaded.scope())
     if args.artifact or args.paths or args.diff:
         hits = sweeper.files([Path(path) for path in args.artifact])
-        hits += sweeper.files(sorted(path for glob in args.paths for path in Path(args.repo).glob(glob) if path.is_file()), args.repo)
+        hits += sweeper.files(globbed(args.root or args.repo, args.paths), args.root or args.repo)
         hits += sweeper.diff(parse_diff(Path(args.diff).read_text())) if args.diff else []
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
@@ -1007,39 +1059,95 @@ def record_of(shell: ledger.Shell, cci: str, seq: int) -> dict:
     raise SystemExit(f"no cci record #{seq} in drive {cci}")
 
 
+@dataclass
+class ReadBack:
+    record: dict
+    body: str
+    want: Want
+    stamp: str
+    attached: str | None
+
+
+def read_back(shell: ledger.Shell, cci: str, seq: int, lane: str) -> ReadBack | str:
+    record = record_of(shell, cci, seq)
+    if record.get("kind") != "contract" or record.get("lane") != lane:
+        return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
+    attached = (record.get("refs") or {}).get("path")
+    body = "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
+    if not (header := SLICE_HEADER.search(body)) or not (stamp := SLICE_HASH.search(body)):
+        return f"READBACK-NO-SLICE #{seq}: the read-back names no `{SLICE_LINE}` line and `slice-hash:` line"
+    if (want := Want.parse(header)).lane != lane:
+        return f"READBACK-NOT-LANES #{seq}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
+    return ReadBack(record, body, want, stamp["hash"], attached)
+
+
+def current_hash(loaded: Register, want: Want, plan: Path | None) -> str:
+    return SLICE_HASH.search(lane_slice(loaded, want, plan))["hash"]
+
+
 def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; readback reads the lane's contract from its cci drive")
-    record = record_of(shell, drive.cci_drive(entry), args.contract)
-    if record.get("kind") != "contract" or record.get("lane") != args.lane:
-        print(f"READBACK-NOT-LANES #{args.contract}: the read-back is {args.lane}'s own contract record")
+    read = read_back(shell, drive.cci_drive(entry), args.contract, args.lane)
+    if isinstance(read, str):
+        print(read)
         return 1
-    attached = (record.get("refs") or {}).get("path")
-    body = "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
-    if not (header := SLICE_HEADER.search(body)) or not (stamp := SLICE_HASH.search(body)):
-        print(f"READBACK-NO-SLICE #{args.contract}: the read-back names no `{SLICE_LINE}` line and `slice-hash:` line")
-        return 1
-    want = Want.parse(header)
-    if want.lane != args.lane:
-        print(f"READBACK-NOT-LANES #{args.contract}: the read-back covers lane {want.lane}'s slice, not {args.lane}'s")
-        return 1
-    fresh = lane_slice(loaded, want, plan_path(args, loaded))
+    fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     current = SLICE_HASH.search(fresh)["hash"]
     problems = []
-    if stamp["hash"] != current:
-        problems.append(f"READBACK-STALE {args.lane}: the read-back covers slice-hash {stamp['hash']}; the lane's slice is now {current}")
+    if read.stamp != current:
+        problems.append(f"READBACK-STALE {args.lane}: the read-back covers slice-hash {read.stamp}; the lane's slice is now {current}")
     keys = re.findall(r"^### (\S+) \|", fresh, re.MULTILINE)
-    lines = body.splitlines()
+    lines = read.body.splitlines()
     problems += [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
-    tree = sorted(path for glob in want.paths for path in Path(args.repo).glob(glob) if path.is_file())
+    root = args.root or args.repo
     expected = [line for line in fresh.splitlines() if HIT_LINE.match(line)]
-    expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(tree, args.repo)]
+    expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(globbed(root, read.want.paths), root)]
     problems += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
     if problems:
         print("\n".join(problems))
         return 1
-    print(f"readback request {args.lane} {current}: {len(keys)} rows, contract #{args.contract}{f' at {attached}' if attached else ''}; a fidelity desk grades it against each row's words and implications")
+    print(f"readback request {args.lane} {current}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications")
+    return 0
+
+
+def fidelity_lanes(loaded: Register) -> set[str]:
+    lanes = json.loads((loaded.state / "runner.json").read_text())["landing"]["fidelity_lane"]
+    return {lanes} if isinstance(lanes, str) else set(lanes)
+
+
+def unaccepted(loaded: Register, cci: str, lane: str, plan: Path | None, reviews: list[dict]) -> str | None:
+    desks = fidelity_lanes(loaded)
+    graded = [
+        (record, found)
+        for record in reviews
+        if record.get("kind") == "review" and record.get("lane") in desks and (found := READBACK_GRADE.match(record.get("text") or "")) and found["lane"] == lane
+    ]
+    if not graded:
+        return "no fidelity desk has graded a read-back"
+    record, newest = max(graded, key=lambda item: item[0]["seq"])
+    if newest["verdict"] != "ok":
+        return f"the newest grade, #{record['seq']}, is missing: {newest['rest']}"
+    if not record.get("re"):
+        return f"the newest grade, #{record['seq']}, names no read-back record"
+    read = read_back(loaded.shell, cci, int(record["re"]), lane)
+    if isinstance(read, str):
+        return read
+    if (current := current_hash(loaded, read.want, plan)) != newest["rest"].split()[0]:
+        return f"the grade #{record['seq']} covers slice-hash {newest['rest'].split()[0]}; the lane's slice is now {current}"
+    return None
+
+
+def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    loaded = Register.load(args, shell)
+    if not (entry := entry_of(args)):
+        raise SystemExit(f"no drive runs program {loaded.program}; accepted reads the lane's read-back from its cci drive")
+    cci = drive.cci_drive(entry)
+    if why := unaccepted(loaded, cci, args.lane, plan_path(args, loaded), pr_records(shell, cci, "--kind", "review")):
+        print(f"CONTRACT-MISSING {args.lane}: {why}")
+        return 1
+    print(f"accepted {args.lane}")
     return 0
 
 
@@ -1299,6 +1407,198 @@ def cmd_supersede(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+@dataclass
+class Findings:
+    refusals: list[str]
+    blockers: list[str]
+
+    def read(self, what: str, load: Callable[[], object]) -> object:
+        try:
+            return load()
+        except READ_ERRORS as error:
+            self.blockers.append(f"BLOCKER {what}: {' '.join(str(error).split())[:CCI_TEXT]}")
+            return None
+
+
+@dataclass
+class Head:
+    repo: str
+    number: str
+    sha: str
+    body: str
+    diff: Diff
+
+    @cached_property
+    def rulings(self) -> str:
+        return found[0] if (found := RULINGS_SECTION.search(self.body)) else ""
+
+    @cached_property
+    def in_your_words(self) -> str | None:
+        return found[0] if (found := IN_YOUR_WORDS.search(self.body)) else None
+
+    @cached_property
+    def cited(self) -> set[str]:
+        return {token[:SHORT] for token in CITED.findall(self.rulings)}
+
+
+def cites(head: Head, key: str, fields: dict[str, str]) -> bool:
+    return key in head.rulings or bool({str(answer)[:SHORT] for answer in listed(fields.get("answer"))} & head.cited)
+
+
+def op_hits(op: str, diff: Diff) -> bool:
+    if "/" in op:
+        return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added)
+    if any(char in op for char in "*?["):
+        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, _, text in diff.added)
+    return any(named(text, op) for _, _, text in diff.added)
+
+
+def authorized(loaded: Register, head: Head, key: str) -> bool:
+    return any(answer["id"][:SHORT] in head.cited for answer in answers_for(loaded, f"authorizes:{key}")) or bool(authorizing(loaded, key, head.number))
+
+
+def defined_tests(lines: list[tuple[str, int, str]], kept: list[tuple[str, int, str]]) -> dict[str, str]:
+    texts = {(file, number): text for file, number, text in [*kept, *lines]}
+    found = {}
+    for file, number, text in lines:
+        match = TEST_DEFINITION.match(text)
+        rust = RUST_TEST_FILE.search(file) or RUST_TEST.match(texts.get((file, number - 1), ""))
+        if match and (name := match["go"] or match["py"] or match["ts"] or (match["rs"] if rust else None)):
+            found[name] = file
+    return found
+
+
+def appendix(plan: Path | None) -> str:
+    text = plan.read_text() if plan and plan.is_file() else ""
+    return text[found.start() :] if (found := APPENDIX.search(text)) else ""
+
+
+def corpus_text(loaded: Register, findings: Findings, incident: bool) -> str:
+    pin = loaded.rows.get(CORPUS_KEY) or {}
+    path = Path(pin.get("path") or "")
+    if not path.is_file():
+        why = f"TESTS-CORPUS {path} missing"
+    elif hashlib.sha256(path.read_bytes()).hexdigest() != pin.get("sha256"):
+        why = f"TESTS-CORPUS {path} sha256 differs from the register's pin"
+    else:
+        return path.read_text()
+    (findings.blockers if incident else findings.refusals).append(f"BLOCKER {why}" if incident else why)
+    return ""
+
+
+def removed_tests(loaded: Register, head: Head, findings: Findings, incident: bool, plan: Path | None) -> list[str]:
+    kept = defined_tests(head.diff.added, head.diff.kept_after)
+    gone = [name for name in defined_tests(head.diff.removed, head.diff.kept_before) if name not in kept]
+    if not gone:
+        return []
+    corpus = corpus_text(loaded, findings, incident)
+    named_in = appendix(plan) if incident else f"{corpus}\n{appendix(plan)}"
+    authorizers = loaded.answer_words()
+    return [
+        f"TEST-REMOVED {name}"
+        for name in gone
+        if named(named_in, name)
+        and not any(named(words, name) for cited in head.cited for words, _ in authorizers.get(cited, []))
+    ]
+
+
+def pr_records(shell: ledger.Shell, bus: str, *flags: str) -> list[dict]:
+    return cci.records(shell.run, bus, *flags)
+
+
+def finder_major(records: list[dict], sha: str) -> str | None:
+    verdicts = [(record["seq"], found) for record in records if (found := FINDER.match(record.get("text") or "")) and sha.startswith(found["head"])]
+    newest = max(verdicts, key=lambda item: item[0])[1] if verdicts else None
+    return newest["head"] if newest and newest["verdict"] == "major" else None
+
+
+def lane_of(records: list[dict]) -> str | None:
+    for kind in LANE_KINDS:
+        if owned := [(record["seq"], record["lane"]) for record in records if record.get("kind") == kind and record.get("lane")]:
+            return max(owned)[1]
+    return None
+
+
+def plain_problems(text: str) -> list[str]:
+    seen = PARENTHESIZED.sub(" ", OWNER_QUOTED.sub(" ", text))
+    return list(dict.fromkeys(f'RULINGS-PLAIN {kind} "{hit[0]}"' for kind, pattern in UNPLAIN for hit in pattern.finditer(seen)))
+
+
+def card_answers(loaded: Register, findings: Findings) -> set[str] | None:
+    if (listed_answers := findings.read("the owner's answers", lambda: answers_for(loaded))) is None:
+        return None
+    return set(loaded.answer_words()) | {str(answer["id"])[:SHORT] for answer in listed_answers}
+
+
+def cites_answer(line: str, answers: set[str] | None) -> bool:
+    cited = {token[:SHORT] for token in CITED.findall(line)}
+    return bool(cited) if answers is None else bool(cited & answers)
+
+
+def decided(body: str, answers: set[str] | None) -> list[str]:
+    own = found[0] if (found := RULINGS_LINES.search(body)) else ""
+    prose = FENCED.sub(" ", body.replace(own, " ") if own else body)
+    lines = [(line, OWNER_QUOTED.sub(" ", line)) for line in prose.splitlines()]
+    return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line, own in lines if DECISION.search(own) and not cites_answer(line, answers)]
+
+
+def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings) -> None:
+    rulings = loaded.rulings()
+    cci = drive.cci_drive(entry_of(args))
+    records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
+    uncited = [key for key, fields in rulings.items() if (anchors(fields) or symbols(fields)) and touched(fields, head.diff) and not cites(head, key, fields)]
+    if uncited:
+        findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}")
+    touches = {found[1] for record in records or [] if record.get("kind") == "review" for found in TOUCHES.finditer(record.get("text") or "")}
+    for key, fields in rulings.items():
+        ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
+        if fields.get("kind") == "reserved" and (key in touches or any(op_hits(op, head.diff) for op in ops)):
+            if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
+                findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
+    findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
+    if args.incident:
+        return
+    if records is not None and (major := finder_major(records, head.sha)):
+        findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
+    authorizers = loaded.answer_words()
+    for hit in Sweeper(loaded, loaded.scope()).diff(head.diff):
+        if hit.status == "open" and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
+            findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
+    words = head.in_your_words
+    findings.refusals += ["RULINGS-PLAIN no ### In your words section"] if words is None else plain_problems(words)
+    findings.refusals += decided(head.body, card_answers(loaded, findings))
+    if records is None:
+        return
+    if not (lane := lane_of(records)):
+        findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")
+    elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, "--kind", "review"))) is not None:
+        why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, cci, lane, loaded.plan(args.plan), reviews))
+        if why:
+            findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")
+
+
+def drive_checkout(args: argparse.Namespace) -> str:
+    if not (entry := entry_of(args)):
+        raise SystemExit(f"no drive registry entry runs {args.drive or args.program}")
+    return entry["checkout"]
+
+
+def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not ledger.PR_KEY.fullmatch(args.pr):
+        print(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N", file=sys.stderr)
+        return 2
+    findings = Findings([], [])
+    repo, number = pull(args, shell)
+    loaded = findings.read("the register", lambda: Register.load(args, shell, drive_checkout(args)))
+    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName"])))
+    diff = findings.read(f"the compare of {repo}#{number}", lambda: compare(shell, repo, args.base or view["baseRefName"], args.head)) if view else None
+    if loaded and view and diff:
+        check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff), findings)
+    for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:
+        print(line)
+    return 1 if findings.refusals else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rulings.py", description=__doc__.splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1343,6 +1643,7 @@ def build_parser() -> argparse.ArgumentParser:
     swept_verb.add_argument("key", nargs="?")
     swept_verb.add_argument("--artifact", action="append", default=[], metavar="PATH")
     swept_verb.add_argument("--paths", action="append", default=[], metavar="GLOB")
+    swept_verb.add_argument("--root", metavar="DIR")
     swept_verb.add_argument("--diff", metavar="FILE")
     swept_verb.add_argument("--plan", metavar="PATH")
     swept_verb.add_argument("--posted", metavar="REF")
@@ -1350,6 +1651,10 @@ def build_parser() -> argparse.ArgumentParser:
     readback.add_argument("--lane", required=True)
     readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
     readback.add_argument("--plan", metavar="PATH")
+    readback.add_argument("--root", metavar="DIR")
+    accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok for its current slice")
+    accepted.add_argument("--lane", required=True)
+    accepted.add_argument("--plan", metavar="PATH")
     block = verb("pr-block", cmd_pr_block, "print a PR body's ## Rulings and ### In your words sections")
     block.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")
     block.add_argument("--head", required=True, metavar="SHA")
@@ -1376,6 +1681,12 @@ def build_parser() -> argparse.ArgumentParser:
     supersede = verb("supersede", cmd_supersede, "record that one row's answer replaces another's")
     supersede.add_argument("old")
     supersede.add_argument("--by", required=True)
+    checked = verb("check-pr", cmd_check_pr, "print one refusal line per way a PR head breaks the register, and exit 1 on any")
+    checked.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")
+    checked.add_argument("--head", required=True, metavar="SHA")
+    checked.add_argument("--base", metavar="REF")
+    checked.add_argument("--incident", action="store_true")
+    checked.add_argument("--plan", metavar="PATH")
     for sub in verbs:
         sub.add_argument("--repo", default=".", metavar="PATH")
         which = sub.add_mutually_exclusive_group(required=True)

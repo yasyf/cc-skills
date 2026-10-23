@@ -364,7 +364,7 @@ def state(home: Path) -> Path:
 def registered(home: Path, state: Path) -> Path:
     drives = home / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci"}
+    entry = {"drive": "brook-drive", "program": "brook", "sessions": ["s-root"], "state_dir": str(state), "cci_drive": "brook-cci", "checkout": REPO}
     (drives / "brook-drive.json").write_text(json.dumps(entry))
     return drives
 
@@ -787,6 +787,9 @@ def test_refresh_fills_a_bare_slice_line_and_rewrites_only_a_stale_slice(home: P
     assert first.startswith("Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\n")
     assert first.endswith(f"slice-hash: {fresh}\n\nDo the work.\n")
     assert ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief)) == (0, f"fresh {brief} slice-hash {fresh}\n")
+    brief.write_text(f"Brief for lane-a.\nRegister slice: lane=lane-a step=1.9\nslice-hash: {fresh}\n\nDo the work.\n")
+    assert ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief)) == (0, f"refreshed {brief} slice-hash {fresh} -> {fresh}\n")
+    assert brief.read_text() == first
 
     rows["rule/ccccccc"]["words"] = "Cards quote the words they ask about, verbatim."
     code, out = ran(capsys, RegisterShell(rows), "slice", "--refresh", str(brief))
@@ -806,6 +809,40 @@ def test_the_required_slice_lists_every_global_pending_and_touched_row_with_its_
     assert code == 0
     assert hashed_correctly(out)
     assert out.splitlines()[:-1] == ["exception/E1\t", "rule/1234567\t", "rule/aaaaaaa\trelay-server|parked worker", "rule/bbbbbbb\t"]
+
+
+class SiblingBase(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        match argv:
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
+                return json.dumps({"baseRefName": "lane-b"})
+            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA]:
+                return self.diff
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
+                raise AssertionError("the required slice compared against main, not the PR's base branch")
+        return super().run(argv, stdin, cwd)
+
+
+def test_the_required_slice_compares_against_the_base_branch_the_pr_names(home: Path, package: Path, state: Path, capsys) -> None:
+    code, out = ran(capsys, SiblingBase(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d")
+
+    assert code == 0
+    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+
+
+def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_names(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--repo", "acme/app")
+
+    assert code == 0
+    assert "rule/aaaaaaa\trelay-server|parked worker" in out.splitlines()
+
+
+def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    tree = tmp_path / "cc-skills"
+    tree.mkdir()
+    (tree / "notes.md").write_text("Keep the parked worker.\n")
+
+    assert ran(capsys, RegisterShell(seeded(package)), "sweep", "--repo", str(tree), "--paths", "*.md") == (0, "open rule/aaaaaaa notes.md:1 parked worker\n")
 
 
 def test_the_required_slice_includes_a_row_whose_symbol_a_caller_elsewhere_adds(home: Path, package: Path, state: Path, capsys) -> None:
@@ -865,6 +902,18 @@ def test_sweep_of_a_diff_marks_removed_lines_deleted_and_added_lines_open(home: 
     _, out = ran(capsys, RegisterShell(seeded(package)), "sweep", "--diff", str(patch))
 
     assert out.splitlines() == ["open rule/aaaaaaa src/relay/pool.rs:2 parked worker", "deleted rule/aaaaaaa src/relay/pool.rs:2 relay-server"]
+
+
+def test_sweep_paths_resolve_under_root_and_an_absolute_glob_stands_alone(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    tree = tmp_path / "lane-tree"
+    (tree / "notes").mkdir(parents=True)
+    (tree / "notes" / "a.md").write_text("Keep the parked worker.\n")
+
+    rooted = ran(capsys, RegisterShell(seeded(package)), "sweep", "--root", str(tree), "--paths", "notes/*.md")
+    absolute = ran(capsys, RegisterShell(seeded(package)), "sweep", "--paths", str(tree / "notes" / "*.md"))
+
+    assert rooted == (0, "open rule/aaaaaaa notes/a.md:1 parked worker\n")
+    assert absolute == (0, f"open rule/aaaaaaa {tree / 'notes' / 'a.md'}:1 parked worker\n")
 
 
 def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:

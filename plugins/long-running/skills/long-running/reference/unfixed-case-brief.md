@@ -76,3 +76,5 @@ Do:
 
 Worktree: your own. Times Pacific. No Slack posts.
 Finish: a `STOPPED {lane}: <why>` line, kind `stopped`, and `worker_done`.
+
+Register slice: lane={lane} step=incident

@@ -63,7 +63,11 @@ each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line int
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
-`LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
+`LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
+line and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
+line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
+brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
+`SLICE-UNREAD` and the launch goes ahead. Every verified
 launch logs `LAUNCHED` with its dispatch and terminal. The runner reads each lane's
 dispatch and terminal from the Run's receipt directory, `~/.claude/scratch/orca-launch/<run>`,
 where orca-launch.sh writes by default, so a lane launched by hand is seen like one the
@@ -348,7 +352,7 @@ Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, RUNNER-STALE, HOLDS-UNREAD, RULINGS-REFUSED,
-RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, and BATCH-POST-OWED to blocker, any *-FAILED to defect, and all other labels to report.
+RULINGS-UNREAD, TESTS-CORPUS, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -428,7 +432,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RUNNER-STALE": "blocker", "RULINGS-REFUSED": "blocker", "RULINGS-UNREAD": "blocker", "TESTS-CORPUS": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -571,6 +575,9 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
+SLICE_LINE = "Register slice:"
+SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
+INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
 UNFIXED_KEY = "unfixed:"
@@ -1603,12 +1610,13 @@ class Runner:
             self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
             return
         lane, brief = spec["lane"], Path(spec["brief"]).resolve()
-        if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief):
+        if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief, spec["role"] or ""):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
         if not spec["now"] and (holder := self.duplicate_holder(lane, brief)):
             self.record(log, duplicate_line(key, lane, holder))
             return
+        self.refresh_slice(key, lane, brief)
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
@@ -1731,7 +1739,11 @@ class Runner:
         reported = datetime.strptime(spec["reported"], "%I:%M %p" if spec["reported"].endswith("M") else "%H:%M")
         brief, failure = self.attach_brief(
             lane,
-            lambda briefs: ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+            lambda briefs: self.sliced(
+                key,
+                lane,
+                ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), reported=f"{reported:%H:%M}", due=f"{reported + INCIDENT_BAR:%H:%M}", repo=self.config.briefs_repo, log=briefs, facts=self.drive_facts()),
+            ),
             f"INCIDENT {slug}: fix brief for {lane}: {what} {link}",
         )
         if brief is None:
@@ -1839,13 +1851,17 @@ class Runner:
         newest = max((mark for mark in marks if actions.parse_stamp(mark[0]) >= launched), key=lambda mark: actions.parse_stamp(mark[0]), default=None)
         return f"its mechanism {newest[1]} says the cause is UNKNOWN" if newest and UNKNOWN_CAUSE.search(newest[2]) else ""
 
-    def case_brief(self, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
-        """The unfixed-case brief for the case, freshly attached to the briefs log; its path, or why it has none."""
+    def case_brief(self, key: str, lane: str, parent: str, launch: actions.Action, case: str) -> tuple[Path | None, str]:
+        """The unfixed-case brief for the case with its register slice, freshly attached to the briefs log; its path, or why it has none."""
         prs = self.opened_prs(parent, launch)
         return self.attach_brief(
             lane,
-            lambda briefs: UNFIXED_TEMPLATE.read_text().format(
-                lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=prs, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=briefs, facts=self.drive_facts()
+            lambda briefs: self.sliced(
+                key,
+                lane,
+                UNFIXED_TEMPLATE.read_text().format(
+                    lane=lane, parent=parent, case=case, parent_brief=json.loads(launch.target)["brief"], prs=prs, onset=pacific(self.now()), reported=pacific(self.now()), due=pacific(self.now() + INCIDENT_BAR), log=briefs, facts=self.drive_facts()
+                ),
             ),
             f"INCIDENT {parent}: unfixed case brief for {lane}: {case}",
         )
@@ -1857,7 +1873,7 @@ class Runner:
         if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", UNFIXED_TEMPLATE):
             self.record(log, f"{line} | case lane {lane} not launched: {refusal}")
             return False
-        brief, failure = self.case_brief(lane, parent, launch, case)
+        brief, failure = self.case_brief(key, lane, parent, launch, case)
         if brief is None:
             self.record(log, f"{line} | case lane {lane} not launched: {failure}")
             return False
@@ -1873,7 +1889,7 @@ class Runner:
         offers = []
         for case in cases:
             lane = next(names)
-            brief, failure = self.case_brief(lane, parent, launch, case)
+            brief, failure = self.case_brief(key, lane, parent, launch, case)
             offers.append(f"{case} | to launch its lane, post `orca-desk: launch {lane} NOW incident xhigh brief={brief}`" if brief else f"{case} | no launch line: {failure}")
         self.record(f"escalation:{key}", f"DECIDE {key} {parent}: {reason}: {'; '.join(offers)}")
 
@@ -1949,7 +1965,7 @@ class Runner:
                 return spec["lane"]
         return None
 
-    def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
+    def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path, role: str = "") -> str:
         try:
             launch_model(model)
         except argparse.ArgumentTypeError as error:
@@ -1958,6 +1974,8 @@ class Runner:
             return f"{effort} is not an effort: {', '.join(EFFORTS)}"
         if not brief.is_file():
             return f"brief {brief} is not a file"
+        if not SLICE_HEADER.search(brief.read_text()) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
+            return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
         container = lane_container(lane)
         if container in self.book.store.ids():
             if held := self.book.load(container).actions.get(key):
@@ -2006,6 +2024,27 @@ class Runner:
             if held and (shared or prs & {number for tree in held for number in re.findall(r"\d+", tree.pr)}):
                 return f"{other}: {lanes.summary(other, held)}"
         return ""
+
+    def rulings(self, verb: str, *argv: str) -> Done:
+        return self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), verb, "--repo", self.config.briefs_repo, "--drive", self.config.drive, *argv])
+
+    def refresh_slice(self, key: str, lane: str, brief: Path) -> None:
+        """Write a fresh register slice under the brief's `Register slice:` line, adding `lane=<lane> step=incident` to a brief with none; a register or slice that does not read logs one `SLICE-UNREAD` and never holds the launch."""
+        text = brief.read_text()
+        if not SLICE_HEADER.search(text):
+            brief.write_text(f"{text.rstrip()}\n\n{SLICE_LINE} lane={lane} step={INCIDENT_STEP}\n")
+        done = self.rulings("slice", "--refresh", str(brief))
+        if done.code:
+            reason = ((done.err.strip() or done.out.strip()).splitlines() or ["no output"])[-1]
+            self.escalate(f"slice:{key}", "SLICE-UNREAD", lane, f"`rulings.py slice --refresh` exited {done.code}: {reason}; {lane} launches on its brief without a fresh register slice")
+
+    def sliced(self, key: str, lane: str, text: str) -> str:
+        """`text` with the register slice written in, the way `refresh_slice` writes it into a brief file."""
+        with tempfile.TemporaryDirectory() as staging:
+            brief = Path(staging) / f"{lane}.md"
+            brief.write_text(text)
+            self.refresh_slice(key, lane, brief)
+            return brief.read_text()
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool, fast: bool = False, role: str = "", incident: str = "") -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == INCIDENT_MODEL
@@ -2873,9 +2912,9 @@ class Runner:
         brief = self.brief_for(lane)
         if not brief:
             return f"no fallback launched for {backup}: {lane} has no brief file"
-        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief):
+        if refusal := self.launch_refusal(key, backup, "opus", "xhigh", brief, INCIDENT_MODEL):
             return f"no fallback launched for {backup}: {refusal}"
-        text = FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text())
+        text = self.sliced(key, backup, FALLBACK_BRIEF.format(backup=backup, lane=lane, minutes=minutes, missing=missing, drive=self.config.drive, brief=brief.read_text()))
         attached, failure = self.attach_brief(backup, lambda _: text, f"INCIDENT-CLOCK {lane}: Opus fallback brief for {backup}, no {missing} at +{minutes} min")
         if attached is None:
             return f"no fallback launched for {backup}: {failure}"
@@ -3018,7 +3057,7 @@ class Runner:
                 continue
             brief = json.loads(tries[0].target)["brief"]
             if len(tries) == 1:
-                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief)):
+                if not self.launch_refusal(f"{key}{RETRY}", backup, "opus", "xhigh", Path(brief), INCIDENT_MODEL):
                     self.accept_launch(f"{key}{RETRY}", backup, "opus", "xhigh", brief, True, fast=True)
                 continue
             reasons = " | ".join(action.reason or "" for action in tries)
@@ -3290,7 +3329,11 @@ class Runner:
             return f"{lane} not launched: {refusal}"
         brief, failure = self.attach_brief(
             lane,
-            lambda briefs: MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs, release=self.release_command()),
+            lambda briefs: self.sliced(
+                f"{CUT_LAUNCH}{key}",
+                lane,
+                MANUAL_TEMPLATE.read_text().format(lane=lane, component=component, release_lane=clock["lane"], trigger=clock["trigger"], hand=hand, commit=clock["commit"], drive=self.config.drive, repo=self.config.briefs_repo, log=briefs, release=self.release_command()),
+            ),
             f"CUT-SILENT {clock['lane']}: manual release brief for {lane}",
         )
         if brief is None:
@@ -3775,7 +3818,7 @@ class Landing:
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
         if not newest and not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
-        if (required := self.required(pr, sha, base)) is None:
+        if (required := self.required(pr, sha)) is None:
             return Grade(False, max(newest, key=lambda record: record["seq"], default=None), "`rulings.py slice --required` did not read for this head, so no grade counts as ok this pass")
         if not newest:
             carried = self.carried(pr, sha, base, grades, required)
@@ -3786,10 +3829,10 @@ class Landing:
         left = uncovered(whole_line(grade), required)
         return Grade(False, grade, f"{grade['lane']}'s ok on cci #{grade['seq']} leaves out {len(left)} required row(s) under `checked` or `names`: {', '.join(left[:8])}{' and more' if len(left) > 8 else ''}")
 
-    def required(self, pr: str, sha: str, base: str) -> dict[str, set[str]] | None:
-        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against `base`, or the trunk when the row names none, read once per head a pass; None when it does not read, which escalates once per head."""
+    def required(self, pr: str, sha: str) -> dict[str, set[str]] | None:
+        """The rows a grade of `pr` at `sha` must cover, each key with its names, from `rulings.py slice --required` against the PR's own base branch, read once per head a pass; None when it does not read, which escalates once per head."""
         if (pr, sha) not in self.slices:
-            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha, "--base", base or TRUNK)
+            done = self.rulings_py("slice", "--required", "--pr", f"{self.repo}#{pr}", "--head", sha)
             if done.code:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(f"slice:{pr}:{sha}", "SLICE-READ-FAILED", f"#{pr}", f"`rulings.py slice --required` exited {done.code} for {sha[:10]}: {last[0]}; no fidelity grade counts as ok for this head until it reads, and the runner reads it again on the next pass")
@@ -3957,11 +4000,11 @@ class Landing:
             if graded.rows.get(pr, {}).get("rules_blocked")
         }
 
-    def rulings_report(self, pr: str, sha: str, base: str, incident: bool = False) -> list[str]:
+    def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
         """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause; it and every `BLOCKER` line go to the root once as `RULINGS-UNREAD`. The check fails open on what it cannot read (0afd2f6), and a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha, incident)
         if key not in self.reported:
-            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--base", base) if base else ()), *(("--incident",) if incident else ()))
+            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
             lines = [line.strip() for line in done.out.splitlines() if line.strip()]
             causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
             unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
@@ -3985,7 +4028,7 @@ class Landing:
         """Each head `rulings.py check-pr` refuses fails, with one blocker to its lane per head and set of causes. A head whose only cause is `TESTS-CORPUS` waits, escalated once. A reserved touch alone passes here: merge mode sends the card whose tap authorizes it, and holds the head until then."""
         states = {}
         for pr, sha in graded.heads.items():
-            causes = self.rulings_report(pr, sha, graded.rows.get(pr, {}).get("base") or "")
+            causes = self.rulings_report(pr, sha)
             if refusals := [line for line in causes if cause(line) not in (RESERVED_TOUCH, TESTS_CORPUS)]:
                 states[pr] = merge_queue.State(merge_queue.FAIL, f"`rulings.py check-pr` refuses {sha[:10]}: {'; '.join(refusals)}")
             elif corpus := [line for line in causes if cause(line) == TESTS_CORPUS]:
@@ -4025,18 +4068,18 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
 
     def check_merge_mode(self, graded: Graded) -> dict[str, merge_queue.State]:
-        if (asks := self.owner_asks(graded.heads, graded.rows)) is None:
+        if (asks := self.owner_asks(graded.heads)) is None:
             return {pr: merge_queue.State(merge_queue.PENDING, "merge mode high-risk reads the changed files first, and they did not read") for pr in graded.heads}
-        waiting = self.unanswered(graded.heads, asks, graded.rows)
+        waiting = self.unanswered(graded.heads, asks)
         if graded.act and waiting:
-            self.ask_owner(graded.heads, waiting, graded.rows)
+            self.ask_owner(graded.heads, waiting)
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
 
     @property
     def merge_mode(self) -> str:
         return self.landing_config["merge_mode"]
 
-    def owner_asks(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, list[str]] | None:
+    def owner_asks(self, heads: dict[str, str]) -> dict[str, list[str]] | None:
         """The PRs of `heads` the merge mode leaves for the owner to answer, each with the high-risk paths that put it there: every one under `every`, under `high-risk` each whose changed files a `landing.high_risk_paths` glob names, and in every mode each whose head touches a reserved row no answer authorizes yet. None when a changed-files read failed, and then nothing in the prefix is enqueued that pass."""
         mode = self.merge_mode
         if mode == "auto" or self.lands_green:
@@ -4048,7 +4091,7 @@ class Landing:
             if any(paths is None for paths in risky.values()):
                 return None
             asks = {pr: paths for pr, paths in risky.items() if paths}
-        return asks | {pr: [] for pr, sha in heads.items() if pr not in asks and self.reserved_touches(pr, sha, rows)}
+        return asks | {pr: [] for pr, sha in heads.items() if pr not in asks and self.reserved_touches(pr, sha)}
 
     @property
     def lands_green(self) -> bool:
@@ -4058,9 +4101,9 @@ class Landing:
             self.viewer = done.out.strip() if done.code == 0 else ""
         return bool(self.viewer) and self.repo.split("/")[0].casefold() == self.viewer.casefold()
 
-    def reserved_touches(self, pr: str, sha: str, rows: dict[str, dict]) -> list[tuple[str, str]]:
+    def reserved_touches(self, pr: str, sha: str) -> list[tuple[str, str]]:
         """Each reserved row `pr` touches at `sha` that no answer authorizes yet, with the first sentence of its words: `check-pr`'s `RESERVED-NO-ANSWER` lines."""
-        return [reserved_row(line) for line in self.rulings_report(pr, sha, rows.get(pr, {}).get("base") or "") if cause(line) == RESERVED_TOUCH]
+        return [reserved_row(line) for line in self.rulings_report(pr, sha) if cause(line) == RESERVED_TOUCH]
 
     def risky_paths(self, pr: str, sha: str) -> list[str] | None:
         """The changed files of `pr` at `sha` that a `landing.high_risk_paths` glob names, read once per head; None when GitHub refuses the read, which escalates once per head."""
@@ -4080,12 +4123,12 @@ class Landing:
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
         return {pr for pr in prs if any(names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"])) for record in gos)}
 
-    def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]], rows: dict[str, dict]) -> dict[str, list[str]]:
+    def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
         """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that no answer labeled `authorizes:<key>` covers, which `rulings.py authorize` writes from the card's tap."""
         if not asks:
             return {}
         merged = self.merged_by_owner(heads, list(asks))
-        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr], rows)}
+        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.reserved_touches(pr, heads[pr])}
 
     def batch_posted(self) -> set[str] | None:
         """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
@@ -4097,11 +4140,11 @@ class Landing:
         entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
 
-    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
+    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Log one `MERGE-ASK` per waiting PR and head for the root to send the owner as a card; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence on its card, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
         merged = self.merged_by_owner(heads, list(waiting))
-        asking = [pr for pr in waiting if pr not in merged or self.reserved_touches(pr, heads[pr], rows)]
+        asking = [pr for pr in waiting if pr not in merged or self.reserved_touches(pr, heads[pr])]
         if not asking or (posted := self.batch_posted()) is None:
             return
         if owed := [pr for pr in asking if pr not in posted]:
@@ -4117,7 +4160,7 @@ class Landing:
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
             waits = f"merge:{pr}:{short}"
-            reserved = self.reserved_touches(pr, heads[pr], rows)
+            reserved = self.reserved_touches(pr, heads[pr])
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"it touches {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}" if paths else "every PR waits for the owner" if mode == "every" and not self.lands_green else "it touches a reserved row"
             touched = "".join(f"; reserved row {key}: \"{sentence}\". Merge also authorizes {key}" for key, sentence in reserved)
@@ -4346,7 +4389,7 @@ class Landing:
             return
         if not required or any(check["bucket"] != SQUASH_PASS for check in required):
             return
-        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], row.get("base") or TRUNK, incident=True) if cause(line) in INCIDENT_REFUSALS]:
+        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_REFUSALS]:
             text = "; ".join(refusals)
             self.runner.escalate(
                 f"rulings-refused:{pr}@{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
