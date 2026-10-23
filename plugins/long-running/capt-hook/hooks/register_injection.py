@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script
@@ -117,7 +117,6 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
-    skip_if=[Annotated("raw")],
     tests={
         spawn("lane-a", "Lane lane-a: build the relay."): Block(pattern=r"needs a `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
@@ -132,7 +131,6 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
         spawn("lane-a-sub", "Lane lane-a-sub: build the relay's tests.", state=[], env={DRIVE_ENV: "brook-drive"}): Block(pattern=r"needs a `Register slice:"),
         Input(tool="Agent", tool_input={"name": "lane-a", "prompt": "Lane lane-a: build the relay."}): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Block(pattern=r"unsliced\.md"),
-        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'unsliced.md'} # ccx:raw", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE): Allow(),
         Input(command=f"orca-launch.sh lane-a-sub sol xhigh {BRIEFS / 'unsliced.md'}", agent_id="a1b2c3", state=[ACTIVE], env=DRIVE_CONFIG): Block(pattern=r"unsliced\.md"),
         Input(command=f"orca-launch.sh lane-a-sub sol xhigh {BRIEFS / 'unsliced.md'}", env={DRIVE_ENV: "brook-drive"}): Block(pattern=r"unsliced\.md"),
