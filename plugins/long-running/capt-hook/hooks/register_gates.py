@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -23,15 +24,19 @@ from captain_hook import (
     Tool,
     on,
 )
+from captain_hook.util import reqenv
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, ccn, post_blocker, rulings
-from .lane_landing import program
+from .lane_landing import lane_name, program
 from .lane_rotation import DriveActive
-from .owner_facing import CCI_POST, inbox_text, incident_spawn, prose, record_text
+from .owner_facing import CCI_POST, inbox_text, incident_spawn, posted_text, prose
 from .register_injection import drive_args
+from .root_context import FILE_WRITES
 from .tests.register_fixtures import (
     ACTIVE,
     CWD,
+    GO_PATH,
+    LEDGER,
     OWNER_QUESTION,
     ROWED,
     ROWS,
@@ -84,6 +89,45 @@ QUESTION_JUDGE = Confirm(
     " exists at all; block too when it defines the thing from code or the root's own reading, or writes the answer for the writer."
 )
 WORDS_SHOWN = 200
+NOTE_CLIS = frozenset({"ccn", "cc-notes"})
+REPO_FLAGS = frozenset({"-R", "--repo"})
+LEDGER_VERBS = (("row", "set"), ("row", "rm"), ("sync",), ("edit",), ("rm",), ("archive",))
+LEDGER_TOOLS = frozenset(f"__ledger_{verb}" for verb in ("row_set", "row_rm", "sync", "edit", "rm", "archive"))
+ANSWER_TOOLS = {"__answer_add": "labels", "__answer_edit": "add_labels"}
+LABEL_FLAGS = frozenset({"--label", "--add-label"})
+AUTHORIZES = "authorizes:"
+SHORTEST_PREFIX = 4
+SEED = "register-seed"
+GRADERS = ("fidelity", "finder", "walker", "end-state", "incident-closeout")
+SEATS = {
+    "classify": (True, (SEED,)),
+    "authorize": (True, (SEED,)),
+    "supersede": (True, (SEED,)),
+    "status": (False, GRADERS),
+    "anchor": (False, ("anchor", SEED)),
+}
+SEAT_NAMES = {
+    "classify": "the root and the register-seed lane",
+    "authorize": "the root and the register-seed lane",
+    "supersede": "the root and the register-seed lane",
+    "status": "the grader lanes: fidelity desks, finder, walker, end-state and incident-closeout",
+    "anchor": "the anchor and register-seed lanes",
+}
+DESTINATION_WRITERS = frozenset({"cp", "mv", "rsync", "install", "ln"})
+TARGET_WRITERS = frozenset({"rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
+IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
+LEDGER_WRITE = (
+    "Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
+    " Make the change with the `rulings.py` verb that owns it, from the lane that owns that verb."
+)
+SEAT_REFUSED = "`rulings.py {verb}` runs only in {seats}, and this session is {lane}. Hand the change to one of those lanes."
+AUTHORIZES_LABEL = (
+    "An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
+)
+HOOK_EDIT = (
+    "The installed long-running plugin changes only through a reviewed pull request, so this write into `{path}` is refused."
+    " Fix the check in a worktree and ship it as a pull request."
+)
 TIMERS = fixture("brief-158695")
 
 
@@ -111,7 +155,7 @@ def folded(text: str) -> str:
 
 def posted(evt: BaseHookEvent, kinds: frozenset[str]) -> list[str]:
     return [
-        record_text(values)
+        posted_text(values)
         for call in evt.command.calls("cci")
         if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",) and kinds & set(values.get("kind", ()))
     ]
@@ -206,6 +250,9 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         ): Block(pattern=r"has no row in register"),
         register_case(f'echo "STATUS: previous GO root (4:50 AM) under {UNROWED[:7]} was withdrawn" >> /s/inbox/deploy-go.md', "repeat"): Allow(),
         register_case(go("land 1234567 now"), "quiet", ("1234567", shown("1234567"))): Block(pattern=r"`1234567` has no row"),
+        register_case(f"cci post --lane root --kind go --to walker --path {GO_PATH}", "quiet", (UNROWED[:7], shown(UNROWED))): Block(
+            pattern=r"`1dfd09d` has no row"
+        ),
         register_case(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
@@ -378,3 +425,189 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
 def close_chat_questions(evt: BaseHookEvent) -> HookResult | None:
     close(evt, "close_chat_questions", lambda found: not found.get("blocks"), "turn end")
     return None
+
+
+def note_words(call: Call) -> list[str]:
+    words: list[str] = []
+    skip = False
+    for arg in call.args:
+        if skip:
+            skip = False
+        elif arg in REPO_FLAGS:
+            skip = True
+        elif not arg.startswith(("--repo=", "-R=")):
+            words.append(arg)
+    return words
+
+
+def names_ledger(token: str, register: dict) -> bool:
+    return token == f"register: {register['program']}" or (len(token) >= SHORTEST_PREFIX and register["ledger"].startswith(token))
+
+
+def ledger_targets(evt: BaseHookEvent) -> list[str]:
+    targets = [
+        token
+        for call in evt.command.calls()
+        if call.name in NOTE_CLIS
+        for words in [note_words(call)]
+        if words[:1] == ["ledger"]
+        for verb in LEDGER_VERBS
+        if tuple(words[1 : 1 + len(verb)]) == verb
+        for token in words[1 + len(verb) :]
+        if not token.startswith("-")
+    ]
+    tool = evt.tool_name or ""
+    if tool.startswith("mcp__") and tool.endswith(tuple(LEDGER_TOOLS)):
+        targets.append(str((evt.tool_input or {}).get("id") or ""))
+    return targets
+
+
+def labels(args: tuple[str, ...]) -> list[str]:
+    paired = [value for flag, value in zip(args, args[1:], strict=False) if flag in LABEL_FLAGS]
+    return paired + [arg.split("=", 1)[1] for arg in args if arg.split("=", 1)[0] in LABEL_FLAGS and "=" in arg]
+
+
+def writes_authorizes(evt: BaseHookEvent) -> bool:
+    written = [
+        label
+        for call in evt.command.calls()
+        if call.name in NOTE_CLIS
+        for words in [note_words(call)]
+        if words[:1] == ["answer"] and words[1:2] in (["add"], ["edit"])
+        for label in labels(tuple(words))
+    ]
+    tool = evt.tool_name or ""
+    written += [
+        str(label)
+        for suffix, field in ANSWER_TOOLS.items()
+        if tool.startswith("mcp__") and tool.endswith(suffix)
+        for label in (evt.tool_input or {}).get(field) or ()
+    ]
+    return any(label.startswith(AUTHORIZES) for label in written)
+
+
+def seated(verb: str, lane: str | None) -> bool:
+    root, lanes = SEATS[verb]
+    return root if lane is None else lane.startswith(lanes)
+
+
+def unseated_verbs(evt: BaseHookEvent) -> list[str]:
+    lane = lane_name(evt)
+    return [
+        run[1]
+        for call in evt.command.calls()
+        if (run := program((call.name, *call.args)))[1:] and Path(run[0]).name == "rulings.py" and run[1] in SEATS and not seated(run[1], lane)
+    ]
+
+
+def lane_label(lane: str | None) -> str:
+    return "the root" if lane is None else f"lane `{lane or 'unnamed'}`"
+
+
+def lane(name: str) -> dict[str, str]:
+    return {"CLAUDE_LONG_RUNNING_LANE": name}
+
+
+@on(
+    Event.PreToolUse,
+    tests={
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Block(
+            pattern=r"^Only `rulings\.py` writes the register ledger of `brook`"
+        ),
+        register_case(f"ccn -R /repo ledger sync {LEDGER} --file -"): Block(pattern=r"`brook`"),
+        register_case("ccn ledger archive 'register: brook'"): Block(pattern=r"`brook`"),
+        register_case("ccn ledger row set 9f8e7d6 rule/0a1b2c3 --field status=met"): Allow(),
+        register_case(f"ccn ledger show {LEDGER[:7]}"): Allow(),
+        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_row_set", tool_input={"id": LEDGER[:7], "key": "rule/0a1b2c3"}): Block(
+            pattern=r"`brook`"
+        ),
+        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_show", tool_input={"id": LEDGER[:7]}): Allow(),
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Block(pattern=r"`brook`"),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Block(
+            pattern=r"^`rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
+        ),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD): Block(pattern=r"this session is the root\."),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Block(pattern=r"anchor and register-seed lanes"),
+        Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
+        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(
+            pattern=r"^An `authorizes:` label is written only by `rulings\.py authorize`\."
+        ),
+        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, cwd=CWD): Block(pattern=r"authorizes:"),
+        Input(command="ccn answer add 'Ship it?' --label scope:durable", state=ACTIVE, cwd=CWD): Allow(),
+        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, cwd=CWD): Block(
+            pattern=r"authorizes:"
+        ),
+        Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env=lane("p1-hooks")): Allow(),
+        Input(command=f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3", state=ACTIVE, cwd=CWD, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
+    },
+)
+def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    if verbs := unseated_verbs(evt):
+        return evt.block(SEAT_REFUSED.format(verb=verbs[0], seats=SEAT_NAMES[verbs[0]], lane=lane_label(lane_name(evt))))
+    if writes_authorizes(evt):
+        return evt.block(AUTHORIZES_LABEL)
+    if not (targets := ledger_targets(evt)):
+        return None
+    try:
+        register = read_register(evt, drive_args(evt) or [])
+    except READ_ERRORS as error:
+        failed_open(evt, "register_write_guard", error)
+        return None
+    return evt.block(LEDGER_WRITE.format(program=register["program"])) if any(names_ledger(token, register) for token in targets) else None
+
+
+def plugin_cache() -> Path:
+    return Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / "plugins" / "cache" / "skills" / "long-running"
+
+
+def absolute(raw: str, cwd: Path) -> Path:
+    return Path(os.path.abspath(cwd / Path(raw).expanduser()))
+
+
+def bash_writes(evt: BaseHookEvent) -> list[Path]:
+    found: list[Path] = []
+    for call in evt.command.calls():
+        cwd = Path(call.cwd or evt.cwd)
+        found += [absolute(redirect.target.strip("'\""), cwd) for redirect in call.redirects if redirect.op in FILE_WRITES]
+        operands = [absolute(target.value, cwd) for target in call.targets if target.value is not None]
+        if call.name in DESTINATION_WRITERS:
+            found += operands[-1:]
+        elif call.name in TARGET_WRITERS or (call.name in IN_PLACE_EDITORS and any(arg.startswith("-i") for arg in call.args)):
+            found += operands
+    return found
+
+
+def written_paths(evt: BaseHookEvent) -> list[Path]:
+    if evt.tool_name == "Bash":
+        return bash_writes(evt)
+    return [absolute(str(evt.file.path), Path(evt.cwd))] if evt.file is not None else []
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
+    tests={
+        Input(tool="Edit", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(
+            pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into `/cfg/plugins/cache/skills/long-running/0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
+        ),
+        Input(command="sed -i '' s/a/b/ /cfg/plugins/cache/skills/long-running/0.7.217/skills/long-running/scripts/rulings.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"rulings\.py` is refused"),
+        Input(command="echo x >> /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/board_text_gate.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="cp /tmp/x.py /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Block(pattern=r"is refused"),
+        Input(command="cp /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py /tmp/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(command="cat /cfg/plugins/cache/skills/long-running/0.7.217/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+        Input(tool="Write", tool_input={"file_path": "/cfg/plugins/cache/skills/long-running/0.7.217/x.py", "content": "x"}, cwd=CWD, env={"CLAUDE_CONFIG_DIR": "/cfg"}): Allow(),
+    },
+)
+def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    cache = plugin_cache()
+    inside = next((path for path in written_paths(evt) if path.is_relative_to(cache)), None)
+    return evt.block(HOOK_EDIT.format(path=inside)) if inside else None

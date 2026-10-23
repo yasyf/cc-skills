@@ -10,6 +10,7 @@ from ..compaction_handoff import CompactionState, script
 FIXTURES = Path(__file__).parent / "fixtures"
 STATES = FIXTURES / "register"
 OWNER_QUESTION = FIXTURES / "owner-question"
+GO_PATH = FIXTURES / "register-records" / "go.md"
 CWD = "/repo"
 ACTIVE = [CompactionState(active=True, slug="brook")]
 ROWS = f"{sys.executable} {script('rulings.py')} rows --program brook"

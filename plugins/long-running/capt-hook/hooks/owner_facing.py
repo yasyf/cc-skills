@@ -552,7 +552,7 @@ def causal_records(evt: BaseHookEvent) -> list[tuple[dict[str, tuple], str]]:
     return [
         (values, text)
         for values in posts
-        if CAUSE_KINDS & set(values.get("kind", ())) and CAUSE.search(text := f"{record_text(values)}\n{attached(values)}")
+        if CAUSE_KINDS & set(values.get("kind", ())) and CAUSE.search(text := posted_text(values))
     ]
 
 
@@ -619,9 +619,13 @@ def record_text(values: dict[str, tuple]) -> str:
     return " ".join([*(str(word) for word in words if word), *prs])
 
 
+def posted_text(values: dict[str, tuple]) -> str:
+    return "\n".join(part for part in (record_text(values), attached(values)) if part)
+
+
 def authorizing_lines(evt: BaseHookEvent) -> list[str]:
     records = [
-        record_text(values)
+        posted_text(values)
         for call in evt.command.calls("cci")
         if (values := CCI_POST.bind(call).values).get("words", ())[:1] == ("post",)
         and AUTHORIZING_KINDS & set(values.get("kind", ()))
