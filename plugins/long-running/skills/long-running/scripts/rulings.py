@@ -673,11 +673,11 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     if not checkout or ledger.origin_repo(shell, Path(checkout)).lower() != repo.lower():
         return compare(shell, repo, base, head)
     git = ["git", "-C", checkout]
-    pinned = f"refs/rulings/{head}"
+    pinned = f"refs/rulings/{head}-{os.getpid()}"
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
     try:
         with tempfile.NamedTemporaryFile(suffix=".diff") as out:
-            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", f"--output={out.name}", f"{pinned}...{head}"])
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", f"--output={out.name}", f"{pinned}...{head}"])
             return parse_diff(Path(out.name).read_text(errors="replace"))
     finally:
         shell.run([*git, "update-ref", "-d", pinned])

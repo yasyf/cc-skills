@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -349,7 +350,7 @@ class RegisterShell(ledger.Shell):
                 return self.diff
             case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
                 return ""
-            case ["git", "-C", "/repo", "diff", "--no-color", "--no-ext-diff", "--no-textconv", output, _]:
+            case ["git", "-C", "/repo", "diff", *_, output, _]:
                 Path(output.removeprefix("--output=")).write_text(self.diff)
                 return ""
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
@@ -1041,7 +1042,7 @@ class LargeDiff(RegisterShell):
         match argv:
             case ["gh", "api", *_]:
                 raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
-            case ["git", "-C", "/repo", "diff", *_, output, "refs/rulings/cafef00d...cafef00d"]:
+            case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"refs/rulings/cafef00d-{os.getpid()}...cafef00d":
                 Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
                 self.calls.append(argv)
                 return ""
@@ -1049,15 +1050,15 @@ class LargeDiff(RegisterShell):
 
 
 def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_binary_file_by_name(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
-    rows = seeded(package) | {"rule/2345678": {"kind": "order", "status": "in-force", "words": "Keep page fixtures small.", "paths": '["fixtures/*"]'}}
+    rows = seeded(package) | {"rule/2345678": {"kind": "order", "status": "in-force", "words": "Keep page fixtures small.", "paths": '["fixtures/page.png"]'}}
     shell = LargeDiff(rows)
 
     code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
 
     assert code == 0
     assert {"rule/bbbbbbb", "rule/2345678"} <= set(required(out))
-    assert ["git", "-C", REPO, "fetch", "-q", "origin", "+main:refs/rulings/cafef00d", "cafef00d"] in shell.calls
-    assert shell.calls[-1] == ["git", "-C", REPO, "update-ref", "-d", "refs/rulings/cafef00d"]
+    assert ["git", "-C", REPO, "fetch", "-q", "origin", f"+main:refs/rulings/cafef00d-{os.getpid()}", "cafef00d"] in shell.calls
+    assert shell.calls[-1] == ["git", "-C", REPO, "update-ref", "-d", f"refs/rulings/cafef00d-{os.getpid()}"]
 
 
 def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
