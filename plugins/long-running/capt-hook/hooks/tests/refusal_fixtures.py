@@ -6,6 +6,7 @@ BODIES = Path(__file__).parent / "fixtures" / "refusal-kinds"
 CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
 UNNAMED = BODIES / "unnamed.md"
+PLAN = BODIES / "plan.md"
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
 ANSWER = '{"id": "317cfd653e7c28400242f659a6d609a68bb4a934", "title": "Approve the plan?", "body": "Approved"}'
 NAMED_ANSWER = (
@@ -119,6 +120,12 @@ diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/p
 -ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker"}
 +ESCALATION_KINDS = {"UNBOUND": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker"}
 """
+
+PLAN_GATES_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
+## Rulings
+
+- 317cfd6, the owner's approval of the plan; plan 1.2 names `LAUNCH-STALLED` and `STALL_SECONDS`.
+EOF"""
 
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
