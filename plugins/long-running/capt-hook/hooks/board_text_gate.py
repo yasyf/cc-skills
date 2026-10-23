@@ -15,7 +15,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
-from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, shown
+from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
 from .tests.board_fixtures import (
     BREACHES,
@@ -57,8 +57,6 @@ FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-
 OK = "ok"
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
-CAPTURE_LOG = "owner-prompts"
-CAPTURE_FORMAT = "jsonl"
 TEXT = "text"
 REFUSAL = "Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 
@@ -135,10 +133,6 @@ def blocks(value: object, card: dict | None = None) -> Iterator[tuple[dict, dict
 
 def own_text(block: dict) -> list[str]:
     return [text for where, text in shown(block, block["id"]) if where == block["id"]]
-
-
-def squeeze(text: str) -> str:
-    return " ".join(text.split()).strip("\"“”' ").rstrip(".")
 
 
 def confirms(found: list[tuple[dict, dict | None]], said: list[str]) -> list[str]:
@@ -250,16 +244,6 @@ def swept(reads: Reads, item: Published) -> list[re.Match[str]] | None:
         return sweep(reads, path)
 
 
-def said(reads: Reads, register: dict) -> list[str] | None:
-    path = Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
-
-    def load() -> list[str]:
-        return [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
-
-    captured = reads.read("the owner's captured words", load)
-    return None if captured is None else [squeeze(text) for text in [*captured, *(row.get("words", "") for row in register["rows"].values())]]
-
-
 def reviews(drive: str, since: int, flags: list[str]) -> list[dict]:
     argv = ["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--kind", "review", *flags]
     return [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
@@ -321,7 +305,7 @@ def envelope(doc: object) -> list[tuple[dict, dict | None]]:
 def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
     found = [*envelope(item.doc), *blocks(item.doc)]
     register = reads.register()
-    words = said(reads, register) if register else None
+    words = reads.said() if register else None
     problems = [
         *(confirms(found, words) if words is not None else []),
         *decisions(found),
@@ -334,8 +318,7 @@ def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
     if register:
         problems += verify_reports(item, reads, register)
         problems += [f'sweep: {hit["where"]} names "{hit["name"]}", which {hit["key"]} rules out' for hit in swept(reads, item) or []]
-    if item.verb != "plan":
-        problems += plain_words(evt, list(shown(item.doc)), reads)
+    problems += plan_words(item.data.decode(), reads) if item.verb == "plan" else plain_words(evt, list(shown(item.doc)), reads)
     if register:
         problems += text_grade(item, reads, register)
     return problems
@@ -418,6 +401,9 @@ def exits(name: str, **extra: object) -> Input:
         posting("ls -la"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
         exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
+        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Block(
+            pattern=r'the plan has a plan row number, "C221"\n[\s\S]*the plan has an answer id, "5c0e9a1"\n[\s\S]*an acronym standing in for words, "OPFS"'
+        ),
         exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Block(
             pattern=r"decision text outside a choice or approval, \"Also recommended\"[\s\S]*says these changes only"
         ),

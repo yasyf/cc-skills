@@ -319,3 +319,20 @@ def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root)
     [nudge] = pending
     assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
     assert 'your reply has a drive word, "slice"' in nudge
+
+
+def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_refused(drive_root: Root, tmp_path: Path) -> None:
+    state = tmp_path / "scratch"
+    state.mkdir()
+    capture = {"digest": "a" * 16, "at": "2026-01-02T03:04:05Z", "session": "s-owner", "source": "prompt", "text": "keep the desk copy on the laptop. never on the phone"}
+    (state / "owner-prompts.jsonl").write_text(json.dumps(capture) + "\n")
+    reads = {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)}), f"{owner_facing.RULINGS} glossary": GLOSSARY}
+
+    def card(title: str):
+        card = {"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies a note back to the phone.", "options": ["Right", "Some wrong", "Open board"]}
+        payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
+        with stubbed_commands(reads):
+            return owner_facing.plain_words_in_owner_questions(PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir))))
+
+    assert card("“keep the desk copy on the laptop.”") is None
+    assert 'card title has a drive word, "desk"' in card("“keep the desk copy on the phone.”").message

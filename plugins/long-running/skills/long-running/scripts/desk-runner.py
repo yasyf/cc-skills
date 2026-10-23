@@ -423,6 +423,7 @@ SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
+RULING_CARDS = "cards"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
@@ -4873,10 +4874,23 @@ class Landing:
         return not done.code
 
     def run(self) -> None:
+        self.ask_rulings()
         try:
             self.gate_pass()
         finally:
             self.report_unread()
+
+    def ask_rulings(self) -> None:
+        """Log one `RULING-ASK` per ruling card `rulings.py classify` wrote under the drive's `cards/`, and again whenever classify rewrites it, for the root to send the owner as a `needs_you` card."""
+        for card in sorted((self.runner.config.source.parent / RULING_CARDS).glob("*.json")):
+            text = card.read_text()
+            self.runner.escalate(
+                f"ruling-ask:{card.stem}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
+                "RULING-ASK",
+                card.stem,
+                f"{json.loads(text)['title']} | send it to the owner in the turn it arrives with `cc-slack dm-status --card @{card}`, never as an AskUserQuestion;"
+                " a tap or a reply on it is a capture: Right ticks every line with `rulings.py confirm`, and Some wrong waits for the owner's reply naming the lines",
+            )
 
     def gate_pass(self) -> None:
         self.reported, self.slices = {}, {}

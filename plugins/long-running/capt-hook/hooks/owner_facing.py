@@ -111,10 +111,17 @@ QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")
 OWNER_QUOTE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
 PR_NUMBER = re.compile(r"(?<![\w&#])#\d+\b")
-UNREADABLE = (
+IDS = (
     ("an internal id", RECORD_IDS),
     ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
     ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
+)
+ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]*[A-Z]s?\b")
+CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
+PARENTHESIZED = re.compile(r"\([^()]*\)")
+CAPTURES = "owner-prompts.jsonl"
+UNREADABLE = (
+    *IDS,
     (
         "a file path",
         re.compile(
@@ -540,6 +547,32 @@ def word_list(where: str, text: str, *, pr_block: bool) -> list[str]:
     return [f'plain words: {where} has {kind}, "{hit}"' for kind, hit in hits]
 
 
+def squeeze(text: str) -> str:
+    return " ".join(text.split()).strip("\"“”' ").rstrip(".")
+
+
+def unquoted(text: str, said: list[str]) -> str:
+    return OWNER_QUOTE.sub(lambda quote: " " if (words := squeeze(quote[0])) and any(words in source for source in said) else quote[0], text)
+
+
+def outside_cites(text: str) -> str:
+    seen = CODE.sub(" ", OWNER_QUOTE.sub(" ", readable(text)))
+    while (stripped := PARENTHESIZED.sub(" ", seen)) != seen:
+        seen = stripped
+    return seen
+
+
+def plan_words(text: str, reads: Reads) -> list[str]:
+    seen = outside_cites(text)
+    hits = dict.fromkeys((kind, hit[0]) for kind, pattern in IDS for hit in pattern.finditer(seen))
+    found = [f'plain words: the plan has {kind}, "{hit}"' for kind, hit in hits]
+    if (glossary := reads.glossary()) is None:
+        return found
+    known = {line.strip().lower() for line in glossary.splitlines()}
+    acronyms = dict.fromkeys(word for word in ACRONYM.findall(seen) if not {word.lower(), word.lower().removesuffix("s")} & known)
+    return found + [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
+
+
 def reason(failure: BaseException) -> str:
     if isinstance(failure, subprocess.CalledProcessError):
         return f"exit {failure.returncode}: {str(failure.stderr or '').strip()}"
@@ -589,6 +622,18 @@ class Reads:
             return None
         rows = [row for row in register["rows"].values() if row.get("kind") == "scope"]
         return self.read("the scope rows", lambda: [f"- {', '.join(json.loads(row.get('names') or '[]'))}: {row.get('words', '')}" for row in rows])
+
+    def said(self) -> list[str] | None:
+        if (register := self.register()) is None:
+            return None
+        path = Path(register["state_dir"]) / CAPTURES
+
+        def load() -> list[str]:
+            captured = [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+            repeats = [repeat.get("words") or "" for row in register["rows"].values() for repeat in json.loads(row.get("repeats") or "[]")]
+            return [squeeze(text) for text in [*captured, *(row.get("words", "") for row in register["rows"].values()), *repeats]]
+
+        return self.read("the owner's captured words", load)
 
     def report(self, hook: str) -> None:
         if self.failures:
@@ -655,8 +700,9 @@ def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
 def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
     if not (card := reads.read("the status card", lambda: slack_card(evt))):
         return started_boards(evt, reads)
+    said = reads.said() or []
     options = [("card option", option) for option in card.get("options") or []]
-    return [pair for pair in [("card title", card.get("title") or ""), ("card body", card.get("body") or ""), *options] if pair[1]]
+    return [(where, unquoted(text, said)) for where, text in [("card title", card.get("title") or ""), ("card body", card.get("body") or ""), *options] if text]
 
 
 def status_card(llm: dict | None = None, **card: object) -> Input:
