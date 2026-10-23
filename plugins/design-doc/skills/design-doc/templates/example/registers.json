@@ -152,6 +152,11 @@
       "title": "Only the log is durable; the dispatcher and workers rebuild from it",
       "groups": [
         {
+          "id": "host",
+          "kind": "machine",
+          "label": "Queue host"
+        },
+        {
           "id": "fleet",
           "kind": "zone",
           "label": "Worker fleet"
@@ -176,6 +181,7 @@
           "tag": "SQLite",
           "name": "Job log",
           "role": "One file per tenant",
+          "group": "host",
           "critical": true,
           "about": "Each tenant's queues live in their own database file, so one busy tenant cannot slow down another. A job is safe once the log accepts it.",
           "contents": [
@@ -190,6 +196,7 @@
           "kind": "service",
           "name": "Dispatcher",
           "role": "Leases a job, pushes it",
+          "group": "host",
           "about": "Holds nothing the log cannot rebuild, so an expired lease simply re-queues its job.",
           "parts": [
             {

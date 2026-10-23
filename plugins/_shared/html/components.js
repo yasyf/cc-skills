@@ -468,7 +468,7 @@ function cmptLanes(spec,host){
  }).observe(host);
  return box;
 }
-const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.45.0/plugin/.claude/components/display/src/system-map.min.js";
+const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.45.2/plugin/.claude/components/display/src/system-map.min.js";
 const ROUGH_LIB="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js";
 function cmptSystem(spec,host,jobs){
  const box=el("div","ddc-system");
