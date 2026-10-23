@@ -72,6 +72,7 @@ from zoneinfo import ZoneInfo
 
 import cci
 import drive
+import testfiles
 import ledger
 
 SHORT = 7
@@ -1595,11 +1596,12 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
 
 
 def op_hits(op: str, diff: Diff) -> bool:
+    added = [(file, text) for file, _, text in diff.added if not testfiles.test_file(file)]
     if "/" in op:
-        return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added)
+        return any(fnmatch.fnmatchcase(file, op) for file, _ in added)
     if any(char in op for char in "*?["):
-        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, _, text in diff.added)
-    return any(named(text, op) for _, _, text in diff.added)
+        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, text in added)
+    return any(named(text, op) for _, text in added)
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:

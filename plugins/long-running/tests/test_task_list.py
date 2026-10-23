@@ -408,7 +408,7 @@ def test_explicit_task_list_id_wins(drive: Drive, monkeypatch: pytest.MonkeyPatc
     (shared / "5.json").write_text(json.dumps({"id": "5", "subject": "x", "status": "in_progress", "owner": "ledger-fix"}))
     monkeypatch.setenv("CLAUDE_CODE_TASK_LIST_ID", "shared-list")
 
-    assert gate(drive, "5").startswith("Task #5 is the root's record of lane ledger-fix")
+    assert gate(drive, "5").startswith("Warning, nothing was blocked: Task #5 is the root's record of lane ledger-fix")
 
 
 def test_named_task_and_negative_status(drive: Drive) -> None:
@@ -446,7 +446,7 @@ def test_lane_cannot_complete_the_roots_task_for_it(drive: Drive) -> None:
     drive.task("90", "My own subtask")
 
     assert gate(drive, "62") == (
-        "Task #62 is the root's record of lane ledger-auto-register; the root completes it once it has consumed "
+        "Warning, nothing was blocked: Task #62 is the root's record of lane ledger-auto-register; the root completes it once it has consumed "
         "your deliverable. SendMessage team-lead the deliverable instead and leave the task open."
     )
     assert gate(drive, "62", status="in_progress") is None

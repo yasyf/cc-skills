@@ -13,14 +13,10 @@ from pathlib import Path
 
 from cc_transcript.models import AssistantEvent, UserEvent
 from captain_hook import (
-    CONFIRMED,
-    UNCONFIRMED,
     Allow,
     Annotated,
     BaseHookEvent,
-    Block,
     CommandSchema,
-    Confirm,
     Event,
     FromSubagent,
     HookResult,
@@ -61,40 +57,33 @@ ACTIVE = [CompactionState(active=True)]
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Launch the incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or as an Agent named `<name>-fix` "
-    "once `desk-launch.py refused <name>-fix --session <id>` prints a load refusal. "
-    "A support lane's brief says `ccx: role=<role>`; a non-incident fix lane says `ccx: incident=none`."
+    "Warning, nothing was blocked: Launch an incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or an Agent named `<name>-fix` "
+    "once `desk-launch.py refused <name>-fix --session <id>` refuses for load. "
+    "Support briefs say `ccx: role=<role>`; a non-incident fix lane, `ccx: incident=none`."
 )
 REFUSAL = [sys.executable, str(script("desk-launch.py")), "refused"]
 REFUSED = " ".join(REFUSAL)
 LOAD_REFUSAL = "LAUNCH-FAILED desk-lane-api-1n80-fix/R474 api-1n80-fix: R474 refused on load 42 above 32 cores; nothing was launched"
 REFUSAL_TIMEOUT_SECONDS = 20
-INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on the Orca incident alias; tooling, support, and repush lanes may spawn here")
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
-PUBLISH_FROM_MEMORY = "quote the RELEASED record or run `tools/ci release live`; never from memory"
+PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
 LETTER_NAMES = re.compile(r"\b[B-HJ-Z]\b")
-CODENAME_JUDGE = Confirm(
-    rule="Block only when a bare capital letter stands in as the name of a stack, gate, lane, or piece of work, such"
-    " as 'D gate' or 'B's tip', so the owner could not pick an option without first asking what the letter means. A"
-    " letter that labels an option, plan, or list item, such as 'Option B' or 'B: lane', or that belongs to a real"
-    " name or unit, never blocks."
-)
 DRAFTED_COPY = re.compile(r"\bProposed (?:reply|post|text|message)\b", re.IGNORECASE)
 CODENAME_IN_QUESTION = (
-    "An owner question names the work in plain words, never a codename, inbox id, or answer id."
+    "Warning, nothing was blocked: An owner question names the work in plain words, never a codename, inbox id, or answer id."
     " Rename each one for what it is, such as the release-pipeline cutover stack or the deploy that runs after each merge, and ask again."
 )
 DRAFT_IN_QUESTION = (
-    "The root never composes Slack copy, so a question never carries a proposed reply."
+    "Warning, nothing was blocked: The root never composes Slack copy, so a question never carries a proposed reply."
     " Hand the Slack lane the facts and links, then show its draft verbatim in a Send option's preview."
 )
 PLAIN_WORDS = (
-    "Owner-facing text must read in plain words."
+    "Warning, nothing was blocked: Owner-facing text must read in plain words."
     " Replace each term below, or gloss it in the owner's own words, then post again."
 )
 REPLY_IN_PLAIN_WORDS = "Your last reply to the owner used terms he may not know. Restate them in plain words in your next reply."
@@ -199,12 +188,12 @@ INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000
 SETTLED_INCIDENT = ("closed", "recovered")
 INCIDENT_SOURCE_TIMEOUT_SECONDS = 10
 PLAN_MODE_IN_INCIDENT = (
-    "plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
+    "Warning, nothing was blocked: plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
     " replan after fix-live"
 )
 RECORD_SEQ = re.compile(r"#\d")
-OFF_INCIDENT_ASK = "the alert is active: no owner question on other work; the incident's own ask names {names}"
-ROOT_PROBE = "during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
+OFF_INCIDENT_ASK = "Warning, nothing was blocked: the alert is active: no owner question on other work; the incident's own ask names {names}"
+ROOT_PROBE = "Warning, nothing was blocked: during an incident the root only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
 PROBES = ("kubectl", "pup", "curl")
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 PLAN_CONDITIONAL = re.compile(
@@ -223,7 +212,7 @@ NO_PLAN_BEFORE_FIX = "no plan mode until the incident is fixed"
 PLAN_WHEN_DONE = "confirm each incident item is finished, then go into plan mode only when all of it is done"
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
 PLAN_MODE_FORBIDDEN = (
-    "The owner's latest word on plan mode forbids it now. Ship the fix from the lane that holds it, and enter plan mode only when the owner orders it."
+    "Warning, nothing was blocked: The owner's latest word on plan mode forbids it now. Ship the fix from the lane that holds it, and enter plan mode only when the owner orders it."
 )
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|mechanism|is why|was why|led to|triggered by|results? from)\b", re.IGNORECASE)
 CAUSE_KINDS = {"go", "decision", "decide", "note", "report", "state", "incident"}
@@ -243,12 +232,8 @@ BOARD_VERBS = ("push", "start", "update-block", "reply")
 BOARD_DOCS = ("push", "start", "update-block")
 STDIN = "-"
 AUTHORIZED_BESIDE_A_QUESTION = (
-    "A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
+    "Warning, nothing was blocked: A GO, LIFT, or UNBLOCK line or `cci post` record is never written while an owner question on its subject is unanswered."
     " Wait for the answer, then write it in a later turn."
-)
-SAME_SUBJECT = Confirm(
-    rule="Block only when the GO, LIFT, or UNBLOCK acts on the same pull request or routing change that an unanswered"
-    " owner question or a board posted this turn asks about."
 )
 CCI_POST = CommandSchema(
     "cci",
@@ -284,19 +269,18 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     only_if=[Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests={
-        spawn("pr-review-pipeline-fix", "CI incident, effort high.", decide=CONFIRMED, commands={REFUSED: ""}): Block(
+        spawn("pr-review-pipeline-fix", "CI incident, effort high.", commands={REFUSED: ""}): Warn(
             pattern=r"desk-launch\.py incident <name> <fix-brief>[\s\S]*desk-launch\.py refused <name>-fix"
         ),
-        spawn("incident-api-1n80-fix", "Fix it.", decide=CONFIRMED, commands={REFUSED: ""}): Block(),
-        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED, commands={REFUSED: ""}): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED, commands={REFUSED: ""}): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED, commands={REFUSED: LOAD_REFUSAL}): Allow(),
-        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED, commands={REFUSED: LOAD_REFUSAL}): Allow(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=UNCONFIRMED, commands={REFUSED: ""}): Allow(),
+        spawn("incident-api-1n80-fix", "Fix it.", commands={REFUSED: ""}): Warn(),
+        spawn("lane-failing-fix", INCIDENT_TURN, commands={REFUSED: ""}): Warn(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", commands={REFUSED: ""}): Warn(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", commands={REFUSED: LOAD_REFUSAL}): Allow(),
+        spawn("lane-failing-fix", INCIDENT_TURN, commands={REFUSED: LOAD_REFUSAL}): Allow(),
         spawn("lane-failing-fix", f"ccx: incident=none\n{INCIDENT_TURN}"): Allow(),
         spawn("flappy-monitors-2", NOT_AN_INCIDENT): Allow(),
         spawn("ignore-protect-preview", INCIDENT_ADJACENT): Allow(),
-        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", decide=UNCONFIRMED, commands={REFUSED: ""}): Allow(),
+        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", commands={REFUSED: ""}): Warn(),
         spawn("incident-runner", "ccx: role=tooling tooling-lane=incident-runner\nLane incident-runner."): Allow(),
         spawn("incident-api-1n80-evidence", "ccx: role=evidence\nEvidence lane for the incident."): Allow(),
         spawn("ledger-fix", "ccx: role=fix\nFix the ledger."): Allow(),
@@ -316,7 +300,7 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
         return None
     if call.agent_name and refused_on_load(evt, call.agent_name):
         return None
-    return evt.block(INCIDENT_ROUTE) if authorized else evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX)
+    return evt.context(INCIDENT_ROUTE)
 
 
 def read_incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
@@ -371,32 +355,32 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
     only_if=[Tool("EnterPlanMode", "ExitPlanMode")],
     skip_if=[FromSubagent()],
     tests={
-        plan_mode("EnterPlanMode", OUTAGE_0820): Block(pattern="forbidden while a customer-visible outage is open"),
-        plan_mode("ExitPlanMode", OUTAGE_0820): Block(pattern="forbidden while a customer-visible outage is open"),
-        plan_mode("EnterPlanMode", posted=(OUTAGE_TWO,)): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
+        plan_mode("ExitPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
+        plan_mode("EnterPlanMode", posted=(OUTAGE_TWO,)): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820): Allow(),
         plan_mode("EnterPlanMode", RECOVERED_0820): Allow(),
         plan_mode("EnterPlanMode", STALE_0820): Allow(),
         Input(tool="EnterPlanMode", tool_input={}, commands=incident_sources(OUTAGE_0820)): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, agent_id="a1b2c3"): Allow(),
-        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Block(pattern="latest word on plan mode forbids it"),
-        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("no plan mode today")]): Block(),
-        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("do not enter plan mode until I ask")]): Block(),
-        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("don't replan")]): Block(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Warn(pattern="latest word on plan mode forbids it"),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("no plan mode today")]): Warn(),
+        plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("do not enter plan mode until I ask")]): Warn(),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("don't replan")]): Warn(pattern="latest word on plan mode forbids it"),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont enter plan mode yet"), T.user("ok now re-enter plan mode and replan")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("no, go into plan mode")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("dont fix anything else, enter plan mode now")]): Allow(),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(OUTAGE_STOP_WORDS)]): Allow(),
-        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(NO_PLAN_BEFORE_FIX)]): Allow(),
-        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user(PLAN_WHEN_DONE)]): Allow(),
-        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("ship the fix")]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("ship the fix")]): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", CLOSED_0820, transcript=[T.user("ship the fix")]): Allow(),
         plan_mode("ExitPlanMode", CLOSED_0820, transcript=[T.user("dont enter plan mode")]): Allow(),
         plan_mode("ExitPlanMode", OUTAGE_0820, transcript=[T.user("no plan mode today")]): Allow(),
-        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("why did you enter plan mode?")]): Block(pattern="replan after fix-live"),
+        plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("why did you enter plan mode?")]): Warn(pattern="replan after fix-live"),
         plan_mode("EnterPlanMode", OUTAGE_0820, transcript=[T.user("enter plan mode first"), T.user("why did you enter plan mode?")]): Allow(),
     },
 )
@@ -405,10 +389,10 @@ def no_plan_mode_in_an_open_incident(evt: BaseHookEvent) -> HookResult | None:
         return None
     word = latest_plan_word(evt) or ""
     if not PLAN_CONDITIONAL.search(word) and PLAN_FORBIDDEN.search(word):
-        return None if evt.tool_name == "ExitPlanMode" else evt.block(PLAN_MODE_FORBIDDEN)
+        return None if evt.tool_name == "ExitPlanMode" else evt.context(PLAN_MODE_FORBIDDEN)
     if not PLAN_CONDITIONAL.search(word) and PLAN_ORDERED.search(word):
         return None
-    return evt.block(PLAN_MODE_IN_INCIDENT) if open_incidents(evt) else None
+    return evt.context(PLAN_MODE_IN_INCIDENT) if open_incidents(evt) else None
 
 
 def owner_words(evt: BaseHookEvent) -> list[str]:
@@ -463,7 +447,7 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Block(
+        Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Warn(
             pattern=r"quote the RELEASED record"
         ),
         Input(transcript=reply_transcript("sand 1437 is published (#103935)."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
@@ -482,7 +466,7 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
             transcript=[T.user("is it out?"), T.assistant(T.tool("Bash", command="echo tools/ci release live sand")), T.assistant("sand 1437 is live.")],
             state=ACTIVE,
             commands=incident_sources(OUTAGE_0820),
-        ): Block(),
+        ): Warn(),
         Input(transcript=reply_transcript("The fix lane is building the PR."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), commands=incident_sources(OUTAGE_0820)): Allow(),
@@ -493,7 +477,7 @@ def publish_lines_quote_the_released_record(evt: BaseHookEvent) -> HookResult | 
         return None
     reply = last_reply(evt)
     if PUBLISH_CLAIM.search(reply) and not PUBLISH_PROOF.search(reply) and not read_release_live(evt) and open_incidents(evt):
-        return evt.block(PUBLISH_FROM_MEMORY)
+        return evt.context(PUBLISH_FROM_MEMORY)
     return None
 
 
@@ -515,15 +499,12 @@ def question_text(evt: BaseHookEvent) -> str:
     )
 
 
-def ask(
-    question: str, decide: dict[str, object] | None = None, *, incidents: tuple[dict, ...] = (), posted: tuple[dict, ...] = (), **option: str
-) -> Input:
+def ask(question: str, *, incidents: tuple[dict, ...] = (), posted: tuple[dict, ...] = (), **option: str) -> Input:
     questions = [{"question": question, "header": "Ask", "options": [{"label": "Go", **option}, {"label": "Hold"}], "multiSelect": False}]
     return Input(
         tool="AskUserQuestion",
         tool_input={"questions": questions},
         state=ACTIVE,
-        decide=decide or CONFIRMED,
         commands=incident_sources(*incidents, posted=posted),
     )
 
@@ -743,13 +724,11 @@ def status_card(llm: dict | None = None, **card: object) -> Input:
 def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
     text = question_text(evt)
     if (incidents := open_incidents(evt)) and not any(names_an_incident(text, names) for names in incidents):
-        return evt.block(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
+        return evt.context(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
     if DRAFTED_COPY.search(text):
-        return evt.block(DRAFT_IN_QUESTION)
-    if RECORD_IDS.search(text):
-        return evt.block(CODENAME_IN_QUESTION)
-    if LETTER_NAMES.search(text):
-        return evt.block(CODENAME_IN_QUESTION, confirm=CODENAME_JUDGE)
+        return evt.context(DRAFT_IN_QUESTION)
+    if RECORD_IDS.search(text) or LETTER_NAMES.search(text):
+        return evt.context(CODENAME_IN_QUESTION)
     return None
 
 
@@ -758,16 +737,16 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
     tests={
-        ask("D gate: the plan said dry-run before enqueue. Which gate?"): Block(pattern=r"never a codename"),
-        ask("Lift the hold?", description="walker walks the reverted HEAD after G304 lifts"): Block(pattern=r"never a codename"),
-        ask("Extend the alert grant?", description="same terms as answer 543e865"): Block(pattern=r"never a codename"),
-        ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?'): Block(pattern=r"never composes Slack copy"),
+        ask("D gate: the plan said dry-run before enqueue. Which gate?"): Warn(pattern=r"never a codename"),
+        ask("Lift the hold?", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r"never a codename"),
+        ask("Extend the alert grant?", description="same terms as answer 543e865"): Warn(pattern=r"never a codename"),
+        ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?'): Warn(pattern=r"never composes Slack copy"),
         ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
-        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", UNCONFIRMED, description="Options A and B"): Allow(),
-        ask("Land the release-pipeline cutover stack now?", UNCONFIRMED, description="B lands after D"): Allow(),
-        ask("Apply G327 per R1053?"): Block(pattern=r"never a codename"),
-        ask("Retry the dispatch?", description="ctx_8f2a1 stalled; log c093750 has the trace"): Block(pattern=r"never a codename"),
-        ask("Resend the relay?", description="msg_01HXQ never arrived"): Block(pattern=r"never a codename"),
+        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", description="Options A and B"): Warn(pattern=r"never a codename"),
+        ask("Land the release-pipeline cutover stack now?", description="B lands after D"): Warn(pattern=r"never a codename"),
+        ask("Apply G327 per R1053?"): Warn(pattern=r"never a codename"),
+        ask("Retry the dispatch?", description="ctx_8f2a1 stalled; log c093750 has the trace"): Warn(pattern=r"never a codename"),
+        ask("Resend the relay?", description="msg_01HXQ never arrived"): Warn(pattern=r"never a codename"),
         ask(
             "For Slack releases whose plan shows a delete or replace, should the drive also approve on your behalf without asking, or keep bringing you the delete list first?",
             description="Safe plans are approved unasked; any delete or replace pauses at Platy's hold until you read the list, as today.",
@@ -791,26 +770,26 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
         ask("Six Orca lanes (d-land, merge-walker, deploy-scope-fix) show Login expired. How do you want them back?"): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}, agent_id="a1b2c3", state=ACTIVE): Allow(),
-        ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED,)): Block(pattern=r"the alert is active[\s\S]*sand-not-migrated"),
+        ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active[\s\S]*sand-not-migrated"),
         ask("sand-not-migrated: approve the 0-delete apply on plat?", incidents=(SAND_NOT_MIGRATED,)): Allow(),
         ask("Approve the 0-delete sand apply on plat?", incidents=(SAND_NOT_MIGRATED,)): Allow(),
         ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED | {"status": "closed"},)): Allow(),
-        ask("Should I extend the backlog deadline to 11:30?", posted=(OUTAGE_TWO,)): Block(pattern=r"the alert is active[\s\S]*outage-two"),
+        ask("Should I extend the backlog deadline to 11:30?", posted=(OUTAGE_TWO,)): Warn(pattern=r"the alert is active[\s\S]*outage-two"),
         ask("Roll the executor back for outage two (#102819)?", posted=(OUTAGE_TWO,)): Allow(),
-        ask("Should I extend the thousand-row backlog?", incidents=(SAND_NOT_MIGRATED,)): Block(pattern=r"the alert is active"),
-        ask("Should I extend the backlog deadline to noon?", posted=(BARE_INCIDENT,)): Block(pattern=r"names its target, topic, or record number"),
+        ask("Should I extend the thousand-row backlog?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active"),
+        ask("Should I extend the backlog deadline to noon?", posted=(BARE_INCIDENT,)): Warn(pattern=r"names its target, topic, or record number"),
         ask("Hand-publish sand for #103958?", posted=(BARE_INCIDENT,)): Allow(),
-        status_card(title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+        status_card(title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
             pattern=r'card title has a drive word, "slice"'
         ),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge #42301", "Hold"]): Allow(),
-        status_card(title="Merge the chat-list fix?", body="It lands after #42298.", options=["Merge", "Hold"]): Block(
+        status_card(title="Merge the chat-list fix?", body="It lands after #42298.", options=["Merge", "Hold"]): Warn(
             pattern=r'card body has a PR number, "#42298"'
         ),
-        status_card(title="Merge the chat-list fix?", body="Uses `rows_of` (answer 5f0c2e1).", options=["Merge"]): Block(
+        status_card(title="Merge the chat-list fix?", body="Uses `rows_of` (answer 5f0c2e1).", options=["Merge"]): Warn(
             pattern=r"an internal id[\s\S]*a code symbol"
         ),
-        status_card({"terms": ["chat-list"]}, title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"]): Block(
+        status_card({"terms": ["chat-list"]}, title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"]): Warn(
             pattern=r'the owner would need "chat-list" defined'
         ),
         status_card(
@@ -837,32 +816,32 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
             body="It is <https://github.com/acme/app/pull/42517|app PR #42517>, and [the same PR](https://github.com/acme/app/pull/42517) on GitHub.",
             options=["Merge", "Hold"],
         ): Allow(),
-        status_card({"terms": ["night-courier"]}, title="Merge the night-courier fix?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+        status_card({"terms": ["night-courier"]}, title="Merge the night-courier fix?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
             pattern=r'the owner would need "night-courier" defined'
         ),
-        status_card({"terms": ["p1a-land"]}, title="Merge the chat fix from p1a-land?", body="Its checks passed.", options=["Merge", "Hold"]): Block(
+        status_card({"terms": ["p1a-land"]}, title="Merge the chat fix from p1a-land?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
             pattern=r'the owner would need "p1a-land" defined'
         ),
-        status_card({"terms": ["#111518"]}, title="Merge the chat fix?", body="Record #111518 says it passed.", options=["Merge", "Hold"]): Block(
+        status_card({"terms": ["#111518"]}, title="Merge the chat fix?", body="Record #111518 says it passed.", options=["Merge", "Hold"]): Warn(
             pattern=r'the owner would need "#111518" defined'
         ),
-        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], facts=[{"label": "Lane", "value": "the chat-list fix"}]): Block(
+        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], facts=[{"label": "Lane", "value": "the chat-list fix"}]): Warn(
             pattern=r'card fact has a drive word, "Lane"'
         ),
-        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], phase="graded by the desk"): Block(pattern=r'card phase has a drive word, "desk"'),
+        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], phase="graded by the desk"): Warn(pattern=r'card phase has a drive word, "desk"'),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
             state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
             commands=PLAIN_READS,
-        ): Block(pattern=r'a drive word, "sidecar"'),
-        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Block(
+        ): Warn(pattern=r'a drive word, "sidecar"'),
+        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Warn(
             pattern=r'r3-spikes-queue has a drive word, "lane"'
         ),
         Input(
             command="cc-present start --session s1 --doc - <<'EOF'\n{\"title\": \"Ship the roster change?\", \"blocks\": []}\nEOF",
             state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
             commands=PLAIN_READS,
-        ): Block(pattern=r'a drive word, "roster"'),
+        ): Warn(pattern=r'a drive word, "roster"'),
         Input(command=f"cc-present start --session s1 --doc {board('clean-card.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(
@@ -887,7 +866,7 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     texts = owner_strings(evt, reads)
     problems = plain_words(evt, texts, reads, pr_blocks=frozenset({"card option"})) if texts else []
     reads.report("plain_words_in_owner_questions")
-    return evt.block(fenced(PLAIN_WORDS, problems)) if problems and not reads.failures else None
+    return evt.context(fenced(PLAIN_WORDS, problems)) if problems and not reads.failures else None
 
 
 @on(
@@ -944,29 +923,29 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     tests={
-        probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
-        probe("curl -s https://api.poetic.com/health", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
-        probe("pup monitors list", SAND_NOT_MIGRATED): Block(),
-        probe("tools/ci release start --emergency sand", SAND_NOT_MIGRATED): Block(),
-        probe("./tools/ci release watch 2026-10-20/31", SAND_NOT_MIGRATED): Block(),
-        probe("/opt/homebrew/bin/kubectl get pods", SAND_NOT_MIGRATED): Block(),
+        probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
+        probe("curl -s https://api.poetic.com/health", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
+        probe("pup monitors list", SAND_NOT_MIGRATED): Warn(),
+        probe("tools/ci release start --emergency sand", SAND_NOT_MIGRATED): Warn(),
+        probe("./tools/ci release watch 2026-10-20/31", SAND_NOT_MIGRATED): Warn(),
+        probe("/opt/homebrew/bin/kubectl get pods", SAND_NOT_MIGRATED): Warn(),
         probe("tools/ci release plan --from 94d61b9", SAND_NOT_MIGRATED): Allow(),
         probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED, agent_id="aevidence-0123456789abcdef"): Allow(),
         probe("cci post --kind decision --lane root --to inc-sand-fix 'ship it'", SAND_NOT_MIGRATED): Allow(),
         probe("echo 'kubectl get pods'", SAND_NOT_MIGRATED): Allow(),
-        probe("git show HEAD:service/store/open.go", SAND_NOT_MIGRATED): Block(pattern="only spawns, routes, and acks"),
-        probe("rg -n Retire service/store", SAND_NOT_MIGRATED): Block(),
-        probe("rg -n Retire", SAND_NOT_MIGRATED): Block(),
-        probe("ccx code read service/store/open.go --section 170-200", SAND_NOT_MIGRATED): Block(),
-        probe("ccx code search 'who retires a store'", SAND_NOT_MIGRATED): Block(),
+        probe("git show HEAD:service/store/open.go", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
+        probe("rg -n Retire service/store", SAND_NOT_MIGRATED): Warn(),
+        probe("rg -n Retire", SAND_NOT_MIGRATED): Warn(),
+        probe("ccx code read service/store/open.go --section 170-200", SAND_NOT_MIGRATED): Warn(),
+        probe("ccx code search 'who retires a store'", SAND_NOT_MIGRATED): Warn(),
         probe("rg -n MECHANISM ~/.claude/scratch/drive/inbox", SAND_NOT_MIGRATED): Allow(),
         probe("rg -n 'api/health' /tmp/records", SAND_NOT_MIGRATED): Allow(),
         probe("rg -n '~nobody/x' /tmp/records", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | rg -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
         probe("cci tail --drive release-v3 --cursor root | grep -n MECHANISM", SAND_NOT_MIGRATED): Allow(),
-        probe("cci tail --drive release-v3 --cursor root | rg Retire service/store", SAND_NOT_MIGRATED): Block(),
+        probe("cci tail --drive release-v3 --cursor root | rg Retire service/store", SAND_NOT_MIGRATED): Warn(),
         probe("rg -e 'api/health' /tmp/records", SAND_NOT_MIGRATED): Allow(),
-        probe("rg -n Retire ~/.claude/worktrees/service/store", SAND_NOT_MIGRATED): Block(),
+        probe("rg -n Retire ~/.claude/worktrees/service/store", SAND_NOT_MIGRATED): Warn(),
         probe("git status", SAND_NOT_MIGRATED): Allow(),
         probe("git show HEAD:service/store/open.go", CLOSED_0820): Allow(),
         probe("kubectl -n plat get deploy api", CLOSED_0820): Allow(),
@@ -975,7 +954,7 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
 )
 def root_only_routes_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
     if root_probe(evt) and CompactionState.load(evt).active and open_incidents(evt):
-        return evt.block(ROOT_PROBE)
+        return evt.context(ROOT_PROBE)
     return None
 
 
@@ -1092,8 +1071,8 @@ MERGE_QUESTION = T.assistant(
 ROUTING_GO = f'echo "GO root (11:02 PM) acme-routing: switch acme routing to cluster-b now" >> {DRIVE_INBOX}'
 
 
-def authorize(*transcript: object, decide: dict[str, object] | None = None, **call: object) -> Input:
-    return Input(transcript=[T.user("keep going"), *transcript], state=ACTIVE, decide=decide or CONFIRMED, **call)
+def authorize(*transcript: object, **call: object) -> Input:
+    return Input(transcript=[T.user("keep going"), *transcript], state=ACTIVE, **call)
 
 
 @on(
@@ -1101,26 +1080,25 @@ def authorize(*transcript: object, decide: dict[str, object] | None = None, **ca
     only_if=[Tool("Bash", "Edit", "Write")],
     skip_if=[FromSubagent()],
     tests={
-        authorize(ROUTING_QUESTION, command=ROUTING_GO): Block(pattern="later turn"),
+        authorize(ROUTING_QUESTION, command=ROUTING_GO): Warn(pattern="later turn"),
         authorize(
             T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"blocks\": [{\"title\": \"Should acme routing switch?\"}]}\nEOF")),
             command=f"cat >> {DRIVE_INBOX} <<'EOF'\nLIFT root (11:02 PM) acme routing fence lifted.\nEOF",
-        ): Block(),
-        authorize(MERGE_QUESTION, tool="Write", file=DRIVE_INBOX, content="UNBLOCK root (11:02 PM) #30502 may merge now.\n"): Block(),
+        ): Warn(),
+        authorize(MERGE_QUESTION, tool="Write", file=DRIVE_INBOX, content="UNBLOCK root (11:02 PM) #30502 may merge now.\n"): Warn(),
         authorize(
             T.assistant(T.tool("Write", file_path="/tmp/board.json", content='{"title": "Switch acme routing?"}')),
             T.assistant(T.tool("Bash", command="cc-present push /tmp/board.json")),
             tool="Write",
             file=DRIVE_INBOX,
             content="GO root (11:02 PM) acme routing switch applied.\n",
-        ): Block(),
-        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30502 --text 'land it'"): Block(
+        ): Warn(),
+        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30502 --text 'land it'"): Warn(
             pattern="cci post"
         ),
-        authorize(ROUTING_QUESTION, command="cci post --lane root --kind lift --to deploy-desk 'acme routing fence lifted'"): Block(),
+        authorize(ROUTING_QUESTION, command="cci post --lane root --kind lift --to deploy-desk 'acme routing fence lifted'"): Warn(),
         authorize(MERGE_QUESTION, command="cci post --lane root --kind note --to landing-desk --pr 30502 --text 'question is open'"): Allow(),
         authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30409 --text 'land it'"): Allow(),
-        authorize(MERGE_QUESTION, command="cci post --lane root --kind go --to landing-desk --pr 30502 --text 'land it'", decide=UNCONFIRMED): Allow(),
         authorize(command="cc-present start --session s1 --doc /tmp/board.json"): Allow(),
         authorize(command=ROUTING_GO): Allow(),
         authorize(ROUTING_QUESTION, command=f'echo "STATE census (11:02 PM) acme routing question is open" >> {DRIVE_INBOX}'): Allow(),
@@ -1150,4 +1128,4 @@ def authorizing_lines_wait_for_the_owner_question(evt: BaseHookEvent) -> HookRes
     if not lines or not CompactionState.load(evt).active:
         return None
     asked = asked_subjects(evt)
-    return evt.block(AUTHORIZED_BESIDE_A_QUESTION, confirm=SAME_SUBJECT) if any(subjects(line) & asked for line in lines) else None
+    return evt.context(AUTHORIZED_BESIDE_A_QUESTION) if any(subjects(line) & asked for line in lines) else None

@@ -308,7 +308,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"labels": [{"name": name} for name in self.pr_labels.get(argv[3], [])]}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
-            return runner_module.Done(0, json.dumps({"body": self.bodies[argv[3]]}), "")
+            return runner_module.Done(0, json.dumps({"body": self.bodies.get(argv[3], "")}), "")
         if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
             return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -1010,6 +1010,17 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
     assert not [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 
 
+def test_a_lane_that_posts_a_head_for_the_relayed_pr_draws_no_deadline(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "blocker:29020:cccc333333", "--lane", LANE, "--text", "#29020 cccc333333: rebase onto dev")
+    shell.sleep(60)
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": ["acme/service#29020"]}, "text": "api-fix dddd444444", "at": actions.stamp(shell.clock)})
+    for _ in range(25):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert [line for line in escalations(shell) if "DEADLINE" in line] == []
+
+
 def wakes(shell: FakeShell) -> list[str]:
     return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
 
@@ -1659,6 +1670,19 @@ def test_a_pr_on_another_open_prs_branch_with_its_own_red_test_gets_one_blocker_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [("hj-rows-fixture", "#39050 bbbb222222: graphite FAILING_REQUIRED")]
+
+
+def test_a_red_by_design_pr_gets_no_failing_required_blocker(shell, config, tmp_path):
+    shell.combined_statuses["bbbb222222"] = [{"context": "buildkite/test", "state": "failure"}]
+    shell.bodies["39050"] = "**Red by design, per owner tap b61a053.** The rows fail until the fix lands.\n\n## Context\n"
+    shell.rows = [
+        {"pr": "39007", "lane": LANE, "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+    ]
+    shell.gates["39050"] = [gate("#39007 GREEN aaaa111111 graphite READY", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert blockers(shell) == []
 
 
 def test_a_held_prefix_is_never_routed_and_stack_enqueue_gets_no_hold_flag(shell, config, tmp_path):
@@ -2562,6 +2586,21 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
+def test_a_go_naming_the_reserved_key_covers_the_row_though_its_card_never_posted(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (1, RESERVED)
+    shell.pr_card_error = "ci slack: SSM GetParameter: RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    merge_go(shell, "29020", "merge #29020 at cccc333, reserved/user-data allowed")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
 def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)
@@ -2597,11 +2636,13 @@ def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell,
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    shell.pr_card_error = "slack: channel_not_found"
+    shell.pr_card_error = "slack: channel_not_found, RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
+    landing_pass(shell, config)
+    shell.pr_card_error = "slack: channel_not_found, RequestID: 69b50a14-6da9-4805-9189-2f39cc06d691"
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "the merge card for #29020 at cccc333 did not post: slack: channel_not_found; the next pass tries again" in line
+    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:cccc333:") and "the merge card for #29020 at cccc333 did not post: slack: channel_not_found" in line
     shell.pr_card_error = ""
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
@@ -2958,6 +2999,15 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     [blocker] = blockers(shell)
     assert blocker["to"] == LANE and blocker["topic"] == "29020"
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+
+
+def test_a_restack_with_the_finder_ok_heads_patch_carries_the_finder_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    finder_verdict(shell, "29020", "ok bbbb222 no findings")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
 
 
 def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shell, config, tmp_path):

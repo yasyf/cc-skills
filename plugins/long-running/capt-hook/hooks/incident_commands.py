@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 
-from captain_hook import CONFIRMED, UNCONFIRMED, Allow, BaseHookEvent, Block, Call, Confirm, Event, FromSubagent, HookResult, Input, TaskCall, Tool, on
+from captain_hook import CONFIRMED, UNCONFIRMED, Allow, BaseHookEvent, Block, Call, Confirm, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
@@ -36,8 +36,12 @@ PR_REF = re.compile(r"#(\d+)\b")
 ORDER_KINDS = {"go", "decision", "decide"}
 PLUGIN_VERBS = frozenset({"update", "install", "uninstall", "enable", "disable"})
 UNCAUSED_UNDO = (
-    "A release cancel or rollback needs a lane `MECHANISM` record naming this build; a rollback, or a cancel during an open incident, also needs an owner answer ordering it."
-    " Rerun citing them, such as `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
+    "Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record naming this build; a rollback, or a cancel during an incident, also needs an owner answer ordering it."
+    " Cite them, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
+)
+UNORDERED_ROLLBACK = (
+    "A release rollback runs only on an owner answer that orders it, and a suspected regression is fixed forward."
+    " Cite the answer, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
 )
 UNORDERED_REVERT = (
     "A revert runs only on an owner answer that orders this revert; suspected regressions are fixed forward."
@@ -48,7 +52,7 @@ REVERT_JUDGE = Confirm(
     " text that rules a revert out, or orders a forward fix, never blocks."
 )
 FROZEN_TOOLING = (
-    "Incident tooling stays as it is while an incident is open."
+    "Warning, nothing was blocked: Incident tooling stays as it is while an incident is open."
     " Run `claude plugin update long-running` or `desk-runner.py handoff` once the incident closes."
 )
 
@@ -141,11 +145,14 @@ def undos(evt: BaseHookEvent) -> list[Call]:
     return [call for call in evt.command.calls() if call.name == "ci" and call.args[:1] == ("release",) and call.args[1:2] and call.args[1] in UNDO_ACTS]
 
 
-def undo_settled(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
+def undo_ordered(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
     targets, verb = undo_targets(call), call.args[1]
-    build = targets[0] if targets else None
-    needs_order = verb == "rollback" or bool(open_incidents(evt))
-    return any(cause_cited(text, build) for text in texts) and (not needs_order or any(order_cited(evt, text, UNDO_ACTS[verb], targets) for text in texts))
+    return not (verb == "rollback" or open_incidents(evt)) or any(order_cited(evt, text, UNDO_ACTS[verb], targets) for text in texts)
+
+
+def undo_settled(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
+    targets = undo_targets(call)
+    return any(cause_cited(text, targets[0] if targets else None) for text in texts) and undo_ordered(evt, call, texts)
 
 
 def cancel(command: str, *stored: dict, **extra: object) -> Input:
@@ -157,27 +164,27 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Block(pattern=r"^A release cancel or rollback needs a lane `MECHANISM` record"),
+        cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Warn(pattern=r"^Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record"),
         cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Block(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Allow(),
-        cancel("tools/ci release cancel 4135  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Block(),
-        cancel("tools/ci release cancel 41200  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Block(),
-        cancel("tools/ci release cancel 4120  # MECHANISM #500210", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE}): Block(),
+        cancel("tools/ci release cancel 4135  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Warn(),
+        cancel("tools/ci release cancel 41200  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Warn(),
+        cancel("tools/ci release cancel 4120  # MECHANISM #500210", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": CANCEL_ANSWER}): Allow(),
-        cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": PLAN_ANSWER}): Block(),
+        cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": PLAN_ANSWER}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", CLOSED_0820, commands={"cci grep": BUILD_CAUSE}): Allow(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Allow(),
         cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": DECLINED_ROLLBACK}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": CANCEL_ANSWER}): Block(),
-        cancel("tools/ci release rollback sand --to 905  # owner a9e1075b", commands={"cci grep": "", "ccn": ROLLBACK_ANSWER}): Block(),
+        cancel("tools/ci release rollback sand --to 905  # owner a9e1075b", commands={"cci grep": "", "ccn": ROLLBACK_ANSWER}): Warn(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210", commands={"cci grep": SAND_CAUSE}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (3, "not-found")}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": (2, "not a git repository")}): Allow(),
         cancel(
             "tools/ci release rollback web --to 77 && tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b",
             commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER},
-        ): Block(),
+        ): Block(pattern=r"^A release rollback runs only on an owner answer that orders it"),
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": (1, "cci: daemon unavailable")}): Allow(),
         cancel(
             "tools/ci release cancel 2026-01-05/7",
@@ -207,7 +214,9 @@ def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
     if (latest := latest_record(evt)) is None:
         return None
     texts.append(latest)
-    return None if all(undo_settled(evt, call, texts) for call in calls) else evt.block(UNCAUSED_UNDO)
+    if any(call.args[1] == "rollback" and not undo_ordered(evt, call, texts) for call in calls):
+        return evt.block(UNORDERED_ROLLBACK)
+    return None if all(undo_settled(evt, call, texts) for call in calls) else evt.context(UNCAUSED_UNDO)
 
 
 def revert_target(call: Call) -> str | None:
@@ -307,11 +316,11 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED): Block(pattern=r"^Incident tooling stays as it is"),
-        plugin("claude plugin install long-running@skills", SAND_NOT_MIGRATED): Block(),
-        plugin("desk-runner.py handoff --desk landing --config r.json", SAND_NOT_MIGRATED): Block(),
-        plugin("python3 ~/.claude/plugins/cache/skills/long-running/0.7.212/skills/long-running/scripts/desk-runner.py handoff --desk orca", SAND_NOT_MIGRATED): Block(),
-        plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, state=[]): Block(),
+        plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED): Warn(pattern=r"^Warning, nothing was blocked: Incident tooling stays as it is"),
+        plugin("claude plugin install long-running@skills", SAND_NOT_MIGRATED): Warn(),
+        plugin("desk-runner.py handoff --desk landing --config r.json", SAND_NOT_MIGRATED): Warn(),
+        plugin("python3 ~/.claude/plugins/cache/skills/long-running/0.7.212/skills/long-running/scripts/desk-runner.py handoff --desk orca", SAND_NOT_MIGRATED): Warn(),
+        plugin("claude plugin update long-running@skills", SAND_NOT_MIGRATED, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, state=[]): Warn(),
         plugin("claude plugin update long-running@skills", CLOSED_0820): Allow(),
         plugin("claude plugin update codex@skills", SAND_NOT_MIGRATED): Allow(),
         plugin("claude plugin marketplace update skills", SAND_NOT_MIGRATED): Allow(),
@@ -321,4 +330,4 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
 def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
     if not tooling_change(evt) or not drive_session(evt) or not open_incidents(evt):
         return None
-    return evt.block(FROZEN_TOOLING)
+    return evt.context(FROZEN_TOOLING)

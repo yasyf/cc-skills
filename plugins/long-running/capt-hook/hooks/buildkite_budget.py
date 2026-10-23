@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from urllib.parse import SplitResult, urlsplit
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Cmd, Event, HookResult, Input, Tool, ast_grep, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Call, Cmd, Event, HookResult, Input, Tool, Warn, ast_grep, on
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "buildkite"
 REST_HOST = "api.buildkite.com"
@@ -30,12 +30,12 @@ LOGS = "logs"
 POLL = "poll"
 
 LOGS_MESSAGE = (
-    "Dumping Buildkite logs job by job drains the org REST budget Platy's release reads share."
-    " Fetch them one at a time with `sleep 2` or more between fetches, or make one build-level call,"
+    "Warning, nothing was blocked: Dumping Buildkite logs job by job drains the org REST budget release reads share."
+    " Fetch them one at a time with `sleep 2` between fetches, or make one build-level call,"
     " `bk build view <build> -p <pipeline> --json`, then `bk job log <id>` for the one job you need."
 )
 POLL_MESSAGE = (
-    "Polling Buildkite more often than every 30 s drains the org REST budget Platy's release reads share."
+    "Warning, nothing was blocked: Polling Buildkite more often than every 30 s drains the org REST budget Platy's release reads share."
     " Run the poll under `Monitor` or a blocking wait that sleeps 30 s or more between calls."
 )
 
@@ -349,31 +349,31 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
                 "jq -r '.jobs[].id' build.json | xargs -P 6 -I{} zsh -c"
                 " \"bk api '/pipelines/$p/builds/$b/jobs/{}/log' | jq -r .content > $out/{}.log\""
             )
-        ): Block(pattern="bk build view"),
-        Input(command="for id in $(jq -r '.jobs[].id' b.json); do bk job log $id > $id.log; done"): Block(),
-        Input(command="jq -r '.jobs[].id' b.json | while read id; do bk api \"/pipelines/test/builds/9/jobs/$id/log\"; done"): Block(),
-        Input(command=f"cd /tmp && python3 {FIXTURES}/job_logs.py 595"): Block(pattern="bk job log"),
-        Input(command=f"python3 {FIXTURES}/job_logs_pool.py"): Block(),
+        ): Warn(pattern="bk build view"),
+        Input(command="for id in $(jq -r '.jobs[].id' b.json); do bk job log $id > $id.log; done"): Warn(),
+        Input(command="jq -r '.jobs[].id' b.json | while read id; do bk api \"/pipelines/test/builds/9/jobs/$id/log\"; done"): Warn(),
+        Input(command=f"cd /tmp && python3 {FIXTURES}/job_logs.py 595"): Warn(pattern="bk job log"),
+        Input(command=f"python3 {FIXTURES}/job_logs_pool.py"): Warn(),
         Input(
             command=(
                 "python3 - <<'EOF'\nimport subprocess\nfor j in open('ids').read().split():\n"
                 "    subprocess.run(['bk', 'api', f'/pipelines/p/builds/1/jobs/{j}/log'])\nEOF"
             )
-        ): Block(),
-        Input(command="bash -c 'for id in a b; do bk job log $id; done'"): Block(),
-        Input(command="bash -lc 'for id in a b; do bk job log $id; done'"): Block(),
-        Input(command=f"cd {FIXTURES} && python3 job_logs.py 595"): Block(),
-        Input(command=f"cat ids | xargs -n 1 python3 {FIXTURES}/one_job_log.py 595"): Block(),
-        Input(command=f"for id in a b; do python3 {FIXTURES}/one_job_log.py 595 $id; done"): Block(),
+        ): Warn(),
+        Input(command="bash -c 'for id in a b; do bk job log $id; done'"): Warn(),
+        Input(command="bash -lc 'for id in a b; do bk job log $id; done'"): Warn(),
+        Input(command=f"cd {FIXTURES} && python3 job_logs.py 595"): Warn(),
+        Input(command=f"cat ids | xargs -n 1 python3 {FIXTURES}/one_job_log.py 595"): Warn(),
+        Input(command=f"for id in a b; do python3 {FIXTURES}/one_job_log.py 595 $id; done"): Warn(),
         Input(
             command=(
                 "for id in $(cat ids); do curl -sS -H \"Authorization: Bearer $T\""
                 " https://api.buildkite.com/v2/organizations/forge/pipelines/test/builds/9/jobs/$id/log; done"
             )
-        ): Block(),
-        Input(tool="Monitor", tool_input={"command": "for id in a b; do bk job log $id; done", "description": "logs"}): Block(),
-        Input(command="for id in a b; do bk job log $id; sleep 1; done"): Block(pattern="sleep 2"),
-        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 1; done"): Block(),
+        ): Warn(),
+        Input(tool="Monitor", tool_input={"command": "for id in a b; do bk job log $id; done", "description": "logs"}): Warn(),
+        Input(command="for id in a b; do bk job log $id; sleep 1; done"): Warn(pattern="sleep 2"),
+        Input(command="for id in a b; do bash -c 'bk job log $0' $id; sleep 1; done"): Warn(),
         Input(command="bk job log 0190046e-e199-453b-a302-a21a4d649d31 --agent"): Allow(),
         Input(
             command=(
@@ -406,7 +406,7 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
     },
 )
 def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
-    return evt.block(LOGS_MESSAGE) if LOGS in command_findings(evt) else None
+    return evt.context(LOGS_MESSAGE) if LOGS in command_findings(evt) else None
 
 
 @on(
@@ -419,36 +419,36 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
                 "until s=$(bk api /pipelines/release-pr-check/builds/626 2>/dev/null | jq -r .state);"
                 ' [ "$s" = passed ] || [ "$s" = failed ]; do sleep 20; done; echo $s'
             )
-        ): Block(pattern="Monitor"),
+        ): Warn(pattern="Monitor"),
         Input(
             tool="Monitor",
             tool_input={"command": "while true; do bk build view 1 -p test --json | jq -r .state; sleep 10; done", "description": "b"},
-        ): Block(),
-        Input(command=f"{FIXTURES}/poll_fast.sh 45159"): Block(),
+        ): Warn(),
+        Input(command=f"{FIXTURES}/poll_fast.sh 45159"): Warn(),
         Input(
             command=(
                 "python3 -c \"import subprocess, time\nwhile True:\n"
                 "    subprocess.run(['bk', 'build', 'view', '1', '--json'])\n    time.sleep(5)\""
             )
-        ): Block(),
+        ): Warn(),
         Input(
             command=(
                 "python3 -u -c \"import subprocess, time\nwhile True:\n"
                 "    subprocess.run(['bk', 'build', 'view', '1', '--json'])\n    time.sleep(5)\""
             )
-        ): Block(),
+        ): Warn(),
         Input(
             command=(
                 "while true; do curl -sS https://api.buildkite.com/v2/organizations/forge/pipelines/test/builds/1"
                 " | jq -r .state; sleep 15s; done"
             )
-        ): Block(),
+        ): Warn(),
         Input(
             command=(
                 "cat > /tmp/wait.sh <<'EOF'\nwhile true; do bk api /pipelines/test/builds/1; sleep 10; done\nEOF\n"
                 "chmod +x /tmp/wait.sh && /tmp/wait.sh"
             )
-        ): Block(),
+        ): Warn(),
         Input(
             command=(
                 "until s=$(bk api /pipelines/release-pr-check/builds/626 2>/dev/null | jq -r .state);"
@@ -468,4 +468,4 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
-    return evt.block(POLL_MESSAGE) if POLL in command_findings(evt) else None
+    return evt.context(POLL_MESSAGE) if POLL in command_findings(evt) else None

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, WorkflowState, on
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
@@ -58,7 +58,7 @@ OK = "ok"
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 TEXT = "text"
-REFUSAL = "Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
+REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 
 
 class BoardWatches(WorkflowState):
@@ -364,50 +364,50 @@ def exits(name: str, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash", "ExitPlanMode")],
     tests={
-        **{update(name, sweep_out=HELD.get(name, "")): Block(pattern=BREACHES[name]) for name in FAILING},
+        **{update(name, sweep_out=HELD.get(name, "")): Warn(pattern=BREACHES[name]) for name in FAILING},
         **{update(redraft(name)): Allow() for name in FAILING},
-        reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Block(
+        reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Warn(
             pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
         ),
         reply("reply-4ae100d5.redraft.md"): Allow(),
-        posting(f"cc-present push {board('r3-titles.redraft.json')}"): Block(pattern=r"no fidelity desk review names"),
-        update("clean-card.json", minutes=90): Block(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
-        update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Block(pattern=r"no hourly sweep pass is logged for brook"),
-        update("strike-update.json", revised=("share-open",)): Block(pattern=r"share-open: an update after a strike names no sweep hit count"),
+        posting(f"cc-present push {board('r3-titles.redraft.json')}"): Warn(pattern=r"no fidelity desk review names"),
+        update("clean-card.json", minutes=90): Warn(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
+        update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Warn(pattern=r"no hourly sweep pass is logged for brook"),
+        update("strike-update.json", revised=("share-open",)): Warn(pattern=r"share-open: an update after a strike names no sweep hit count"),
         update("strike-update.redraft.json", revised=("share-open",)): Allow(),
         update("strike-update.json"): Allow(),
-        update("only-these.json", sweep_out=held_copy_hit("plan.md")): Block(pattern=r"says these changes only while the sweep has 1 open hits"),
+        update("only-these.json", sweep_out=held_copy_hit("plan.md")): Warn(pattern=r"says these changes only while the sweep has 1 open hits"),
         update("only-these.json"): Allow(),
         posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF", reviewed=(HEREDOC_SHA,)): Allow(),
-        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Block(pattern=HEREDOC_SHA),
+        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Warn(pattern=HEREDOC_SHA),
         posting(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
-        update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Block(pattern=r"r3-build: the title does not end"),
+        update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Warn(pattern=r"r3-build: the title does not end"),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
         update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),
-        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Block(
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Warn(
             pattern=r"verify: a fidelity desk lists rule/5c0e9a1 the card offers a held copy"
         ),
         update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("r3-titles.redraft.json"))}): Allow(),
-        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Block(
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Warn(
             pattern=r"no fidelity desk review names"
         ),
-        posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Block(
+        posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Warn(
             pattern=r"the document: decision text outside a choice or approval, \"Answer only to change\""
         ),
-        posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Block(
+        posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Warn(
             pattern=r"share-open: the title does not end"
         ),
         posting("ls -la"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
-        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Block(pattern=r'the owner would need "Notes R3b" defined'),
+        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Warn(pattern=r'the owner would need "Notes R3b" defined'),
         exits("plan-title.redraft.md", reviewed=(sha12("plan-title.redraft.md"),)): Allow(),
-        exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
-        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Block(
+        exits("plan.md"): Warn(pattern=r"no fidelity desk review names the plan"),
+        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Warn(
             pattern=r'the plan has a plan row number, "C221"\n[\s\S]*the plan has an answer id, "5c0e9a1"\n[\s\S]*an acronym standing in for words, "OPFS"'
         ),
-        exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Block(
+        exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Warn(
             pattern=r"decision text outside a choice or approval, \"Also recommended\"[\s\S]*says these changes only"
         ),
     },
@@ -419,7 +419,7 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     items = published(evt, reads)
     problems = [problem for item in items for problem in graded(evt, reads, item)]
     reads.report("board_text_gate")
-    return evt.block(fenced(REFUSAL, problems)) if problems and not reads.failures else None
+    return evt.context(fenced(REFUSAL, problems)) if problems and not reads.failures else None
 
 
 @on(

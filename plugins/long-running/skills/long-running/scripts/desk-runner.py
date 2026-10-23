@@ -292,7 +292,9 @@ diffs against the PR's base, read from GitHub's compare, is equal, cited as `fid
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. The `finder` check needs the newest `finder:` review record naming the head, from any lane, to read
-`finder: ok`; a head with none, or whose newest is `finder: major`, gets one `FINDER-PENDING` blocker per head to its lane (E4.1).
+`finder: ok`; a head with none, or whose newest is `finder: major`, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A finder ok of an older head
+carries to a head with no finder record when both patches against the PR's base match, as a fidelity ok does. A PR whose body opens with "Red by design" draws no
+blocker for its failing required checks.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
 which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head and logs `RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints.
@@ -379,8 +381,8 @@ that would enqueue posts one PR card per waiting PR and head instead, logs one `
 waiting PR and its head by a short sha. The card is the PR card `landing.card_cli` draws, such as ai-oncall's `tools/ci slack pr-card`, run from the landing checkout
 into the owner's DM thread `landing.owner_thread` (`{"user": <Slack id>, "ts": <the root's DM status thread>}`), waiting on `merge:<pr>:<short sha>` with
 `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already open for the head is edited in place, never re-posted, and a post that fails
-logs `MERGE-CARD-FAILED` and tries again next pass. A reserved touch puts the row's key and the first sentence of its words in the card's question, whose
-tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row, covers it (4236611), and so
+logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. A reserved touch puts the row's key and the first sentence of its words in the card's question, whose
+tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
 does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
@@ -484,6 +486,9 @@ HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*crede
 PULLED = "pulled"
 FLAKE_RETRY = "flake"
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
+RELAYED_PR = re.compile(r"^(?:blocker|restack):(\d+):")
+RED_BY_DESIGN = re.compile(r"^\W*red by design\b", re.IGNORECASE)
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
@@ -2803,7 +2808,7 @@ class Runner:
         for action in self.book.load(container).actions.values():
             if action.kind not in ("relay", "reply", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
                 continue
-            if action.kind in ("relay", "reply") and action.status == "started":
+            if action.kind in ("relay", "reply") and action.status == "started" or self.lane_moved(about, action):
                 continue
             sent = [send for send in self.book.actions(container, kind="send") if send.authority_ref == action.action_id]
             missing = {
@@ -2813,6 +2818,17 @@ class Runner:
                 "enqueue": "the adapter's enqueue never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
             self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
+
+    def lane_moved(self, lane: str, action: actions.Action) -> bool:
+        if action.kind != "relay" or not (relayed := RELAYED_PR.match(action.action_id)):
+            return False
+        since = actions.parse_stamp(action.accepted_at)
+        try:
+            posted = self.lane_records(lane, "head", "review")
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
+        return any(names_pr(record, relayed[1]) and actions.parse_stamp(record["at"]) >= since for record in posted)
 
     def deadlines_orca(self) -> None:
         for container in self.book.containers(LANE_PREFIX):
@@ -3511,8 +3527,12 @@ def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     return named
 
 
+def names_key(text: str, key: str) -> bool:
+    return re.search(rf"(?<![\w/]){re.escape(key)}(?![\w/])", text) is not None
+
+
 def names_pr(record: dict, pr: str) -> bool:
-    return int(pr) in record.get("refs", {}).get("prs", []) or re.search(rf"#{pr}\b", record["text"]) is not None
+    return pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])} or re.search(rf"#{pr}\b", record["text"]) is not None
 
 
 def pr_name(pr: int | str) -> str:
@@ -3743,11 +3763,17 @@ class Landing:
                         self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}")
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
+                    if self.adapter.failing_required(match) and self.red_by_design(pr):
+                        continue
                     gated_red = pr in children and self.adapter.failing_required(match) and self.gated_red(pr, match["sha"])
                     if self.retrying(pr, match, stack):
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red)
+
+    def red_by_design(self, pr: str) -> bool:
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
+        return done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
 
     def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
         """Escalate `GATE-FAILED` for a check that read no verdict, naming only the tips that have not landed since the pass read the ledger."""
@@ -4023,17 +4049,30 @@ class Landing:
                     self.warn_head(f"rulings:{pr}:{sha}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
 
-    def finder(self, pr: str, sha: str) -> dict | None:
-        """The newest `finder:` review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
+    def finder_records(self, pr: str) -> list[dict]:
         drive = self.runner.config.drive
         records = cci.records(self.runner.cci_tail, drive, "--kind=review", "--pr", f"{self.repo}#{pr}")
-        return newest_naming([record for record in records if record["kind"] == "review" and record["drive"] == drive and record["text"].startswith(FINDER_GRADES) and pr in dict(repo_prs(record, self.repo))], sha)
+        return [record for record in records if record["kind"] == "review" and record["drive"] == drive and record["text"].startswith(FINDER_GRADES) and pr in dict(repo_prs(record, self.repo))]
+
+    def finder(self, pr: str, sha: str) -> dict | None:
+        """The newest `finder:` review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
+        return newest_naming(self.finder_records(pr), sha)
+
+    def finder_carried(self, pr: str, sha: str, base: str) -> bool:
+        records = self.finder_records(pr)
+        heads = dict.fromkeys(head for record in records if (head := graded_head(record["text"])) and not names_head(head, sha))
+        oks = [head for head in heads if (newest := newest_naming(records, head)) and newest["text"].startswith(FINDER_OK)]
+        if not base or not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
+            return False
+        return any(self.patch_id(pr, head, base, escalate=False) == ours for head in oks)
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
         """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
         states = {}
         for pr, sha in graded.heads.items():
             if (verdict := self.finder(pr, sha)) and verdict["text"].startswith(FINDER_OK):
+                continue
+            if not verdict and self.finder_carried(pr, sha, graded.rows[pr].get("base") or ""):
                 continue
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else "no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
@@ -4098,15 +4137,14 @@ class Landing:
             self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
         return self.risky[(pr, sha)]
 
-    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
-        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
+    def head_gos(self, pr: str, head: str) -> list[dict]:
         drive = self.runner.config.drive
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
-        answered = {}
-        for pr in prs:
-            if stamps := [actions.parse_stamp(record["at"]) for record in gos if names_pr(record, pr) and any(names_head(named, heads[pr]) for named in SHORT_SHA.findall(record["text"]))]:
-                answered[pr] = max(stamps)
-        return answered
+        return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
+
+    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
+        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
+        return {pr: max(actions.parse_stamp(record["at"]) for record in gos) for pr in prs if (gos := self.head_gos(pr, heads[pr]))}
 
     def carded(self, pr: str, head: str) -> dict[str, datetime]:
         """Each reserved row a merge card the runner logged for `pr` at `head` named, with the time of the first card naming it."""
@@ -4120,9 +4158,10 @@ class Landing:
         return named
 
     def unauthorized(self, pr: str, head: str, answered: datetime) -> list[tuple[str, str]]:
-        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers and no merge card named before the owner's Merge answer at `answered` (4236611)."""
+        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers, no go at the head names by key, and no merge card named before the owner's Merge answer at `answered` (4236611)."""
         carded = self.carded(pr, head)
-        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if key not in carded or carded[key] > answered]
+        named = " ".join(record["text"] for record in self.head_gos(pr, head))
+        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if not names_key(named, key) and (key not in carded or carded[key] > answered)]
 
     def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
         """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that the answer does not cover, because no card named the row before it."""
@@ -4160,7 +4199,8 @@ class Landing:
             done = Done(127, "", f"{argv[0]} did not start: {error}")
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
-            self.runner.escalate(f"merge-card:{pr}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
+            cause = VOLATILE.sub("", why)
+            self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
         ts = json.loads(done.out)["ts"]
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": question}}))

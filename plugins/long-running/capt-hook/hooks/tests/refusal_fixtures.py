@@ -188,6 +188,24 @@ diff --git a/go/sand/internal/macharness/run.go b/go/sand/internal/macharness/ru
 +var errStalled = errors.New("stalled")
 """
 
+REFUSED_IDENTIFIERS = """\
+diff --git a/dashboard/src/iris/chat/send.ts b/dashboard/src/iris/chat/send.ts
+--- a/dashboard/src/iris/chat/send.ts
++++ b/dashboard/src/iris/chat/send.ts
+@@ -40,0 +41,2 @@ export function send() {
++  const refusedChat = response.status === 409;
++  let refuseNext = false;
+"""
+
+RUST_TESTS_RS = """\
+diff --git a/rust/crates/sandsql-api/src/admin/tests.rs b/rust/crates/sandsql-api/src/admin/tests.rs
+--- a/rust/crates/sandsql-api/src/admin/tests.rs
++++ b/rust/crates/sandsql-api/src/admin/tests.rs
+@@ -10168,0 +10169,2 @@ mod admin {
++    let max_attempts = 3;
++    assert_eq!(retries, max_attempts);
+"""
+
 DESK_RUNNER_ON_BASE = 'ESCALATION_KINDS = {"MERGE-ASK": "report", "RULING-ASK": "report"}\n'
 
 

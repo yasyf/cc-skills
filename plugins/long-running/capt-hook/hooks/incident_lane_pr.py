@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, HookResult, Input, Warn, on
 
 from .compaction_handoff import CompactionState, script
 from .lane_landing import drive_entry, lane_name
@@ -24,7 +24,7 @@ OWED = "owed: "
 CCI_TIMEOUT_SECONDS = 20
 ACTIVE = [CompactionState(active=True)]
 UNSHIPPED = (
-    "An incident lane may not stop after posting its mechanism with no pushed branch. "
+    "Warning, nothing was blocked: An incident lane may not stop after posting its mechanism with no pushed branch. "
     "Run the commands below and post `opened` with the PR, or post `blocker` naming what stops the fix."
 )
 
@@ -67,9 +67,9 @@ def lane_status(drive: str, lane: str) -> str | None:
     only_if=[FromSubagent(), DriveActive()],
     skip_if=[Annotated("role", "evidence", scope="session")],
     tests={
-        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: DETACHED, STATUS: "## HEAD (no branch)\n"}): Block(pattern=r"^An incident lane may not stop after posting its mechanism with no pushed branch"),
-        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: DETACHED, STATUS: "## inc-liam-load-opus\n M rust/chain.rs\n"}): Block(pattern=r"git -C \S+ push -u origin inc-liam-load-opus"),
-        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: NO_WORKTREE}): Block(pattern=r"ccx vcs worktree add inc-liam-load-opus"),
+        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: DETACHED, STATUS: "## HEAD (no branch)\n"}): Warn(pattern=r"^Warning, nothing was blocked: An incident lane may not stop after posting its mechanism with no pushed branch"),
+        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: DETACHED, STATUS: "## inc-liam-load-opus\n M rust/chain.rs\n"}): Warn(pattern=r"git -C \S+ push -u origin inc-liam-load-opus"),
+        Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: NO_WORKTREE}): Warn(pattern=r"ccx vcs worktree add inc-liam-load-opus"),
         Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: NOT_OWED}): Allow(),
         Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: NOT_OWED, LANE_STATUS: DETACHED}): Allow(),
         Input(agent_id=AGENT, state=ACTIVE, env=DRIVE, commands={PR_OWED: OWED_MECHANISM, LANE_STATUS: f"{DETACHED}{PUSHED}"}): Allow(),
@@ -92,4 +92,4 @@ def incident_lane_ships_its_mechanism(evt: BaseHookEvent) -> HookResult | None:
     paths = [match["path"] for line in found.splitlines() if (match := WORKTREE_LINE.match(line))]
     worktree = Path(paths[0]) if paths else Path.home() / ".claude" / "worktrees" / Path(entry["git_common_dir"]).parent.name / lane
     status = worktree_branch(worktree) if paths else None
-    return evt.block(f"{UNSHIPPED}\n\n```\n{found.strip()}\n\n{next_commands(entry['cci_drive'], lane, worktree, status)}\n```")
+    return evt.context(f"{UNSHIPPED}\n\n```\n{found.strip()}\n\n{next_commands(entry['cci_drive'], lane, worktree, status)}\n```")

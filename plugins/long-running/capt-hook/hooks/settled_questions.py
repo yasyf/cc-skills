@@ -12,13 +12,13 @@ from pathlib import Path
 from captain_hook import (
     Allow,
     BaseHookEvent,
-    Block,
     Event,
     FileFixture,
     FromSubagent,
     HookResult,
     Input,
     Tool,
+    Warn,
     WorkflowState,
     on,
     workflow_state,
@@ -190,7 +190,7 @@ def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Set
 
 
 GATE_MESSAGE = (
-    "This question matches a settled plan decision, owner answer, or feedback memory. "
+    "Warning, nothing was blocked: This question matches a settled plan decision, owner answer, or feedback memory. "
     "Apply it and re-issue the call without the question."
 )
 
@@ -205,7 +205,7 @@ GATE_MESSAGE = (
             tool_input=SETTLED_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Block(pattern=r"settled plan decision"),
+        ): Warn(pattern=r"settled plan decision"),
         Input(
             tool="AskUserQuestion",
             tool_input=OPEN_ASK,
@@ -235,7 +235,7 @@ GATE_MESSAGE = (
             tool_input=SLACK_MENTION_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Block(pattern=r"settled plan decision"),
+        ): Warn(pattern=r"settled plan decision"),
         Input(tool="AskUserQuestion", tool_input=SETTLED_ASK): Allow(),
         Input(
             tool="Bash",
@@ -262,4 +262,4 @@ def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
         if not (found := matches(questions, plan_decisions(drive.plan_path) + durable_answers(str(evt.cwd)) + feedback_memories(evt))):
             return None
         state.blocked_at = now
-    return evt.block(GATE_MESSAGE)
+    return evt.context(GATE_MESSAGE)

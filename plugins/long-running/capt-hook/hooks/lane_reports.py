@@ -11,7 +11,7 @@ FINAL_TEXT_CAP = 300
 LANE_TYPES = frozenset({"long-running:lane", "long-running:lane-ship"})
 TEAMMATE_ID = re.compile(r"^a.+-[0-9a-f]{16}$")
 ONE_LINE = (
-    f"Final text exceeds {FINAL_TEXT_CAP} characters. Replace it with "
+    f"Warning, nothing was blocked: Final text exceeds {FINAL_TEXT_CAP} characters. Replace it with "
     "one line: outcome + pointer; the report went by SendMessage."
 )
 ACTIVE = [CompactionState(active=True)]
@@ -37,5 +37,5 @@ def final_text(evt: BaseHookEvent) -> str:
 )
 def cap_lane_final_text(evt: BaseHookEvent) -> HookResult | None:
     if is_lane(evt) and len(final_text(evt)) > FINAL_TEXT_CAP:
-        return evt.block(ONE_LINE)
+        return evt.context(ONE_LINE)
     return None

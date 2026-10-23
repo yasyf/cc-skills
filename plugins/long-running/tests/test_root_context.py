@@ -10,7 +10,6 @@ from captain_hook.app import _state
 from captain_hook.conditions import matches_conditions
 from captain_hook.dispatch import execute_hook
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, UserPromptSubmitEvent
-from captain_hook import CONFIRMED, UNCONFIRMED
 from captain_hook.testing.helpers import StubbedContext, build_context
 
 from hooks import nudges, root_context
@@ -39,14 +38,11 @@ class Root:
         self.plan.write_text(LONG)
         (home / "src" / ".git").mkdir(parents=True)
         self.verdict: dict = {}
-        self.decisions: dict = CONFIRMED
         CompactionState(active=True, plan_path=str(self.plan), slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.home)}
-        ctx = StubbedContext.wrapping(
-            build_context(session_dir=self.session_dir), llm=self.verdict, decisions=self.decisions
-        )
+        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir), llm=self.verdict)
         return cls(_raw=payload | raw, ctx=ctx)
 
     def file(self, relative: str, content: str = LONG) -> Path:
@@ -118,10 +114,10 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, notes: Notes) -> Root:
     "relative",
     ["scratch/audits/plan-deviation.md", "scratch/parity/briefs/l17.md", "scratch/handoffs/orca-desk.md", "x/tool-results/b1.txt", "p/agent-a1.jsonl"],
 )
-def test_lane_artifacts_block_at_any_size(root: Root, relative: str) -> None:
+def test_lane_artifacts_warn_at_any_size(root: Root, relative: str) -> None:
     message = root.read(root.file(relative, "one line\n"))
 
-    assert message is not None and message.startswith("Lane artifacts are read by a lane")
+    assert message is not None and message.startswith("Warning, nothing was blocked: Lane artifacts are read by a lane")
 
 
 def test_the_plan_and_progress_folder_read_in_full(root: Root) -> None:
@@ -142,7 +138,7 @@ def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) 
     assert root.read(root.file("notes.md")) is None
 
 
-def test_reads_of_inbox_files_go_to_the_digest_and_repo_files_block(root: Root) -> None:
+def test_reads_of_inbox_files_go_to_the_digest_and_repo_files_warn(root: Root) -> None:
     root.file("scratch/inbox/orca-desk.md")
     root.file("src/app.py")
 
@@ -201,16 +197,12 @@ def test_logged_bounded_single_file_reads_pass_without_the_model(root: Root, fil
         ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C09G3N98YM6", "thread_ts": "1790890875.742979"}),
     ],
 )
-@pytest.mark.parametrize("block", [True, False])
-def test_logged_control_plane_reads_go_to_the_model(
-    root: Root, message: str, tool: str, tool_input: dict, block: bool
-) -> None:
+def test_logged_control_plane_reads_warn(root: Root, message: str, tool: str, tool_input: dict) -> None:
     root.file("scratch/release-v3/orca-waiter/batches.jsonl", '{"from": "orca"}\n')
-    root.decisions = CONFIRMED if block else UNCONFIRMED
 
     result = root.pre(tool, tool_input) or ""
 
-    assert result.startswith(message) if block else result == ""
+    assert result.startswith(f"Warning, nothing was blocked: {message}")
 
 
 @pytest.mark.parametrize("command", ["ls -d {home}/scratch", "ls {home}/scratch", "ls -la {home}/scratch"])
@@ -232,11 +224,11 @@ def test_a_directory_listing_passes(root: Root, command: str) -> None:
         "head -n 5 src/*.py",
     ],
 )
-def test_an_unbounded_or_second_read_still_blocks(root: Root, command: str) -> None:
+def test_an_unbounded_or_second_read_still_warns(root: Root, command: str) -> None:
     root.file("src/app.py")
     root.file("src/cli.py")
 
-    assert (root.bash(command) or "").startswith("File reads")
+    assert (root.bash(command) or "").startswith("Warning, nothing was blocked: File reads")
 
 
 @pytest.mark.parametrize("command", ["ccx vcs status | grep src", "ccx vcs status | jq .", "echo x | sed -n 1p"])
@@ -246,7 +238,7 @@ def test_filters_over_piped_output_pass_even_when_the_pattern_names_a_path(root:
     assert root.bash(command) is None
 
 
-def test_oversized_mcp_response_blocks_its_next_call(root: Root) -> None:
+def test_oversized_mcp_response_warns_on_its_next_call(root: Root) -> None:
     assert root.pre("mcp__linear__get_issue", {"id": "ENG-1"}) is None
 
     warning = root.post("mcp__linear__get_issue", {"id": "ENG-1"}, [{"type": "text", "text": "x" * 9000}])
@@ -357,7 +349,7 @@ def test_an_unrecorded_standing_rule_leaves_no_stop_nudge(root: Root, notes: Not
         "grep -n x src/app.py > {home}/scratch/hits.txt",
     ],
 )
-def test_writes_and_drive_scratch_reads_never_block(root: Root, command: str) -> None:
+def test_writes_and_drive_scratch_reads_never_warn(root: Root, command: str) -> None:
     for relative in (
         "scratch/release-v3/register/rules.md",
         "scratch/release-v3/structural-fixes/audit.md",

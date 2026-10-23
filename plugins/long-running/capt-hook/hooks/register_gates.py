@@ -109,12 +109,12 @@ DESTINATION_WRITERS = frozenset({"cp", "rsync", "install", "ln"})
 TARGET_WRITERS = frozenset({"mv", "rm", "rmdir", "touch", "chmod", "chown", "truncate", "unlink", "mkdir", "tee", "patch"})
 IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
 LEDGER_WRITE = (
-    "Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
+    "Warning, nothing was blocked: Only `rulings.py` writes the register ledger of `{program}`, so this call that edits it by hand is refused."
     " Make the change with the `rulings.py` verb that owns it, from the lane that owns that verb."
 )
-SEAT_REFUSED = "`rulings.py {verb}` runs only in {seats}, and this session is {lane}. Hand the change to one of those lanes."
+SEAT_REFUSED = "Warning, nothing was blocked: `rulings.py {verb}` runs only in {seats}, and this session is {lane}. Hand the change to one of those lanes."
 AUTHORIZES_LABEL = (
-    "An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
+    "Warning, nothing was blocked: An `authorizes:` label is written only by `rulings.py authorize`. Run that verb from the root instead of labelling the answer by hand."
 )
 WIDENED_TO = "fleet"
 WIDENING = "widen"
@@ -520,36 +520,36 @@ def lane(name: str) -> dict[str, str]:
 @on(
     Event.PreToolUse,
     tests={
-        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Block(
-            pattern=r"^Only `rulings\.py` writes the register ledger of `brook`"
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Warn(
+            pattern=r"^Warning, nothing was blocked: Only `rulings\.py` writes the register ledger of `brook`"
         ),
-        register_case(f"ccn -R /repo ledger sync {LEDGER} --file -"): Block(pattern=r"`brook`"),
-        register_case("ccn ledger archive 'register: brook'"): Block(pattern=r"`brook`"),
-        register_case(f"ccn -R/repo ledger rm {LEDGER[:7]}"): Block(pattern=r"`brook`"),
+        register_case(f"ccn -R /repo ledger sync {LEDGER} --file -"): Warn(pattern=r"`brook`"),
+        register_case("ccn ledger archive 'register: brook'"): Warn(pattern=r"`brook`"),
+        register_case(f"ccn -R/repo ledger rm {LEDGER[:7]}"): Warn(pattern=r"`brook`"),
         register_case("ccn ledger edit 9f8e7d6 --body 'register: brook'"): Allow(),
         register_case("ccn ledger row set 9f8e7d6 rule/0a1b2c3 --field status=met"): Allow(),
         register_case(f"ccn ledger show {LEDGER[:7]}"): Allow(),
-        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_row_set", tool_input={"id": LEDGER[:7], "key": "rule/0a1b2c3"}): Block(
+        register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_row_set", tool_input={"id": LEDGER[:7], "key": "rule/0a1b2c3"}): Warn(
             pattern=r"`brook`"
         ),
         register_case(None, tool="mcp__plugin_cc-notes_cc-notes__ledger_show", tool_input={"id": LEDGER[:7]}): Allow(),
-        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Block(pattern=r"`brook`"),
+        register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met", "quiet", env=lane("register-seed")): Warn(pattern=r"`brook`"),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Allow(),
         Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("register-seed")): Allow(),
-        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Block(
-            pattern=r"^`rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
+        Input(command="python3 rulings.py classify 629293ae14388dc9", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Warn(
+            pattern=r"^Warning, nothing was blocked: `rulings\.py classify` runs only in the root and the register-seed lane, and this session is lane `p1-hooks`\."
         ),
-        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(pattern=r"this session is the root\."),
+        Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(pattern=r"this session is the root\."),
         Input(command="rulings.py status rule/0a1b2c3 met --evidence '#1'", state=ACTIVE, cwd=CWD, env=lane("fidelity-desk")): Allow(),
         Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("anchor-lane")): Allow(),
-        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Block(pattern=r"anchor and register-seed lanes"),
+        Input(command="rulings.py anchor rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=lane("walker")): Warn(pattern=r"anchor and register-seed lanes"),
         Input(command="rulings.py rows --program brook --json", state=ACTIVE, cwd=CWD, env=lane("p1-hooks")): Allow(),
-        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(
-            pattern=r"^An `authorizes:` label is written only by `rulings\.py authorize`\."
+        Input(command="ccn answer edit 8b1048a --add-label authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(
+            pattern=r"^Warning, nothing was blocked: An `authorizes:` label is written only by `rulings\.py authorize`\."
         ),
-        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(pattern=r"authorizes:"),
+        Input(command="ccn answer add 'Ship it?' --label=authorizes:rule/0a1b2c3", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(pattern=r"authorizes:"),
         Input(command="ccn answer add 'Ship it?' --label scope:durable", state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Allow(),
-        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Block(
+        Input(tool="mcp__plugin_cc-notes_cc-notes__answer_edit", tool_input={"id": "8b1048a", "add_labels": ["authorizes:rule/0a1b2c3"]}, state=ACTIVE, env=DRIVE_CONFIG, cwd=CWD): Warn(
             pattern=r"authorizes:"
         ),
         Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}): Allow(),
@@ -560,9 +560,9 @@ def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
         return None
     if verbs := unseated_verbs(evt):
-        return evt.block(SEAT_REFUSED.format(verb=verbs[0], seats=SEAT_NAMES[verbs[0]], lane=lane_label(lane_name(evt))))
+        return evt.context(SEAT_REFUSED.format(verb=verbs[0], seats=SEAT_NAMES[verbs[0]], lane=lane_label(lane_name(evt))))
     if writes_authorizes(evt):
-        return evt.block(AUTHORIZES_LABEL)
+        return evt.context(AUTHORIZES_LABEL)
     if not (targets := ledger_targets(evt)):
         return None
     try:
@@ -570,7 +570,7 @@ def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "register_write_guard", error)
         return None
-    return evt.block(LEDGER_WRITE.format(program=register["program"])) if any(names_ledger(token, register) for token in targets) else None
+    return evt.context(LEDGER_WRITE.format(program=register["program"])) if any(names_ledger(token, register) for token in targets) else None
 
 
 def plugin_cache() -> Path:

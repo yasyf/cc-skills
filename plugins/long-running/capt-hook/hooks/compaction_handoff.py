@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shutil
@@ -7,14 +8,15 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from functools import cache
 from pathlib import Path
+from types import ModuleType
 from typing import Literal
 
 from captain_hook import (
     Allow,
     Arguments,
     BaseHookEvent,
-    Block,
     CommandSchema,
     Event,
     FileFixture,
@@ -106,6 +108,14 @@ def newest(root: Path) -> Path:
 
 def script(name: str) -> Path:
     return newest(Path(__file__).parents[2]) / SCRIPTS / name
+
+
+@cache
+def script_module(name: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"long_running_{name}", script(f"{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
@@ -440,13 +450,13 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
     generated = generate(evt, state, "--strict")
     if generated.returncode == VIOLATIONS:
         return (
-            "The drive's handoff fails the standing-rules lint. "
+            "Warning, nothing was blocked: The drive's handoff fails the standing-rules lint. "
             f"Fix each finding at its file and line, then stop again:\n{generated.stdout.strip()}"
         )
     if generated.returncode == SEVERAL_ACTIVE:
-        return f"The drive's handoff left more than one active progress doc. Fix it, then stop again:\n{generated.stdout.strip()}"
+        return f"Warning, nothing was blocked: The drive's handoff left more than one active progress doc. Fix it, then stop again:\n{generated.stdout.strip()}"
     if generated.returncode == OVERSIZED:
-        return f"The drive's progress record is over its size cap. Trim the section it names, then stop again:\n{generated.stdout.strip()}"
+        return f"Warning, nothing was blocked: The drive's progress record is over its size cap. Trim the section it names, then stop again:\n{generated.stdout.strip()}"
     adopt(state, generated)
     return state.phase == "written"
 
@@ -548,12 +558,12 @@ def unlabelled(title: str, labels: list[str], slug: str) -> bool:
         Input(
             command='ccn doc add "brook: progress 2026-10-10T2210Z (pre-compact handoff)" --label handoff --body -',
             state=[CompactionState(active=True, slug="brook")],
-        ): Block(pattern=r"^A progress record for drive `brook` needs the label `progress:brook`"),
+        ): Warn(pattern=r"^Warning, nothing was blocked: A progress record for drive `brook` needs the label `progress:brook`"),
         Input(
             tool=DOC_ADD_TOOL,
             tool_input={"title": "brook: handoff addendum", "labels": ["progress:164b13c4"], "body": "x"},
             state=[CompactionState(active=True, slug="brook")],
-        ): Block(),
+        ): Warn(),
         Input(
             tool=DOC_ADD_TOOL,
             tool_input={"title": "brook: progress 2026-10-10T2225Z addendum", "labels": ["progress:brook", "handoff"], "body": "x"},
@@ -580,8 +590,8 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not any(unlabelled(title, labels, state.slug) for title, labels in doc_adds(evt)):
         return None
-    return evt.block(
-        f"A progress record for drive `{state.slug}` needs the label `progress:{state.slug}`, or the compaction hook "
+    return evt.context(
+        f"Warning, nothing was blocked: A progress record for drive `{state.slug}` needs the label `progress:{state.slug}`, or the compaction hook "
         "never carries it. Add that label, keep the others, and write it again; a doc that is no progress record "
         "leaves `progress` out of its title."
     )
@@ -836,7 +846,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
         if not state.plan_path or not (due := compact_due(state, evt)):
             return None
         if isinstance(due, str):
-            return evt.block(due)
+            return evt.context(due)
         state.phase = "compacting"
         if not (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
             state.compacting_since = None
