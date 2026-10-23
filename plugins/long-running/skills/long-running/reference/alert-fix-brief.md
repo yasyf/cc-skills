@@ -47,7 +47,11 @@ Do:
      the two and why. A brief that names no such reason is a fix forward; never
      read a rollback into it.
   1. Start at the code path the alert names while evidence is still arriving.
-     Never wait for a diagnosis verdict.
+     Never wait for a diagnosis verdict. Your first deliverable, before any fix, is
+     the whole failing path: every stage from the user's action to the error that
+     can fail, one line each with the telemetry that shows whether it failed.
+     Attach it with `--path` to your `MECHANISM` record. A fix to one stage of a
+     path you have not mapped is not the fix.
   2. Before you name a mechanism, read the last 24 hours of the
      production-operations log:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
@@ -61,6 +65,9 @@ Do:
      - `MECHANISM {lane}: <mechanism, one line>`, kind `mechanism`, within 10
        minutes of launch. Past that the desk launches `{lane}-opus`, an Opus
        fallback on this brief, in parallel. Keep working; the first PR wins.
+       When the owner asks for a smarter lane, that same `{lane}-opus`, Claude
+       Opus 5.5 in fast mode, is the escalation, launched at once; never Fable or
+       astra.
      - The PR, within 15 minutes, as its `opened` record. In a Claude session
        `ccx vcs ship` posts it for you; in a Codex session run the
        `drive.py record --opened` line under `## PR record` right after the ship.
