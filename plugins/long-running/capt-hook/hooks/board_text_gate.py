@@ -55,6 +55,8 @@ SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\
 FIDELITY_TEXT = re.compile(r"^fidelity: ok text (?P<sha>[0-9a-f]{12})\b")
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
+CAPTURE_LOG = "owner-prompts"
+CAPTURE_FORMAT = "jsonl"
 TEXT = "text"
 REFUSAL = "Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 
@@ -247,7 +249,7 @@ def swept(reads: Reads, item: Published) -> list[re.Match[str]] | None:
 
 
 def said(reads: Reads, register: dict) -> list[str] | None:
-    path = Path(register["state_dir"]) / "owner-prompts.jsonl"
+    path = Path(register["state_dir"]) / f"{CAPTURE_LOG}.{CAPTURE_FORMAT}"
 
     def load() -> list[str]:
         return [json.loads(line)["text"] for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
@@ -332,7 +334,7 @@ def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
     return problems
 
 
-def gate(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[str, ...] = (), minutes: int = 5, revised: tuple[str, ...] = (), **extra: object) -> Input:
+def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[str, ...] = (), minutes: int = 5, revised: tuple[str, ...] = (), **extra: object) -> Input:
     commands = {
         f"{RULINGS} rows": ROWS,
         f"{RULINGS} sweep": sweep_out,
@@ -354,17 +356,17 @@ def gate(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[str
 
 
 def update(name: str, **extra: object) -> Input:
-    return gate(f"cc-present update-block {board(name)}", reviewed=(sha12(name),), **extra)
+    return posting(f"cc-present update-block {board(name)}", reviewed=(sha12(name),), **extra)
 
 
 def reply(name: str, **extra: object) -> Input:
     text = board(name).read_text()
-    return gate(f"cc-present reply --block r3-confirm-loops --body {shlex.quote(text)}", reviewed=(hashlib.sha256(text.encode()).hexdigest()[:12],), **extra)
+    return posting(f"cc-present reply --block r3-confirm-loops --body {shlex.quote(text)}", reviewed=(hashlib.sha256(text.encode()).hexdigest()[:12],), **extra)
 
 
 def exits(name: str, **extra: object) -> Input:
     state = [CompactionState(active=True, slug="brook", plan_path=str(board(name)))]
-    return gate(tool="ExitPlanMode", tool_input={"plan": board(name).read_text()}, state=state, **extra)
+    return posting(tool="ExitPlanMode", tool_input={"plan": board(name).read_text()}, state=state, **extra)
 
 
 @on(
@@ -377,7 +379,7 @@ def exits(name: str, **extra: object) -> Input:
             pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
         ),
         reply("reply-4ae100d5.redraft.md"): Allow(),
-        gate(f"cc-present push {board('r3-titles.redraft.json')}"): Block(pattern=r"no fidelity desk review names"),
+        posting(f"cc-present push {board('r3-titles.redraft.json')}"): Block(pattern=r"no fidelity desk review names"),
         update("clean-card.json", minutes=90): Block(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
         update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Block(pattern=r"no hourly sweep pass is logged for brook"),
         update("strike-update.json", revised=("share-open",)): Block(pattern=r"share-open: an update after a strike names no sweep hit count"),
@@ -385,9 +387,9 @@ def exits(name: str, **extra: object) -> Input:
         update("strike-update.json"): Allow(),
         update("only-these.json", sweep_out=held_copy_hit("plan.md")): Block(pattern=r"says these changes only while the sweep has 1 open hits"),
         update("only-these.json"): Allow(),
-        gate(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF", reviewed=(HEREDOC_SHA,)): Allow(),
-        gate(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Block(pattern=HEREDOC_SHA),
-        gate(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
+        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF", reviewed=(HEREDOC_SHA,)): Allow(),
+        posting(f"cc-present update-block - <<'EOF'\n{HEREDOC}EOF"): Block(pattern=HEREDOC_SHA),
+        posting(f"cc-present update-block {board('r3-titles.pre-grade.json')} --dry-run"): Allow(),
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": "brook"}): Block(pattern=r"r3-build: the title does not end"),
         update("r3-titles.pre-grade.json", state=[]): Allow(),
         update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
@@ -396,13 +398,13 @@ def exits(name: str, **extra: object) -> Input:
         update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Block(
             pattern=r"no fidelity desk review names"
         ),
-        gate(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Block(
+        posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Block(
             pattern=r"the document: decision text outside a choice or approval, \"Answer only to change\""
         ),
-        gate(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Block(
+        posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Block(
             pattern=r"share-open: the title does not end"
         ),
-        gate("ls -la"): Allow(),
+        posting("ls -la"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
         exits("plan.md"): Block(pattern=r"no fidelity desk review names the plan"),
         exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Block(
