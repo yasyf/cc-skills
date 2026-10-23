@@ -1,0 +1,1 @@
+{"digest": "5f1d2c3b4a596877", "text": "what is a relay slot? why is this here?", "term": "relay slot", "sentence": "A relay slot polls its queue every 30 seconds on workers and laptops", "rows": ["rule/0a1b2c3"], "blocks": ["c7-timers"], "closed": "reply c7-timers"}
