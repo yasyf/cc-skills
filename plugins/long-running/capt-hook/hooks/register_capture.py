@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from itertools import dropwhile, takewhile
 from pathlib import Path
 
@@ -15,10 +15,10 @@ from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
-from .root_context import PACIFIC, DriveActive, OwnerPrompt, message_label
+from .root_context import DriveActive, OwnerPrompt, message_label
 from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
 
-STAMP = "%Y-%m-%d %-I:%M %p PT"
+STAMP = "%Y-%m-%dT%H:%M:%SZ"
 TRIGGERS = (
     ("what", "is"),
     ("whats",),
@@ -106,7 +106,7 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
     with PendingPrompts.mutate(evt) as pending:
         seen = stamps(evt)
         pending.prompts = [
-            prompt | {"at": seen[key].astimezone(PACIFIC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt["text"])) in seen else prompt
+            prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt["text"])) in seen else prompt
             for prompt in pending.prompts
         ]
         if not (landed := [capture(prompt) for prompt in pending.prompts if "at" in prompt]):

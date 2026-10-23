@@ -103,6 +103,7 @@ REPEAT_MARKERS = re.compile(
 )
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 QUOTED_WORDS = 4
+CAPTURE_STAMP = "%Y-%m-%d %I:%M %p PT"
 PLAIN_WORDS = 3
 PLACEMENT = re.compile(
     r"\b(?:lives?|belongs?|goes|put|puts|placed?|home)\b(?:\W+\w+){0,6}?\W+(?:in|into|inside|outside|under)\b"
@@ -295,8 +296,12 @@ def card_id(key: str) -> str:
     return key.replace("/", ":")
 
 
+def captured_at(at: str) -> datetime:
+    return datetime.strptime(at, CAPTURE_STAMP).replace(tzinfo=PACIFIC) if at.endswith(" PT") else datetime.fromisoformat(at)
+
+
 def pacific(at: str) -> str:
-    moment = datetime.fromisoformat(at).astimezone(PACIFIC)
+    moment = captured_at(at).astimezone(PACIFIC)
     return f"{moment:%b %d} {moment.hour % 12 or 12}:{moment:%M %p} PT"
 
 
@@ -743,7 +748,7 @@ def new_key(entry: dict, capture: dict) -> str:
         return entry["key"]
     if answers := entry.get("answer"):
         return f"rule/{answers[0][:SHORT]}"
-    return f"prompt/{datetime.fromisoformat(capture['at']).astimezone(PACIFIC):%m%d-%H%M%S}"
+    return f"prompt/{captured_at(capture['at']).astimezone(PACIFIC):%m%d-%H%M%S}"
 
 
 @dataclass

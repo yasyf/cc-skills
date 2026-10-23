@@ -120,7 +120,7 @@ def test_an_owner_prompt_lands_with_its_transcript_stamp_at_the_next_hook(root):
     root.fire(StopEvent)
 
     assert root.captures() == [
-        {"digest": digest("keep the nightly report"), "at": "2026-10-23 4:20 AM PT", "session": SESSION, "source": "prompt", "text": "keep the nightly report"}
+        {"digest": digest("keep the nightly report"), "at": "2026-10-23T11:20:00Z", "session": SESSION, "source": "prompt", "text": "keep the nightly report"}
     ]
 
 
@@ -132,7 +132,7 @@ def test_a_prompt_whose_line_has_not_landed_waits_for_a_later_hook(root):
     root.typed("ship the register gates", "2026-10-23T11:31:00.000Z")
     root.fire(StopEvent)
 
-    assert [capture["at"] for capture in root.captures()] == ["2026-10-23 4:31 AM PT"]
+    assert [capture["at"] for capture in root.captures()] == ["2026-10-23T11:31:00Z"]
 
 
 def test_a_queued_prompt_takes_its_queued_command_stamp(root):
@@ -140,7 +140,7 @@ def test_a_queued_prompt_takes_its_queued_command_stamp(root):
     root.prompt("how many times do we rerun the export?")
     root.fire(StopEvent)
 
-    assert [capture["at"] for capture in root.captures()] == ["2026-10-22 12:43 PM PT"]
+    assert [capture["at"] for capture in root.captures()] == ["2026-10-22T19:43:49Z"]
 
 
 def test_a_what_is_question_marks_its_block_and_names_the_rows_bearing_on_it(root):
