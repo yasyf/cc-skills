@@ -57,9 +57,9 @@ ACTIVE = [CompactionState(active=True)]
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Warning, nothing was blocked: Launch the incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or as an Agent named `<name>-fix` "
-    "once `desk-launch.py refused <name>-fix --session <id>` prints a load refusal. "
-    "A support lane's brief says `ccx: role=<role>`; a non-incident fix lane says `ccx: incident=none`."
+    "Warning, nothing was blocked: Launch an incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or an Agent named `<name>-fix` "
+    "once `desk-launch.py refused <name>-fix --session <id>` refuses for load. "
+    "Support briefs say `ccx: role=<role>`; a non-incident fix lane, `ccx: incident=none`."
 )
 REFUSAL = [sys.executable, str(script("desk-launch.py")), "refused"]
 REFUSED = " ".join(REFUSAL)

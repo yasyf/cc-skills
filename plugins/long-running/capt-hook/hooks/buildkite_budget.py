@@ -30,8 +30,8 @@ LOGS = "logs"
 POLL = "poll"
 
 LOGS_MESSAGE = (
-    "Warning, nothing was blocked: Dumping Buildkite logs job by job drains the org REST budget Platy's release reads share."
-    " Fetch them one at a time with `sleep 2` or more between fetches, or make one build-level call,"
+    "Warning, nothing was blocked: Dumping Buildkite logs job by job drains the org REST budget release reads share."
+    " Fetch them one at a time with `sleep 2` between fetches, or make one build-level call,"
     " `bk build view <build> -p <pipeline> --json`, then `bk job log <id>` for the one job you need."
 )
 POLL_MESSAGE = (

@@ -36,8 +36,8 @@ PR_REF = re.compile(r"#(\d+)\b")
 ORDER_KINDS = {"go", "decision", "decide"}
 PLUGIN_VERBS = frozenset({"update", "install", "uninstall", "enable", "disable"})
 UNCAUSED_UNDO = (
-    "Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record naming this build; a rollback, or a cancel during an open incident, also needs an owner answer ordering it."
-    " Rerun citing them, such as `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
+    "Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record naming this build; a rollback, or a cancel during an incident, also needs an owner answer ordering it."
+    " Cite them, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
 )
 UNORDERED_REVERT = (
     "A revert runs only on an owner answer that orders this revert; suspected regressions are fixed forward."
