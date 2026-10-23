@@ -1337,10 +1337,10 @@ def transcript(home: Path, *entries: dict) -> None:
     path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
 
 
-def card_posted(body: str, label: str = "Merge") -> list[dict]:
+def card_posted(body: str, label: str = "Merge", action_id: str = "merge-12") -> list[dict]:
     tool = {"type": "tool_use", "id": "toolu_1", "name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "input": {"card": {"title": "Merge #12?", "body": body}}}
     result = {"type": "tool_result", "tool_use_id": "toolu_1", "content": json.dumps({"ok": True, "ts": CARD_TS})}
-    action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": label, "id": "merge-12"}
+    action = {"type": "slack.action", "ts": CARD_TS, "action_ts": TAP_TS, "label": label, "id": action_id}
     channel = f'<channel source="plugin:cc-slack:cc-slack" type="slack.action">\n{json.dumps(action, separators=(",", ":"))}\n</channel>'
     return [
         {"type": "assistant", "message": {"content": [tool]}},
@@ -1380,6 +1380,20 @@ def test_authorize_refuses_a_go_with_no_tap_a_card_or_answer_naming_no_row_and_a
     assert refused([OWNER_TAP], "--row", "rule/bbbbbbb", "--action", TAP_TS) == "AUTHORIZE-CARD-NAMES-NO-ROW"
     assert refused([silent], "--row", "rule/aaaaaaa", "--action", TAP_TS) == "AUTHORIZE-ANSWER-NAMES-NO-ROW"
     assert refused([OWNER_TAP], "--row", "rule/aaaaaaa", "--prompt", "d" * 16) == "AUTHORIZE-PROMPT-NAMES-NO-ROW"
+
+
+def test_authorize_refuses_a_merge_card_tap_for_a_reserved_row_its_pr_does_not_touch(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = seeded(package)
+    rows["rule/aaaaaaa"] |= {"kind": "reserved", "ops": '["*drain*"]'}
+    transcript(home, *card_posted(QUOTING_CARD, action_id="merge:12:cafef00d"))
+
+    untouched = RegisterShell(rows, answers=[OWNER_TAP], diff=DIFF.replace("self.drain();", "self.close();"))
+    assert ran(capsys, untouched, "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (
+        1,
+        "AUTHORIZE-ROW-UNTOUCHED rule/aaaaaaa: #12 at cafef00d changes nothing rule/aaaaaaa covers, so the tap authorizes nothing\n",
+    )
+    assert "authorizes:rule/aaaaaaa" not in untouched.answers[0]["tags"]
+    assert ran(capsys, RegisterShell(rows, answers=[OWNER_TAP], diff=DIFF), "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (0, "authorized rule/aaaaaaa by 1111111\n")
 
 
 @pytest.mark.parametrize("label", ["Hold", "Right", "Some wrong"])

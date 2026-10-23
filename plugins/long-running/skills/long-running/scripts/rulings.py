@@ -170,6 +170,9 @@ IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE 
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
 RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
+IDENTIFIER = re.compile(r"\w+")
+PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
+MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
     r"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?P<go>Test\w+)\s*\(|(?:async\s+)?def\s+(?P<py>test_\w+)\s*\("
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
@@ -1504,6 +1507,11 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if not quotes_row(shown, key, fields):
             print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
             return 1
+        if fields.get("kind") == "reserved" and (merge := MERGE_CARD.fullmatch(str(action.get("id") or ""))):
+            repo = ledger.origin_repo(shell, Path(args.repo))
+            if not reserved_hit(fields, pr_diff(args, shell, repo, base_of(shell, repo, merge["pr"]), merge["head"])):
+                print(f"AUTHORIZE-ROW-UNTOUCHED {key}: #{merge['pr']} at {merge['head']} changes nothing {key} covers, so the tap authorizes nothing")
+                return 1
         permalink = f"p{action['ts'].replace('.', '')}"
         found = [
             answer
@@ -1641,12 +1649,20 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
 
 
 def op_hits(op: str, diff: Diff) -> bool:
+    """Whether the diff's added code, test and prose files aside, does what `op` names: a path glob names a changed file, a glob with a space a command line, any other glob a whole identifier, matched case and all, and a bare name a whole word."""
     added = [(file, text) for file, _, text in diff.added if not testfiles.test_file(file)]
     if "/" in op:
         return any(fnmatch.fnmatchcase(file, op) for file, _ in added)
+    code = [text for file, text in added if Path(file).suffix not in PROSE_SUFFIXES]
+    if any(char.isspace() for char in op):
+        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for text in code)
     if any(char in op for char in "*?["):
-        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for _, text in added)
-    return any(named(text, op) for _, text in added)
+        return any(fnmatch.fnmatchcase(token, op) for text in code for token in IDENTIFIER.findall(text))
+    return any(named(text, op) for text in code)
+
+
+def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
+    return any(op_hits(op, diff) for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED)
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:
@@ -1746,8 +1762,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}")
     touches = {found[1] for record in records or [] if record.get("kind") == "review" for found in TOUCHES.finditer(record.get("text") or "")}
     for key, fields in rulings.items():
-        ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
-        if fields.get("kind") == "reserved" and (key in touches or any(op_hits(op, head.diff) for op in ops)):
+        if fields.get("kind") == "reserved" and (key in touches or reserved_hit(fields, head.diff)):
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
                 findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []

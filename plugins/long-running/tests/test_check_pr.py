@@ -175,6 +175,25 @@ diff --git a/go/sand/corpus_test.go b/go/sand/corpus_test.go
     assert check(capsys, CheckShell(pinned(package), diff=fake)) == (0, [])
 
 
+MAC_EVICT = dict(RESERVED, words="Your tap on the eviction release's merge card is also its authorization to delete chat files on Macs.", ops='["go/sand/cmd/*evict*", "*Remove*", "*evict*"]')
+
+
+def added(path: str, line: str) -> str:
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,1 +1,2 @@\n context\n+{line}\n"
+
+
+def test_a_reserved_row_matches_its_code_paths_and_identifiers_never_test_helpers_or_prose(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package) | {"reserved/mac-evict": MAC_EVICT}
+    browser_stub = DIFF + added("dashboard/src/iris/testing/dom.ts", "removeEventListener() {},") + added("dashboard/src/iris/chat.ts", "window.removeEventListener('blur', onBlur)")
+    prose = DIFF + added("docs/chats.md", "Old chats are evicted and Removed from the Mac.")
+    refused = (1, ["RESERVED-NO-ANSWER reserved/mac-evict\tYour tap on the eviction release's merge card is also its authorization to delete chat files on Macs."])
+
+    assert check(capsys, CheckShell(rows, diff=browser_stub)) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=prose)) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "os.RemoveAll(dir)"))) == refused
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "evict(session)"))) == refused
+
+
 def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     plan = tmp_path / "plan.md"
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
