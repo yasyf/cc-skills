@@ -461,15 +461,13 @@ descriptor:
         mv plugin.json.tmp plugin/.claude-plugin/plugin.json
     - name: Validate descriptor
       run: binrun -- parse plugin/bin/<name>.binrun
-    - name: Move the tag onto the synced descriptor and land it on main
+    - name: Land the synced descriptor and manifest on main
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git add plugin/bin/<name>.binrun plugin/.claude-plugin/plugin.json
         if ! git diff --cached --quiet; then
           git commit -m "chore(release): sync <name>.binrun + manifest to ${GITHUB_REF_NAME}"
-          git tag -fa "${GITHUB_REF_NAME}" -m "${GITHUB_REF_NAME}"
-          git push --force origin "refs/tags/${GITHUB_REF_NAME}"
         fi
         git fetch origin main
         if ! git merge-base --is-ancestor HEAD origin/main; then
@@ -481,17 +479,13 @@ descriptor:
       run: gh release upload "${GITHUB_REF_NAME}" plugin/bin/<name>.binrun --repo "${GITHUB_REPOSITORY}" --clobber
 ```
 
-A marketplace that pins a plugin with `ref: vX.Y.Z` installs the tag's own tree, so the tag must
-carry the descriptor and manifest for its own assets. The job checks out the tag, commits the
-rendered pair on top of the tagged commit, and force-moves the tag onto that commit. The binaries
-were built from its parent, and the two commits differ only in those two files. The job then
-replays the commit onto `main`, a fast-forward unless `main` moved during the release. Never commit
-the sync on `main` alone after tagging, since the tag then carries the previous release's
-descriptor, or none on the first release.
+The job commits the rendered pair on top of the tagged commit and replays that commit onto `main`,
+which the marketplace serves. It never moves the tag. Release tags are immutable, and a repo with a
+tag ruleset rejects the force-push. The tag's own tree therefore carries the previous release's
+descriptor, so a marketplace tracks `main` and never pins `ref: vX.Y.Z`.
 
-A rerun changes nothing once the tag carries the pair and
-`main` contains it. A `dynamic` descriptor skips this job entirely, because its body never changes
-and is committed once.
+A rerun changes nothing once `main` contains the pair. A `dynamic` descriptor skips this job
+entirely, because its body never changes and is committed once.
 
 The descriptor's `format`/`path`/`providers.name` reference whichever archive the release publishes.
 binrun itself ships `tar.gz`; a plugin that keeps a bare-binary asset publishes it as a
