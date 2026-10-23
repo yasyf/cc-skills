@@ -3484,7 +3484,10 @@ def test_an_incident_fix_check_pr_names_findings_for_merges_and_warns_once(shell
     landing_pass(shell, config)
     assert len(merges(shell)) == 1
     [note] = [post for post in shell.posts if post["kind"] == "note"]
-    assert note["text"] == f"#36650 {INCIDENT_HEAD[:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner merges it anyway (4236611): RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is."
+    assert note["text"] == f"#36650 {INCIDENT_HEAD[:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not hold it for them (4236611): RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is."
+    [landed] = [post for post in shell.posts if post["kind"] == "landed"]
+    assert landed["id"] == f"land:36650@{INCIDENT_HEAD}"
+    assert incident(tmp_path, "desk-landing").actions[f"land:36650@{INCIDENT_HEAD}"].status == "completed"
 
 
 def test_an_incident_fix_merges_past_every_cause_but_the_three_it_must_meet_before_merge(shell, config, tmp_path):

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from captain_hook.events import PreToolUseEvent
 from captain_hook.testing.helpers import build_context
+from captain_hook.types import Action
 
 from fire import fire
 from hooks import lane_landing
@@ -130,7 +131,9 @@ def advise(tmp_path: Path, command: str, agent_id: str | None = None) -> list[st
         raw["agent_id"] = agent_id
         lane = tmp_path / SESSION / "subagents" / f"agent-{agent_id}.jsonl"
     evt = PreToolUseEvent(_raw=raw, ctx=build_context(None, lane, tmp_path, tmp_path / "state"))
-    return [result.message for result in fire(lane_landing, evt) if result.message]
+    results = [result for result in fire(lane_landing, evt) if result.message]
+    assert all(result.action != Action.block for result in results)
+    return [result.message for result in results]
 
 
 def test_a_root_merge_carrying_a_refusal_is_advised_and_never_blocked(tmp_path, monkeypatch):

@@ -4361,14 +4361,14 @@ class Landing:
             return
         if not required or any(check["bucket"] != SQUASH_PASS for check in required):
             return
+        if warnings := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_CHECKS]:
+            text = f"#{pr} {view['headRefOid'][:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not hold it for them (4236611): {'; '.join(warnings)}"
+            warning = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+            if not self.book.known(LANDING, warning):
+                owner = self.owner(pr, row)
+                self.post_record("note", warning, ",".join(self.reach(owner) if owner else [ROOT]), text, pr)
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
-        if warnings := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_CHECKS]:
-            text = f"#{pr} {view['headRefOid'][:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner merges it anyway (4236611): {'; '.join(warnings)}"
-            key = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
-            if not self.book.known(LANDING, key):
-                owner = self.owner(pr, row)
-                self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), text, pr)
         self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])

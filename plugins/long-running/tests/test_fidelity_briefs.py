@@ -45,19 +45,13 @@ def test_the_desk_brief_head_grades_are_the_lines_the_landing_runner_reads_for_t
     assert not filled(missing, HEAD).startswith(runner_module.FIDELITY_OK)
 
 
-def test_the_desk_brief_ok_line_covers_the_rows_it_lists_and_no_others():
-    _, ok = head_grades()
-    line = filled(ok, HEAD)
-    assert runner_module.uncovered(line, {"rule/1068167": {"hourly re-read"}}) == []
-    assert runner_module.uncovered(line, {"rule/1068167": {"hourly re-read", "sweep desk"}, "rule/d968e1d": set()}) == ["rule/1068167", "rule/d968e1d"]
-
-
-def test_the_desk_brief_reads_callers_at_the_head_and_carries_a_restack_grade_only_over_the_same_rows():
+def test_the_desk_brief_reads_callers_at_the_head_and_carries_a_restack_grade_past_register_growth():
     brief = " ".join((SKILL / "reference/fidelity-desk-brief.md").read_text().split())
     assert "callees on the base branch" not in brief
     assert "its callers and callees as the head has them" in brief
     restack = brief.split("A restack whose patch is identical")[1].split("An incident fix")[0]
-    assert "slice --required" in restack and "before any ok" in restack
+    assert "slice --required" not in restack and "before any ok" not in restack and "never hold it" in restack
+    assert "counts an ok only when" not in brief
 
 
 def readme_rows() -> list[list[str]]:

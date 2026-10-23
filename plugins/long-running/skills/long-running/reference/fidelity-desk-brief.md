@@ -97,15 +97,13 @@ reports READY, or when the runner's `blocker` names it ungraded.
 3. Grade every required row.
 4. Post `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, or
    one `fidelity: missing <head7> <key> <one line>` per failing row. The runner
-   counts an ok only when `checked` lists every key the slice printed and `names`
-   lists every name it printed for them. Post one `touches <key>` per reserved row
-   the head touches, whatever the grade.
+   counts an ok as posted, whatever rows the register gains after it (4236611). Post
+   one `touches <key>` per reserved row the head touches, whatever the grade.
 
 A restack whose patch is identical to a head already graded ok gets the same line
 the minute it is asked, without a re-read of the diff ([SKILL.md](../SKILL.md), "A
-restack carries its grade"), only while `slice --required` at the restacked head
-prints no key and no name the earlier grade left out of `checked` and `names`.
-When it prints one, the desk reads the head against that row before any ok.
+restack carries its grade"). Rows the register gained since the earlier grade
+never hold it; the lane reads them back in its next PR (4236611).
 
 An incident fix is never graded before it merges and never held. Both grades
 follow within 30 minutes after the merge (d968e1d, option (a)); the runner escalates a merged head still
