@@ -91,6 +91,10 @@ def fidelity(*shas: str, lane: str = FIDELITY_LANES[0]) -> str:
     )
 
 
+def missing(sha: str, *, seq: int = 90, lane: str = FIDELITY_LANES[1]) -> str:
+    return json.dumps({"seq": seq, "lane": lane, "kind": "review", "text": f"fidelity: missing text {sha} {SCOPE_KEY} the card offers a held copy"}) + "\n"
+
+
 def sweeps(minutes_ago: int) -> str:
     stamp = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return json.dumps({"id": "e" * 40, "title": f"sweeps: {PROGRAM}", "entries": [{"ts": stamp, "text": "pass 1: keep 3, delete 0"}]})

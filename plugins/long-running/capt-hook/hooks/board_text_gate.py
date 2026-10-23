@@ -31,6 +31,7 @@ from .tests.board_fixtures import (
     board,
     fidelity,
     held_copy_hit,
+    missing,
     redraft,
     sha12,
     sweeps,
@@ -52,7 +53,8 @@ SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 HIT_COUNT = re.compile(r"\b(?:\d+|no|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:sweep\s+)?hits?\b", re.IGNORECASE)
 ONLY_THESE = re.compile(r"\bthese changes only\b|\bonly these changes\b|\bonly this block\b", re.IGNORECASE)
 SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\s+(?P<key>\S+)\s+(?P<where>\S+:\d+)\s+(?P<name>.+)$")
-FIDELITY_TEXT = re.compile(r"^fidelity: ok text (?P<sha>[0-9a-f]{12})\b")
+FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
+OK = "ok"
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 CAPTURE_LOG = "owner-prompts"
@@ -263,21 +265,25 @@ def reviews(drive: str, since: int, flags: list[str]) -> list[dict]:
     return [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
 
 
-def graded_texts(reads: Reads, register: dict) -> set[str] | None:
-    def load() -> set[str]:
+def grades(reads: Reads, register: dict) -> list[re.Match[str]] | None:
+    def load() -> list[re.Match[str]]:
         runner = json.loads((Path(register["state_dir"]) / "runner.json").read_text())
         lanes = runner["landing"]["fidelity_lane"]
         flags = [arg for lane in ([lanes] if isinstance(lanes, str) else lanes) for arg in ("--lane", lane)]
-        shas: set[str] = set()
-        last = 0
         named = set(flags[1::2])
+        found: list[re.Match[str]] = []
+        last = 0
         while page := [record for record in reviews(runner["drive"], last, flags) if record["seq"] > last]:
             graded = [record for record in page if record.get("kind") == "review" and record.get("lane") in named]
-            shas |= {hit["sha"] for record in graded if (hit := FIDELITY_TEXT.match(record["text"]))}
+            found += [hit for record in graded if (hit := FIDELITY_TEXT.match(record["text"]))]
             last = max(record["seq"] for record in page)
-        return shas
+        return found
 
     return reads.read("the fidelity reviews", load)
+
+
+def verify_reports(item: Published, reads: Reads, register: dict) -> list[str]:
+    return [f"verify: a fidelity desk lists {hit['detail']}" for hit in grades(reads, register) or [] if hit["sha"] == item.sha12 and hit["verdict"] != OK]
 
 
 def notes(repo: str, *args: str) -> object:
@@ -296,7 +302,7 @@ def passes(reads: Reads, program: str) -> list[datetime] | None:
 
 def text_grade(item: Published, reads: Reads, register: dict) -> list[str]:
     problems = []
-    if (graded := graded_texts(reads, register)) is not None and item.sha12 not in graded:
+    if (graded := grades(reads, register)) is not None and not any(hit["sha"] == item.sha12 and hit["verdict"] == OK for hit in graded):
         problems.append(f"text grade: no fidelity desk review names {item.where} ({item.sha12}); push again once one posts fidelity: ok text {item.sha12}")
     match passes(reads, register["program"]):
         case []:
@@ -326,6 +332,7 @@ def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
         *strikes(item, found, reads),
     ]
     if register:
+        problems += verify_reports(item, reads, register)
         problems += [f'sweep: {hit["where"]} names "{hit["name"]}", which {hit["key"]} rules out' for hit in swept(reads, item) or []]
     if item.verb != "plan":
         problems += plain_words(evt, list(shown(item.doc)), reads)
@@ -395,6 +402,10 @@ def exits(name: str, **extra: object) -> Input:
         update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Block(
+            pattern=r"verify: a fidelity desk lists rule/5c0e9a1 the card offers a held copy"
+        ),
+        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("r3-titles.redraft.json"))}): Allow(),
         update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Block(
             pattern=r"no fidelity desk review names"
         ),
