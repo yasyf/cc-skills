@@ -38,7 +38,8 @@ verbatim. This script is its only writer. Owner captures are read from
 ``<state dir>/owner-prompts.jsonl``; per-ruling cards are written to ``<state dir>/cards/``.
 
 ``round`` puts the next confirmation round on the session's live cc-present board: at most ten queued ruling cards,
-foundational rows first, one board card each whose pick is ``Right`` or ``Some wrong``, opened as a new round. A row the
+foundational rows first, one card each whose pick is ``Right`` or ``Some wrong``, opened as a new round. Each card goes
+through ``cc-present ask``, so it is asked on the board and in Slack at once, and the first answer on either wins. A row the
 owner's own pick, tap or reply on a card produced gets no confirmation; its card leaves the queue unsent. Every card the
 round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue holds only what no round has read.
 
@@ -105,6 +106,7 @@ LIVE_BUDGET = 10_000_000
 NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
 PATH_TOKEN = re.compile(r"\S*/\S*")
+ASK_QUOTE = 120
 ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
 CARD_REPLIES = frozenset({"slack-action", "slack-reply", "board"})
 TAPS = frozenset({"slack-action", "board"})
@@ -879,23 +881,19 @@ def confirmed_by_owner(fields: dict[str, str]) -> bool:
     return fields.get("kind") == "pick" or bool(source and source[1] in CARD_REPLIES)
 
 
-def kebab(card: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", card.lower())
+def answer_id(card: str) -> str:
+    return f"{card}-answer"
 
 
-def on_board_card(block: str, card: str) -> bool:
-    return bool(re.fullmatch(rf"round\d+-{re.escape(kebab(card))}(?:-means|-pick)?", block))
-
-
-def round_block(number: int, card: dict) -> dict:
-    block = f"round{number}-{kebab(card['waits'])}"
+def ask_card(card: dict) -> dict:
+    quote = card["title"] if len(card["title"]) <= ASK_QUOTE else card["title"][: ASK_QUOTE - 2] + "…”"
     return {
-        "id": block,
+        "id": card["waits"],
         "type": "card",
-        "title": f"Did I read {card['title']} right?",
+        "title": f"Did I read {quote} right?",
         "children": [
-            {"id": f"{block}-means", "type": "markdown", "md": card["body"]},
-            {"id": f"{block}-pick", "type": "choice", "prompt": "Is this what you meant?", "options": ROUND_PICKS},
+            {"id": f"{card['waits']}-context", "type": "markdown", "md": card["body"]},
+            {"id": answer_id(card["waits"]), "type": "choice", "prompt": "Is this what you meant?", "options": ROUND_PICKS},
         ],
     }
 
@@ -926,8 +924,8 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
     shell.run(["cc-present", "round", "--title", f"Your rulings, read back: round {number}"])
     for *_, path, card in taken:
         staged = taken_dir / f"{path.stem}.block.json"
-        write_atomic(staged, json.dumps(round_block(number, card), ensure_ascii=False, indent=2) + "\n")
-        shell.run(["cc-present", "update-block", str(staged), "--round", "current"])
+        write_atomic(staged, json.dumps(ask_card(card), ensure_ascii=False, indent=2) + "\n")
+        shell.run(["cc-present", "ask", str(staged)])
         path.replace(taken_dir / path.name)
     write_atomic(rounds / f"round-{number}.json", json.dumps({"round": number, "keys": [row_of_card(card["waits"]) for *_, card in taken]}, indent=2) + "\n")
     print(f"round {number}: {len(taken)} rulings on the board, foundational rows first")
@@ -1116,7 +1114,7 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     card = card_id(key)
     text = (capture or {}).get("text", "")
     block = (capture or {}).get("block") or ""
-    on_card = capture and (block == card or on_board_card(block, card) or key in text or card in text)
+    on_card = capture and (block in (card, answer_id(card)) or key in text or card in text)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
         print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
         return 1
