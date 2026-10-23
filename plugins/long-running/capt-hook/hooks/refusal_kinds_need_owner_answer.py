@@ -14,6 +14,7 @@ from .compaction_handoff import CompactionState
 from .lane_landing import DRIVE_ENV, LANDERS, drive_entry, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
     CITED,
+    DIGIT_ID_BODY,
     FAILS_OPEN,
     HEREDOC_BODY,
     LAUNCH_STALLED,
@@ -21,6 +22,9 @@ from .tests.refusal_fixtures import (
     NAMED_ANSWER,
     NO_DRIVE,
     PLAIN,
+    PLAN,
+    PLAN_GATES_BODY,
+    RELISTED,
     RETIRE_AND_RECONVERT,
     SENTINEL_ANSWER,
     SENTINEL_BODY,
@@ -33,6 +37,7 @@ from .tests.refusal_fixtures import (
 )
 
 ACTIVE = [CompactionState(active=True)]
+PLANNED = [CompactionState(active=True, plan_path=str(PLAN))]
 LANE = "alane-a-0123456789abcdef"
 READ_TIMEOUT_SECONDS = 20
 SHOWN = 12
@@ -83,10 +88,15 @@ REFUSAL_HINT = re.compile(
 )
 NAME_GROUPS = ("name", "sentinel", "cause")
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
+PLAN_REF = re.compile(r"\bplan (?:step |item )?(?P<step>\d+)\.(?P<item>\d+)\b", re.IGNORECASE)
+PLAN_STEP = re.compile(r"^#+\s+Step (?P<step>\d+)\b")
+PLAN_DOTTED = re.compile(r"^(?P<step>\d+)\.(?P<item>\d+)\s")
+PLAN_NUMBERED = re.compile(r"^(?P<item>\d+)\.\s")
+PLAN_SHOWN = 400
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
-ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
 UNCITED_KINDS = (
     "A drive lane's PR may not add a refusal kind, quarantine kind, budget, retry, or clock unless its `## Rulings` section cites an owner answer naming it."
     " Cite the answer beside each name below, or post `cci post --kind ask --to root` for one and wait for it."
@@ -244,6 +254,15 @@ def added(diff: str) -> Iterator[tuple[str, int, str]]:
             line += 1
 
 
+def removed(diff: str) -> Iterator[tuple[str, str]]:
+    path = ""
+    for raw in diff.splitlines():
+        if raw.startswith("+++ "):
+            path = raw[4:].removeprefix("b/")
+        elif raw.startswith("-") and not raw.startswith("--- ") and path:
+            yield path, raw[1:]
+
+
 def untracked(cwd: Path | None) -> Iterator[tuple[str, int, str]]:
     for name in filter(None, (read(UNTRACKED, cwd) or "").split("\0")):
         if not EXEMPT.search(name) and (content := text_of(Path(cwd or ".") / name)) is not None:
@@ -255,17 +274,22 @@ def pr_view(req: Request) -> dict | None:
     return None if found is None else parsed(found)
 
 
-def diff_lines(req: Request, view: dict) -> Iterator[tuple[str, int, str]]:
+def diff_text(req: Request, view: dict) -> str | None:
     if req.edit is not None:
-        yield from added(read(["gh", "pr", "diff", *req.edit, *req.gh], req.cwd) or "")
-        return
+        return read(["gh", "pr", "diff", *req.edit, *req.gh], req.cwd) or ""
     base = f"origin/{branch}" if (branch := req.base or view.get("baseRefName")) else (read(TRUNK, req.cwd) or "").strip()
     if not base:
-        return
+        return None
     span = ["--merge-base", base] if req.worktree else [f"{base}...{req.head or 'HEAD'}"]
-    yield from added(read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or "")
-    if req.worktree:
-        yield from untracked(req.cwd)
+    return read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or ""
+
+
+def new_findings(req: Request, view: dict) -> list[Finding]:
+    if (diff := diff_text(req, view)) is None:
+        return []
+    lines = [*added(diff), *(untracked(req.cwd) if req.worktree and req.edit is None else ())]
+    kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
+    return [finding for path, line, text in lines if in_scope(req, path) for finding in classify(path, line, text) if (path, finding.name) not in kept]
 
 
 def named(text: str, match: re.Match[str]) -> str:
@@ -337,18 +361,47 @@ def mentions(text: str, name: str) -> bool:
     return bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE))
 
 
-def coverage(finding: Finding, items: list[str], answers: dict[str, str]) -> str:
-    cited = [answers[answer] for item in items if mentions(item, finding.name) for answer in ANSWER_ID.findall(item) if answer in answers]
+def plan_items(evt: BaseHookEvent) -> dict[str, str]:
+    path = CompactionState.load(evt).plan_path
+    text = text_of(Path(path).expanduser()) if path else None
+    items: dict[str, str] = {}
+    step = key = None
+    for line in (text or "").splitlines():
+        if heading := PLAN_STEP.match(line):
+            step, key = heading["step"], None
+        elif line.startswith("#"):
+            step = key = None
+        elif (dotted := PLAN_DOTTED.match(line)) or (step and (dotted := PLAN_NUMBERED.match(line))):
+            key = f"{dotted.groupdict().get('step') or step}.{dotted['item']}"
+            items[key] = line
+        elif key and (not line.strip() or line[:1].isspace()):
+            items[key] += "\n" + line
+        else:
+            key = None
+    return items
+
+
+def plan_refs(item: str) -> list[str]:
+    return [f"{ref['step']}.{ref['item']}" for ref in PLAN_REF.finditer(item)]
+
+
+def coverage(finding: Finding, items: list[str], answers: dict[str, str], plan: dict[str, str]) -> str:
+    naming = [item for item in items if mentions(item, finding.name)]
+    cited = [answers[answer] for item in naming for answer in ANSWER_ID.findall(item) if answer in answers]
     if any(mentions(text, finding.name) for text in cited):
+        return "named"
+    approved = [item for item in naming if any(mentions(answers[answer], "plan") for answer in ANSWER_ID.findall(item) if answer in answers)]
+    if any(mentions(plan.get(ref, ""), finding.name) for item in approved for ref in plan_refs(item)):
         return "named"
     return "cited" if cited else "open"
 
 
-def evidence(findings: list[Finding], rulings: str) -> str:
+def evidence(findings: list[Finding], rulings: str, plan: dict[str, str]) -> str:
     shown = [finding.render() for finding in findings[:SHOWN]]
     more = [f"... {len(findings) - SHOWN} more"] if len(findings) > SHOWN else []
     cited = rulings.strip()[:RULINGS_SHOWN] or "no ## Rulings section"
-    return "\n".join(["```", *shown, *more, "", cited, "```"])
+    quoted = [f"plan {ref}: {plan[ref].strip()[:PLAN_SHOWN]}" for ref in dict.fromkeys(plan_refs(rulings)) if ref in plan]
+    return "\n".join(["```", *shown, *more, "", cited, *quoted, "```"])
 
 
 def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
@@ -356,24 +409,25 @@ def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
     if view is None and not (req.bodies or req.texts):
         return None
     view = view or {}
-    findings = [finding for path, line, text in diff_lines(req, view) if in_scope(req, path) for finding in classify(path, line, text)]
+    findings = new_findings(req, view)
     if not findings or (body := body_text(req, view)) is None:
         return None
     rulings = found.group(0) if (found := RULINGS.search(body)) else ""
     if (answers := answer_texts(evt, req, list(dict.fromkeys(ANSWER_ID.findall(rulings))))) is None:
         return None
     items = RULING_ITEM.split(rulings)
-    states = {finding: coverage(finding, items, answers) for finding in findings}
+    plan = plan_items(evt) if PLAN_REF.search(rulings) else {}
+    states = {finding: coverage(finding, items, answers, plan) for finding in findings}
     open_findings = [finding for finding in findings if states[finding] != "named"]
     if not open_findings:
         return None
     if any(finding.definite and states[finding] == "open" for finding in open_findings):
-        return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings)}")
-    return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings)}", confirm=NAMES_IT)
+        return evt.block(f"{UNCITED_KINDS}\n\n{evidence(open_findings, rulings, plan)}")
+    return evt.block(f"{UNNAMED_KINDS}\n\n{evidence(open_findings, rulings, plan)}", confirm=NAMES_IT)
 
 
 def ship(command: str, **extra: object) -> Input:
-    return Input(command=command, agent_id=LANE, state=ACTIVE, env=DRIVE_ENV, **extra)
+    return Input(**({"command": command, "agent_id": LANE, "state": ACTIVE, "env": DRIVE_ENV} | extra))
 
 
 @on(
@@ -387,6 +441,11 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=CONFIRMED): Block(pattern=r"needs an owner answer that names it"),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), decide=UNCONFIRMED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED), state=PLANNED): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=SENTINEL_ANSWER), state=PLANNED, decide=CONFIRMED): Block(),
+        ship(PLAN_GATES_BODY, commands=sources(LAUNCH_STALLED), state=PLANNED, decide=CONFIRMED): Block(
+            pattern=r"needs an owner answer that names it[\s\S]*plan 1\.2: 2\. \*\*Landing gates"
+        ),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer="not json")): Allow(),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER[:-1] + ', "superseded_by": ["b7c0d2e900"]}')): Block(
             pattern=r"cites an owner answer"
@@ -399,6 +458,7 @@ def ship(command: str, **extra: object) -> Input:
         ),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
         ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(DIGIT_ID_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Block(
             pattern=r"cites an owner answer[\s\S]*upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),
@@ -421,6 +481,9 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(RETIRE_AND_RECONVERT), decide=UNCONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Block(
+            pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
+        ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(FAILS_OPEN), decide=CONFIRMED): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT), decide=CONFIRMED): Block(pattern=r"open\.go:127 .* errReadOnly"),
         ship(f"ccx vcs ship --no-pr --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
