@@ -722,15 +722,18 @@ def system_map_problems(builder, chrome, url, timeout) -> list:
     out = []
     for width, height in SYSTEM_MAP_SIZES:
         session = builder.open_page(chrome, url)
+        chrome.call("Page.bringToFront", session=session)
+        chrome.call("Emulation.setFocusEmulationEnabled", {"enabled": True}, session=session)
         chrome.call("Emulation.setDeviceMetricsOverride",
                     {"width": width, "height": height, "deviceScaleFactor": 2, "mobile": width < 1024}, session=session)
         state = builder.settle(chrome, session, timeout)
         if state["ready"] != "1":
             out.append(f"at {width}px: " + builder.ready_problem(state, timeout))
-            continue
-        audits = builder.evaluate(chrome, session, SYSTEM_MAP_AUDIT_JS % {"ms": timeout * 1000}, timeout=timeout * 3)
-        for audit in audits:
-            out += [f"system map {audit['id']!r} at {width}px, {p['view']}: {p['text']}" for p in audit["problems"]]
+        else:
+            audits = builder.evaluate(chrome, session, SYSTEM_MAP_AUDIT_JS % {"ms": timeout * 1000}, timeout=timeout * 3)
+            for audit in audits:
+                out += [f"system map {audit['id']!r} at {width}px, {p['view']}: {p['text']}" for p in audit["problems"]]
+        chrome.call("Page.close", session=session)
     return out
 
 
