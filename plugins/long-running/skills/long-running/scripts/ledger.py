@@ -1448,6 +1448,10 @@ def discovered_only(fields: dict[str, str], lane: str, prefix: str) -> bool:
     )
 
 
+def step_field(step: str | None) -> dict[str, str]:
+    return {"step": step} if step else {}
+
+
 def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     """A PR row keeps the lane that first claimed it; a re-push only moves its registered head."""
     if not args.branch_prefix and not args.pr:
@@ -1457,12 +1461,15 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger, args.scope)
     if args.branch_prefix:
         guard_prefix(shell, args, notes)
-        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "worktree": lane_worktree(shell, args), "registered_at": utc_stamp()})
+        notes.set_fields(
+            f"{LANE_PREFIX}{args.lane}",
+            {"lane": args.lane, "branch_prefix": args.branch_prefix, "repo": args.repo, "worktree": lane_worktree(shell, args), "registered_at": utc_stamp()} | step_field(args.step),
+        )
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows() if args.pr else {}
         owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
         for pr, owner in owners.items():
-            fields = {"lane": owner, "registered": owner, **({"unadmitted": ""} if rows.get(pr, {}).get("unadmitted") else {})} | ({"registered_head": args.head} if args.head else {})
+            fields = {"lane": owner, "registered": owner, **({"unadmitted": ""} if rows.get(pr, {}).get("unadmitted") else {})} | ({"registered_head": args.head} if args.head else {}) | step_field(args.step)
             if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
                 notes.set_fields(pr, fields)
     namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
@@ -1553,6 +1560,7 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     wanted = sorted((set(known) | set(named)) - settled, key=int)
     state = batched_pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
+    steps = {lane["lane"]: lane.get("step", "") for lane in registrations}
     for lane, branches in stacks.items():
         for pr in (pr for branch in branches for pr in prefix_prs(state, branch)):
             if pr not in registered and every.get(pr, {}).get("lane", lane) == lane:
@@ -1566,11 +1574,18 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
         if key not in known:
             fields["first_seen"] = moment
         if key in registered and not every.get(key, {}).get("reassigned") and not every.get(key, {}).get("unadmitted"):
-            fields |= {"lane": registered[key], "registered": registered[key]}
+            fields |= {"lane": registered[key], "registered": registered[key]} | ({} if every.get(key, {}).get("step") else step_field(steps.get(registered[key])))
         if key in lanes:
             fields["lane"] = lanes[key]
         rows.append({"key": scope.store(key), "fields": fields})
     return rows
+
+
+def kept_steps(rows: list[dict], stored: dict[str, dict[str, str]]) -> list[dict]:
+    return [
+        row | {"fields": {name: value for name, value in row["fields"].items() if name != "step"}} if stored.get(row["key"], {}).get("step") else row
+        for row in rows
+    ]
 
 
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
@@ -1588,7 +1603,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
         named = same_repo(repo, args.repo)
         rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
     with locked(args.lock or default_lock(args.ledger)):
-        notes.sync(rows)
+        notes.sync(kept_steps(rows, notes.stored()) if any("step" in row["fields"] for row in rows) else rows)
     print(f"refreshed {len(rows)} PRs into {args.ledger}")
     return 0
 
@@ -2485,6 +2500,7 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--ccx", default="ccx", help="the ccx binary")
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
+    register.add_argument("--step", help="the plan step the lane's PRs carry, from its plan task's step:<n> label")
     register.set_defaults(handler=cmd_register)
 
     reassign = subparsers.add_parser("reassign", help="move PR rows to a new owning lane, so route and refresh address it from now on")

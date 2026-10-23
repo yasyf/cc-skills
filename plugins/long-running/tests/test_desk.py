@@ -1868,6 +1868,25 @@ def test_register_a_lone_pr_records_its_head_and_keeps_the_lane_that_claimed_it_
     assert capsys.readouterr().out.splitlines() == [f"registered {LANE} #24070", f"registered ship-pr #24070 (lane {LANE})"]
 
 
+def test_register_records_the_plan_step_on_the_lane_and_its_prs():
+    shell = FakeShell()
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--pr", "24070", "--step", "1.5")
+
+    assert shell.fields(f"lane/{LANE}")["step"] == "1.5"
+    assert shell.fields("24070") == {"lane": LANE, "registered": LANE, "step": "1.5"}
+
+
+def test_refresh_gives_a_prefix_pr_its_lanes_plan_step(lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "a" * 40, "lightning/one")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--step", "1.5")
+
+    assert refresh(shell, lock) == 0
+
+    assert shell.fields("24071")["step"] == "1.5"
+
+
 def test_reassign_moves_a_row_to_the_new_lane_and_refresh_keeps_it_there(capsys, lock):
     shell = FakeShell()
     lane_pull(shell, "24071", "a" * 40, "lightning/one")
