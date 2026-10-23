@@ -14,6 +14,7 @@ from .compaction_handoff import CompactionState
 from .lane_landing import DRIVE_ENV, LANDERS, drive_entry, lane_name, named_repo, without_repo
 from .tests.refusal_fixtures import (
     CITED,
+    DIGIT_ID_BODY,
     FAILS_OPEN,
     HEREDOC_BODY,
     LAUNCH_STALLED,
@@ -86,7 +87,7 @@ ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<nam
 RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 CCN_NOT_FOUND = 3
 DECLARING = frozenset(":,]}")
-ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
 UNCITED_KINDS = (
     "A drive lane's PR may not add a refusal kind, quarantine kind, budget, retry, or clock unless its `## Rulings` section cites an owner answer naming it."
     " Cite the answer beside each name below, or post `cci post --kind ask --to root` for one and wait for it."
@@ -399,6 +400,7 @@ def ship(command: str, **extra: object) -> Input:
         ),
         ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED, answer=(2, "cc-notes: not a git repository"))): Allow(),
         ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
+        ship(DIGIT_ID_BODY, commands=sources(LAUNCH_STALLED, answer=NAMED_ANSWER)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Block(
             pattern=r"cites an owner answer[\s\S]*upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),

@@ -105,6 +105,12 @@ SENTINEL_BODY = """ccx vcs ship -m 'store: open views read-only' --pr-body-file 
 - 317cfd6: the owner's answer orders `errReadOnlyView`.
 EOF"""
 
+DIGIT_ID_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
+## Rulings
+
+- 1068167: the owner's answer adds `LAUNCH-STALLED` with a `STALL_SECONDS` clock.
+EOF"""
+
 HEREDOC_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
 ## Rulings
 

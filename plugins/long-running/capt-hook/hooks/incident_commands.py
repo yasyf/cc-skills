@@ -28,7 +28,7 @@ PR_REVERT_ANSWER = '{"id": "a9e1075b00", "title": "Revert #1201?", "body": "Yes.
 READ_TIMEOUT_SECONDS = 20
 CCN_NOT_FOUND = 3
 RECORD_REF = re.compile(r"#(\d{3,})\b")
-ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
 REVERT = re.compile(r"\b(?:revert(?:s|ed|ing)?|roll(?:s|ed|ing)?[ -]?back|rollback|back(?:ing)? out)\b", re.IGNORECASE)
 UNDO_ACTS = {"cancel": re.compile(r"\bcancel(?:s|led|ling)?\b", re.IGNORECASE), "rollback": REVERT}
 DECLINED = re.compile(r"\W*(?:no|not|don'?t|do not|never|hold|reject(?:ed)?|decline[d]?)\b", re.IGNORECASE)
