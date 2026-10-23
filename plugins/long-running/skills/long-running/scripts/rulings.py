@@ -6,7 +6,7 @@
     rulings.py rows         (--program SLUG | --drive ID) [--json]
     rulings.py classify     (--program SLUG | --drive ID) [--answer ID] [CLASSIFICATION...]
     rulings.py implications (--program SLUG | --drive ID) KEY
-    rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...]
+    rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
     rulings.py round        (--program SLUG | --drive ID)
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
@@ -43,6 +43,10 @@ board first, then one ``cc-present send`` posts them all to Slack, so each is as
 on either wins. A row the
 owner's own pick, tap or reply on a card produced gets no confirmation; its card leaves the queue unsent. Every card the
 round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue holds only what no round has read.
+
+``confirm`` ticks or strikes a row's implications from a tap or reply on the row's card, or from an owner chat capture
+``classify`` already put on that row, with the capture's words as the proof. ``--implication`` adds the narrowed line
+that replaces the one line ``--strike`` names, in that line's direction.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. The register is read
@@ -347,6 +351,11 @@ def binding(implication: dict) -> str:
     return "waits for the owner's tick"
 
 
+def proof_digests(fields: dict[str, str]) -> set[str]:
+    proofs = [fields.get("proof") or "", *(str(repeat.get("proof") or "") for repeat in listed(fields.get("repeats")))]
+    return {match for proof in proofs for match in DIGEST_PROOF.findall(proof)}
+
+
 def captures(state: Path) -> dict[str, dict]:
     path = state / "owner-prompts.jsonl"
     if not path.exists():
@@ -416,8 +425,7 @@ class Register:
     def classified(self) -> list[str]:
         found = {key.removeprefix("no/") for key in self.rows if key.startswith("no/")}
         for fields in self.rows.values():
-            proofs = [fields.get("proof") or "", *(str(repeat.get("proof") or "") for repeat in listed(fields.get("repeats")))]
-            found.update(match for proof in proofs for match in DIGEST_PROOF.findall(proof))
+            found |= proof_digests(fields)
         return sorted(found)
 
     def answer_words(self) -> dict[str, list[tuple[str, frozenset[str]]]]:
@@ -1138,26 +1146,33 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     card = card_id(key)
     text = (capture or {}).get("text", "")
     block = (capture or {}).get("block") or ""
-    on_card = capture and (block in (card, answer_id(card)) or key in text or card in text)
+    classified = args.capture in proof_digests(fields)
+    on_card = capture and (classified or block in (card, answer_id(card)) or key in text or card in text)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
         print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
+    if args.implication and len(strikes) != 1:
+        print(f"CONFIRM-NARROW {args.capture}: a narrowed implication replaces the one line --strike names")
+        return 1
     picked = text.strip().lower().removesuffix(RECOMMENDED_MARK.lower())
     tapped = capture["source"] == "slack-action" or (capture["source"] in TAPS and picked == RIGHT)
     if tapped and (picked != RIGHT or args.tick != "all" or strikes):
         print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines, and Other's modal text names them")
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
-    if not tapped and (args.tick == "all" or not (ticks | strikes) <= named_lines):
+    if not tapped and not classified and (args.tick == "all" or not (ticks | strikes) <= named_lines):
         print(f"CONFIRM-UNNAMED {args.capture}: a reply ticks or strikes only the lines it names by number")
         return 1
     for item in implications:
         if item["n"] in strikes:
-            item |= {"state": "struck", "proof": args.capture}
+            item |= {"state": "struck", "proof": args.capture, "words": text}
         elif item["n"] in ticks:
-            item |= {"state": "ticked", "proof": args.capture}
+            item |= {"state": "ticked", "proof": args.capture, "words": text}
+    if args.implication:
+        narrowed = next(item for item in implications if item["n"] in strikes)
+        implications += numbered([{"text": args.implication, "direction": narrowed["direction"]}], len(implications) + 1, args.capture)
     loaded.write(key, implications=implications)
     print("\n".join(implication_lines(loaded.rows[key])))
     return 0
@@ -1800,11 +1815,12 @@ def build_parser() -> argparse.ArgumentParser:
     classify.add_argument("--plan", metavar="PATH")
     implications = verb("implications", cmd_implications, "print a row's implications with their state")
     implications.add_argument("key")
-    confirm = verb("confirm", cmd_confirm, "tick or strike a row's implications from a captured tap or reply on its card")
+    confirm = verb("confirm", cmd_confirm, "tick or strike a row's implications from a captured tap or reply on its card, or an owner capture classified onto the row")
     confirm.add_argument("key")
     confirm.add_argument("--capture", required=True, metavar="DIGEST")
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
+    confirm.add_argument("--implication", metavar="TEXT", help="the narrowed line that replaces the one line --strike names")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
     sliced = verb("slice", cmd_slice, "print the rows a lane, the root, or a head's grade must carry, verbatim")
     sliced.add_argument("--lane")

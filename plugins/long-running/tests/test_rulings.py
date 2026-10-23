@@ -901,6 +901,34 @@ def test_confirm_takes_only_a_right_tap_or_a_reply_naming_the_lines_on_the_rows_
     assert ran(capsys, RegisterShell(seeded(package)), "confirm", "rule/aaaaaaa", "--capture", "8" * 16, "--tick", "all")[1].startswith(f"CONFIRM-TAP {'8' * 16}: ")
 
 
+OWNER_CORRECTION = "mo tnose ones are fine to ask me asshole i mesnt anout the regressikn tests"
+
+
+def test_confirm_takes_an_owner_chat_capture_classified_onto_the_row_and_refuses_one_classified_onto_another(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+) -> None:
+    captured(state, capture("1", OWNER_CORRECTION), capture("2", "cards quote the words") | {"digest": "fedcba9876543210"})
+    shell = RegisterShell(seeded(package))
+    assert classify(tmp_path, capsys, shell, {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "i mesnt anout the regressikn tests"})[0] == 0
+
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "fedcba9876543210", "--strike", "3") == (
+        1,
+        "CAPTURE-NOT-ON-CARD fedcba9876543210: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
+    )
+    assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "1" * 16, "--implication", "Only test cleanup.")[1].startswith(f"CONFIRM-NARROW {'1' * 16}: ")
+
+    narrowed = "Only relay test cleanup may live in the desktop app."
+    code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "1" * 16, "--strike", "3", "--implication", narrowed)
+
+    assert code == 0
+    assert out.splitlines()[2:] == [
+        "3. [permits, struck, struck] Relay cleanup may live in the desktop app.",
+        f"4. [permits, proposed, waits for the owner's tick] {narrowed}",
+    ]
+    struck = json.loads(shell.rows["rule/aaaaaaa"]["implications"])[2]
+    assert (struck["proof"], struck["words"]) == ("1" * 16, OWNER_CORRECTION)
+
+
 def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(home: Path, package: Path, state: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
 
