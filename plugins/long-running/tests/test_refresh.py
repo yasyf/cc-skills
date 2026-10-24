@@ -188,7 +188,7 @@ def test_a_full_refresh_reads_the_cache_in_batches_and_grades_every_row(lock, re
     shell = FakeShell(rows=[{"key": pr, "fields": {"head": "stale"}} for pr in held], routes=red_routes)
     refresh(shell, lock)
 
-    assert sorted(argv[6:] for argv in shell.state_calls()) == [["20961", "20970"], ["21052", "21102"], ["21103"]]
+    assert sorted(argv[8:] for argv in shell.state_calls()) == [["20961", "20970"], ["21052", "21102"], ["21103"]]
     assert all(shell.fields(pr)["head"] != "stale" for pr in held)
     assert (shell.fields("20961")["head"], shell.fields("21052")["head"]) == (DIRTY_HEAD, MOVED_HEAD)
 

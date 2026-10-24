@@ -999,7 +999,7 @@ def test_reconcile_reads_the_trunk_once_and_the_forge_only_for_closed_unsquashed
 
     logs = [argv for argv in shell.calls if argv[:4] == ["git", "-C", "/checkout", "log"] and argv[-1] == "--format=%H %cI %s"]
     assert len(logs) == 1
-    assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "28302", "28349"]]
+    assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "--max-age", "2m", "28302", "28349"]]
     pulled = {argv[2].split("/")[4] for argv in shell.calls if argv[:2] == ["gh", "api"] and "/pulls/" in argv[2]}
     assert pulled == {"28302"}
 
