@@ -12,6 +12,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script
+from .nudges import once_per_hour
 from .tests.register_fixtures import DRIVE_CONFIG
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
@@ -153,7 +154,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
-        return evt.context(NO_SLICE.format(brief=found.shown))
+        return evt.context(NO_SLICE.format(brief=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
     try:
         said, fresh = refreshed(evt, which, found)
         if found.incident and not found.inline:
@@ -162,7 +163,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why(failed)}", key=f"slice-on-spawn:{found.lane}")
         return None
     if not found.incident:
-        return None if said.startswith(FRESH) else evt.context(STALE_SLICE.format(brief=found.shown))
+        return None if said.startswith(FRESH) or not once_per_hour(evt, [STALE_SLICE]) else evt.context(STALE_SLICE.format(brief=found.shown))
     return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
 
 

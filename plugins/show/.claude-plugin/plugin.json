@@ -6,8 +6,5 @@
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
   },
-  "license": "MIT",
-  "dependencies": [
-    { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=12.71.1" }
-  ]
+  "license": "MIT"
 }

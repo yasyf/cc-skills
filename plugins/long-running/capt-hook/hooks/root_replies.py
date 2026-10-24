@@ -294,6 +294,7 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
+    max_fires=1,
     tests={
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
@@ -333,6 +334,7 @@ def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash", "SendMessage")],
     skip_if=[FromSubagent()],
+    max_fires=1,
     tests={
         Input(command="cci post --drive d --lane root --kind stand-down --to worker-fix-2 --text 'stand down'", state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
@@ -376,6 +378,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
+    max_fires=1,
     tests={
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
@@ -423,6 +426,7 @@ def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
+    max_fires=1,
     tests={
         Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Warn(
             pattern=r"300 requests per minute"

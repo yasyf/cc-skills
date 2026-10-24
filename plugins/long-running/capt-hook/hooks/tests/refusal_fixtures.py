@@ -78,6 +78,14 @@ diff --git a/plugins/long-running/skills/long-running/scripts/drive.py b/plugins
 +    log.info("UPLOAD-STARTED")
 """
 
+HOOK_CAP = """\
+diff --git a/plugins/long-running/capt-hook/hooks/lane_reports.py b/plugins/long-running/capt-hook/hooks/lane_reports.py
+--- a/plugins/long-running/capt-hook/hooks/lane_reports.py
++++ b/plugins/long-running/capt-hook/hooks/lane_reports.py
+@@ -30,0 +31 @@ def cap_lane_final_text(evt):
++    max_fires=1,
+"""
+
 FAILS_OPEN = """\
 diff --git a/plugins/long-running/capt-hook/hooks/register_gate.py b/plugins/long-running/capt-hook/hooks/register_gate.py
 --- a/plugins/long-running/capt-hook/hooks/register_gate.py

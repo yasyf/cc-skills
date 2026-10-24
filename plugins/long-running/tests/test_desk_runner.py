@@ -2517,7 +2517,7 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
         ruling_card(cards, f"rule:5c0e9a{index}", f"\u201cruling {index}\u201d")
     landing_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("RULING-ASK")]
-    assert line.startswith("RULING-ASK ruling-ask:round-1:rule:5c0e9a0 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
+    assert line.startswith("RULING-ASK ruling-ask:round-1 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
     assert "on the live cc-present board as round 1, foundational rows first, then sends them to Slack in one `cc-present send`, never as an AskUserQuestion or a bare Slack card" in line
     assert "`rulings.py confirm <key> --tick all --capture <digest>`" in line
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
@@ -2531,11 +2531,7 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
         card.replace(skipped / card.name)
     ruling_card(cards, "rule:5c0e9b0", "\u201cruling after a drained queue\u201d")
     landing_pass(shell, config)
-    assert [line.split(" ", 2)[1] for line in escalations(shell) if line.startswith("RULING-ASK")] == [
-        "ruling-ask:round-1:rule:5c0e9a0",
-        "ruling-ask:round-2:rule:5c0e9a0",
-        "ruling-ask:round-2:rule:5c0e9b0",
-    ]
+    assert [line.split(" ", 2)[1] for line in escalations(shell) if line.startswith("RULING-ASK")] == ["ruling-ask:round-1", "ruling-ask:round-2"]
 
 
 def test_the_landing_pass_logs_no_ruling_ask_while_no_ruling_card_queues(shell, config, tmp_path):
@@ -3097,18 +3093,17 @@ def test_a_head_check_pr_names_findings_for_is_enqueued_with_one_warning_naming_
         (0, "RULINGS-UNCITED rule/abc1234 the body cites no answer\n"),
     ],
 )
-def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_escalates_once(shell, config, tmp_path, code, out):
+def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_posts_nothing(shell, config, tmp_path, code, out):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.check_pr["29020"] = (code, out)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and [post["to"] for post in blockers(shell)] == ["root"]
-    [line] = escalations(shell)
-    assert line.startswith("RULINGS-UNREAD ") and "so the head passes the rulings check" in line
+    assert len(shell.enqueues()) == 1 and blockers(shell) == []
+    assert escalations(shell) == []
 
 
-def test_a_check_pr_failure_whose_text_differs_only_in_numbers_escalates_once_per_head(shell, config, tmp_path):
+def test_a_check_pr_failure_whose_text_differs_only_in_numbers_posts_nothing(shell, config, tmp_path):
     """Oct 23: a fetch failure naming each run's pid in its temporary ref posted 30 identical RULINGS-UNREAD records to root in ten minutes."""
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
@@ -3117,7 +3112,7 @@ def test_a_check_pr_failure_whose_text_differs_only_in_numbers_escalates_once_pe
         shell.check_pr["29020"] = (0, f"BLOCKER the diff of acme/app#29020: git fetch origin +dev:refs/rulings/cccc333333-{pid} exited 128\n")
         landing_pass(shell, config)
     assert sum("check-pr" in call for call in shell.calls) >= 2
-    assert [line.split(":", 1)[0] for line in escalations(shell)] == ["RULINGS-UNREAD rulings-unread"]
+    assert escalations(shell) == []
 
 
 def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another_repo_does_not(shell, config, tmp_path):
@@ -4936,7 +4931,7 @@ def newer(version: str, step: int = 1) -> str:
     return f"{int(major) + step}.{rest}"
 
 
-def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and_installed_version(shell, config, tmp_path):
+def test_a_runner_behind_the_installed_plugin_posts_nothing_about_it(shell, config, tmp_path):
     """#535 shipped at 5:07 PM on Oct 20 as 0.7.186 and the live runner stayed on 0.7.185 until 9:26 PM, so the evening's phantom cutters ran on a fixed bug (#107539)."""
     running = runner_module.RUNNING_VERSION
     installed(tmp_path, running)
@@ -4950,15 +4945,8 @@ def test_a_runner_behind_the_installed_plugin_logs_one_runner_stale_per_desk_and
     installed(tmp_path, newer(running, 2))
     orca_pass(shell, config)
     landing_pass(shell, config)
-    source = config.resolve()
-    assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == [
-        f"RUNNER-STALE stale:{desk}:{running}<{version} {desk}: {running} < {version}: this {desk} runner, pid {os.getpid()},"
-        f" re-executes into {version} at the end of this pass; nothing to do; a hand restart is"
-        f" `nohup desk-runner.py run --config {source} --desk {desk} >> {tmp_path / f'{desk}-runner.log'} 2>&1 < /dev/null &`"
-        for version in (newer(running), newer(running, 2))
-        for desk in ("orca", "landing")
-    ]
-    assert {post["kind"] for post in shell.posts if post["text"].startswith("RUNNER-STALE")} == {"report"}
+    assert [line for line in escalations(shell) if line.startswith("RUNNER-STALE")] == []
+    assert not [post for post in shell.posts if post["text"].startswith("RUNNER-STALE")]
     assert shell.reexeced == []
 
 
@@ -5017,7 +5005,6 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     restart = f"nohup env AWS_PROFILE=release-operator desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert shell.environ["AWS_PROFILE"] == "release-operator"
     assert json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())["restart"] == restart
-    assert any(line.startswith("RUNNER-STALE") and line.endswith(f"a hand restart is `{restart}`") for line in escalations(shell))
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
     assert cli(shell, config, "handoff", "--desk", "landing") == 0

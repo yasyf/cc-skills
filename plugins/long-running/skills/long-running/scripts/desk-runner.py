@@ -297,7 +297,7 @@ carries to a head with no finder record when both patches against the PR's base 
 blocker for its failing required checks.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
 which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
-prints a line naming no cause passes the head and logs `RULINGS-UNREAD` once per head and error text, the process id in a `refs/rulings/` ref aside, and so does each `BLOCKER` line it prints.
+prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
 `STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Each pass starts with one free `rate_limit` read of the GitHub App
@@ -353,7 +353,7 @@ Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, HOLDS-UNREAD,
-RULINGS-UNREAD, UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -389,15 +389,14 @@ an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one 
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
-plugin version the runner runs. A runner behind the version `installed_plugins.json` lists logs one
-`RUNNER-STALE <running> < <installed>` report per installed version, naming the hand restart command, and re-executes into the installed version after
+plugin version the runner runs. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the end
 of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. `drive.py digest`
 prints each desk's running and installed versions.
-While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, each landing pass logs one `RULING-ASK`
-per board round; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
+While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
+per board round, however many cards join it; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
 round, foundational rows first.
 """
 
@@ -449,7 +448,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "RULINGS-UNREAD": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -557,7 +556,6 @@ HEARTBEATS = drive.HEARTBEATS
 WATCHDOG = "drive-watchdog"
 ALIVE_EVERY = timedelta(minutes=1)
 DESKS = tuple(HEARTBEATS)
-PINNED_REF_PID = re.compile(r"(refs/rulings/[0-9a-f]+)-[0-9]+")
 RUNNING_VERSION = drive.plugin_manifest()["version"]
 LAUNCH_STALL = timedelta(seconds=60)
 ORPHANED_SEND = timedelta(minutes=2)
@@ -1408,18 +1406,9 @@ class Runner:
         staged.write_text(json.dumps(beat) + "\n")
         staged.replace(inbox / HEARTBEATS[desk])
 
-    def stale(self, desk: str) -> bool:
-        """Whether a newer plugin version is installed than this runner runs, noting it once per installed version; the loop re-executes into it at the end of the pass."""
-        installed = drive.installed_version()
-        if not drive.behind(RUNNING_VERSION, installed):
-            return False
-        self.escalate(
-            f"stale:{desk}:{RUNNING_VERSION}<{installed}",
-            "RUNNER-STALE",
-            desk,
-            f"{RUNNING_VERSION} < {installed}: this {desk} runner, pid {os.getpid()}, re-executes into {installed} at the end of this pass; nothing to do; a hand restart is `{self.restart_command(desk)}`",
-        )
-        return True
+    def stale(self) -> bool:
+        """Whether a newer plugin version is installed than this runner runs; the loop re-executes into it at the end of the pass."""
+        return drive.behind(RUNNING_VERSION, drive.installed_version())
 
     def reexec(self, desk: str) -> None:
         self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
@@ -4077,7 +4066,7 @@ class Landing:
         }
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
-        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause; it and every `BLOCKER` line go to the root once as `RULINGS-UNREAD`. The check fails open on what it cannot read (0afd2f6), and a cause it did read stands beside a `BLOCKER` line."""
+        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha, incident)
         if key not in self.reported:
             done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
@@ -4085,11 +4074,7 @@ class Landing:
             causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
             unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
             if done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
-                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                causes, unread = [], [f"check-pr exited {done.code}: {last[0]}"]
-            if unread:
-                text = "; ".join(unread)
-                self.runner.escalate(f"rulings-unread:{pr}:{sha[:10]}:{hashlib.sha1(PINNED_REF_PID.sub(r"\1", text).encode()).hexdigest()[:8]}", "RULINGS-UNREAD", f"#{pr}", f"`rulings.py check-pr` did not read everything for #{pr} at {sha[:10]}, so the head passes the rulings check: {text}")
+                causes = []
             self.reported[key] = causes
         return self.reported[key]
 
@@ -5083,7 +5068,7 @@ class Landing:
             return
         number = len(list((state / RULING_ROUNDS).glob("round-*.json"))) + 1
         self.runner.escalate(
-            f"ruling-ask:round-{number}:{min(queued).stem}",
+            f"ruling-ask:round-{number}",
             "RULING-ASK",
             f"round-{number}",
             f"{len(queued)} ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive {self.runner.config.drive}`:"
@@ -5178,7 +5163,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.orca_back()
         runner.aged_holds()
         runner.stalled_launches()
-        behind = runner.stale("orca")
+        behind = runner.stale()
         runner.flush()
         runner.write_view()
         runner.beat("orca")
@@ -5249,7 +5234,7 @@ def run_landing(runner: Runner, once: bool) -> int:
         except Exception as error:
             if runner.pass_raised("landing", error):
                 return 1
-        behind = runner.stale("landing")
+        behind = runner.stale()
         runner.flush()
         runner.beat("landing")
         if once:

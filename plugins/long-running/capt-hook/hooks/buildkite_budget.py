@@ -343,6 +343,7 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
     Event.PreToolUse,
     only_if=[Tool("Bash", "Monitor")],
     skip_if=[Annotated("raw")],
+    max_fires=1,
     tests={
         Input(
             command=(
@@ -413,6 +414,7 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash", "Monitor")],
     skip_if=[Annotated("raw")],
+    max_fires=1,
     tests={
         Input(
             command=(

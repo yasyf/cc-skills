@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, CustomCondition, Event, Input, Tool, hook
+from captain_hook import Allow, BaseHookEvent, CustomCondition, Event, Input, Tool, Warn, hook
 from captain_hook.bindings import Known
 from captain_hook.cmd import Call, env_bindings
 from captain_hook.types import TOOL_EVENTS
@@ -68,38 +68,38 @@ hook(
         "`pr-poll.sh` runs alone as foreground Bash on the `poll:` command, since no Monitor or background call wakes a subagent. "
         "Run `PR_POLL_WINDOW=40 <poll:>` with `timeout: 60000` and rerun it on `DONE window-elapsed`."
     ),
-    block=True,
+    max_fires=1,
     tests={
-        Input(command=POLL, agent_type=WATCHER): Block(pattern="PR_POLL_WINDOW=40"),
-        Input(command=f"while true; do {POLL}; sleep 30; done", agent_type=WATCHER): Block(),
-        Input(command=f"PR_POLL_STACK=2 {POLL}", agent_type=WATCHER): Block(),
-        Input(command=f"timeout 600 {POLL}", agent_type=WATCHER): Block(),
-        Input(command=f"cd /tmp && {POLL}", agent_type=WATCHER): Block(),
+        Input(command=POLL, agent_type=WATCHER): Warn(pattern="PR_POLL_WINDOW=40"),
+        Input(command=f"while true; do {POLL}; sleep 30; done", agent_type=WATCHER): Warn(),
+        Input(command=f"PR_POLL_STACK=2 {POLL}", agent_type=WATCHER): Warn(),
+        Input(command=f"timeout 600 {POLL}", agent_type=WATCHER): Warn(),
+        Input(command=f"cd /tmp && {POLL}", agent_type=WATCHER): Warn(),
         Input(
             command="'/p/open-pr/scripts/pr-poll.sh' acme/widgets 7 /tmp/cache/pr/7.json", agent_type=WATCHER
-        ): Block(),
+        ): Warn(),
         Input(
             command=POLL, agent_type=WATCHER, tool_input={"command": POLL, "timeout": FOREGROUND_TIMEOUT_MS}
-        ): Block(),
-        Input(command=SHORT_POLL, agent_type=WATCHER): Block(),
+        ): Warn(),
+        Input(command=SHORT_POLL, agent_type=WATCHER): Warn(),
         Input(
             command=SHORT_POLL, agent_type=WATCHER, tool_input={"command": SHORT_POLL, "timeout": 600_000}
-        ): Block(),
+        ): Warn(),
         Input(
             command=SHORT_POLL,
             agent_type=WATCHER,
             tool_input={"command": SHORT_POLL, "timeout": FOREGROUND_TIMEOUT_MS, "run_in_background": True},
-        ): Block(),
+        ): Warn(),
         Input(
             command=f"PR_POLL_WINDOW=1500 {POLL}",
             agent_type=WATCHER,
             tool_input={"command": f"PR_POLL_WINDOW=1500 {POLL}", "timeout": FOREGROUND_TIMEOUT_MS},
-        ): Block(),
+        ): Warn(),
         Input(
             command=f"while true; do {SHORT_POLL}; done",
             agent_type=WATCHER,
             tool_input={"command": f"while true; do {SHORT_POLL}; done", "timeout": FOREGROUND_TIMEOUT_MS},
-        ): Block(),
+        ): Warn(),
         Input(
             command=SHORT_POLL, agent_type=WATCHER, tool_input={"command": SHORT_POLL, "timeout": FOREGROUND_TIMEOUT_MS}
         ): Allow(),

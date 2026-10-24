@@ -26,7 +26,7 @@ from captain_hook import (
 
 from .compaction_handoff import CompactionState, ccn
 
-BURST_SECONDS = 10 * 60
+BURST_SECONDS = 60 * 60
 DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
 CONFIRMS = "confirms:"

@@ -29,6 +29,7 @@ from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, 
 from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
+from .nudges import once_per_hour
 from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text, incident_spawn, open_incidents, posted_text, prose, read_incident_source
 from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
@@ -297,6 +298,7 @@ def register_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "register_gate", error)
         return None
+    missing = once_per_hour(evt, missing)
     return evt.context(UNROWED_ANSWER.format(ids=", ".join(missing), program=register["program"])) if missing else None
 
 
@@ -398,7 +400,8 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "owner_question_gate", error)
         return None
-    if not unquoted:
+    due = set(once_per_hour(evt, [f"owner-question:{found['term']}" for found in unquoted]))
+    if not (unquoted := [found for found in unquoted if f"owner-question:{found['term']}" in due]):
         return None
     shown = [fenced("\n".join(asked(found, register["rows"]) for found in unquoted)), *([fenced(briefs.strip())] if briefs else [])]
     return evt.context("\n".join([UNQUOTED, *shown]))
@@ -572,7 +575,7 @@ def lane(name: str) -> dict[str, str]:
 def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
         return None
-    if verbs := unseated_verbs(evt):
+    if (verbs := unseated_verbs(evt)) and once_per_hour(evt, [f"seat:{verbs[0]}"]):
         return evt.context(SEAT_REFUSED.format(verb=verbs[0], seats=SEAT_NAMES[verbs[0]], lane=lane_label(lane_name(evt))))
     if writes_authorizes(evt):
         return evt.context(AUTHORIZES_LABEL)
@@ -583,7 +586,8 @@ def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "register_write_guard", error)
         return None
-    return evt.context(LEDGER_WRITE.format(program=register["program"])) if any(names_ledger(token, register) for token in targets) else None
+    hits = any(names_ledger(token, register) for token in targets)
+    return evt.context(LEDGER_WRITE.format(program=register["program"])) if hits and once_per_hour(evt, [LEDGER_WRITE]) else None
 
 
 def plugin_cache() -> Path:
@@ -723,6 +727,7 @@ def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "go_and_cut_gate", error)
         return None
+    owed = once_per_hour(evt, owed)
     return evt.context("\n".join([GATES_OWED, fenced("\n".join(owed))])) if owed else None
 
 
@@ -825,4 +830,6 @@ def readback_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "readback_gate", error)
         return None
-    return evt.context("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())])) if said.startswith(CONTRACT_MISSING) else None
+    if not said.startswith(CONTRACT_MISSING) or not once_per_hour(evt, [f"readback:{lane}"]):
+        return None
+    return evt.context("\n".join([READBACK_MISSING.format(lane=lane), fenced(said.strip())]))

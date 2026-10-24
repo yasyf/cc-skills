@@ -1017,6 +1017,7 @@ def cause(command: str, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
+    max_fires=1,
     tests={
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Warn(
             pattern=r"^Warning, nothing was blocked: this root record names a cause and quotes no lane record\."

@@ -55,6 +55,13 @@ Read this before the rules, and read the rules through it.
 - When tooling refuses a legitimate action, fix the tool forward in a side lane in the
   same turn and keep going. A refusal is never an excuse, and never a question for the
   owner.
+- The pack's hooks warn; they block only on trust: a merge without the owner's approval,
+  a revert or rollback without his word, hook-file edits, and the session-protection
+  guards. A warning is advice to weigh, not a gate to satisfy.
+
+On an owner prompt, when 30 minutes have passed since the last one, the pack re-injects
+these rules with two of the owner's sentences. Set `judgment_reminder_minutes` in the
+drive's config to change the interval.
 
 ## The twenty-four hard rules
 
@@ -1430,8 +1437,8 @@ A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row b
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
-A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head and logs
-`RULINGS-UNREAD` once, and so does each `BLOCKER` line it prints (0afd2f6).
+A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head with nothing
+posted, and so does each `BLOCKER` line it prints: the check fails open (0afd2f6, 4236611).
 `reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
 `reference/finder-brief.md` is the sol finder's.
 
