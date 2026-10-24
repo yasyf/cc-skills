@@ -558,6 +558,7 @@ CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
+GATE_CHECK_SECONDS = 180
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
 QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
@@ -565,7 +566,7 @@ WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
-GATE_WORKERS = 4
+GATE_WORKERS = 8
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
@@ -711,12 +712,14 @@ class OrcaUnreachable(RuntimeError):
 
 
 def quick(argv: list[str]) -> bool:
-    return Path(argv[0]).name in QUICK_PROGRAMS or "--check" in argv
+    return Path(argv[0]).name in QUICK_PROGRAMS
 
 
 def time_bound(argv: list[str]) -> float:
     if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
         return CHECK_PR_SECONDS
+    if "--check" in argv:
+        return GATE_CHECK_SECONDS
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
 
 
@@ -731,7 +734,7 @@ class Shell:
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
-    A GitHub, cci or ccx read and a `--check` gets QUICK_SECONDS and `rulings.py check-pr` CHECK_PR_SECONDS; one that times out is logged and
+    A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS and `rulings.py check-pr` CHECK_PR_SECONDS; one that times out is logged and
     reads as a failed command, never a fatal one. `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """

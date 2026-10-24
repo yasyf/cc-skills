@@ -1942,7 +1942,7 @@ Each runner also posts a cci `state` record to `drive-watchdog` once a minute fr
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
-and a `stack-enqueue --check` get 60 seconds each, and `rulings.py check-pr` 180, since a cold
+get 60 seconds each, and a `stack-enqueue --check` and `rulings.py check-pr` 180 each, since a cold
 grade of a copy of thousands of files takes about 30. One that runs over is killed, logged as
 `TIMED-OUT` in the runner log and read as a failed command; a killed `check-pr` posts the lane
 one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds nothing. `check-pr`
