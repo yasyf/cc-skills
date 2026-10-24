@@ -3969,14 +3969,19 @@ class Landing:
         return replace(gate, verdicts=verdicts, would=would or None)
 
     def unproven(self, pr: str, sha: str) -> str:
-        """Why `sha` is not proven green, or empty when no build at it reads as a redundant skip, or a passed full build contains it: one at the stack's tip, or one a `full run green <build>` record from the PR's lane names for it. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
+        """Why `sha` is not proven green, or empty. A failed Buildkite build at the head itself always wins. A redundant skip is proven only by a passed full build of the skip's own pipeline on a commit that contains the head: one at the stack's tip, or one a `full run green <build>` record from the PR's lane names for it. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
         if not self.landing_config.get("ci_build"):
             return ""
         builds = self.ci_builds(sha)
-        if builds is None or not (skipped := [url for url, _, skip in builds if skip]):
+        if builds is None:
             return ""
+        if red := [url for url, state, _ in builds if state in ("failure", "error")]:
+            return f"unproven: its own build {red[0]} failed at {sha[:10]}, and no covering build overrides it. Fix and push, or retrigger it."
+        if not (skipped := [url for url, _, skip in builds if skip]):
+            return ""
+        pipeline = BUILD_URL.search(skipped[0])["pipeline"]
         child = self.deferred_child(pr)
-        tip = [url for url, state, skip in (self.ci_builds(child["head"]) or []) if state == "success" and skip is False] if child and child.get("head") else []
+        tip = [url for url, state, skip in (self.ci_builds(child["head"]) or []) if state == "success" and skip is False and BUILD_URL.search(url)["pipeline"] == pipeline] if child and child.get("head") else []
         reported = [BUILD_NUMBER.sub(f"/builds/{number}", skipped[0]) for number in self.reported_full_runs(pr)]
         if any(self.passes_over(url, sha) for url in [*tip, *reported]):
             return ""
