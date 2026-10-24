@@ -296,8 +296,9 @@ words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. A finder ok of an older head
-carries to a head with no finder record when both patches against the PR's base match, as a fidelity ok does. A PR whose body opens with "Red by design" draws no
-blocker for its failing required checks.
+carries to a head with no finder record when both patches against the PR's base match, as a fidelity ok does. A PR whose body opens with "Red by design", or whose lane's newest
+`contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
+blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
 which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
@@ -507,6 +508,7 @@ SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
 RELAYED_PR = re.compile(r"^(?:blocker|restack):(\d+):")
 RED_BY_DESIGN = re.compile(r"^\W*red by design\b", re.IGNORECASE)
+RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:run|build)\b|\bfailing (?:ci )?runs?\b", re.IGNORECASE)
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
@@ -2896,7 +2898,7 @@ class Runner:
         for action in self.book.load(container).actions.values():
             if action.kind not in ("relay", "reply", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
                 continue
-            if action.kind in ("relay", "reply") and action.status == "started" or self.lane_moved(about, action):
+            if action.kind in ("relay", "reply") and action.status == "started" or self.lane_moved(about, action) or self.relayed_red(about, action):
                 continue
             sent = [send for send in self.book.actions(container, kind="send") if send.authority_ref == action.action_id]
             missing = {
@@ -2906,6 +2908,16 @@ class Runner:
                 "enqueue": "the adapter's enqueue never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
             self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
+
+    def relayed_red(self, lane: str, action: actions.Action) -> bool:
+        """Whether `action` relays a blocker on a PR the lane's newest contract for it calls red by design, so no DEADLINE follows it."""
+        if action.kind != "relay" or not (relayed := RELAYED_PR.match(action.action_id)):
+            return False
+        try:
+            return red_contract(self.lane_records(lane, "contract"), relayed[1])
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return True
 
     def lane_moved(self, lane: str, action: actions.Action) -> bool:
         if action.kind != "relay" or not (relayed := RELAYED_PR.match(action.action_id)):
@@ -3655,6 +3667,12 @@ def names_key(text: str, key: str) -> bool:
     return re.search(rf"(?<![\w/]){re.escape(key)}(?![\w/])", text) is not None
 
 
+def red_contract(records: list[dict], pr: str) -> bool:
+    """Whether the newest `contract` record whose `--pr` refs name `pr` names its failing run as expected."""
+    named = [record for record in records if record["kind"] == "contract" and pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])}]
+    return bool(named) and RED_CONTRACT.search(max(named, key=lambda record: record["seq"])["text"]) is not None
+
+
 def names_pr(record: dict, pr: str) -> bool:
     return pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])} or re.search(rf"#{pr}\b", record["text"]) is not None
 
@@ -3905,9 +3923,14 @@ class Landing:
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
 
     def red_by_design(self, pr: str) -> bool:
+        """Whether `pr`'s body opens with "red by design", or its lane's newest contract for it names its failing run as expected."""
         if pr not in self.designed_red:
-            done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-            self.designed_red[pr] = done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
+            lane = self.ledger_rows.get(pr, {}).get("lane")
+            if lane and red_contract(self.runner.lane_records(lane, "contract"), pr):
+                self.designed_red[pr] = True
+            else:
+                done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
+                self.designed_red[pr] = done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
         return self.designed_red[pr]
 
     def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
