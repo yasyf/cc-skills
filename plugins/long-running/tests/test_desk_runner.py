@@ -2699,6 +2699,25 @@ def test_merge_mode_high_risk_enqueues_nothing_while_the_changed_files_do_not_re
 RESERVED = "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\n"
 
 
+def test_checks_wait_for_go_runs_no_gate_until_a_root_go_comes_after_its_sequence(shell, config, tmp_path):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks_wait_for_go"] = 34700
+    config.write_text(json.dumps(raw))
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    checks = lambda: [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks() == []
+    [line] = escalations(shell)
+    assert line.startswith("GATE-PAUSED gate-paused:34700 landing: landing.checks_wait_for_go is 34700")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert checks() and len(shell.enqueues()) == 1
+
+
 def test_a_board_surface_posts_no_merge_card_and_still_logs_the_ask_and_enqueues_on_the_go(shell, config, tmp_path):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())

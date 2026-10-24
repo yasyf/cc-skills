@@ -398,7 +398,8 @@ PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge 
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
 (default `slack`), the runner posts and edits no card: it still logs each `MERGE-ASK` and enqueues on the root's `go`, and the root asks the
-question on its own board. A reserved touch puts the first sentence of the row's words in the card's question, whose
+question on its own board. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
+no `stack-enqueue --check`, `MERGE-ASK`, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
 does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
@@ -4481,6 +4482,16 @@ class Landing:
             self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
         return self.risky[(pr, sha)]
 
+    def checks_paused(self) -> bool:
+        """Whether `landing.checks_wait_for_go` names a cci sequence no root `go` record on this drive has come after yet: until one does, the pass runs no gate, so no `stack-enqueue --check`, MERGE-ASK, or enqueue, and logs one `GATE-PAUSED` per sequence."""
+        if not (after := self.landing_config.get("checks_wait_for_go")):
+            return False
+        drive = self.runner.config.drive
+        if any((record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive) for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go", since=after)):
+            return False
+        self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
+        return True
+
     def head_gos(self, pr: str, head: str) -> list[dict]:
         drive = self.runner.config.drive
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
@@ -5400,7 +5411,7 @@ class Landing:
         self.ungraded_after()
         self.verify_restacks(rows)
         self.requeue(rows)
-        if advanced and not unread and (held := self.held(rows)) is not None:
+        if advanced and not unread and not self.checks_paused() and (held := self.held(rows)) is not None:
             self.squash_incidents(rows, held)
             self.retry_flakes(rows)
             self.gate(rows, held)
@@ -5494,6 +5505,9 @@ def mq_config_fault(landing: dict) -> str:
     if landing["merge_mode"] == "high-risk" and not landing.get("high_risk_paths"):
         faults.append("runs merge mode high-risk with no landing.high_risk_paths globs, so no PR would read as high-risk")
         members.append(f'"high_risk_paths": {json.dumps(list(HIGH_RISK_STARTER))}')
+    if (after := landing.get("checks_wait_for_go")) is not None and not (isinstance(after, int) and after > 0):
+        faults.append(f"names landing.checks_wait_for_go {json.dumps(after)}, which is no cci sequence number")
+        members.append('"checks_wait_for_go": <the cci sequence the pause starts after>')
     if landing.get("merge_ask_surface", "slack") not in MERGE_ASK_SURFACES:
         faults.append(f"names landing.merge_ask_surface {json.dumps(landing['merge_ask_surface'])}, which is neither of {', '.join(MERGE_ASK_SURFACES)}")
         members.append('"merge_ask_surface": "slack"')
