@@ -1926,6 +1926,29 @@ def test_fork_tips_a_joined_check_refuses_without_a_verdict_gate_alone_on_the_sa
     assert sorted(line.split(" would ride")[0][-6:] for line in lines if "FOREIGN" in line) == ["#36530", "#36531"]
 
 
+def test_a_fork_its_last_check_named_one_stack_runs_its_joined_check_beside_the_solo_one(shell, config, tmp_path, monkeypatch):
+    shell.rows = fork_rows()[:3]
+    verdicts = ("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 ai-review pending")
+    shell.gates["36487"] = [gate(*verdicts)]
+    shell.gates["36487 36501"] = [gate(*verdicts)]
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    joined, overlapped, run = threading.Event(), [], shell.run
+
+    def run_beside(argv, stdin=None, env=None):
+        if Path(argv[0]).name == "stack-enqueue" and "--check" in argv:
+            tips = list(itertools.takewhile(str.isdigit, argv[1:]))
+            if tips == ["36487", "36501"]:
+                joined.set()
+            elif tips == ["36487"]:
+                overlapped.append(joined.wait(5))
+        return run(argv, stdin, env)
+
+    monkeypatch.setattr(shell, "run", run_beside)
+    landing.run()
+    assert overlapped and all(overlapped)
+
+
 def test_a_tip_checked_alone_after_a_refused_join_escalates_when_it_has_no_verdict_either(shell, config, tmp_path):
     shell.rows = fork_rows()[:3]
     shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY")]
