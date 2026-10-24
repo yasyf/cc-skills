@@ -511,23 +511,26 @@ class Diff:
 
 
 def parse_diff(text: str) -> Diff:
+    """The lines a diff adds, removes and keeps. A file git found as a copy of a file the base still holds adds only the lines it changed, and its `-` lines remove nothing, since the source stays."""
     diff = Diff([], [], [], [], [])
     old_file = new_file = ""
     old_line = new_line = 0
-    in_hunk = False
+    in_hunk = copy = False
     for line in text.splitlines():
         if header := DIFF_GIT.match(line):
-            old_file, new_file, in_hunk = header["old"], header["new"], False
-            diff.files.append(new_file)
+            old_file, new_file, in_hunk, copy = header["old"], header["new"], False, False
+            diff.files += [new_file] if old_file == new_file else [old_file, new_file]
         elif hunk := HUNK.match(line):
             old_line, new_line, in_hunk = int(hunk["old"]), int(hunk["new"]), True
         elif not in_hunk:
+            copy = copy or line.startswith("copy from ")
             continue
         elif line.startswith("+"):
             diff.added.append((new_file, new_line, line[1:]))
             new_line += 1
         elif line.startswith("-"):
-            diff.removed.append((old_file, old_line, line[1:]))
+            if not copy:
+                diff.removed.append((old_file, old_line, line[1:]))
             old_line += 1
         elif line.startswith(" "):
             diff.kept_before.append((old_file, old_line, line[1:]))
@@ -761,7 +764,7 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
     try:
         with tempfile.NamedTemporaryFile(suffix=".diff") as out:
-            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", f"--output={out.name}", f"{pinned}...{head}"])
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", "--src-prefix=a/", "--dst-prefix=b/", f"--output={out.name}", f"{pinned}...{head}"])
             return parse_diff(Path(out.name).read_text(errors="replace"))
     finally:
         shell.run([*git, "update-ref", "-d", pinned])
