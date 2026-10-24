@@ -1521,7 +1521,17 @@ covers the row, because `check-pr` then stops naming it.
 A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
 each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
 --note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress` entry with an
-artifact lists logs one `BATCH-POST-OWED` per batch instead of its `MERGE-ASK`.
+artifact lists logs one `BATCH-POST-OWED` per set of PRs instead of its `MERGE-ASK`, and
+a new head on one of them does not post it again.
+
+A green head whose only passing build is Graphite's "Redundant within its stack" skip
+is not ready. With `landing.ci_build` set, as in
+`"ci_build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"`, the runner reads
+each passing Buildkite build at the head once. It grades such a head `unproven:
+redundant skip, child #<n> <state>`, sends that blocker to the lane, and leaves the head
+and every PR above it out of the merge card and the enqueue. The head is ready again
+once a full build passes at it, or once its topmost child is open, contains it, and
+passed a full build.
 
 Incident fixes still land by plain squash under every mode. Before the merge, an
 approved, green fix merges once the holds file, read again just before

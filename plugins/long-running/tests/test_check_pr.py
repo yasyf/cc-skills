@@ -182,7 +182,7 @@ def added(path: str, line: str) -> str:
     return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,1 +1,2 @@\n context\n+{line}\n"
 
 
-def test_a_reserved_row_matches_its_code_paths_and_identifiers_never_test_helpers_or_prose(package: Path, state: Path, registered: Path, capsys) -> None:
+def test_a_reserved_row_matches_its_identifiers_inside_its_paths_never_a_path_alone_test_helpers_or_prose(package: Path, state: Path, registered: Path, capsys) -> None:
     rows = pinned(package) | {"reserved/mac-evict": MAC_EVICT}
     browser_stub = DIFF + added("dashboard/src/iris/testing/dom.ts", "removeEventListener() {},") + added("dashboard/src/iris/chat.ts", "window.removeEventListener('blur', onBlur)")
     prose = DIFF + added("docs/chats.md", "Old chats are evicted and Removed from the Mac.")
@@ -190,8 +190,10 @@ def test_a_reserved_row_matches_its_code_paths_and_identifiers_never_test_helper
 
     assert check(capsys, CheckShell(rows, diff=browser_stub)) == (0, [])
     assert check(capsys, CheckShell(rows, diff=prose)) == (0, [])
-    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "os.RemoveAll(dir)"))) == refused
-    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "evict(session)"))) == refused
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "return nil"))) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "os.RemoveAll(dir)"))) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "os.RemoveAll(dir)"))) == refused
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "evict(session)"))) == refused
 
 
 CLOUD_DELETE = dict(RESERVED, words="Nothing deletes a cloud chat without my word. Ask first.", ops='["*DeleteObject*", "*durable_at*"]')
@@ -212,6 +214,7 @@ def test_a_reserved_row_matches_only_what_a_diff_adds_never_what_it_deletes_or_r
     refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud chat without my word."])
 
     assert check(capsys, CheckShell(rows, diff=removal)) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + changed("rust/crates/sandsql-testkit/src/s3.rs", [], ["\tclient.DeleteObject(ctx, key)"]))) == (0, [])
     assert check(capsys, CheckShell(rows, diff=DIFF + changed("go/sand/cmd/session_pass.go", [], ["\tclient.DeleteObject(ctx, key)"]))) == refused
 
 

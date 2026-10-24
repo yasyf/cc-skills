@@ -60,11 +60,11 @@ LABEL_CI_PENDING = re.compile(r"^(?:commit status pending|mergeable_state (?!dir
 LABEL_CONFLICT = re.compile(r" conflicts with |^mergeable_state dirty:")
 LABEL_FOREIGN = re.compile(r"no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label")
 LABEL_ROUTED = re.compile(
-    r"^(?:commit status (?:failure|error) |failed check runs |ai-review is |mergeable_state dirty:|#\d+'s branch \S+ is the base of |#\d+ is based on |#\d+ is its own ancestor )|^\S+ conflicts with \S+ on "
+    r"^(?:unproven: redundant skip|commit status (?:failure|error) |failed check runs |ai-review is |mergeable_state dirty:|#\d+'s branch \S+ is the base of |#\d+ is based on |#\d+ is its own ancestor )|^\S+ conflicts with \S+ on "
 )
 UNNAMED_RIDER = "rides the batch through"
 ROUTED_BLOCKER = re.compile(
-    r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|fidelity (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)"
+    r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|unproven: redundant skip|fidelity (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)"
 )
 BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure |.+, so the red check is its own$)")
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"

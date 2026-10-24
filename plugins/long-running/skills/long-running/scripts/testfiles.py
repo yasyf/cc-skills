@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 
 TEST_FILE = re.compile(
-    r"(?:^|/)(?:tests?|testing|testdata|fixtures|__snapshots__|__mocks__|e2e)/|(?:^|/)[a-z0-9]+(?:test|harness)/"
-    r"|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$"
+    r"(?:^|/)(?:tests?|testing|testdata|fixtures|__snapshots__|__mocks__|e2e|fakes?|mocks?)/|(?:^|/)[a-z0-9_-]+(?:test|testkit|testutils?|harness)/"
+    r"|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$"
 )
 
 
