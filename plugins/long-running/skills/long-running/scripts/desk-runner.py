@@ -396,7 +396,9 @@ waiting PR and its head by a short sha. The card goes through `cc-present ask` w
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
-logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. A reserved touch puts the first sentence of the row's words in the card's question, whose
+logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
+(default `slack`), the runner posts and edits no card: it still logs each `MERGE-ASK` and enqueues on the root's `go`, and the root asks the
+question on its own board. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
 does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
@@ -455,6 +457,7 @@ LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
+MERGE_ASK_SURFACES = ("slack", "board")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
@@ -4570,14 +4573,18 @@ class Landing:
             rows_named = "".join(f":{key}" for key, _ in reserved)
             why = f"It changes {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}." if paths else "Every PR waits for your answer." if mode == "every" and not self.lands_green else "It touches a reserved rule."
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
-            if not (ts := self.merge_card(pr, heads[pr], f"{why}{touched}")):
+            if self.landing_config.get("merge_ask_surface", "slack") == "board":
+                where = "on the root's board, where the root asks it"
+            elif ts := self.merge_card(pr, heads[pr], f"{why}{touched}"):
+                where = f"the merge card at ts {ts} in the root's status thread or on its board"
+            else:
                 continue
             authorize = "".join(f"; the card quotes {key} and its words, and the Merge go authorizes it" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}",
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers the merge card at ts {ts} in the root's status thread or on its board, waiting on `{waits}`"
+                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers {where}, waiting on `{waits}`"
                 f" | Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture,"
                 f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and answer in plain words with `cc-present reply --block {waits} --body <answer>`, which replies on the board and under the Slack card with the link back to it",
             )
@@ -5487,6 +5494,9 @@ def mq_config_fault(landing: dict) -> str:
     if landing["merge_mode"] == "high-risk" and not landing.get("high_risk_paths"):
         faults.append("runs merge mode high-risk with no landing.high_risk_paths globs, so no PR would read as high-risk")
         members.append(f'"high_risk_paths": {json.dumps(list(HIGH_RISK_STARTER))}')
+    if landing.get("merge_ask_surface", "slack") not in MERGE_ASK_SURFACES:
+        faults.append(f"names landing.merge_ask_surface {json.dumps(landing['merge_ask_surface'])}, which is neither of {', '.join(MERGE_ASK_SURFACES)}")
+        members.append('"merge_ask_surface": "slack"')
     if not landing.get("release_cli"):
         faults.append("names no landing.release_cli, the release command line relative to landing.checkout, so no deploy state could be read")
         members.append(f'"release_cli": {json.dumps(RELEASE_CLI if (Path(landing["checkout"]).expanduser() / RELEASE_CLI.split()[0]).is_file() else "<release command line>")}')

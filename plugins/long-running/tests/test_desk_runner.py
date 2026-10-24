@@ -2699,6 +2699,24 @@ def test_merge_mode_high_risk_enqueues_nothing_while_the_changed_files_do_not_re
 RESERVED = "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\n"
 
 
+def test_a_board_surface_posts_no_merge_card_and_still_logs_the_ask_and_enqueues_on_the_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["merge_ask_surface"] = "board"
+    config.write_text(json.dumps(raw))
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers on the root's board, where the root asks it, waiting on `merge:29020:cccc333`")
+    assert shell.pr_cards == [] and not [call for call in shell.calls if call[:2] == ["cc-present", "ask"]]
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
 @pytest.mark.parametrize("mode", ["every", "auto"])
 def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers_it_authorizes_the_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)
