@@ -25,13 +25,15 @@ read with `--environment <server name>` from its `worker-show`.
 
 A confirmed prompt's screen is saved owner-only under `<state dir>/prompt-watch/screens/`, as is a
 screen the watch could not classify. A record, a wake, and `show` name that file, the dialog's
-class, and the read command; none carries the dialog's text. A record over cci's 400 characters
+class, its title line, the time left on its auto-deny countdown, and the read command; none carries
+the rest of the dialog's text. A record over cci's 400 characters
 is clipped and its whole line rides as `--path` from `<state dir>/prompt-watch/notices/`.
 
 One cci record per prompt, from lane `prompt-watch`, keyed by the terminal, the dialog's class,
-and every row of the dialog. Orca rewrites `agentWait.since` every few seconds while one dialog
-stays open, so it keys nothing:
-a worker's or desk's prompt is a `blocker` to `root`. A question on the coordinator's terminal
+and every row of the dialog but its auto-deny countdown. Orca rewrites `agentWait.since` every few
+seconds while one dialog stays open, and the countdown ticks on every screen refresh, so neither keys anything:
+a worker's or desk's prompt is a `blocker` to `root`, and one `report` to `root` naming that blocker
+when the prompt is still open ten minutes later. A question on the coordinator's terminal
 is the coordinator asking the owner there, so it raises no record. The coordinator cannot be
 woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
 while that desk's own terminal reads clear or stale. It is a `needs_you` card in the owner's DM,
@@ -118,6 +120,7 @@ ORCA_SECONDS = 20
 SHOW_WORKERS = 8
 UNSEEN_POLLS = 3
 SUPERVISOR_WAIT = timedelta(minutes=5)
+STILL_OPEN_AFTER = timedelta(minutes=10)
 IDLE_MS = 1000
 SUBMIT_SECONDS = 5
 DOWN_AFTER = timedelta(minutes=2)
@@ -177,6 +180,8 @@ class Seen:
     since: int | None = None
     asked: str = ""
     screen: dict | None = None
+    title: str = ""
+    countdown: str = ""
 
 
 def stamp(moment: datetime) -> str:
@@ -309,7 +314,7 @@ class Watch:
         if screen.get("source") != "screen":
             return Seen(subject, UNKNOWN, f"no rendered screen (source {screen.get('source', 'absent')})", since)
         if found := prompt_screen.dialog(screen):
-            return Seen(subject, found.kind, "", since, found.asked, screen)
+            return Seen(subject, found.kind, "", since, found.asked, screen, found.title, found.countdown)
         if not wait:
             return Seen(subject, CLEAR)
         if prompt_screen.composer([line.rstrip() for line in screen.get("tail") or []]) is not None:
@@ -360,7 +365,7 @@ class Watch:
                 left[who] = seq
         row["alerts"] = left
         if not left:
-            for key in ("episode", "told_at", "wake", "capture", "supervisor_input"):
+            for key in ("episode", "told_at", "reminded", "wake", "capture", "supervisor_input"):
                 row.pop(key, None)
 
     def wake(self, supervisor: Subject, text: str) -> dict:
@@ -388,13 +393,19 @@ class Watch:
 
     def prompt_text(self, row: dict, seen: Seen, tail: str) -> str:
         subject = seen.subject
-        return f"PROMPT {subject.name} ({subject.role}) waits on {WAITS_ON[seen.state]}. Screen: {row['capture']}. Read: {read_command(subject)}. {tail}"
+        deny = f"; auto-denies in {seen.countdown}" if seen.countdown else ""
+        return f"PROMPT {subject.name} ({subject.role}) waits on {WAITS_ON[seen.state]} ({seen.title}{deny}). Screen: {row['capture']}. Read: {read_command(subject)}. {tail}"
 
     def alert(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
         alerts, subject = row["alerts"], seen.subject
         if subject.role != COORDINATOR:
             if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(row, seen, "The watch answers nothing."))):
-                alerts[ROOT] = seq
+                alerts[ROOT], row["told_at"] = seq, stamp(self.shell.now())
+            told = parse_stamp(row.setdefault("told_at", stamp(self.shell.now())))
+            if ROOT in alerts and "reminded" not in row and self.shell.now() - told >= STILL_OPEN_AFTER:
+                minutes = int(STILL_OPEN_AFTER.total_seconds() // 60)
+                if seq := self.post(entry, "report", ROOT, subject.name, self.prompt_text(row, seen, f"Still open {minutes}m after #{alerts[ROOT]}; the watch answers nothing.")):
+                    row["reminded"] = seq
             return
         if OWNER in alerts or seen.state == prompt_screen.QUESTION:
             return

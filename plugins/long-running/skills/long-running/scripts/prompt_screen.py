@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 RULE = "─"
 PROMPT = "❯"
@@ -22,6 +22,8 @@ BUSY = "busy"
 WAITING = "waiting"
 RUNNING = re.compile(r"\besc to interrupt\b|\((?:\d+h )?(?:\d+m )?\d+s [·•]", re.IGNORECASE)
 RUNNING_ROWS = 12
+COUNTDOWN = re.compile(r"\bdeny\b.*?\bin (\d+:\d{2})\b", re.IGNORECASE)
+TITLE_CHARS = 80
 FRAME = "│☐ "
 WORD = re.compile(r"\w")
 
@@ -30,6 +32,11 @@ WORD = re.compile(r"\w")
 class Dialog:
     kind: str
     asked: str
+    countdown: str = field(default="", compare=False)
+
+    @property
+    def title(self) -> str:
+        return self.asked.split(" / ", 1)[0][:TITLE_CHARS]
 
 
 def indent(line: str) -> int:
@@ -76,8 +83,9 @@ def dialog(terminal: dict) -> Dialog | None:
     A dialog is a key-hint footer naming `Esc to cancel` with a selection cursor above it and no input
     box below it; a footer followed by the agent's input box is scrollback. A picker's footer offers to
     select or navigate and makes a question; any other footer makes an approval. What it asks is every
-    row of text from the dialog's top to its footer, less a row that shows a running timer, so two
-    dialogs read alike only when their text and options match.
+    row of text from the dialog's top to its footer, less a row that shows a running timer or the
+    auto-deny countdown, so two dialogs read alike only when their text and options match. The
+    countdown's time left rides apart as `countdown`.
     """
     if terminal.get("source") != "screen":
         return None
@@ -88,8 +96,10 @@ def dialog(terminal: dict) -> Dialog | None:
     if (cursor := next((i for i in reversed(range(footer)) if CURSOR.match(tail[i])), None)) is None:
         return None
     top = next((i + 1 for i in reversed(range(cursor)) if is_rule(tail[i])), 0)
-    rows = [line.strip(FRAME) for line in tail[top:footer] if WORD.search(line) and not RUNNING.search(line)]
-    return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(rows))
+    body = [line.strip(FRAME) for line in tail[top:footer] if WORD.search(line) and not RUNNING.search(line)]
+    countdown = next((found[1] for line in body if (found := COUNTDOWN.search(line))), "")
+    rows = [line for line in body if not COUNTDOWN.search(line)]
+    return Dialog(QUESTION if PICKER.search(tail[footer]) else APPROVAL, " / ".join(rows), countdown)
 
 
 def input_state(terminal: dict) -> str | None:

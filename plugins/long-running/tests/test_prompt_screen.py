@@ -133,6 +133,17 @@ def test_two_commands_behind_one_warning_ask_two_different_things() -> None:
     assert prompt_screen.dialog(screen(*CODEX_APPROVAL)) != prompt_screen.dialog(screen(*(line.replace("build/out", "build/cache") for line in CODEX_APPROVAL)))
 
 
+def test_an_auto_deny_countdown_is_read_apart_and_leaves_what_the_dialog_asks_unchanged() -> None:
+    at = HOOK_APPROVAL.index(" Do you want to proceed?")
+    found = [
+        prompt_screen.dialog(screen(*HOOK_APPROVAL[:at], f" ⚠ Claude Code will automatically deny this request in {left}, to avoid blocking progress on an unattended session", *HOOK_APPROVAL[at:]))
+        for left in ("1:58", "0:55")
+    ]
+
+    assert [dialog.countdown for dialog in found] == ["1:58", "0:55"]
+    assert {dialog.asked for dialog in found} == {HOOK_ASKED} and found[0].title == "Bash command · from the startup-speed agent"
+
+
 def test_a_timer_ticking_above_an_unruled_dialog_leaves_what_it_asks_unchanged() -> None:
     asked = {prompt_screen.dialog(screen(f"• Working ({elapsed} • esc to interrupt)", *CODEX_APPROVAL)) for elapsed in ("12s", "1m 42s")}
 

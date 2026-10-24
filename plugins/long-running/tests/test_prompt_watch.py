@@ -27,6 +27,7 @@ RUN = "run_4104a86f0a03"
 READ_ONLY = {("terminal", "show"), ("terminal", "read"), ("terminal", "wait"), ("orchestration", "worker-list"), ("orchestration", "worker-show")}
 TUI_IDLE = ("terminal", "wait", "--terminal", SUPERVISOR, "--for", "tui-idle", "--timeout-ms", "1000")
 DIALOG_WORDS = ("runs rm", "Do you want to proceed", "Kick it off", "Would you like to run", "rm -rf")
+HOOK_TITLE = "Bash command · from the startup-speed agent"
 ASKED = "Bash command · from the startup-speed agent / Time the current single-stream fetch with its SHA-256 check on the measurement Sprite as a same-host control / This shell -c script runs rm and could not be checked / Do you want to proceed? / ❯ 1. Yes / 2. No"
 
 
@@ -167,8 +168,8 @@ def whole(post: dict) -> str:
     return Path(post["--path"]).read_text().rstrip("\n") if "--path" in post else post["--text"]
 
 
-def notice(name: str, role: str, waits: str, capture: str, read_it: str, tail: str) -> str:
-    return f"PROMPT {name} ({role}) waits on {waits}. Screen: {capture}. Read: {read_it}. {tail}"
+def notice(name: str, role: str, waits: str, title: str, capture: str, read_it: str, tail: str) -> str:
+    return f"PROMPT {name} ({role}) waits on {waits} ({title}). Screen: {capture}. Read: {read_it}. {tail}"
 
 
 def shown(shell: FakeShell, capsys) -> list[str]:
@@ -190,7 +191,7 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
     assert post["--to"] == "codex-supervisor" and post["--kind"] == "blocker" and post["--lane"] == "prompt-watch" and post["--topic"] == "prompt:coordinator"
     capture = Path(rows[ROOT]["capture"])
     assert whole(post) == notice(
-        "coordinator", "coordinator", "an approval dialog", str(capture), f"orca terminal read --terminal {ROOT} --screen", "Answer only within what the owner already authorized, else ask the owner."
+        "coordinator", "coordinator", "an approval dialog", HOOK_TITLE, str(capture), f"orca terminal read --terminal {ROOT} --screen", "Answer only within what the owner already authorized, else ask the owner."
     )
     assert rows[ROOT]["detail"] == f"screen saved at {capture}; supervisor is busy"
     assert shell.sends == [] and shell.cards == [] and "wake" not in rows[ROOT]
@@ -228,6 +229,7 @@ def test_with_no_supervisor_the_coordinators_prompt_is_one_needs_you_card_in_the
         "coordinator",
         "coordinator",
         "an approval dialog",
+        HOOK_TITLE,
         rows[ROOT]["capture"],
         f"orca terminal read --terminal {ROOT} --screen",
         "It froze the coordinator; no supervisor desk is registered. Answer it in that terminal.",
@@ -455,7 +457,7 @@ def test_a_second_prompt_on_the_same_terminal_is_a_second_card(home, shell):
 
     first, cleared, second = shell.cards
     assert (first["status"], cleared["status"], second["status"]) == ("needs_you", "info", "needs_you") and shell.posts == []
-    assert "waits on an approval dialog. Screen: " in second["body"] and state()[ROOT]["capture"] in second["body"] and state()[ROOT]["capture"] != earlier
+    assert f"waits on an approval dialog ({HOOK_TITLE}). Screen: " in second["body"] and state()[ROOT]["capture"] in second["body"] and state()[ROOT]["capture"] != earlier
 
 
 @pytest.mark.parametrize("screen", ["coordinator.question", "coordinator.preview-question"])
@@ -583,8 +585,39 @@ def test_a_workers_question_wakes_the_coordinator_once(home, shell):
     assert rows[f"dispatch:{LOCAL}"]["state"] == "question" and rows[f"dispatch:{LOCAL}"]["name"] == "bake"
     assert shell.kinds("bake") == ["blocker"]
     post = shell.to("root")[0]
-    assert whole(post) == notice("bake", "worker", "a question dialog", rows[f"dispatch:{LOCAL}"]["capture"], f"orca terminal read --terminal {LOCAL_TERMINAL} --screen", "The watch answers nothing.")
+    assert whole(post) == notice("bake", "worker", "a question dialog", "Test page", rows[f"dispatch:{LOCAL}"]["capture"], f"orca terminal read --terminal {LOCAL_TERMINAL} --screen", "The watch answers nothing.")
     assert shell.cards == [] and shell.kinds(GONE) == ["report"]
+
+
+def ticking(remaining: str) -> dict:
+    screen = fixture("screen.coordinator.approval")
+    tail = screen["result"]["terminal"]["tail"]
+    at = next(index for index, line in enumerate(tail) if "Do you want to proceed?" in line)
+    tail.insert(at, f" ⚠ Claude Code will automatically deny this request in {remaining}, to avoid blocking progress on an unattended session")
+    return screen
+
+
+def test_a_workers_dialog_whose_auto_deny_countdown_ticks_is_one_blocker_one_still_open_report_and_one_clear(home, shell):
+    workers(home, shell, "waiting")
+
+    for remaining in ("1:58", "1:26", "0:55"):
+        shell.orca[read(LOCAL_TERMINAL)] = ticking(remaining)
+        poll(shell)
+
+    assert shell.kinds("bake") == ["blocker"]
+    [blocker] = [post for post in shell.posts if post["--topic"] == "prompt:bake"]
+    assert f"waits on an approval dialog ({HOOK_TITLE}; auto-denies in 1:58). Screen: " in whole(blocker)
+
+    poll(shell, 20)
+
+    assert shell.kinds("bake") == ["blocker", "report"]
+    reminder = [post for post in shell.posts if post["--topic"] == "prompt:bake"][1]
+    assert reminder["--to"] == "root" and whole(reminder).endswith(f"Still open 10m after #{blocker['seq']}; the watch answers nothing.")
+
+    shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.clear")
+    poll(shell)
+
+    assert shell.kinds("bake") == ["blocker", "report", "unblock"]
 
 
 def test_a_local_worker_with_no_wait_costs_no_screen_read_and_a_settled_one_no_show(home, shell):
@@ -619,7 +652,7 @@ def test_a_managed_server_worker_sets_no_wait_so_its_screen_is_read_through_its_
     assert rows[f"dispatch:{REMOTE}"]["state"] == "approval"
     assert shell.kinds(REMOTE) == ["blocker"]
     assert whole(shell.to("root")[0]) == notice(
-        REMOTE, "worker", "an approval dialog", rows[f"dispatch:{REMOTE}"]["capture"], f"orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}", "The watch answers nothing."
+        REMOTE, "worker", "an approval dialog", "• I need to clear the stale build directory before the bake can rerun.", rows[f"dispatch:{REMOTE}"]["capture"], f"orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}", "The watch answers nothing."
     )
 
 

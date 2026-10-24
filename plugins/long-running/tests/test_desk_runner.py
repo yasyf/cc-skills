@@ -3066,6 +3066,29 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
 
 
 @pytest.mark.parametrize(
+    ("text", "enqueued", "noted"),
+    [
+        ("sol finder on #29020: no majors; 1 minor (3 rustfmt layouts) fixed in cccc333", True, False),
+        ("finder (gpt-6.1-sol ...): no findings", True, False),
+        ("finder: gpt-6.1-sol xhigh on cccc333: 2 majors fixed at dddd444 (C37 now deletes a stopped lane's chain; C133 grades level-0 only)", False, False),
+        ("sol finder ran; the report sits beside the branch", False, True),
+        ("sol finder: major cccc333 1 open: go/a.go:12 the retry drops the sealed read", False, False),
+    ],
+)
+def test_a_finder_record_in_plain_words_is_read_for_its_verdict_and_head(shell, config, tmp_path, text, enqueued, noted):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "a/3 cccc333333"})
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "review", "to": ["fidelity-desk"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert bool(shell.enqueues()) is enqueued
+    notes = [post["text"] for post in shell.posts if post["kind"] == "note" and f"cci #{seq}" in post["text"]]
+    assert notes == ([f"#29020: cci #{seq} names the finder, but the runner reads no verdict in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."] if noted else [])
+
+
+@pytest.mark.parametrize(
     "out",
     [
         "RULINGS-UNCITED rule/abc1234\nTEST-REMOVED TestAnOpenOldChatReadsItsRows\nCONTRACT-MISSING lane-a: the grade #9 covers slice-hash 0; the lane's slice is now 1\n",
