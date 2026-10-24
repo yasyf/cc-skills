@@ -537,6 +537,8 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
+QUICK_SECONDS = 60
+QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
@@ -687,23 +689,48 @@ class OrcaUnreachable(RuntimeError):
     pass
 
 
+def quick(argv: list[str]) -> bool:
+    return Path(argv[0]).name in QUICK_PROGRAMS or "--check" in argv
+
+
+def command_name(argv: list[str]) -> str:
+    words = argv[argv.index("--script") + 1 :] if "--script" in argv else argv
+    return " ".join([Path(words[0]).name, *words[1:]])[:120]
+
+
 class Shell:
     """The single side-effect boundary: every subprocess, the clock, and the load average pass through here.
 
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
+    A GitHub, cci or ccx read and a `--check` gets QUICK_SECONDS; one that times out is logged and
+    reads as a failed command, never a fatal one. `in_progress` holds each thread's command in flight
+    and when it started, for the heartbeat.
     """
 
+    in_progress: dict[int, tuple[str, float]] = {}
+
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
-        with tempfile.TemporaryFile("w+") as feed:
-            feed.write(stdin or "")
-            feed.seek(0)
-            try:
-                proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, timeout=COMMAND_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
-                return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {COMMAND_TIMEOUT_SECONDS}s and was killed")
+        timeout = QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
+        self.in_progress[threading.get_ident()] = (command_name(argv), time.monotonic())
+        try:
+            with tempfile.TemporaryFile("w+") as feed:
+                feed.write(stdin or "")
+                feed.seek(0)
+                try:
+                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
+                    return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
+        finally:
+            self.in_progress.pop(threading.get_ident(), None)
         return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def in_flight(self) -> tuple[str, float] | None:
+        """The longest-running command in flight and how many seconds it has run."""
+        now = time.monotonic()
+        return max(((name, now - started) for name, started in list(self.in_progress.values())), key=lambda item: item[1], default=None)
 
     def adopt(self, values: dict[str, str]) -> None:
         os.environ.update(values)
@@ -1393,12 +1420,30 @@ class Runner:
         self.cci_post("blocker", f"{desk} runner pass raised {raised[:240]}; {then}", ROOT, desk, f"pass-raised:{desk}")
         return again
 
+    def post_alive(self, desk: str) -> None:
+        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is."""
+        if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) < ALIVE_EVERY:
+            return
+        self.alive_posted[desk] = self.now()
+        flight = self.shell.in_flight()
+        doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
+        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", WATCHDOG, desk, f"alive:{desk}")
+
+    def keep_alive(self, desk: str) -> threading.Event:
+        """Post the alive record every minute from a daemon thread, whatever the pass is doing, until the returned event is set."""
+        stop = threading.Event()
+
+        def tick() -> None:
+            while not stop.wait(ALIVE_EVERY.total_seconds()):
+                self.post_alive(desk)
+
+        threading.Thread(target=tick, name=f"{desk}-alive", daemon=True).start()
+        return stop
+
     def beat(self, desk: str) -> None:
-        """Write the desk's heartbeat file every pass, and post it to the drive watchdog as a cci `state` record at most once a minute."""
+        """Write the desk's heartbeat file every pass, and post its alive record."""
         self.passes[desk] += 1
-        if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) >= ALIVE_EVERY:
-            self.alive_posted[desk] = self.now()
-            self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {self.passes[desk]}", WATCHDOG, desk, f"alive:{desk}")
+        self.post_alive(desk)
         inbox = self.config.desk_inbox.parent
         beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "version": RUNNING_VERSION}
         inbox.mkdir(parents=True, exist_ok=True)
@@ -3652,6 +3697,9 @@ class Landing:
         self.risky: dict[tuple[str, str], list[str]] = {}
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
+        self.sessions: dict[str, bool] = {}
+        self.unlanded: set[str] = set()
+        self.designed_red: dict[str, bool] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
@@ -3822,8 +3870,10 @@ class Landing:
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
 
     def red_by_design(self, pr: str) -> bool:
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-        return done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
+        if pr not in self.designed_red:
+            done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
+            self.designed_red[pr] = done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
+        return self.designed_red[pr]
 
     def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
         """Escalate `GATE-FAILED` for a check that read no verdict, naming only the tips that have not landed since the pass read the ledger."""
@@ -4046,9 +4096,10 @@ class Landing:
         return list(self.landing_config.get("checks", merge_queue.CHECKS))
 
     def failing(self, stage: tuple[str, ...], graded: Graded) -> tuple[str, dict[str, merge_queue.State]] | None:
-        """The first configured check of `stage` that does not pass every head, with each head's state; a refusing check posts its own blocker or ask when `graded.act`."""
+        """The first configured check of `stage` that does not pass every head, with each head's state; a refusing check posts its own blocker or ask when `graded.act`. The merge-mode check runs first, so a head's merge card is asked before the slower checks run, and its verdict still counts in its configured place."""
+        early = {"merge-mode": self.check("merge-mode", graded)} if "merge-mode" in stage and "merge-mode" in self.checks else {}
         for name in self.checks:
-            if name in stage and (states := {pr: state for pr, state in self.check(name, graded).items() if state.state != merge_queue.PASS}):
+            if name in stage and (states := {pr: state for pr, state in (early[name] if name in early else self.check(name, graded)).items() if state.state != merge_queue.PASS}):
                 return name, states
         return None
 
@@ -4064,6 +4115,11 @@ class Landing:
             for pr, sha in graded.heads.items()
             if graded.rows.get(pr, {}).get("rules_blocked")
         }
+
+    def read_reports(self, heads: dict[str, str]) -> None:
+        """Run `check-pr` for every head of `heads` this pass has not read yet, `GATE_WORKERS` at a time."""
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+            list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
         """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
@@ -4095,6 +4151,7 @@ class Landing:
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
         if graded.act:
+            self.read_reports(graded.heads)
             for pr, sha in graded.heads.items():
                 if warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]:
                     text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
@@ -4163,6 +4220,7 @@ class Landing:
             if any(paths is None for paths in risky.values()):
                 return None
             asks = {pr: paths for pr, paths in risky.items() if paths}
+        self.read_reports({pr: sha for pr, sha in heads.items() if pr not in asks})
         return asks | {pr: [] for pr, sha in heads.items() if pr not in asks and self.reserved_touches(pr, sha)}
 
     @property
@@ -4987,17 +5045,22 @@ class Landing:
         return [lane] if self.session_live(lane) else [lane, ROOT]
 
     def session_live(self, lane: str) -> bool:
-        done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
-        if done.code != 0:
-            raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-        return bool(done.out.strip())
+        """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""
+        if lane not in self.sessions:
+            done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
+            if done.code not in (0, TIMED_OUT):
+                raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            self.sessions[lane] = done.code == 0 and bool(done.out.strip())
+        return self.sessions[lane]
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
-        if pr not in self.landed:
+        if pr not in self.landed and pr not in self.unlanded:
             done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", pr])
             if done.code == 0 and any(str(entry["number"]) == pr and entry["queue"] == "landed" for entry in json.loads(done.out)):
                 self.landed.add(pr)
+            else:
+                self.unlanded.add(pr)
         return pr in self.landed
 
     def routed(self, key: str, lane: str) -> bool:
@@ -5078,7 +5141,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported = {}
+        self.reported, self.sessions, self.unlanded, self.designed_red = {}, {}, set(), {}
         if self.quota_low():
             return
         advanced = self.advance()
@@ -5133,6 +5196,7 @@ def run_orca(runner: Runner, once: bool) -> int:
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
+    runner.keep_alive("orca")
     while True:
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
@@ -5223,6 +5287,7 @@ def run_landing(runner: Runner, once: bool) -> int:
     seed_policy(runner)
     landing = Landing(runner, runner.config.landing)
     interval = runner.config.landing.get("interval_seconds", 180)
+    runner.keep_alive("landing")
     while True:
         started = runner.now()
         try:
