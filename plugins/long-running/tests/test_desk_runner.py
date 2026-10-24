@@ -1036,6 +1036,16 @@ def test_a_lane_that_posts_a_head_for_the_relayed_pr_draws_no_deadline(shell, co
     assert [line for line in escalations(shell) if "DEADLINE" in line] == []
 
 
+def test_a_relay_on_a_pr_its_lane_contracted_as_red_by_design_draws_no_deadline(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "blocker:29020:cccc333333", "--lane", LANE, "--text", "#29020 cccc333333: graphite FAILING_REQUIRED")
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": LANE, "kind": "contract", "to": ["root"], "refs": {"prs": ["acme/service#29020"]}, "text": "C01 update: #29020 fails in run 78325 until step 9 lands, on #29031.", "at": actions.stamp(shell.clock)})
+    for _ in range(25):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert [line for line in escalations(shell) if "DEADLINE" in line] == []
+
+
 def wakes(shell: FakeShell) -> list[str]:
     return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
 
@@ -1723,6 +1733,20 @@ def test_a_red_by_design_pr_gets_no_failing_required_blocker(shell, config, tmp_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert blockers(shell) == []
+
+
+def test_a_pr_its_lane_contracted_as_red_by_design_gets_no_failing_required_blocker(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.combined_statuses["bbbb222222"] = [{"context": "buildkite/test", "state": "failure"}]
+    shell.rows = [
+        {"pr": "39007", "lane": "hj-base", "branch": "j/8", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "39050", "lane": LANE, "branch": "j/11", "base": "j/8", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+    ]
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": LANE, "kind": "contract", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#39050"]}, "text": "#39050 red serve rows on #39007. Failing run 78325 https://buildkite.com/forge/test/builds/78325.", "at": actions.stamp(shell.clock)})
+    shell.gates["39050"] = [gate("#39007 GREEN aaaa111111 graphite READY", "#39050 BLOCKED bbbb222222 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and not [call for call in shell.sends() if "FAILING_REQUIRED" in call[call.index("--body") + 1]]
 
 
 def test_a_held_prefix_is_never_routed_and_stack_enqueue_gets_no_hold_flag(shell, config, tmp_path):
