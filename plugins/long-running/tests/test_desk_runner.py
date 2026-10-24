@@ -2797,6 +2797,49 @@ def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_b
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
+def status(pipeline: str, number: str, state: str = "success") -> dict:
+    return {"context": f"buildkite/{pipeline}", "state": state, "target_url": f"https://buildkite.com/forge/{pipeline}/builds/{number}"}
+
+
+def finished(build: dict, commit: str, state: str = "passed") -> dict:
+    return build | {"state": state, "commit": commit, "finished_at": "2026-10-01T18:00:00Z"}
+
+
+def test_a_head_whose_own_build_failed_is_unproven_whatever_build_covers_it(shell, config, tmp_path):
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["cccc333333"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "cccc333333", "failed")
+    shell.builds["78301"] = finished(FULL_BUILD, "ffff666666")
+    cci_record(shell, lane=LANE, kind="note", to=["root"], at=actions.stamp(shell.now()), text="full run green 78301 (ffff666, 84 jobs): #29020.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    bodies = [call[call.index("--body") + 1] for call in shell.sends()]
+    assert any("#29020 cccc333333: unproven: its own build https://buildkite.com/forge/test/builds/78299 failed at cccc333333" in body for body in bodies)
+
+
+def test_only_a_full_build_of_the_skipped_pipeline_on_the_stacks_tip_covers_the_heads_below_it(shell, config, tmp_path):
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+    for sha, number in (("aaaa111111", "78197"), ("bbbb222222", "78200")):
+        built(shell, sha, number, SKIP_BUILD)
+    shell.commit_statuses["cccc333333"] = [status("test", "78214"), status("release-pr-check", "29750")]
+    shell.builds["78214"] = finished(SKIP_BUILD, "cccc333333")
+    shell.builds["29750"] = finished(FULL_BUILD, "cccc333333")
+    shell.builds["78301"] = finished(FULL_BUILD, "cccc333333")
+    cci_record(shell, lane=LANE, kind="note", to=["root"], at=actions.stamp(shell.now()), text="full run green 78301 (cccc333, 84 jobs): #29020.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    bodies = [call[call.index("--body") + 1] for call in shell.sends()]
+    assert not any("#29020 cccc333333: unproven" in body for body in bodies)
+
+
 def test_a_redundant_skip_head_is_proven_by_a_full_run_its_lane_reports_green_on_a_commit_containing_it(shell, config, tmp_path):
     with_ci_build(config)
     shell.launch(LANE, "ctx_a")
