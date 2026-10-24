@@ -1949,7 +1949,8 @@ one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds n
 keeps what a diff alone decides, the rows it touches, the reserved rows it hits and the lines naming a
 scope row, per head, base, diff and set of rows, so a big diff is graded once. It diffs with
 git's copy detection, so a file copied from one the base still holds adds only the lines it
-changes, and its other lines match no ruling. Within a pass the landing runner
+changes, and its other lines match no ruling. That diff is kept per merge base and head, and
+`check-pr` runs four heads at a time, since each diffs on this machine. Within a pass the landing runner
 reads `cci who` once per lane and a PR's landed state and red-by-design body once per PR.
 Right after the gate checks it runs `check-pr` for every head it may enqueue, four at a time.
 A blocker still re-reads its gate just before the send. The

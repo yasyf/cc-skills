@@ -352,6 +352,8 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["gh", "api", "repos/acme/app/commits/cafef00d", "--jq", ".sha"]:
                 return f"{FULL_HEAD}\n"
+            case ["git", "-C", "/repo", "merge-base", _, _]:
+                return hashlib.sha1(self.diff.encode()).hexdigest() + "\n"
             case ["git", "-C", "/repo", "diff", *_, output, _]:
                 Path(output.removeprefix("--output=")).write_text(self.diff)
                 return ""
