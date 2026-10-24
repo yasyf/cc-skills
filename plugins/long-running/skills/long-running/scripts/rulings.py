@@ -70,7 +70,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -763,9 +762,13 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     pinned = f"refs/rulings/{head}-{os.getpid()}"
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
     try:
-        with tempfile.NamedTemporaryFile(suffix=".diff") as out:
-            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", "--src-prefix=a/", "--dst-prefix=b/", f"--output={out.name}", f"{pinned}...{head}"])
-            return parse_diff(Path(out.name).read_text(errors="replace"))
+        kept = state_dir(args) / "check-pr" / f"{shell.run([*git, 'merge-base', pinned, head]).strip()}-{head}.diff"
+        if not kept.is_file():
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            staged = kept.with_suffix(f".{os.getpid()}")
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{pinned}...{head}"])
+            staged.replace(kept)
+        return parse_diff(kept.read_text(errors="replace"))
     finally:
         shell.run([*git, "update-ref", "-d", pinned])
 

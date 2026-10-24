@@ -567,6 +567,7 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 8
+CHECK_PR_WORKERS = 4
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
@@ -4274,8 +4275,8 @@ class Landing:
         }
 
     def read_reports(self, heads: dict[str, str]) -> None:
-        """Run `check-pr` for every head of `heads` this pass has not read yet, `GATE_WORKERS` at a time."""
-        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+        """Run `check-pr` for every head of `heads` this pass has not read yet, `CHECK_PR_WORKERS` at a time: each one diffs on this machine."""
+        with ThreadPoolExecutor(CHECK_PR_WORKERS) as pool:
             list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
