@@ -3964,13 +3964,11 @@ class Landing:
         return replace(gate, verdicts=verdicts, would=would or None)
 
     def unproven(self, pr: str, sha: str) -> str:
-        """Why `sha` is not proven green, or empty when no build at it is a redundant skip or its deferred-to child is open, contains it, and passed a full build."""
+        """Why `sha` is not proven green, or empty when no build at it reads as a redundant skip or its deferred-to child is open, contains it, and passed a full build. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
         if not self.landing_config.get("ci_build"):
             return ""
         builds = self.ci_builds(sha)
-        if builds is None or any(skip is None for _, skip in builds):
-            return f"unproven: its builds did not read, so no full test build proves {sha[:10]} this pass. It is read again next pass."
-        if not any(skip for _, skip in builds):
+        if builds is None or not any(skip for _, skip in builds):
             return ""
         child = self.deferred_child(pr)
         if child is None:
