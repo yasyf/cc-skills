@@ -767,7 +767,9 @@ files, read once per head from `gh api --paginate repos/<repo>/pulls/<n>/files`,
 `landing.high_risk_paths` glob, such as migrations and SQL, backfills, credentials and
 secrets, the release pipeline, storage formats, and infra rows. A
 waiting PR's prefix enqueues nothing, and the runner asks one merge card per PR and head
-on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it. The prefix enqueues on
+on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it.
+With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card and logs the `MERGE-ASK` alone;
+the root asks the question on its own board. The prefix enqueues on
 the pass after a root `go` record names every waiting PR and its current head by a
 short sha. A changed-files read that fails logs `FILES-READ-FAILED` once per head and
 enqueues nothing from that prefix until it reads.
