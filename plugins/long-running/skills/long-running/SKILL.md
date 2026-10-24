@@ -1925,9 +1925,16 @@ session, so the check holds however the command spells the inbox path, such as
 `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
 Each landing pass writes `landing-runner.heartbeat.json` in the same directory, which
 `handoff --desk landing` reads; no hook watches it.
-Each runner also posts a cci `state` record to `drive-watchdog`, at most once a minute,
-reading `<desk> alive <time> pass <n>`, so the watchdog alarms within 10 minutes of
-silence. A pass that raises logs its traceback, posts one `blocker` to the root naming
+Each runner also posts a cci `state` record to `drive-watchdog` once a minute from a timer
+thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
+``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
+within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
+and a `stack-enqueue --check` get 60 seconds each; one that runs over is killed, logged as
+`TIMED-OUT` in the runner log and read as a failed command. Within a pass the landing runner
+reads `cci who` once per lane, a PR's landed state and red-by-design body once per PR, and
+each gate once per tip set, and runs `check-pr` for a prefix's heads in parallel. The
+merge-mode check runs before the other checks, so a green head gets its merge card without
+waiting for its grades; it still enqueues only once every check passes. A pass that raises logs its traceback, posts one `blocker` to the root naming
 the desk and the exception, and the runner goes on with its next pass. When the next
 pass raises the same exception, the runner posts that too and exits.
 

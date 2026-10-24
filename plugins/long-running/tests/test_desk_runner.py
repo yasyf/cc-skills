@@ -2462,6 +2462,20 @@ def batch_posts(shell: FakeShell, *entries: dict) -> None:
     shell.ledger_outs["show"] = (0, json.dumps({"rows": [{"key": "29020", "fields": {"state": "open"}}, {"key": "ask/000007", "fields": fields}]}))
 
 
+def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues_only_once_graded(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    assert [card["card"]["id"] for card in shell.pr_cards] == ["merge:29020:cccc333"] and shell.enqueues() == []
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
@@ -5074,6 +5088,15 @@ def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell,
     assert beat["pid"] == os.getpid()
     assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert not (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).exists()
+
+
+def test_the_alive_record_names_the_command_in_flight_and_how_long_it_has_run(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    monkeypatch.setitem(runner_module.Shell.in_progress, 1, ("stack-enqueue 42627 42676 --check", time.monotonic() - 125))
+
+    runner.post_alive("landing")
+
+    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `stack-enqueue 42627 42676 --check` for 2m05s"]
 
 
 def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_same_raise_twice_in_a_row(shell, config, tmp_path, monkeypatch):

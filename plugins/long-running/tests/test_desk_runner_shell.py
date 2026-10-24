@@ -31,3 +31,11 @@ def test_a_diff_holding_a_byte_that_is_not_utf8_reads_with_the_byte_replaced():
     done = runner_module.Shell().run(["printf", "+caf\\351 \\265s\\n"])
 
     assert (done.code, done.out) == (0, "+caf\ufffd \ufffds\n")
+
+
+def test_a_check_past_its_minute_is_killed_and_reads_as_a_failed_command(monkeypatch):
+    monkeypatch.setattr(runner_module, "QUICK_SECONDS", 0.2)
+
+    done = runner_module.Shell().run(["sh", "-c", "sleep 5", "--check"])
+
+    assert done == runner_module.Done(runner_module.TIMED_OUT, "", "sh -c sleep 5 --check timed out after 0.2s and was killed")
