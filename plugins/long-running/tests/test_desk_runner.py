@@ -1046,6 +1046,44 @@ def test_a_relay_on_a_pr_its_lane_contracted_as_red_by_design_draws_no_deadline(
     assert [line for line in escalations(shell) if "DEADLINE" in line] == []
 
 
+def test_a_lane_that_heartbeats_after_a_relay_draws_no_deadline_while_it_finishes_its_turn(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "blocker:29020:cccc333333", "--lane", LANE, "--text", "#29020 cccc333333: graphite FAILING_REQUIRED")
+    for minute in range(45):
+        if minute == 5:
+            shell.receive({"type": "heartbeat", "subject": f"{LANE} heartbeat"})
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert [line for line in escalations(shell) if "DEADLINE" in line] == []
+
+
+def test_a_lane_that_heartbeat_just_before_a_relay_gets_the_grace_and_a_silent_one_still_draws_the_deadline(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    shell.receive({"type": "heartbeat", "subject": f"{LANE} heartbeat", "created_at": (shell.clock - timedelta(minutes=2)).isoformat()})
+    for _ in range(20):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert [line for line in escalations(shell) if "DEADLINE" in line] == []
+    for _ in range(15):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    lines = [line for line in escalations(shell) if "DEADLINE" in line]
+    assert len(lines) == 1 and "delivered to ctx_a, no started reply" in lines[0]
+
+
+def test_a_relay_at_a_newer_head_folds_into_the_one_its_lane_has_not_answered(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "blocker:29020:cccc333333", "--lane", LANE, "--text", "#29020 cccc333333: graphite FAILING_REQUIRED")
+    orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "blocker:29020:dddd444444", "--lane", LANE, "--text", "#29020 dddd444444: graphite FAILING_REQUIRED")
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    folded = incident(tmp_path, f"desk-lane-{LANE}").actions["blocker:29020:dddd444444"]
+    assert folded.status == "completed" and "blocker:29020:cccc333333" in folded.response["text"]
+
+
 def wakes(shell: FakeShell) -> list[str]:
     return [call[call.index("--text") + 1] for call in shell.calls if call[:3] == ["orca", "terminal", "send"]]
 

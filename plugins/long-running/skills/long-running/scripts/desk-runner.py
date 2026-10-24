@@ -35,7 +35,11 @@ instead. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
-a delivered relay is never failed or reported again. A lane has no live dispatch only
+a delivered relay is never failed or reported again. A relay about a PR at a newer head,
+while the lane has not answered the one it was sent about an earlier head, folds into
+that one and sends nothing. A lane answers its mail only between turns, so a heartbeat
+it sends after a relay counts as its acknowledgement, and a lane that sent one within
+thirty minutes before the relay gets thirty minutes before a `DEADLINE`. A lane has no live dispatch only
 when it has no receipt or Orca answers that its dispatch is gone. When Orca gives no
 answer, a runtime or connection error, a timeout, or output that is not its JSON, the
 pass stops there and changes no dispatch's liveness and no relay's state. The first
@@ -636,6 +640,8 @@ ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
 FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
 CLOCK = "incident-clock"
 MILESTONE_STATUSES = "milestone-statuses"
+LANE_HEARTBEAT = "lane-heartbeat"
+HEARTBEAT_GRACE = timedelta(minutes=30)
 MILESTONE_SUBJECTS = ("fix-live:", "mechanism:", "ready:")
 CLOCK_MILESTONES = {"mechanism": "mechanism", "opened": "PR", "ready": "ready"}
 CLOCK_ENDS = ("fix-live", "not-ours", "stopped", "stand-down")
@@ -2293,6 +2299,10 @@ class Runner:
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
             for action in relays:
+                if unread := self.unread_relay(container, action):
+                    response = {"text": f"folded into {unread}, which the lane has not answered yet", "at": self.book.stamp()}
+                    self.book.attempt(container, lambda incident, key=action.action_id: finish(incident, key, response, dispatch.id))
+                    continue
                 self.send(container, dispatch, action)
             return
         if any(action.status in ("accepted", "started") for action in self.book.actions(container, kind="launch")):
@@ -2303,6 +2313,20 @@ class Runner:
                 continue
             if self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
                 self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAY-FAILED {action.action_id} {lane}: {reason}; nothing was relayed")
+
+    def unread_relay(self, container: str, action: actions.Action) -> str:
+        """The relay about the same PR at an earlier head that the lane was sent and has not answered, which a relay not yet sent folds into instead of queuing a second message; empty when there is none."""
+        sent = {send.authority_ref for send in self.book.actions(container, kind="send") if send.status != "failed"}
+        if action.action_id in sent or not (relayed := RELAYED_PR.match(action.action_id)):
+            return ""
+        return next(
+            (
+                earlier.action_id
+                for earlier in self.book.actions(container, kind=action.kind, status="accepted")
+                if earlier.action_id != action.action_id and earlier.action_id in sent and (other := RELAYED_PR.match(earlier.action_id)) and other[0] == relayed[0]
+            ),
+            "",
+        )
 
     def delivered(self, container: str, action: actions.Action) -> bool:
         return any(send.authority_ref == action.action_id and send.status == "completed" for send in self.book.actions(container, kind="send"))
@@ -2611,6 +2635,7 @@ class Runner:
                 continue
             cursor = max(cursor, message["sequence"])
             if message["type"] == "heartbeat":
+                self.beat_lane(message)
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
                 continue
             lane = self.orca.lane_of(message["from_handle"])
@@ -2622,6 +2647,13 @@ class Runner:
         if delivery.get("deliveryId") and not unrelayed:
             self.orca.call("orchestration", "check", "--run", self.config.run, "--ack", delivery["deliveryId"], "--peek")
         return True
+
+    def beat_lane(self, message: dict) -> None:
+        """Keep the newest heartbeat a lane sent on its container, where `overdue` reads it as the lane being alive."""
+        container = lane_container(self.orca.lane_of(message["from_handle"]))
+        at = message["created_at"]
+        if container in self.book.store.ids() and at > self.book.load(container).facts.get(LANE_HEARTBEAT, ""):
+            self.book.edit(container, lambda incident: incident.facts.update({LANE_HEARTBEAT: at}))
 
     def message_file(self, msg: str) -> Path:
         return self.config.receipts / "cci" / "messages" / f"{msg}.md"
@@ -2910,7 +2942,7 @@ class Runner:
         for action in self.book.load(container).actions.values():
             if action.kind not in ("relay", "reply", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
                 continue
-            if action.kind in ("relay", "reply") and action.status == "started" or self.lane_moved(about, action) or self.relayed_red(about, action):
+            if action.kind in ("relay", "reply") and (action.status == "started" or self.beating(container, action, moment)) or self.lane_moved(about, action) or self.relayed_red(about, action):
                 continue
             sent = [send for send in self.book.actions(container, kind="send") if send.authority_ref == action.action_id]
             missing = {
@@ -2920,6 +2952,13 @@ class Runner:
                 "enqueue": "the adapter's enqueue never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
             self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
+
+    def beating(self, container: str, action: actions.Action, moment: datetime) -> bool:
+        """Whether the lane's heartbeats cover `action`, since a lane answers its mail only between turns: one arrived after `action` was accepted, or one arrived within `HEARTBEAT_GRACE` before it and `action` is not yet `HEARTBEAT_GRACE` old."""
+        if not (beat := self.book.load(container).facts.get(LANE_HEARTBEAT)):
+            return False
+        beat, accepted = actions.parse_stamp(beat), actions.parse_stamp(action.accepted_at)
+        return beat > accepted or accepted - beat < HEARTBEAT_GRACE and moment - accepted < HEARTBEAT_GRACE
 
     def relayed_red(self, lane: str, action: actions.Action) -> bool:
         """Whether `action` relays a blocker on a PR the lane's newest contract for it calls red by design, so no DEADLINE follows it."""
