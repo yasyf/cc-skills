@@ -18,9 +18,16 @@ ROWS = f"{sys.executable} {script('rulings.py')} rows --drive brook-drive"
 LEDGER = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
 ROWED = "8b1048a2f5ba37d1580a1db0848e6e8f13447cc3"
 UNROWED = "1dfd09d6b2c4e8f0a1b3c5d7e9f1a2b4c6d8e0f2"
+REPEATED = "08cc755a1b2c3d4e5f60718293a4b5c6d7e8f901"
 SHA = "d9dc7e919c7d44165d8ae1c7da1add0973cd55c3"
 ROWS_BY_KEY = {
-    "rule/8b1048a": {"words": "The merge refusal names no next command.", "answer": json.dumps([ROWED]), "kind": "scope", "status": "in-force"},
+    "rule/8b1048a": {
+        "words": "The merge refusal names no next command.",
+        "answer": json.dumps([ROWED]),
+        "repeats": json.dumps([{"answer": REPEATED, "at": "Oct 23 3:19 PM PT", "words": "the refusal still names no next command"}]),
+        "kind": "scope",
+        "status": "in-force",
+    },
     "rule/0a1b2c3": {
         "words": "No laptop writes a job the server started, for any reason.",
         "answer": json.dumps(["0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3"]),
