@@ -2769,14 +2769,18 @@ FULL_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"
 
 
 def built(shell: FakeShell, sha: str, number: str, build: dict) -> None:
-    shell.builds[number] = build
+    shell.builds[number] = build | {"state": "passed", "commit": sha, "finished_at": "2026-10-01T18:00:00Z"}
     shell.commit_statuses[sha] = [{"context": "buildkite/test", "state": "success", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
 
 
-def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_build_passes_at_it_or_its_child(shell, config, tmp_path):
+def with_ci_build(config: Path) -> None:
     raw = json.loads(config.read_text())
     raw["landing"]["ci_build"] = "tools/ci bk api /pipelines/{pipeline}/builds/{number}"
     config.write_text(json.dumps(raw))
+
+
+def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_build_on_the_stacks_tip_contains_it(shell, config, tmp_path):
+    with_ci_build(config)
     shell.launch(LANE, "ctx_a")
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
@@ -2789,6 +2793,20 @@ def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_b
     bodies = [call[call.index("--body") + 1] for call in shell.sends()]
     assert any("#29020 cccc333333: unproven: redundant skip, no child in the ledger, so no full test build proves cccc333333" in body for body in bodies)
     built(shell, "cccc333333", "78286", FULL_BUILD)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+
+
+def test_a_redundant_skip_head_is_proven_by_a_full_run_its_lane_reports_green_on_a_commit_containing_it(shell, config, tmp_path):
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    cci_record(shell, lane=LANE, kind="note", to=["root"], at=actions.stamp(shell.now()), text="full run green 78301 (ffff666, 84 jobs): #28997 #29020. #29031 moved to a new head.")
+    shell.builds["78301"] = FULL_BUILD | {"state": "passed", "commit": "ffff666666", "finished_at": "2026-10-01T18:00:00Z"}
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 

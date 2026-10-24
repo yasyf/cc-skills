@@ -1529,9 +1529,10 @@ is not ready. With `landing.ci_build` set, as in
 `"ci_build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"`, the runner reads
 each passing Buildkite build at the head once. It grades such a head `unproven:
 redundant skip, child #<n> <state>`, sends that blocker to the lane, and leaves the head
-and every PR above it out of the merge card and the enqueue. The head is ready again
-once a full build passes at it, or once its topmost child is open, contains it, and
-passed a full build.
+and every PR above it out of the merge card and the enqueue. Graphite skips every
+non-tip branch of a stack, so the head is ready again once a passed full build runs on
+a commit that contains it: a build at the stack's tip, or one the PR's lane names in a
+`full run green <build>: #<pr> #<pr>` note or report.
 
 Incident fixes still land by plain squash under every mode. Before the merge, an
 approved, green fix merges once the holds file, read again just before
