@@ -375,8 +375,9 @@ on a drive starts at the newest record.
 With `landing.ci_build` set to a command that prints one Buildkite build's JSON, such as
 `tools/ci bk api /pipelines/{pipeline}/builds/{number}`, a GREEN head whose passing build has a job named
 "Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
-that would enqueue, with everything above it. It is GREEN again once a full build passes at the head, or once the topmost
-child the ledger stacks on it is open, contains the head, and passed a full build. A `BATCH-POST-OWED` posts once per set of PRs.
+that would enqueue, with everything above it. It is GREEN again once a passed build with no skip job runs on a commit that
+contains the head: a build at the stack's tip, or one a `full run green <build>: #<pr>` note or report from the PR's lane
+names over the last two days. A `BATCH-POST-OWED` posts once per set of PRs.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
 checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
 among every missing member.
@@ -533,6 +534,9 @@ FREEZES = "freezes"
 FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
 REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
+BUILD_NUMBER = re.compile(r"/builds/\d+")
+FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
+FULL_RUN_WINDOW = timedelta(days=2)
 RELEASE_POLL = timedelta(seconds=15)
 APPLYING_KEYS = ("build", "step", "components")
 RELEASE_CLI = "tools/ci release"
@@ -3732,7 +3736,8 @@ class Landing:
         self.row_heads: dict[str, str] = {}
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, list[tuple[str, bool]]] = {}
-        self.skips: dict[str, bool] = {}
+        self.builds: dict[str, dict] = {}
+        self.full_runs_read: dict[str, list[dict]] = {}
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
         self.book.ensure(LANDING, LANDING)
@@ -3964,45 +3969,67 @@ class Landing:
         return replace(gate, verdicts=verdicts, would=would or None)
 
     def unproven(self, pr: str, sha: str) -> str:
-        """Why `sha` is not proven green, or empty when no build at it reads as a redundant skip or its deferred-to child is open, contains it, and passed a full build. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
+        """Why `sha` is not proven green, or empty when no build at it reads as a redundant skip, or a passed full build contains it: one at the stack's tip, or one a `full run green <build>` record from the PR's lane names for it. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
         if not self.landing_config.get("ci_build"):
             return ""
         builds = self.ci_builds(sha)
-        if builds is None or not any(skip for _, skip in builds):
+        if builds is None or not (skipped := [url for url, _, skip in builds if skip]):
             return ""
         child = self.deferred_child(pr)
-        if child is None:
-            return f"unproven: redundant skip, no child in the ledger, so no full test build proves {sha[:10]}. Retrigger a full build at this head."
-        state = child.get("state", "open")
-        if state == "open" and self.full_green(child.get("head", "")):
-            if self.contains(child["head"], sha):
-                return ""
-            state = "open and green on another stack state"
-        elif state == "open":
-            state = "open with no full green build"
-        return f"unproven: redundant skip, child #{child['pr']} {state}, so no full test build proves {sha[:10]}. Retrigger a full build at this head."
+        tip = [url for url, state, skip in (self.ci_builds(child["head"]) or []) if state == "success" and skip is False] if child and child.get("head") else []
+        reported = [BUILD_NUMBER.sub(f"/builds/{number}", skipped[0]) for number in self.reported_full_runs(pr)]
+        if any(self.passes_over(url, sha) for url in [*tip, *reported]):
+            return ""
+        named = f"child #{child['pr']} {child.get('state', 'open')}" if child else "no child in the ledger"
+        return f"unproven: redundant skip, {named}, so no full test build proves {sha[:10]}. Run a full build on the stack's tip or post `full run green <build>: #{pr}` once one containing this head passes."
 
-    def ci_builds(self, sha: str) -> list[tuple[str, bool | None]] | None:
-        """Each Buildkite build GitHub's combined status names at `sha`: its state, and whether it is a redundant-within-its-stack skip, read through `landing.ci_build` once per build; None when the status does not read, and None for a build that does not."""
+    def ci_builds(self, sha: str) -> list[tuple[str, str, bool | None]] | None:
+        """Each Buildkite build GitHub's combined status names at `sha`: its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
         if sha not in self.builds_read:
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
             if done.code != 0:
                 return None
             statuses = json.loads(done.out)["statuses"]
-            self.builds_read[sha] = [(status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
+            self.builds_read[sha] = [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
         return self.builds_read[sha]
 
-    def redundant(self, url: str) -> bool | None:
-        if url not in self.skips:
+    def build(self, url: str) -> dict | None:
+        """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
+        if url not in self.builds:
             done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
             if done.code != 0:
                 return None
-            self.skips[url] = any(REDUNDANT_SKIP.search(job.get("name") or "") for job in json.loads(done.out).get("jobs", []))
-        return self.skips[url]
+            build = json.loads(done.out)
+            if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
+                return build
+            self.builds[url] = build
+        return self.builds[url]
 
-    def full_green(self, sha: str) -> bool:
-        builds = self.ci_builds(sha) if sha else None
-        return bool(builds) and all(state == "success" and skip is False for state, skip in builds)
+    def redundant(self, url: str) -> bool | None:
+        build = self.build(url)
+        return None if build is None else any(REDUNDANT_SKIP.search(job.get("name") or "") for job in build.get("jobs", []))
+
+    def passes_over(self, url: str, sha: str) -> bool:
+        """Whether the build at `url` passed in full, no job of it a redundant skip, on a commit that contains `sha`."""
+        build = self.build(url)
+        return bool(build) and build.get("state") == "passed" and self.redundant(url) is False and bool(build.get("commit")) and self.contains(build["commit"], sha)
+
+    def reported_full_runs(self, pr: str) -> list[str]:
+        """The build numbers that `full run green <build>` records from `pr`'s lane name for it, by `--pr` or by `#<pr>` in that sentence, over the last two days."""
+        lane = self.ledger_rows.get(pr, {}).get("lane")
+        if not lane:
+            return []
+        if lane not in self.full_runs_read:
+            drive = self.runner.config.drive
+            since = actions.stamp(self.runner.now() - FULL_RUN_WINDOW)
+            self.full_runs_read[lane] = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=note", "--kind=report", "--lane", lane, since=since) if record["drive"] == drive and FULL_RUN_GREEN.search(record["text"])]
+        found = []
+        for record in self.full_runs_read[lane]:
+            named = {number for number, _ in repo_prs(record, self.repo)}
+            for match in FULL_RUN_GREEN.finditer(record["text"]):
+                if pr in named or pr in re.findall(r"#(\d+)", match["sentence"]):
+                    found.append(match["build"])
+        return found
 
     def contains(self, head: str, sha: str) -> bool:
         done = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"])
@@ -5253,7 +5280,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported, self.sessions, self.unlanded, self.designed_red, self.builds_read = {}, {}, set(), {}, {}
+        self.reported, self.sessions, self.unlanded, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, set(), {}, {}, {}
         if self.quota_low():
             return
         advanced = self.advance()
