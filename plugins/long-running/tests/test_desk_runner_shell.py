@@ -33,8 +33,8 @@ def test_a_diff_holding_a_byte_that_is_not_utf8_reads_with_the_byte_replaced():
     assert (done.code, done.out) == (0, "+caf\ufffd \ufffds\n")
 
 
-def test_a_check_past_its_minute_is_killed_and_reads_as_a_failed_command(monkeypatch):
-    monkeypatch.setattr(runner_module, "QUICK_SECONDS", 0.2)
+def test_a_check_past_its_bound_is_killed_and_reads_as_a_failed_command(monkeypatch):
+    monkeypatch.setattr(runner_module, "GATE_CHECK_SECONDS", 0.2)
 
     done = runner_module.Shell().run(["sh", "-c", "sleep 5", "--check"])
 
@@ -53,3 +53,4 @@ def test_check_pr_gets_its_own_bound_and_every_other_read_keeps_its_own():
     assert runner_module.time_bound([*rulings, "check-pr", "--pr", "Forge-AI/monorepo#42706"]) == runner_module.CHECK_PR_SECONDS
     assert runner_module.time_bound([*rulings, "slice", "--lane", "a"]) == runner_module.COMMAND_TIMEOUT_SECONDS
     assert runner_module.time_bound(["gh", "pr", "view", "1"]) == runner_module.QUICK_SECONDS
+    assert runner_module.time_bound(["/repo/.agents/skills/submit-pr/scripts/stack-enqueue", "42721", "42730", "--check"]) == runner_module.GATE_CHECK_SECONDS
