@@ -886,7 +886,7 @@ def union(left: list, right: list) -> list:
 
 
 def card_of(key: str, fields: dict[str, str]) -> dict:
-    lines = [f"{item['n']}. {item['text']}" for item in listed(fields.get("implications"))]
+    lines = [f"{item['n']}. {item['text']} ({item['direction']})" for item in listed(fields.get("implications"))]
     body = "\n".join(["This also means:", *lines]) if lines else f"You said: {fields['words']}"
     return {"status": "needs_you", "title": f"“{first_sentence(fields['words'])}”", "body": body, "options": CARD_OPTIONS, "recommended": CARD_OPTIONS[0], "waits": card_id(key)}
 

@@ -607,7 +607,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert card == {
         "status": "needs_you",
         "title": "“uploads stay out of the desktop shell.”",
-        "body": "This also means:\n1. The desktop shell gains no uploader.\n2. Shell upload code is deleted.\n3. The journal may keep an upload queue.",
+        "body": "This also means:\n1. The desktop shell gains no uploader. (removes)\n2. Shell upload code is deleted. (removes)\n3. The journal may keep an upload queue. (permits)",
         "options": ["Right", "Some wrong", "Open board"],
         "recommended": "Right",
         "waits": "prompt:1023-053000",
