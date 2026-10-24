@@ -194,6 +194,27 @@ def test_a_reserved_row_matches_its_code_paths_and_identifiers_never_test_helper
     assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "evict(session)"))) == refused
 
 
+CLOUD_DELETE = dict(RESERVED, words="Nothing deletes a cloud chat without my word. Ask first.", ops='["*DeleteObject*", "*durable_at*"]')
+
+
+def changed(path: str, removed: list[str], kept: list[str]) -> str:
+    lines = [f"-{line}" for line in removed] + [f"+{line}" for line in kept]
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,{len(removed)} +1,{len(kept)} @@\n" + "\n".join(lines) + "\n"
+
+
+def test_a_reserved_row_matches_only_what_a_diff_adds_never_what_it_deletes_or_rewraps(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package) | {"reserved/cloud-delete": CLOUD_DELETE}
+    removal = DIFF + changed(
+        "go/sand/cmd/session_pass.go",
+        ["sessions' threads, the runs' statuses and durable_at go through the API as", "\tclient.DeleteObject(ctx, key)"],
+        ["read in their place. The sessions' threads, the runs' statuses and", "durable_at go through the API as the signed-in platform admin, whose"],
+    )
+    refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud chat without my word."])
+
+    assert check(capsys, CheckShell(rows, diff=removal)) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + changed("go/sand/cmd/session_pass.go", [], ["\tclient.DeleteObject(ctx, key)"]))) == refused
+
+
 def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     plan = tmp_path / "plan.md"
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
