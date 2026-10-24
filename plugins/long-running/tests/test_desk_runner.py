@@ -154,6 +154,7 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
+        self.commit_statuses: dict[str, list[dict]] = {}
         self.ledger_outs: dict[str, tuple[int, str]] = {"show": (0, json.dumps({"rows": []}))}
         self.viewer = "desk-owner"
         self.cards: list[dict] = []
@@ -271,6 +272,10 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "api", "graphql"]:
             assert argv[3] == "-f" and len(argv) == 5
             return self.graphql(argv[4].removeprefix("query="))
+        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status"):
+            return runner_module.Done(0, json.dumps({"statuses": self.commit_statuses.get(argv[2].split("/")[4], [])}), "")
+        if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
+            return runner_module.Done(0, "ahead\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
             assert argv[2].startswith("repos/Forge-AI/monorepo/compare/") and argv[3:] == ["-H", "Accept: application/vnd.github.diff"]
             head = argv[2].rsplit("...", 1)[1]
@@ -337,8 +342,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "recorded\n", "")
         if argv == ["cci", "who", "--role", "root", "--json"]:
             return runner_module.Done(0, "".join(json.dumps({"lane": "root", "drive": drive}) + "\n" for drive in self.root_drives), "")
-        if argv[:4] == [str(self.root / "checkout/tools/ci"), "bk", "api", "/pipelines/release/builds/8748"]:
-            build = self.builds["8748"]
+        if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
+            build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
@@ -2744,6 +2749,48 @@ def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_
     batch_posts(shell, POSTED)
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED", "MERGE-ASK"]
+
+
+def test_a_batch_post_owed_posts_once_per_set_of_prs_though_a_head_moves(shell, config, tmp_path):
+    merge_mode(config, "every")
+    batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    landing_pass(shell, config)
+    shell.rows = [dict(shell.rows[0], head="dddd444444", reported_head="dddd444444")]
+    shell.gates["29020"] = [gate("#29020 GREEN dddd444444 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok dddd444")
+    landing_pass(shell, config)
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED"]
+
+
+SKIP_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"name": ":graphite: Redundant within its stack"}]}
+FULL_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"name": ":go: Run sand tests"}]}
+
+
+def built(shell: FakeShell, sha: str, number: str, build: dict) -> None:
+    shell.builds[number] = build
+    shell.commit_statuses[sha] = [{"context": "buildkite/test", "state": "success", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
+
+
+def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_build_passes_at_it_or_its_child(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["ci_build"] = "tools/ci bk api /pipelines/{pipeline}/builds/{number}"
+    config.write_text(json.dumps(raw))
+    shell.launch(LANE, "ctx_a")
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+    for sha, number in (("aaaa111111", "78197"), ("bbbb222222", "78200"), ("cccc333333", "78214")):
+        built(shell, sha, number, SKIP_BUILD)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    bodies = [call[call.index("--body") + 1] for call in shell.sends()]
+    assert any("#29020 cccc333333: unproven: redundant skip, no child in the ledger, so no full test build proves cccc333333" in body for body in bodies)
+    built(shell, "cccc333333", "78286", FULL_BUILD)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
 def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):

@@ -372,6 +372,11 @@ drive `cci who --role root` lists, the first time a job of a watched component r
 record of the form `froze <scope> until <RFC 3339> as freeze <id>` is tracked until it closes: past its until the
 lane gets one lift `ask`, and once the lane has no live session the root gets one. The runner's first read
 on a drive starts at the newest record.
+With `landing.ci_build` set to a command that prints one Buildkite build's JSON, such as
+`tools/ci bk api /pipelines/{pipeline}/builds/{number}`, a GREEN head whose passing build has a job named
+"Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
+that would enqueue, with everything above it. It is GREEN again once a full build passes at the head, or once the topmost
+child the ledger stacks on it is open, contains the head, and passed a full build. A `BATCH-POST-OWED` posts once per set of PRs.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
 checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
 among every missing member.
@@ -421,7 +426,7 @@ import traceback
 from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
 from pathlib import Path
@@ -527,6 +532,7 @@ RELEASE_BUILDS = "release-builds"
 FREEZES = "freezes"
 FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
+REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
 RELEASE_POLL = timedelta(seconds=15)
 APPLYING_KEYS = ("build", "step", "components")
 RELEASE_CLI = "tools/ci release"
@@ -3724,6 +3730,9 @@ class Landing:
         self.reading = threading.Lock()
         self.labels_read: dict[str, bool] = {}
         self.row_heads: dict[str, str] = {}
+        self.ledger_rows: dict[str, dict] = {}
+        self.builds_read: dict[str, list[tuple[str, bool]]] = {}
+        self.skips: dict[str, bool] = {}
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
         self.book.ensure(LANDING, LANDING)
@@ -3741,6 +3750,7 @@ class Landing:
             return None
         rows = {row["pr"]: row for row in json.loads(done.out)}
         self.row_heads = {pr: row.get("head", "") for pr, row in rows.items()}
+        self.ledger_rows = rows
         return rows
 
     def held(self, rows: dict[str, dict]) -> list[str] | None:
@@ -3942,7 +3952,68 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
-        return self.adapter.check(tips, self.whole(), self.row_heads)
+        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads))
+
+    def proven(self, gate: merge_queue.Gate) -> merge_queue.Gate:
+        """`gate` with each GREEN head whose passing build is the Graphite optimizer's redundant-within-its-stack skip read as BLOCKED, and the prefix that would enqueue cut below it, until a full build passes at that head or at the open child it defers to."""
+        unproven = {pr: why for pr, verdict in gate.verdicts.items() if verdict["verdict"] == "GREEN" and (why := self.unproven(pr, self.row_heads.get(pr) or verdict["sha"]))}
+        if not unproven:
+            return gate
+        verdicts = {pr: dict(verdict, verdict="BLOCKED", detail=unproven[pr]) if pr in unproven else verdict for pr, verdict in gate.verdicts.items()}
+        would = list(itertools.takewhile(lambda pr: pr not in unproven, gate.would or []))
+        return replace(gate, verdicts=verdicts, would=would or None)
+
+    def unproven(self, pr: str, sha: str) -> str:
+        """Why `sha` is not proven green, or empty when no build at it reads as a redundant skip or its deferred-to child is open, contains it, and passed a full build. A read that fails reads as no skip, and the next pass reads it again (4236611)."""
+        if not self.landing_config.get("ci_build"):
+            return ""
+        builds = self.ci_builds(sha)
+        if builds is None or not any(skip for _, skip in builds):
+            return ""
+        child = self.deferred_child(pr)
+        if child is None:
+            return f"unproven: redundant skip, no child in the ledger, so no full test build proves {sha[:10]}. Retrigger a full build at this head."
+        state = child.get("state", "open")
+        if state == "open" and self.full_green(child.get("head", "")):
+            if self.contains(child["head"], sha):
+                return ""
+            state = "open and green on another stack state"
+        elif state == "open":
+            state = "open with no full green build"
+        return f"unproven: redundant skip, child #{child['pr']} {state}, so no full test build proves {sha[:10]}. Retrigger a full build at this head."
+
+    def ci_builds(self, sha: str) -> list[tuple[str, bool | None]] | None:
+        """Each Buildkite build GitHub's combined status names at `sha`: its state, and whether it is a redundant-within-its-stack skip, read through `landing.ci_build` once per build; None when the status does not read, and None for a build that does not."""
+        if sha not in self.builds_read:
+            done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
+            if done.code != 0:
+                return None
+            statuses = json.loads(done.out)["statuses"]
+            self.builds_read[sha] = [(status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
+        return self.builds_read[sha]
+
+    def redundant(self, url: str) -> bool | None:
+        if url not in self.skips:
+            done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
+            if done.code != 0:
+                return None
+            self.skips[url] = any(REDUNDANT_SKIP.search(job.get("name") or "") for job in json.loads(done.out).get("jobs", []))
+        return self.skips[url]
+
+    def full_green(self, sha: str) -> bool:
+        builds = self.ci_builds(sha) if sha else None
+        return bool(builds) and all(state == "success" and skip is False for state, skip in builds)
+
+    def contains(self, head: str, sha: str) -> bool:
+        done = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"])
+        return done.code == 0 and done.out.strip() in ("ahead", "identical")
+
+    def deferred_child(self, pr: str) -> dict | None:
+        """The topmost PR the ledger stacks on `pr`, whose build the Graphite optimizer runs for the stack."""
+        row = self.ledger_rows.get(pr, {})
+        while kids := sorted((kid for kid in self.ledger_rows.values() if row.get("branch") and kid.get("base") == row["branch"]), key=lambda kid: int(kid["pr"])):
+            row = kids[-1]
+        return row if row.get("pr", pr) != pr else None
 
     @property
     def fidelity_lanes(self) -> list[str]:
@@ -4366,9 +4437,8 @@ class Landing:
         if not asking or (posted := self.batch_posted()) is None:
             return
         if owed := [pr for pr in asking if pr not in posted]:
-            batch = " ".join(f"{pr}@{heads[pr]}" for pr in owed)
             self.runner.escalate(
-                f"batch-post:{hashlib.sha1(batch.encode()).hexdigest()[:12]}",
+                f"batch-post:{hashlib.sha1(' '.join(sorted(owed)).encode()).hexdigest()[:12]}",
                 "BATCH-POST-OWED",
                 numbered(owed),
                 f"{numbered(owed)} are ready, and no batch post recorded on the ledger lists them, so no MERGE-ASK goes out (8908f83)"
@@ -5183,7 +5253,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported, self.sessions, self.unlanded, self.designed_red = {}, {}, set(), {}
+        self.reported, self.sessions, self.unlanded, self.designed_red, self.builds_read = {}, {}, set(), {}, {}
         if self.quota_low():
             return
         advanced = self.advance()

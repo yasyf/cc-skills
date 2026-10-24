@@ -1649,15 +1649,17 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
     return any(acknowledges(line, key, fields) for line in head.rulings.splitlines())
 
 
-def op_hits(op: str, diff: Diff) -> bool:
-    """Whether the diff, test and prose files aside, newly does what `op` names: a path glob names a file the diff adds lines to; any other op counts its matches per file, and hits only where the added lines hold more than the removed ones, so a deletion or a reflowed line never touches it. A glob with a space matches a command line, any other glob a whole identifier with case kept, and a bare name a whole word."""
-    if "/" in op:
-        return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added if not testfiles.test_file(file))
+def op_hits(op: str, diff: Diff, paths: list[str]) -> bool:
+    """Whether the diff, test and prose files aside, newly does what `op` names. It counts the op's matches per file and hits only where the added lines hold more than the removed ones, so a deletion or a reflowed line never touches it. A glob with a space matches a command line in any file. Any other glob matches a whole identifier with case kept, and a bare name a whole word, only inside a file one of the row's `paths` globs, when it names any."""
+    command = any(char.isspace() for char in op)
     counts: Counter[str] = Counter()
     for sign, lines in ((1, diff.added), (-1, diff.removed)):
         for file, _, text in lines:
-            if not testfiles.test_file(file) and Path(file).suffix not in PROSE_SUFFIXES:
-                counts[file] += sign * op_count(op, text)
+            if testfiles.test_file(file) or Path(file).suffix in PROSE_SUFFIXES:
+                continue
+            if paths and not command and not any(fnmatch.fnmatchcase(file, path) for path in paths):
+                continue
+            counts[file] += sign * op_count(op, text)
     return any(count > 0 for count in counts.values())
 
 
@@ -1670,7 +1672,10 @@ def op_count(op: str, text: str) -> int:
 
 
 def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
-    return any(op_hits(op, diff) for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED)
+    """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names."""
+    ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
+    paths = [op for op in ops if "/" in op and not any(char.isspace() for char in op)]
+    return any(op_hits(op, diff, paths) for op in ops if op not in paths)
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:
