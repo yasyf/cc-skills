@@ -19,7 +19,7 @@ def report(shell: FakeShell, pr: str, lane: str, *extra: str) -> None:
 
 
 def state_call(repo: str, *rest: str) -> list[str]:
-    return ["ccx", "vcs", "pr", "state", "--repo", repo, *rest]
+    return ["ccx", "vcs", "pr", "state", "--repo", repo, "--max-age", "2m", *rest]
 
 
 def test_scope_maps_pr_and_review_keys_both_ways():

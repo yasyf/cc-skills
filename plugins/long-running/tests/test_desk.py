@@ -999,7 +999,7 @@ def test_reconcile_reads_the_trunk_once_and_the_forge_only_for_closed_unsquashed
 
     logs = [argv for argv in shell.calls if argv[:4] == ["git", "-C", "/checkout", "log"] and argv[-1] == "--format=%H %cI %s"]
     assert len(logs) == 1
-    assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "28302", "28349"]]
+    assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "--max-age", "2m", "28302", "28349"]]
     pulled = {argv[2].split("/")[4] for argv in shell.calls if argv[:2] == ["gh", "api"] and "/pulls/" in argv[2]}
     assert pulled == {"28302"}
 
@@ -2024,8 +2024,8 @@ def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lo
     assert shell.fields("24071")["registered"] == LANE
     assert shell.fields("24071")["head"] == "a" * 40
     assert shell.state_calls() == [
-        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
-        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
+        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--max-age", "2m", "--lane-prefix", "lightning/"],
+        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--max-age", "2m", "--lane-prefix", "lightning/"],
     ]
 
 
@@ -2322,7 +2322,7 @@ def test_register_accepts_a_lane_specific_prefix_over_the_lanes_own_new_prs(caps
     run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07-normalize", "--branch-prefix", "yasyf/mem-07-normalize-", "--repo", REPO)
 
     assert shell.fields("lane/mem-07-normalize")["branch_prefix"] == "yasyf/mem-07-normalize-"
-    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "yasyf/mem-07-normalize-"]]
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--max-age", "2m", "--lane-prefix", "yasyf/mem-07-normalize-"]]
     assert capsys.readouterr().out.strip() == "registered mem-07-normalize on yasyf/mem-07-normalize-*"
 
 
