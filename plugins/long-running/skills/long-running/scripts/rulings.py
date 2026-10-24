@@ -71,7 +71,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -172,6 +171,7 @@ APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
 RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
+WORD_RUN = re.compile(r"[\w-]+")
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -480,6 +480,35 @@ class Diff:
     kept_before: list[tuple[str, int, str]]
     kept_after: list[tuple[str, int, str]]
 
+    @cached_property
+    def added_words(self) -> frozenset[str]:
+        """Every maximal run of word characters and hyphens on an added line, lowercased: a name `name_pattern` can match on an added line is one of these, or one with `s` or `es` after it."""
+        return frozenset(word.lower() for _, _, text in self.added for word in WORD_RUN.findall(text))
+
+    @cached_property
+    def fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        for side in (self.added, self.removed):
+            for file, number, text in side:
+                digest.update(f"{file}\0{number}\0{text}\n".encode())
+            digest.update(b"\1")
+        return digest.hexdigest()
+
+    @cached_property
+    def added_identifiers(self) -> frozenset[str]:
+        return frozenset(token for _, _, text in self.added for token in IDENTIFIER.findall(text))
+
+    @cached_property
+    def code(self) -> dict[str, tuple[list[str], list[str]]]:
+        """Each changed file that is neither a test nor prose, with its added and removed lines."""
+        found: dict[str, tuple[list[str], list[str]]] = {}
+        for side, lines in ((0, self.added), (1, self.removed)):
+            for file, _, text in lines:
+                if file not in found and (testfiles.test_file(file) or Path(file).suffix in PROSE_SUFFIXES):
+                    continue
+                found.setdefault(file, ([], []))[side].append(text)
+        return found
+
 
 def parse_diff(text: str) -> Diff:
     diff = Diff([], [], [], [], [])
@@ -524,11 +553,15 @@ def hit_status(text: str, name: str, authorizers: dict[str, list[tuple[str, froz
     return "open"
 
 
+def alternation(wanted: list[tuple[str, str]]) -> re.Pattern[str] | None:
+    names = sorted({name for _, name in wanted}, key=len, reverse=True)
+    return re.compile("|".join(name_pattern(name).pattern for name in names), re.IGNORECASE) if names else None
+
+
 class Sweeper:
     def __init__(self, loaded: Register, rows: dict[str, dict[str, str]]) -> None:
         self.wanted = [(key, name) for key, fields in rows.items() for name in names_of(fields)]
-        names = sorted({name for _, name in self.wanted}, key=len, reverse=True)
-        self.anything = re.compile("|".join(name_pattern(name).pattern for name in names), re.IGNORECASE) if names else None
+        self.anything = alternation(self.wanted)
         self.authorizers = loaded.answer_words()
 
     def lines(self, source: str, numbered: Iterable[tuple[int, str]], removed: bool = False) -> list[Hit]:
@@ -556,8 +589,38 @@ class Sweeper:
         return hits
 
     def diff(self, diff: Diff) -> list[Hit]:
-        added = [hit for file, number, text in diff.added for hit in self.lines(file, [(number, text)])]
-        return added + [hit for file, number, text in diff.removed for hit in self.lines(file, [(number, text)], removed=True)]
+        return self.statuses(self.named_lines(diff))
+
+    def statuses(self, found: list[list]) -> list[Hit]:
+        return [Hit(hit_status(text, name, self.authorizers, removed), key, file, number, name) for key, file, number, name, text, removed in found]
+
+    def named_lines(self, diff: Diff) -> list[list]:
+        """Each `[key, file, line, name, text, removed]` where a wanted name is on a changed line. Added lines are read through an index from each word to the names it can start, so a line checks only the names its own words can match."""
+        wanted = [(key, name) for key, name in self.wanted if not absent(name, diff)]
+        starts: dict[str, list[int]] = {}
+        for index, (_, name) in enumerate(wanted):
+            for form in name_starts(name):
+                starts.setdefault(form, []).append(index)
+        found = []
+        for file, number, text in diff.added:
+            words = PATH_TOKEN.sub(" ", text)
+            for index in sorted({index for run in WORD_RUN.findall(words.lower()) for index in starts.get(run, ())}):
+                key, name = wanted[index]
+                if named(words, name):
+                    found.append([key, file, number, name, text, False])
+        if self.anything:
+            for file, number, text in diff.removed:
+                if self.anything.search(words := PATH_TOKEN.sub(" ", text)):
+                    found += [[key, file, number, name, text, True] for key, name in self.wanted if named(words, name)]
+        return found
+
+
+def name_starts(name: str) -> list[str]:
+    """The lowercased word runs a line must hold for `name_pattern(name)` to match it: the name and its plurals when it is one word run, else its first word run."""
+    word = name.lower()
+    if WORD_RUN.fullmatch(word):
+        return [word, f"{word}s", f"{word}es"]
+    return WORD_RUN.findall(word)[:1]
 
 
 def globbed(root: str, globs: list[str]) -> list[Path]:
@@ -710,11 +773,20 @@ def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
     return match["repo"] or ledger.origin_repo(shell, Path(args.repo)), match["pr"]
 
 
+def absent(name: str, diff: Diff) -> bool:
+    """Whether `name_pattern(name)` can match no added line, read from the diff's word index when `name` is one word run."""
+    word = name.lower()
+    return WORD_RUN.fullmatch(word) is not None and not {word, f"{word}s", f"{word}es"} & diff.added_words
+
+
 def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tuple[str, str, int]]:
     homes = anchors(fields) if at_home else []
     found = []
     for symbol in symbols(fields):
-        pattern = name_pattern(symbol.rsplit(".", 1)[-1])
+        name = symbol.rsplit(".", 1)[-1]
+        if absent(name, diff):
+            continue
+        pattern = name_pattern(name)
         found += [
             (symbol, file, number)
             for file, number, text in diff.added
@@ -723,8 +795,16 @@ def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tupl
     return found
 
 
+def symbol_hit(symbol: str, diff: Diff) -> bool:
+    """Whether `symbol`'s last part names an added line; for one word run, the diff's word index answers exactly."""
+    name = symbol.rsplit(".", 1)[-1]
+    if WORD_RUN.fullmatch(name):
+        return not absent(name, diff)
+    return any(name_pattern(name).search(text) for _, _, text in diff.added)
+
+
 def touched(fields: dict[str, str], diff: Diff) -> bool:
-    return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or bool(symbol_lines(fields, diff, at_home=False))
+    return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or any(symbol_hit(symbol, diff) for symbol in symbols(fields))
 
 
 def required_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
@@ -1652,22 +1732,27 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
 def op_hits(op: str, diff: Diff, paths: list[str]) -> bool:
     """Whether the diff, test and prose files aside, newly does what `op` names. It counts the op's matches per file and hits only where the added lines hold more than the removed ones, so a deletion or a reflowed line never touches it. A glob with a space matches a command line in any file. Any other glob matches a whole identifier with case kept, and a bare name a whole word, only inside a file one of the row's `paths` globs, when it names any."""
     command = any(char.isspace() for char in op)
-    counts: Counter[str] = Counter()
-    for sign, lines in ((1, diff.added), (-1, diff.removed)):
-        for file, _, text in lines:
-            if testfiles.test_file(file) or Path(file).suffix in PROSE_SUFFIXES:
-                continue
-            if paths and not command and not any(fnmatch.fnmatchcase(file, path) for path in paths):
-                continue
-            counts[file] += sign * op_count(op, text)
-    return any(count > 0 for count in counts.values())
+    wildcard = not command and any(char in op for char in "*?[")
+    if wildcard and not any(map(glob_pattern(op).fullmatch, diff.added_identifiers)) or not command and not wildcard and absent(op, diff):
+        return False
+    for file, (added, removed) in diff.code.items():
+        if paths and not command and not any(fnmatch.fnmatchcase(file, path) for path in paths):
+            continue
+        if sum(op_count(op, text) for text in added) > sum(op_count(op, text) for text in removed):
+            return True
+    return False
+
+
+@cache
+def glob_pattern(op: str) -> re.Pattern[str]:
+    return re.compile(fnmatch.translate(op))
 
 
 def op_count(op: str, text: str) -> int:
     if any(char.isspace() for char in op):
-        return int(fnmatch.fnmatchcase(text.strip().lower(), op.lower()))
+        return int(glob_pattern(op.lower()).fullmatch(text.strip().lower()) is not None)
     if any(char in op for char in "*?["):
-        return sum(fnmatch.fnmatchcase(token, op) for token in IDENTIFIER.findall(text))
+        return sum(1 for token in IDENTIFIER.findall(text) if glob_pattern(op).fullmatch(token))
     return len(name_pattern(op).findall(text))
 
 
@@ -1766,16 +1851,36 @@ def decided(body: str, answers: set[str] | None) -> list[str]:
     return [f"LANE-DECIDED {line.strip()[:CCI_TEXT]}" for line, own in lines if DECISION.search(own) and not cites_answer(line, answers)]
 
 
-def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings) -> None:
+def diff_facts(loaded: Register, head: Head, base: str) -> dict[str, list]:
+    """What `head`'s diff alone decides against the register's rows: the rows it touches, the reserved rows it hits, and the lines naming a scope row. A copy of thousands of files takes seconds a pass to read, so the facts are kept per head, base, diff and set of rows, and reread only when one of them changes."""
     rulings = loaded.rulings()
+    digest = hashlib.sha256(json.dumps([head.repo, head.number, head.sha, base, rulings, head.diff.fingerprint], sort_keys=True).encode()).hexdigest()[:24]
+    kept = loaded.state / "check-pr" / f"{digest}.json"
+    if kept.is_file():
+        return json.loads(kept.read_text())
+    facts = {
+        "touched": [key for key, fields in rulings.items() if (anchors(fields) or symbols(fields)) and touched(fields, head.diff)],
+        "reserved": [key for key, fields in rulings.items() if fields.get("kind") == "reserved" and reserved_hit(fields, head.diff)],
+        "named": Sweeper(loaded, loaded.scope()).named_lines(head.diff),
+    }
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    staged = kept.with_suffix(f".{os.getpid()}")
+    staged.write_text(json.dumps(facts))
+    staged.replace(kept)
+    return facts
+
+
+def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings, base: str) -> None:
+    rulings = loaded.rulings()
+    facts = diff_facts(loaded, head, base)
     cci = drive.cci_drive(entry_of(args))
     records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
-    uncited = [key for key, fields in rulings.items() if (anchors(fields) or symbols(fields)) and touched(fields, head.diff) and not cites(head, key, fields)]
+    uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
     if uncited:
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}")
     touches = {found[1] for record in records or [] if record.get("kind") == "review" for found in TOUCHES.finditer(record.get("text") or "")}
     for key, fields in rulings.items():
-        if fields.get("kind") == "reserved" and (key in touches or reserved_hit(fields, head.diff)):
+        if fields.get("kind") == "reserved" and (key in touches or key in facts["reserved"]):
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
                 findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
@@ -1784,7 +1889,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
-    for hit in Sweeper(loaded, scope).diff(head.diff):
+    for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
     words = head.in_your_words
@@ -1816,7 +1921,7 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName"])))
     diff = findings.read(f"the diff of {repo}#{number}", lambda: pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)) if view else None
     if loaded and view and diff:
-        check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff), findings)
+        check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff), findings, args.base or view["baseRefName"])
     for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:
         print(line)
     return 1 if findings.refusals else 0

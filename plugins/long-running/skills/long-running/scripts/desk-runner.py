@@ -557,6 +557,8 @@ CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
 QUICK_SECONDS = 60
+CHECK_PR_SECONDS = 180
+CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
 QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
 WAKE_SECONDS = 0.25
@@ -712,6 +714,12 @@ def quick(argv: list[str]) -> bool:
     return Path(argv[0]).name in QUICK_PROGRAMS or "--check" in argv
 
 
+def time_bound(argv: list[str]) -> float:
+    if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
+        return CHECK_PR_SECONDS
+    return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
+
+
 def command_name(argv: list[str]) -> str:
     words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
     return " ".join(Path(word).name if word.startswith("/") else word for word in words)[:120]
@@ -723,7 +731,7 @@ class Shell:
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
-    A GitHub, cci or ccx read and a `--check` gets QUICK_SECONDS; one that times out is logged and
+    A GitHub, cci or ccx read and a `--check` gets QUICK_SECONDS and `rulings.py check-pr` CHECK_PR_SECONDS; one that times out is logged and
     reads as a failed command, never a fatal one. `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """
@@ -731,7 +739,7 @@ class Shell:
     in_progress: dict[int, tuple[str, float]] = {}
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
-        timeout = QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
+        timeout = time_bound(argv)
         self.in_progress[threading.get_ident()] = (command_name(argv), time.monotonic())
         try:
             with tempfile.TemporaryFile("w+") as feed:
@@ -4268,14 +4276,16 @@ class Landing:
             list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
-        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
+        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha, incident)
         if key not in self.reported:
             done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
             lines = [line.strip() for line in done.out.splitlines() if line.strip()]
             causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
             unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
-            if done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
+            if done.code == TIMED_OUT:
+                causes = [f"{CHECK_PR_TIMEOUT} it ran past {CHECK_PR_SECONDS}s and was killed, so the rulings at {sha[:10]} are unproven this pass"]
+            elif done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
                 causes = []
             self.reported[key] = causes
         return self.reported[key]

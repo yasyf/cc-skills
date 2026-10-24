@@ -45,3 +45,11 @@ def test_the_command_in_flight_names_the_script_and_its_arguments_without_the_in
     argv = ["/opt/python3.13/bin/python3", "/plugins/long-running/scripts/rulings.py", "check-pr", "--repo", "/worktrees/monorepo/runner", "--pr", "Forge-AI/monorepo#42590"]
 
     assert runner_module.command_name(argv) == "rulings.py check-pr --repo runner --pr Forge-AI/monorepo#42590"
+
+
+def test_check_pr_gets_its_own_bound_and_every_other_read_keeps_its_own():
+    rulings = ["/usr/bin/python3", "/plugins/long-running/scripts/rulings.py"]
+
+    assert runner_module.time_bound([*rulings, "check-pr", "--pr", "Forge-AI/monorepo#42706"]) == runner_module.CHECK_PR_SECONDS
+    assert runner_module.time_bound([*rulings, "slice", "--lane", "a"]) == runner_module.COMMAND_TIMEOUT_SECONDS
+    assert runner_module.time_bound(["gh", "pr", "view", "1"]) == runner_module.QUICK_SECONDS

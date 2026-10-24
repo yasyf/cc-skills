@@ -1942,8 +1942,12 @@ Each runner also posts a cci `state` record to `drive-watchdog` once a minute fr
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
-and a `stack-enqueue --check` get 60 seconds each; one that runs over is killed, logged as
-`TIMED-OUT` in the runner log and read as a failed command. Within a pass the landing runner
+and a `stack-enqueue --check` get 60 seconds each, and `rulings.py check-pr` 180, since a cold
+grade of a copy of thousands of files takes about 30. One that runs over is killed, logged as
+`TIMED-OUT` in the runner log and read as a failed command; a killed `check-pr` posts the lane
+one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds nothing. `check-pr`
+keeps what a diff alone decides, the rows it touches, the reserved rows it hits and the lines naming a
+scope row, per head, base, diff and set of rows, so a big diff is graded once. Within a pass the landing runner
 reads `cci who` once per lane and a PR's landed state and red-by-design body once per PR.
 Right after the gate checks it runs `check-pr` for every head it may enqueue, four at a time.
 A blocker still re-reads its gate just before the send. The

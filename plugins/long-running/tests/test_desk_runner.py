@@ -3234,6 +3234,16 @@ def test_a_finder_record_in_plain_words_is_read_for_its_verdict_and_head(shell, 
     assert notes == ([f"#29020: cci #{seq} names the finder, but the runner reads no verdict in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."] if noted else [])
 
 
+def test_a_check_pr_killed_at_its_bound_warns_once_that_the_rulings_are_unproven_and_holds_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.check_pr["29020"] = (runner_module.TIMED_OUT, "")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
+    [note] = [post for post in shell.posts if post["kind"] == "note"]
+    assert note["text"].endswith(f"CHECK-PR-TIMEOUT it ran past {runner_module.CHECK_PR_SECONDS}s and was killed, so the rulings at cccc333333 are unproven this pass")
+
 @pytest.mark.parametrize(
     "out",
     [
