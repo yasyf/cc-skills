@@ -400,8 +400,8 @@ def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
     except READ_ERRORS as error:
         failed_open(evt, "owner_question_gate", error)
         return None
-    due = set(once_per_hour(evt, [found["term"] for found in unquoted]))
-    if not (unquoted := [found for found in unquoted if found["term"] in due]):
+    due = set(once_per_hour(evt, [f"owner-question:{found['term']}" for found in unquoted]))
+    if not (unquoted := [found for found in unquoted if f"owner-question:{found['term']}" in due]):
         return None
     shown = [fenced("\n".join(asked(found, register["rows"]) for found in unquoted)), *([fenced(briefs.strip())] if briefs else [])]
     return evt.context("\n".join([UNQUOTED, *shown]))
