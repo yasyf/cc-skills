@@ -605,13 +605,14 @@ def test_a_workers_dialog_whose_auto_deny_countdown_ticks_is_one_blocker_one_sti
         poll(shell)
 
     assert shell.kinds("bake") == ["blocker"]
-    blocker = shell.to("root")[0]
+    [blocker] = [post for post in shell.posts if post["--topic"] == "prompt:bake"]
     assert f"waits on an approval dialog ({HOOK_TITLE}; auto-denies in 1:58). Screen: " in whole(blocker)
 
     poll(shell, 20)
 
     assert shell.kinds("bake") == ["blocker", "report"]
-    assert whole(shell.to("root")[1]).endswith(f"Still open 10m after #{blocker['seq']}; the watch answers nothing.")
+    reminder = [post for post in shell.posts if post["--topic"] == "prompt:bake"][1]
+    assert reminder["--to"] == "root" and whole(reminder).endswith(f"Still open 10m after #{blocker['seq']}; the watch answers nothing.")
 
     shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.clear")
     poll(shell)

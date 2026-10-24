@@ -3072,6 +3072,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
         ("finder (gpt-6.1-sol ...): no findings", True, False),
         ("finder: gpt-6.1-sol xhigh on cccc333: 2 majors fixed at dddd444 (C37 now deletes a stopped lane's chain; C133 grades level-0 only)", False, False),
         ("sol finder ran; the report sits beside the branch", False, True),
+        ("sol finder: major cccc333 1 open: go/a.go:12 the retry drops the sealed read", False, False),
     ],
 )
 def test_a_finder_record_in_plain_words_is_read_for_its_verdict_and_head(shell, config, tmp_path, text, enqueued, noted):

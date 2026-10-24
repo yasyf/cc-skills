@@ -474,11 +474,11 @@ OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
-FINDER_OK = "finder: ok"
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
-FINDER_MAJOR = re.compile(r"^finder: major\b|\b[1-9]\d* majors?\b", re.IGNORECASE)
+FINDER_SAYS = re.compile(r"\bfinder: (ok|major)\b", re.IGNORECASE)
+FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
@@ -3560,8 +3560,8 @@ def graded_head(text: str) -> str:
 
 
 def finder_grade(text: str) -> str:
-    if text.startswith(FINDER_OK):
-        return FINDER_PASS
+    if said := FINDER_SAYS.search(text):
+        return said[1].lower()
     if FINDER_MAJOR.search(text):
         return FINDER_FAIL
     return FINDER_PASS if FINDER_CLEAN.search(text) else ""

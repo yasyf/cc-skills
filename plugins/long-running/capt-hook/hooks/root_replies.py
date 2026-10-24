@@ -63,11 +63,12 @@ LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
     r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|(?<=[\w.-]):\s*(?:idle|silent|dead|stuck|empty)\b"
     r"|\bno (?:code|commits|work|progress)\b|\b(?:did|has done|done) nothing\b"
-    r"|\bst(?:and(?:s|ing)?|ood)\s+(?:\S+\s+)?down\b|\brelaunch(?:ed|ing)?\b",
+    r"|\bst(?:and(?:s|ing)?|ood)(?=\s+(?:\S+\s+)?down\b)|\brelaunch(?:ed|ing)?\b",
     re.IGNORECASE,
 )
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 LANE_NAME = re.compile(r"(?<![\w./-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\w/-])")
+NOT_LANES = frozenset({"lane-status", "stand-down"})
 UNREAD_LANE = (
     "Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
     " Run it, then report what it shows."
@@ -175,7 +176,7 @@ def script_args(argv: tuple[str, ...], names: frozenset[str]) -> tuple[str, ...]
 
 
 def idle_claimed_lanes(reply: str) -> list[str]:
-    return [lane for sentence in SENTENCE_END.split(reply) if IDLE_CLAIM.search(sentence) for lane in LANE_NAME.findall(IDLE_CLAIM.sub(" ", sentence))]
+    return [lane for sentence in SENTENCE_END.split(reply) if IDLE_CLAIM.search(sentence) for lane in LANE_NAME.findall(IDLE_CLAIM.sub(" ", sentence)) if lane not in NOT_LANES]
 
 
 def lane_status_read(evt: BaseHookEvent, lanes: set[str]) -> bool:
@@ -319,11 +320,12 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             state=ACTIVE,
         ): Warn(),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")], state=ACTIVE): Warn(),
+        Input(transcript=[T.user("status?"), T.assistant("I stood worker-fix-2 down.")], state=ACTIVE): Warn(),
         Input(
             transcript=[
                 T.user("status?"),
                 T.assistant(T.tool("Bash", command="drive.py lane-status worker-fix-2 --drive release-v3")),
-                T.assistant("worker-fix-2 is idle; relaunching it."),
+                T.assistant("worker-fix-2 is idle per `drive.py lane-status worker-fix-2`; relaunching it."),
             ],
             state=ACTIVE,
         ): Allow(),
