@@ -1059,6 +1059,7 @@ def test_a_lane_that_heartbeats_after_a_relay_draws_no_deadline_while_it_finishe
 
 def test_a_lane_that_heartbeat_just_before_a_relay_gets_the_grace_and_a_silent_one_still_draws_the_deadline(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
     shell.receive({"type": "heartbeat", "subject": f"{LANE} heartbeat", "created_at": (shell.clock - timedelta(minutes=2)).isoformat()})
     for _ in range(20):
