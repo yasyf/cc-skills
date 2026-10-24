@@ -3955,6 +3955,17 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
 
 
+def test_a_drive_whose_checks_wait_for_a_go_still_squashes_an_approved_green_incident_fix(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks_wait_for_go"] = 34700
+    config.write_text(json.dumps(raw))
+    incident_pr(shell)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", INCIDENT_HEAD]]
+    assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+
+
 def test_a_fix_the_runner_squashed_owes_its_release_after_the_executor_incident_naming_it_recovers(shell, config, tmp_path):
     """#41063: the executor record naming the fix settled before the pass that read its landing, so the runner owed no release for a fix it had squashed (8075b15 section 4 change 4)."""
     incident_pr(shell)
