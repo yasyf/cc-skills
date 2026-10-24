@@ -23,6 +23,7 @@ from .tests.refusal_fixtures import (
     HELPER_PACKAGE_CLOCK,
     HELPER_TRANSCRIPT,
     HEREDOC_BODY,
+    HOOK_CAP,
     LAUNCH_STALLED,
     LOGGED_STATE,
     NEW_SENTINEL,
@@ -80,7 +81,7 @@ CLOCK = re.compile(
     r"|\bset(?:Interval|Timeout)\b|\btimedelta\(|\*\s*time\.(?:Second|Minute|Hour|Millisecond)\b|\bsleep\s+\d)"
 )
 BUDGET = re.compile(
-    r"""\b(?P<name>\w*(?:max|limit|budget|timeout|deadline|ttl|threshold|window|interval|seconds|minutes|hours|attempts|cooldown|grace)\w*)"""
+    r"""\b(?!max_fires\b)(?P<name>\w*(?:max|limit|budget|timeout|deadline|ttl|threshold|window|interval|seconds|minutes|hours|attempts|cooldown|grace)\w*)"""
     r"""["']?\s*(?::[^=\n]*)?[:=]\s*-?\d""",
     re.IGNORECASE,
 )
@@ -391,6 +392,7 @@ def ship(command: str, **extra: object) -> Input:
             pattern=r"\A(?![\s\S]*card_terms\.py:1[34] )[\s\S]*card_terms\.py:3 refusal kind CARD-STALE"
         ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(PLAIN)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(HOOK_CAP)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RELISTED)): Warn(
             pattern=r"\A(?![\s\S]*refusal kind (?:UNBOUND|LAUNCH-STALLED))[\s\S]*refusal kind LAUNCH-DUPLICATE"
         ),
