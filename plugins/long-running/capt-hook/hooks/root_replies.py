@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from datetime import datetime
 from itertools import pairwise
@@ -23,6 +24,7 @@ from captain_hook import (
 from captain_hook.transcripts import TranscriptLoadError
 
 from .compaction_handoff import CompactionState
+from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
 
@@ -59,11 +61,13 @@ MID_TURN = [
 ]
 LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
-    r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|[\w.-]:\s*(?:idle|silent|dead|stuck|empty)\b"
+    r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|(?<=[\w.-]):\s*(?:idle|silent|dead|stuck|empty)\b"
     r"|\bno (?:code|commits|work|progress)\b|\b(?:did|has done|done) nothing\b"
     r"|\bst(?:and(?:s|ing)?|ood)\s+(?:\S+\s+)?down\b|\brelaunch(?:ed|ing)?\b",
     re.IGNORECASE,
 )
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+LANE_NAME = re.compile(r"(?<![\w./-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\w/-])")
 UNREAD_LANE = (
     "Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
     " Run it, then report what it shows."
@@ -168,6 +172,10 @@ def turn_commands(evt: BaseHookEvent) -> list[tuple[str, ...]]:
 def script_args(argv: tuple[str, ...], names: frozenset[str]) -> tuple[str, ...] | None:
     at = next((index for index, word in enumerate(argv[:3]) if Path(word).name in names), None)
     return None if at is None else argv[at + 1 :]
+
+
+def idle_claimed_lanes(reply: str) -> list[str]:
+    return [lane for sentence in SENTENCE_END.split(reply) if IDLE_CLAIM.search(sentence) for lane in LANE_NAME.findall(IDLE_CLAIM.sub(" ", sentence))]
 
 
 def lane_status_read(evt: BaseHookEvent, lanes: set[str]) -> bool:
@@ -294,7 +302,6 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    max_fires=1,
     tests={
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Warn(
             pattern=r"drive\.py lane-status <lane>"
@@ -321,13 +328,21 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
             state=ACTIVE,
         ): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("The fix lane opened its PR.")], state=ACTIVE): Allow(),
+        Input(
+            transcript=[T.user("merge?"), T.assistant("Third merge question is up: the judgment rule has no work left and reads clean. Three more to come.")], state=ACTIVE
+        ): Allow(),
+        Input(
+            transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")],
+            state=[*ACTIVE, NagClock(said={"idle-claim:worker-fix-2": time.time()})],
+        ): Allow(),
         Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")]): Allow(),
     },
 )
 def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
-    if CompactionState.load(evt).active and IDLE_CLAIM.search(last_reply(evt)) and not lane_status_read(evt, set()):
-        return evt.context(UNREAD_LANE)
-    return None
+    if not CompactionState.load(evt).active:
+        return None
+    unread = [lane for lane in idle_claimed_lanes(last_reply(evt)) if not lane_status_read(evt, {lane})]
+    return evt.context(UNREAD_LANE) if once_per_hour(evt, [f"idle-claim:{lane}" for lane in unread]) else None
 
 
 @on(

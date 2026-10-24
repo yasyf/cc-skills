@@ -291,8 +291,11 @@ grade names carries the ok of an older head whose lanes all stand at ok, when `g
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
-in its prefix is enqueued. The `finder` check needs the newest `finder:` review record naming the head, from any lane, to read
-`finder: ok`; a head with none, or whose newest is `finder: major`, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A finder ok of an older head
+in its prefix is enqueued. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
+words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
+sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
+whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
+gets one `note` to its lane naming the line it reads. A finder ok of an older head
 carries to a head with no finder record when both patches against the PR's base match, as a fidelity ok does. A PR whose body opens with "Red by design" draws no
 blocker for its failing required checks.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
@@ -472,7 +475,11 @@ FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
 FINDER_OK = "finder: ok"
-FINDER_GRADES = (FINDER_OK, "finder: major")
+FINDER_PASS = "ok"
+FINDER_FAIL = "major"
+FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
+FINDER_MAJOR = re.compile(r"^finder: major\b|\b[1-9]\d* majors?\b", re.IGNORECASE)
+FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
@@ -3552,6 +3559,18 @@ def graded_head(text: str) -> str:
     return found[0] if found else ""
 
 
+def finder_grade(text: str) -> str:
+    if text.startswith(FINDER_OK):
+        return FINDER_PASS
+    if FINDER_MAJOR.search(text):
+        return FINDER_FAIL
+    return FINDER_PASS if FINDER_CLEAN.search(text) else ""
+
+
+def newest_finder(records: list[dict], sha: str) -> dict | None:
+    return max((record for record in records if names_head(record["head"], sha)), key=lambda record: record["seq"], default=None)
+
+
 def newest_naming(grades: list[dict], sha: str) -> dict | None:
     return max((record for record in grades if (head := graded_head(record["text"])) and names_head(head, sha)), key=lambda record: record["seq"], default=None)
 
@@ -4101,19 +4120,29 @@ class Landing:
                     self.warn_head(f"rulings:{pr}:{sha}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
 
-    def finder_records(self, pr: str) -> list[dict]:
+    def finder_reviews(self, pr: str) -> list[dict]:
         drive = self.runner.config.drive
-        records = cci.records(self.runner.cci_tail, drive, "--kind=review", "--pr", f"{self.repo}#{pr}")
-        return [record for record in records if record["kind"] == "review" and record["drive"] == drive and record["text"].startswith(FINDER_GRADES) and pr in dict(repo_prs(record, self.repo))]
+        records = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=head", "--pr", f"{self.repo}#{pr}") if record["drive"] == drive and pr in dict(repo_prs(record, self.repo))]
+        heads = [record for record in records if record["kind"] == "head"]
+        reviews = []
+        for record in records:
+            if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(FIDELITY_GRADES):
+                continue
+            posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
+            reviews.append(record | {"grade": finder_grade(record["text"]), "head": graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")})
+        return reviews
+
+    def finder_records(self, pr: str) -> list[dict]:
+        return [record for record in self.finder_reviews(pr) if record["grade"] and record["head"]]
 
     def finder(self, pr: str, sha: str) -> dict | None:
-        """The newest `finder:` review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
-        return newest_naming(self.finder_records(pr), sha)
+        """The newest finder review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
+        return newest_finder(self.finder_records(pr), sha)
 
     def finder_carried(self, pr: str, sha: str, base: str) -> bool:
         records = self.finder_records(pr)
-        heads = dict.fromkeys(head for record in records if (head := graded_head(record["text"])) and not names_head(head, sha))
-        oks = [head for head in heads if (newest := newest_naming(records, head)) and newest["text"].startswith(FINDER_OK)]
+        heads = dict.fromkeys(record["head"] for record in records if not names_head(record["head"], sha))
+        oks = [head for head in heads if (newest := newest_finder(records, head)) and newest["grade"] == FINDER_PASS]
         if not base or not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
             return False
         return any(self.patch_id(pr, head, base, escalate=False) == ours for head in oks)
@@ -4122,7 +4151,11 @@ class Landing:
         """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
         states = {}
         for pr, sha in graded.heads.items():
-            if (verdict := self.finder(pr, sha)) and verdict["text"].startswith(FINDER_OK):
+            if graded.act:
+                for record in self.finder_reviews(pr):
+                    if not (record["grade"] and record["head"]):
+                        self.ask_finder_line(pr, record)
+            if (verdict := self.finder(pr, sha)) and verdict["grade"] == FINDER_PASS:
                 continue
             if not verdict and self.finder_carried(pr, sha, graded.rows[pr].get("base") or ""):
                 continue
@@ -4132,6 +4165,14 @@ class Landing:
             for pr, state in states.items():
                 self.refuse_head(f"finder:{pr}:{graded.heads[pr]}", pr, graded, state.reason)
         return states
+
+    def ask_finder_line(self, pr: str, record: dict) -> None:
+        key = f"finder-line:{record['seq']}"
+        if self.book.known(LANDING, key):
+            return
+        unread = "verdict" if not record["grade"] else "head"
+        text = f"#{pr}: cci #{record['seq']} names the finder, but the runner reads no {unread} in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."
+        self.post_record("note", key, record["lane"], text, pr)
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
         ungraded = self.ungraded(graded.heads, graded.rows)
@@ -4538,7 +4579,7 @@ class Landing:
             landed = json.loads(action.target)
             pr, head = landed["pr"], landed["head"]
             verdict = self.finder(pr, head)
-            owed = [name for name, ok in (("fidelity ok", self.fidelity(pr, head, TRUNK).ok), ("finder ok", bool(verdict and verdict["text"].startswith(FINDER_OK)))) if not ok]
+            owed = [name for name, ok in (("fidelity ok", self.fidelity(pr, head, TRUNK).ok), ("finder ok", bool(verdict and verdict["grade"] == FINDER_PASS))) if not ok]
             if owed:
                 self.runner.escalate(
                     f"ungraded-30:{pr}@{head}",
