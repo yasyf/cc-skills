@@ -46,6 +46,7 @@ from .tests.register_fixtures import (
     ROWED,
     ROWS,
     SHA,
+    REPEATED,
     UNROWED,
     fixture,
     readings,
@@ -232,8 +233,13 @@ def is_answer(evt: BaseHookEvent, token: str) -> bool:
     return True
 
 
+def row_answers(row: dict) -> list[str]:
+    repeats = json.loads(row.get("repeats") or "[]")
+    return [str(row.get("answer") or ""), *(json.dumps(repeat.get("answer")) for repeat in repeats)]
+
+
 def unrowed(evt: BaseHookEvent, lines: list[str], register: dict) -> list[str]:
-    rowed = {found[:SHORT] for row in register["rows"].values() for found in ANSWER_ID.findall(str(row.get("answer") or ""))}
+    rowed = {found[:SHORT] for row in register["rows"].values() for found in ANSWER_ID.findall(" ".join(row_answers(row)))}
     cited = dict.fromkeys(token for line in lines for token in ANSWER_ID.findall(line))
     return [token for token in cited if token[:SHORT] not in rowed and is_answer(evt, token)]
 
@@ -272,6 +278,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         register_case(go(f"land {SHA[:7]} now"), "quiet", (SHA[:7], (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"land head {SHA} now"), "quiet", (SHA, (3, "not-found: entity not found"))): Allow(),
         register_case(go(f"lift the hold under {UNROWED[:7]}", "lift")): Allow(),
+        register_case(go(f"cut web under {REPEATED[:7]}"), "quiet", (REPEATED[:7], shown(REPEATED))): Allow(),
         register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], (1, "ccn: store locked"))): Allow(),
         register_case(go("cut web"), "repeat"): Allow(),
         spawn("lane-x", "Lane lane-x: build the slice verb.", "repeat"): Allow(),
