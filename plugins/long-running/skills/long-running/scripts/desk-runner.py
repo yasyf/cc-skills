@@ -3965,7 +3965,12 @@ class Landing:
 
     def unproven(self, pr: str, sha: str) -> str:
         """Why `sha` is not proven green, or empty when no build at it is a redundant skip or its deferred-to child is open, contains it, and passed a full build."""
-        if not self.landing_config.get("ci_build") or not any(skip for _, skip in self.ci_builds(sha)):
+        if not self.landing_config.get("ci_build"):
+            return ""
+        builds = self.ci_builds(sha)
+        if builds is None or any(skip is None for _, skip in builds):
+            return f"unproven: its builds did not read, so no full test build proves {sha[:10]} this pass. It is read again next pass."
+        if not any(skip for _, skip in builds):
             return ""
         child = self.deferred_child(pr)
         if child is None:
@@ -3979,25 +3984,27 @@ class Landing:
             state = "open with no full green build"
         return f"unproven: redundant skip, child #{child['pr']} {state}, so no full test build proves {sha[:10]}. Retrigger a full build at this head."
 
-    def ci_builds(self, sha: str) -> list[tuple[str, bool]]:
-        """Each Buildkite build GitHub's combined status names at `sha`: its state, and whether it is a redundant-within-its-stack skip, read through `landing.ci_build` once per build."""
+    def ci_builds(self, sha: str) -> list[tuple[str, bool | None]] | None:
+        """Each Buildkite build GitHub's combined status names at `sha`: its state, and whether it is a redundant-within-its-stack skip, read through `landing.ci_build` once per build; None when the status does not read, and None for a build that does not."""
         if sha not in self.builds_read:
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
-            statuses = json.loads(done.out)["statuses"] if done.code == 0 else []
-            self.builds_read[sha] = [(status["state"], status["state"] == "success" and self.redundant(status["target_url"])) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
+            if done.code != 0:
+                return None
+            statuses = json.loads(done.out)["statuses"]
+            self.builds_read[sha] = [(status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
         return self.builds_read[sha]
 
-    def redundant(self, url: str) -> bool:
+    def redundant(self, url: str) -> bool | None:
         if url not in self.skips:
             done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
             if done.code != 0:
-                return False
+                return None
             self.skips[url] = any(REDUNDANT_SKIP.search(job.get("name") or "") for job in json.loads(done.out).get("jobs", []))
         return self.skips[url]
 
     def full_green(self, sha: str) -> bool:
-        builds = self.ci_builds(sha) if sha else []
-        return bool(builds) and all(state == "success" and not skip for state, skip in builds)
+        builds = self.ci_builds(sha) if sha else None
+        return bool(builds) and all(state == "success" and skip is False for state, skip in builds)
 
     def contains(self, head: str, sha: str) -> bool:
         done = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"])

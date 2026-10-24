@@ -1674,7 +1674,7 @@ def op_count(op: str, text: str) -> int:
 def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
     """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names."""
     ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
-    paths = [op for op in ops if "/" in op]
+    paths = [op for op in ops if "/" in op and not any(char.isspace() for char in op)]
     return any(op_hits(op, diff, paths) for op in ops if op not in paths)
 
 
