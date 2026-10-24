@@ -174,6 +174,7 @@ CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 SETTLE_WORKERS = 8
 REFRESH_BATCH = 25
+PR_STATE_MAX_AGE = "2m"
 REFRESH_WORKERS = 4
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 REOPEN_WINDOW = timedelta(hours=24)
@@ -676,7 +677,7 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
     """One read of ccx's machine-wide pull request cache, which every desk and watcher on the machine shares."""
     if not prs and not prefixes:
         return {"lanes": {}, "prs": {}}
-    argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
+    argv = [ccx, "vcs", "pr", "state", "--repo", repo, "--max-age", PR_STATE_MAX_AGE, *prs]
     for prefix in prefixes:
         argv += ["--lane-prefix", prefix]
     try:

@@ -5284,13 +5284,13 @@ class Landing:
         return self.sessions[lane]
 
     def has_landed(self, pr: str) -> bool:
-        """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
+        """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker. The first ask of a pass reads every open ledger row in one `ccx vcs pr status` call."""
         if pr not in self.landed and pr not in self.unlanded:
-            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", pr])
-            if done.code == 0 and any(str(entry["number"]) == pr and entry["queue"] == "landed" for entry in json.loads(done.out)):
-                self.landed.add(pr)
-            else:
-                self.unlanded.add(pr)
+            numbers = sorted({pr, *(number for number, row in self.ledger_rows.items() if row.get("state", "open") == "open")} - self.landed - self.unlanded, key=int)
+            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
+            landed = {str(entry["number"]) for entry in json.loads(done.out) if entry["queue"] == "landed"} if done.code == 0 else set()
+            self.landed |= landed
+            self.unlanded |= set(numbers) - landed
         return pr in self.landed
 
     def routed(self, key: str, lane: str) -> bool:

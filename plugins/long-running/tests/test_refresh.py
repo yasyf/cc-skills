@@ -119,7 +119,7 @@ def test_refresh_never_rereads_a_settled_row_so_a_landing_sticks(lock, red_route
     assert shell.fields("20961")["state"] == "landed"
     assert shell.fields("20961")["head"] == "stale"
     assert shell.fields("20970")["state"] == "closed-without-squash"
-    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "21052"]]
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "--max-age", "2m", "21052"]]
 
 
 def test_refresh_reopens_an_abandoned_row_github_shows_open_again(lock, red_routes):
@@ -178,7 +178,7 @@ def test_refresh_reads_every_row_in_one_shared_cache_call_and_no_gh(lock, red_ro
     shell = FakeShell(rows=[held], routes=red_routes)
     refresh(shell, lock, pr=["21052", "20970"])
 
-    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "20961", "20970", "21052"]]
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "--max-age", "2m", "20961", "20970", "21052"]]
     assert not [argv for argv in shell.calls if argv[0] == "gh"]
 
 
