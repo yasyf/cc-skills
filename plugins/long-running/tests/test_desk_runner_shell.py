@@ -39,3 +39,9 @@ def test_a_check_past_its_minute_is_killed_and_reads_as_a_failed_command(monkeyp
     done = runner_module.Shell().run(["sh", "-c", "sleep 5", "--check"])
 
     assert done == runner_module.Done(runner_module.TIMED_OUT, "", "sh -c sleep 5 --check timed out after 0.2s and was killed")
+
+
+def test_the_command_in_flight_names_the_script_and_its_arguments_without_the_interpreter_or_its_paths():
+    argv = ["/opt/python3.13/bin/python3", "/plugins/long-running/scripts/rulings.py", "check-pr", "--repo", "/worktrees/monorepo/runner", "--pr", "Forge-AI/monorepo#42590"]
+
+    assert runner_module.command_name(argv) == "rulings.py check-pr --repo runner --pr Forge-AI/monorepo#42590"

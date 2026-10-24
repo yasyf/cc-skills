@@ -701,8 +701,8 @@ def quick(argv: list[str]) -> bool:
 
 
 def command_name(argv: list[str]) -> str:
-    words = argv[argv.index("--script") + 1 :] if "--script" in argv else argv
-    return " ".join([Path(words[0]).name, *words[1:]])[:120]
+    words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
+    return " ".join(Path(word).name if word.startswith("/") else word for word in words)[:120]
 
 
 class Shell:
@@ -3867,6 +3867,7 @@ class Landing:
         trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
+        self.read_reports({pr: sha for _, done in gated if done.would is not None for pr, sha in enqueued_heads(enqueue_key(done.would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
             if done.code and not verdicts:
