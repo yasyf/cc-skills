@@ -196,6 +196,15 @@ def test_a_reserved_row_matches_its_identifiers_inside_its_paths_never_a_path_al
     assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "evict(session)"))) == refused
 
 
+def test_a_head_graded_again_after_a_new_reserved_row_reads_the_row_though_its_diff_facts_are_kept(package: Path, state: Path, registered: Path, capsys) -> None:
+    diff = DIFF + added("go/sand/cmd/evict_chats.go", "os.RemoveAll(dir)")
+    refused = (1, ["RESERVED-NO-ANSWER reserved/mac-evict\tYour tap on the eviction release's merge card is also its authorization to delete chat files on Macs."])
+
+    assert check(capsys, CheckShell(pinned(package), diff=diff)) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), diff=diff)) == (0, [])
+    assert check(capsys, CheckShell(pinned(package) | {"reserved/mac-evict": MAC_EVICT}, diff=diff)) == refused
+
+
 CLOUD_DELETE = dict(RESERVED, words="Nothing deletes a cloud chat without my word. Ask first.", ops='["*DeleteObject*", "*durable_at*"]')
 
 
