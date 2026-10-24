@@ -227,6 +227,20 @@ def test_a_reserved_row_matches_only_what_a_diff_adds_never_what_it_deletes_or_r
     assert check(capsys, CheckShell(rows, diff=DIFF + changed("go/sand/cmd/session_pass.go", [], ["\tclient.DeleteObject(ctx, key)"]))) == refused
 
 
+def copied(source: str, path: str, hunk: str) -> str:
+    return f"diff --git a/{source} b/{path}\nsimilarity index 97%\ncopy from {source}\ncopy to {path}\nindex 1111111..2222222 100644\n--- a/{source}\n+++ b/{path}\n{hunk}"
+
+
+def test_a_copy_of_a_base_file_adds_only_the_lines_it_changes(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package) | {"reserved/cloud-delete": CLOUD_DELETE}
+    imports = "@@ -1,3 +1,3 @@\n-import \"sand/internal/views\"\n+import \"sand/next/internal/views\"\n \tclient.DeleteObject(ctx, key)\n"
+    deletes = "@@ -1,2 +1,3 @@\n \tclient.DeleteObject(ctx, key)\n+\tclient.DeleteObject(ctx, other)\n"
+    refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud chat without my word."])
+
+    assert check(capsys, CheckShell(rows, diff=DIFF + copied("go/sand/cmd/session_pass.go", "go/sand/next/cmd/session_pass.go", imports))) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + copied("go/sand/cmd/session_pass.go", "go/sand/next/cmd/session_pass.go", deletes))) == refused
+
+
 def test_a_removed_test_the_corpus_or_appendix_names_needs_an_answer_naming_it(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     plan = tmp_path / "plan.md"
     plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
