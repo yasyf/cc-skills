@@ -1931,8 +1931,9 @@ thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plu
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
 and a `stack-enqueue --check` get 60 seconds each; one that runs over is killed, logged as
 `TIMED-OUT` in the runner log and read as a failed command. Within a pass the landing runner
-reads `cci who` once per lane, a PR's landed state and red-by-design body once per PR, and
-each gate once per tip set, and runs `check-pr` for a prefix's heads in parallel. The
+reads `cci who` once per lane and a PR's landed state and red-by-design body once per PR.
+Right after the gate checks it runs `check-pr` for every head it may enqueue, four at a time.
+A blocker still re-reads its gate just before the send. The
 merge-mode check runs before the other checks, so a green head gets its merge card without
 waiting for its grades; it still enqueues only once every check passes. A pass that raises logs its traceback, posts one `blocker` to the root naming
 the desk and the exception, and the runner goes on with its next pass. When the next
