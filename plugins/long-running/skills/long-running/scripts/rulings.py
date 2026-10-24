@@ -71,6 +71,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -1649,16 +1650,23 @@ def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
 
 
 def op_hits(op: str, diff: Diff) -> bool:
-    """Whether the diff's added code, test and prose files aside, does what `op` names: a path glob names a changed file, a glob with a space a command line, any other glob a whole identifier, matched case and all, and a bare name a whole word."""
-    added = [(file, text) for file, _, text in diff.added if not testfiles.test_file(file)]
+    """Whether the diff, test and prose files aside, newly does what `op` names: a path glob names a file the diff adds lines to; any other op counts its matches per file, and hits only where the added lines hold more than the removed ones, so a deletion or a reflowed line never touches it. A glob with a space matches a command line, any other glob a whole identifier with case kept, and a bare name a whole word."""
     if "/" in op:
-        return any(fnmatch.fnmatchcase(file, op) for file, _ in added)
-    code = [text for file, text in added if Path(file).suffix not in PROSE_SUFFIXES]
+        return any(fnmatch.fnmatchcase(file, op) for file, _, _ in diff.added if not testfiles.test_file(file))
+    counts: Counter[str] = Counter()
+    for sign, lines in ((1, diff.added), (-1, diff.removed)):
+        for file, _, text in lines:
+            if not testfiles.test_file(file) and Path(file).suffix not in PROSE_SUFFIXES:
+                counts[file] += sign * op_count(op, text)
+    return any(count > 0 for count in counts.values())
+
+
+def op_count(op: str, text: str) -> int:
     if any(char.isspace() for char in op):
-        return any(fnmatch.fnmatchcase(text.strip().lower(), op.lower()) for text in code)
+        return int(fnmatch.fnmatchcase(text.strip().lower(), op.lower()))
     if any(char in op for char in "*?["):
-        return any(fnmatch.fnmatchcase(token, op) for text in code for token in IDENTIFIER.findall(text))
-    return any(named(text, op) for text in code)
+        return sum(fnmatch.fnmatchcase(token, op) for token in IDENTIFIER.findall(text))
+    return len(name_pattern(op).findall(text))
 
 
 def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
