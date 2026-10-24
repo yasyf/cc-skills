@@ -1926,27 +1926,35 @@ def test_fork_tips_a_joined_check_refuses_without_a_verdict_gate_alone_on_the_sa
     assert sorted(line.split(" would ride")[0][-6:] for line in lines if "FOREIGN" in line) == ["#36530", "#36531"]
 
 
-def test_a_fork_its_last_check_named_one_stack_runs_its_joined_check_beside_the_solo_one(shell, config, tmp_path, monkeypatch):
+def test_a_fork_its_last_check_named_one_stack_is_gated_by_one_joined_check(shell, config, tmp_path):
     shell.rows = fork_rows()[:3]
     verdicts = ("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 ai-review pending")
     shell.gates["36487"] = [gate(*verdicts)]
     shell.gates["36487 36501"] = [gate(*verdicts)]
     landing = landing_of(shell, config, tmp_path)
     landing.run()
-    joined, overlapped, run = threading.Event(), [], shell.run
-
-    def run_beside(argv, stdin=None, env=None):
-        if Path(argv[0]).name == "stack-enqueue" and "--check" in argv:
-            tips = list(itertools.takewhile(str.isdigit, argv[1:]))
-            if tips == ["36487", "36501"]:
-                joined.set()
-            elif tips == ["36487"]:
-                overlapped.append(joined.wait(5))
-        return run(argv, stdin, env)
-
-    monkeypatch.setattr(shell, "run", run_beside)
+    shell.calls.clear()
     landing.run()
-    assert overlapped and all(overlapped)
+    checks = [tuple(itertools.takewhile(str.isdigit, call[1:])) for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks == [("36487", "36501")]
+
+
+def test_a_fork_that_split_since_the_last_pass_falls_back_to_solo_checks(shell, config, tmp_path):
+    shell.rows = fork_rows()[:3]
+    rider = "BLOCKED 9999aaaaaa rides the batch through #36463 but is neither named nor below #{}; name it too or pass --partial to leave it out"
+    both = gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 BLOCKED cccc333333 ai-review pending")
+    shell.gates["36487"] = [both]
+    shell.gates["36487 36501"] = [both]
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    shell.calls.clear()
+    shell.gates["36487 36501"] = [(1, "enqueued nothing: #36501 is not in #36487's stack\n", "")]
+    shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 BLOCKED bbbb222222 ai-review pending", "#36530 " + rider.format(36487))]
+    shell.gates["36501"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36501 BLOCKED cccc333333 ai-review pending")]
+    landing.run()
+    checks = [tuple(itertools.takewhile(str.isdigit, call[1:])) for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks == [("36487", "36501"), ("36487",), ("36501",)]
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
 def test_a_tip_checked_alone_after_a_refused_join_escalates_when_it_has_no_verdict_either(shell, config, tmp_path):

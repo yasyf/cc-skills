@@ -3736,6 +3736,10 @@ def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at
     incident.action(key).response["posted"][step] = seq
 
 
+def verdictless(gate: merge_queue.Gate) -> bool:
+    return bool(gate.code) and not gate.verdicts
+
+
 class Landing:
     """The merge queue: gate every tracked stack read-only through the repository adapter, run the check registry over each ready prefix, enqueue it once per set of heads in priority order, classify each ejection, verify by squash, route the restack above it, and send a landed merge-fast PR's release to its release owner."""
 
@@ -3916,7 +3920,7 @@ class Landing:
         self.read_reports({pr: sha for _, done in gated if done.would is not None for pr, sha in enqueued_heads(enqueue_key(done.would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
-            if done.code and not verdicts:
+            if verdictless(done):
                 self.gate_failed(tips, done)
                 continue
             if done.would is not None:
@@ -3978,17 +3982,19 @@ class Landing:
         return statuses is None or not any(status["state"] in RED_STATES and status["context"] not in GATE_STATUSES for status in statuses)
 
     def proven_stacks(self, tips: list[str]) -> list[tuple[list[str], Done]]:
-        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, the joined check runs beside the solo one instead of after it."""
+        """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it."""
         gated = []
         while tips:
             first, *rest = tips
-            with ThreadPoolExecutor(2) as pool:
-                guess = pool.submit(self.checked, tips) if rest and set(rest) <= self.stacks.get(first, set()) else None
-                alone = self.checked([first])
-                members = self.stacks[first] = set(alone.verdicts)
-                shared = [first, *(tip for tip in rest if tip in members)]
-                joined = alone if len(shared) == 1 else guess.result() if guess and shared == tips else self.checked(shared)
-            if joined.code and not joined.verdicts:
+            tried = self.checked(tips) if rest and set(rest) <= self.stacks.get(first, set()) else None
+            if tried and not verdictless(tried):
+                self.stacks[first] = set(tried.verdicts)
+                return [*gated, (tips, tried)]
+            alone = self.checked([first])
+            members = self.stacks[first] = set(alone.verdicts)
+            shared = [first, *(tip for tip in rest if tip in members)]
+            joined = alone if len(shared) == 1 else tried if tried and shared == tips else self.checked(shared)
+            if verdictless(joined):
                 gated += [([first], alone), *(([tip], self.checked([tip])) for tip in shared[1:])]
             else:
                 gated.append((shared, joined))
