@@ -1506,6 +1506,43 @@ def test_classify_answer_takes_only_words_in_an_owner_answer_body(home: Path, pa
             rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]))
 
 
+def answer_onto(tmp_path: Path, key: str) -> Path:
+    path = tmp_path / "onto.json"
+    path.write_text(json.dumps([{"extends": key, "words": APPROVED}]))
+    return path
+
+
+def test_confirm_takes_an_owner_answer_classified_onto_the_row_or_cited_by_its_implications(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package), answers=[ROUND_TWO])
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_onto(tmp_path, "rule/aaaaaaa")))[0] == 0
+
+    code, out = ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", "5eed0c0", "--tick", "3")
+
+    assert code == 0
+    assert out.splitlines()[2] == "3. [permits, ticked, binds now] Relay cleanup may live in the desktop app."
+    assert json.loads(shell.rows["rule/aaaaaaa"]["implications"])[2]["proof"] == "5eed0c0"
+
+    cited = RegisterShell(seeded(package), answers=[ROUND_TWO])
+    implications = json.loads(cited.rows["rule/aaaaaaa"]["implications"])
+    cited.rows["rule/aaaaaaa"]["implications"] = json.dumps([item | {"proof": "aaaaaaa 5eed0c0"} for item in implications])
+    assert ran(capsys, cited, "confirm", "rule/aaaaaaa", "--capture", "5eed0c0", "--tick", "2")[0] == 0
+    assert json.loads(cited.rows["rule/aaaaaaa"]["implications"])[1]["state"] == "ticked"
+
+
+def test_confirm_refuses_an_owner_answer_the_row_never_cites_and_the_rows_own_source(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    unrelated = dict(ROUND_TWO, id="0dd0c0de" + "0" * 32)
+    shell = RegisterShell(seeded(package), answers=[ROUND_TWO, unrelated])
+    assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_onto(tmp_path, "rule/bbbbbbb")))[0] == 0
+    before = shell.rows["rule/aaaaaaa"]["implications"]
+
+    for identity in ("5eed0c0", "0dd0c0d", "aaaaaaa"):
+        assert ran(capsys, shell, "confirm", "rule/aaaaaaa", "--capture", identity, "--tick", "3") == (
+            1,
+            f"CAPTURE-NOT-ON-CARD {identity}: confirm takes only a captured tap or reply on rule/aaaaaaa's card\n",
+        )
+    assert shell.rows["rule/aaaaaaa"]["implications"] == before
+
+
 def test_one_answer_extends_several_rows_in_one_batch_and_never_again(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[ROUND_TWO])
     path = tmp_path / "round-two-rows.json"
