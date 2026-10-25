@@ -2737,7 +2737,7 @@ def test_a_board_surface_posts_no_merge_card_and_still_logs_the_ask_and_enqueues
 
 
 @pytest.mark.parametrize("mode", ["every", "auto"])
-def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers_it_authorizes_the_row(shell, config, tmp_path, mode):
+def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_for_the_authorized_tap(shell, config, tmp_path, mode):
     merge_mode(config, mode)
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
@@ -2749,14 +2749,17 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_the_go_that_answers
     assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
     message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
-    assert "the card quotes reserved/user-data and its words, and the Merge go authorizes it" in message
+    assert "the card quotes reserved/user-data and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive d1 --row reserved/user-data --action <the tap's ts>`, since a go never does" in message
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+    shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
 
 
-def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_waits_for_a_go_after_it(shell, config, tmp_path):
+def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_a_later_go_authorizes_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
@@ -2773,10 +2776,13 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.check_pr["29020"] = (0, "")
+    landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020"]]
 
 
-def test_a_go_naming_the_reserved_key_covers_the_row_though_its_card_never_posted(shell, config, tmp_path):
+def test_a_go_naming_the_reserved_key_authorizes_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
@@ -2788,7 +2794,7 @@ def test_a_go_naming_the_reserved_key_covers_the_row_though_its_card_never_poste
     assert shell.enqueues() == []
     merge_go(shell, "29020", "merge #29020 at cccc333, reserved/user-data allowed")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert shell.enqueues() == []
 
 
 @pytest.mark.parametrize("mode", ["every", "high-risk"])

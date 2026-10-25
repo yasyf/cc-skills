@@ -403,8 +403,8 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 question on its own board. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
 no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
-tap is the authorization: the root `go` for the head, posted after the runner logged a card naming the row or naming the row's key itself, covers it (4236611), and so
-does an answer `rulings.py authorize` labels `authorizes:<key>`, which `check-pr` reads. A PR that no ledger `progress` entry with
+tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
+stops naming, and a root `go` never does, whatever it names (C224). A PR that no ledger `progress` entry with
 an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
@@ -3721,10 +3721,6 @@ def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     return named
 
 
-def names_key(text: str, key: str) -> bool:
-    return re.search(rf"(?<![\w/]){re.escape(key)}(?![\w/])", text) is not None
-
-
 def red_contract(records: list[dict], pr: str) -> bool:
     """Whether the newest `contract` record whose `--pr` refs name `pr` names its failing run as expected."""
     named = [record for record in records if record["kind"] == "contract" and pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])}]
@@ -4500,33 +4496,20 @@ class Landing:
         gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
         return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
 
-    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> dict[str, datetime]:
-        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, each with its newest such answer's time."""
-        return {pr: max(actions.parse_stamp(record["at"]) for record in gos) for pr in prs if (gos := self.head_gos(pr, heads[pr]))}
+    def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> set[str]:
+        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha."""
+        return {pr for pr in prs if self.head_gos(pr, heads[pr])}
 
-    def carded(self, pr: str, head: str) -> dict[str, datetime]:
-        """Each reserved row a merge card the runner logged for `pr` at `head` named, with the time of the first card naming it."""
-        prefix = f"escalation:merge-ask:{pr}@{head}"
-        named: dict[str, datetime] = {}
-        for action in self.book.actions(RUNNER, kind="escalation"):
-            if action.action_id.startswith(prefix):
-                at = actions.parse_stamp(action.accepted_at)
-                for key in action.action_id.removeprefix(prefix).split(":")[1:]:
-                    named[key] = min(named.get(key, at), at)
-        return named
-
-    def unauthorized(self, pr: str, head: str, answered: datetime) -> list[tuple[str, str]]:
-        """Each reserved row `pr` touches at `head` that no `authorizes:<key>` answer covers, no go at the head names by key, and no merge card named before the owner's Merge answer at `answered` (4236611)."""
-        carded = self.carded(pr, head)
-        named = " ".join(record["text"] for record in self.head_gos(pr, head))
-        return [(key, sentence) for key, sentence in self.reserved_touches(pr, head) if not names_key(named, key) and (key not in carded or carded[key] > answered)]
+    def waiting_on_owner(self, heads: dict[str, str], prs: list[str]) -> list[str]:
+        """The PRs of `prs` with no Merge answer at their head yet, or touching a reserved row no `authorizes:<key>` answer covers: only the owner's captured tap on the card quoting the row authorizes it, through `rulings.py authorize`, and a `go` never does (C224)."""
+        merged = self.merged_by_owner(heads, prs)
+        return [pr for pr in prs if pr not in merged or self.reserved_touches(pr, heads[pr])]
 
     def unanswered(self, heads: dict[str, str], asks: dict[str, list[str]]) -> dict[str, list[str]]:
-        """The PRs of `asks` still waiting on the owner: no Merge answer at their head yet, or a reserved row the head touches that the answer does not cover, because no card named the row before it."""
+        """The PRs of `asks` still waiting on the owner's Merge answer or on the authorization of a reserved row their head touches."""
         if not asks:
             return {}
-        merged = self.merged_by_owner(heads, list(asks))
-        return {pr: paths for pr, paths in asks.items() if pr not in merged or self.unauthorized(pr, heads[pr], merged[pr])}
+        return {pr: asks[pr] for pr in self.waiting_on_owner(heads, list(asks))}
 
     def batch_posted(self) -> set[str] | None:
         """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
@@ -4567,8 +4550,7 @@ class Landing:
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
         mode = self.merge_mode
-        merged = self.merged_by_owner(heads, list(waiting))
-        asking = [pr for pr in waiting if pr not in merged or self.unauthorized(pr, heads[pr], merged[pr])]
+        asking = self.waiting_on_owner(heads, list(waiting))
         if not asking or (posted := self.batch_posted()) is None:
             return
         if owed := [pr for pr in asking if pr not in posted]:
@@ -4593,7 +4575,7 @@ class Landing:
                 where = f"the merge card at ts {ts} in the root's status thread or on its board"
             else:
                 continue
-            authorize = "".join(f"; the card quotes {key} and its words, and the Merge go authorizes it" for key, _ in reserved)
+            authorize = "".join(f"; the card quotes {key} and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <the tap's ts>`, since a go never does" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}",
                 "MERGE-ASK",

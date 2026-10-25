@@ -122,7 +122,7 @@ def check_pr_stub(monkeypatch, code: int, out: str, viewed: str = "41700") -> li
     return calls
 
 
-def advise(tmp_path: Path, command: str, agent_id: str | None = None) -> list[str]:
+def merge_results(tmp_path: Path, command: str, agent_id: str | None = None) -> list:
     transcript = tmp_path / f"{SESSION}.jsonl"
     transcript.write_text("")
     raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path)}
@@ -131,7 +131,11 @@ def advise(tmp_path: Path, command: str, agent_id: str | None = None) -> list[st
         raw["agent_id"] = agent_id
         lane = tmp_path / SESSION / "subagents" / f"agent-{agent_id}.jsonl"
     evt = PreToolUseEvent(_raw=raw, ctx=build_context(None, lane, tmp_path, tmp_path / "state"))
-    results = [result for result in fire(lane_landing, evt) if result.message]
+    return [result for result in fire(lane_landing, evt) if result.message]
+
+
+def advise(tmp_path: Path, command: str, agent_id: str | None = None) -> list[str]:
+    results = merge_results(tmp_path, command, agent_id)
     assert all(result.action != Action.block for result in results)
     return [result.message for result in results]
 
@@ -147,15 +151,24 @@ def test_a_root_merge_carrying_a_refusal_is_advised_and_never_blocked(tmp_path, 
     assert check[check.index("--pr") + 1] == "Forge-AI/monorepo#41700" and check[check.index("--head") + 1] == HEAD and "--incident" not in check
 
 
-def test_an_incident_lane_merge_is_advised_and_never_blocked_on_the_three_incident_checks(tmp_path, monkeypatch):
+def test_an_incident_lane_merge_is_refused_while_one_of_the_three_incident_checks_fails(tmp_path, monkeypatch):
     drive_registry(tmp_path, monkeypatch)
     subagent(tmp_path, "a1f2e3d4", name="incident-api-500s", agentType="long-running:lane-ship")
     calls = check_pr_stub(monkeypatch, 1, "RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.\nFINDER-MAJOR cccc333\n")
 
-    [advice] = advise(tmp_path, f"gh pr merge https://github.com/Forge-AI/monorepo/pull/41700 --squash --match-head-commit {HEAD}", "a1f2e3d4")
+    [refusal] = merge_results(tmp_path, f"gh pr merge https://github.com/Forge-AI/monorepo/pull/41700 --squash --match-head-commit {HEAD}", "a1f2e3d4")
 
-    assert advice == lane_landing.RULINGS_ADVICE.format(causes="RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.", pr="41700", head=HEAD[:10])
+    assert refusal.action == Action.block
+    assert refusal.message == lane_landing.INCIDENT_RULINGS_REFUSAL.format(pr="41700", head=HEAD[:10], lane="incident-api-500s", causes="RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.")
     assert [call[:3] for call in calls if call[:3] == ["gh", "pr", "view"]] == [] and "--incident" in calls[-1]
+
+
+def test_an_incident_lane_merge_of_a_head_check_pr_names_nothing_for_passes(tmp_path, monkeypatch):
+    drive_registry(tmp_path, monkeypatch)
+    subagent(tmp_path, "a1f2e3d4", name="incident-api-500s", agentType="long-running:lane-ship")
+    check_pr_stub(monkeypatch, 0, "")
+
+    assert merge_results(tmp_path, f"gh pr merge 41700 -R Forge-AI/monorepo --squash --match-head-commit {HEAD}", "a1f2e3d4") == []
 
 
 def test_an_incident_lane_merge_passes_when_only_checks_outside_the_three_fire(tmp_path, monkeypatch):
