@@ -21,7 +21,7 @@ from captain_hook.tasks import Task, Tasks
 __capt_hook_skip__ = True
 
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
-STAND_DOWN = re.compile(r"\s*STAND-DOWN\b", re.IGNORECASE)
+STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 STAND_DOWN_SENDER = "team-lead"
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 IDLE_NOTIFICATION = '{"type":"idle_notification"'
@@ -106,7 +106,7 @@ def inbox_path(evt: BaseHookEvent, team: str, lane: str) -> Path:
 
 
 def is_stand_down(sender: str, text: str) -> bool:
-    return sender == STAND_DOWN_SENDER and STAND_DOWN.match(text) is not None
+    return sender == STAND_DOWN_SENDER and STAND_DOWN.search(text) is not None
 
 
 def stood_down(inbox: Path) -> bool:
