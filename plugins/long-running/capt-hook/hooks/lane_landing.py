@@ -48,6 +48,10 @@ RULINGS_ADVICE = (
     "`rulings.py check-pr` names {causes} for #{pr} at {head}. These are warnings: the landing desk holds no head for them (4236611), "
     "and this hook only advises, so settle each one you can before the merge lands."
 )
+INCIDENT_RULINGS_REFUSAL = (
+    "#{pr} {head}: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the incident fix, so lane `{lane}` may not merge it until they clear (45200f2): {causes}. "
+    "Fix each one and push, then merge the new head."
+)
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
@@ -338,15 +342,18 @@ def merge_causes(call: Call, entry: dict, cwd: str, incident: bool) -> tuple[str
         Input(command="gh pr view 36023 -R o/r --json mergedAt", env=DRIVE_ENV): Allow(),
     },
 )
-def rulings_merge_advice(evt: BaseHookEvent) -> HookResult | None:
+def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
-    incident = bool(INCIDENT_NAME.match(lane_name(evt) or ""))
+    lane = lane_name(evt) or ""
+    incident = bool(INCIDENT_NAME.match(lane))
     found = [
         checked
         for call in evt.cmd.calls()
         if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))
     ]
+    if incident and found:
+        return evt.block("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]
     return evt.context("\n".join(advice)) if advice else None
 

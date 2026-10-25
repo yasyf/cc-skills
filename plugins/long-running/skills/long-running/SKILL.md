@@ -1510,13 +1510,12 @@ there still asks.
 
 A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
 grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
-the row's key and the first sentence of its words, and says the merge also
-authorizes it. The card quotes both, and its tap is the authorization: the root's
-`go` for the head, posted after the runner logged a card naming the row, covers
-the row (4236611), and so does a `go` for the head whose text names the row's key.
-A batch `go` that names no key, posted before any card named the row, covers
-nothing, and the card goes out. An answer `rulings.py authorize` labels `authorizes:<key>` also
-covers the row, because `check-pr` then stops naming it.
+the row's key and the first sentence of its words. The card quotes both, and the
+owner's tap on it is the authorization. After a Merge tap the root runs
+`rulings.py authorize --drive <drive> --row <key> --action <the tap's ts>`, whose
+`authorizes:<key>` answer covers the row because `check-pr` then stops naming it.
+A root `go` never covers a reserved row, whatever it names or whenever it was
+posted (C224).
 
 A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
 each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
@@ -1552,8 +1551,10 @@ that each per-PR ask is a card with buttons, never a blocking `AskUserQuestion`.
 The runner posts no commit status and adds or removes no label. Its check registry
 alone enforces holds, rules-review, the rulings, fidelity, and the finder: no required
 check carries them, so a hand `gt merge`, a web-UI enqueue, or a hand adapter call
-bypasses all of them. The pack's `rulings_merge_advice` hook runs `check-pr` on a
-`gh pr merge` in a drive session and advises with each cause, never blocking (0afd2f6).
+bypasses all of them. The pack's `rulings_at_merge` hook runs `check-pr` on a
+`gh pr merge` in a drive session and advises with each cause (0afd2f6). An incident
+lane's merge is the exception: the hook refuses it with `RULINGS-REFUSED` while
+`check-pr --incident` names `RULINGS-UNCITED`, `RESERVED-NO-ANSWER` or `TEST-REMOVED` (45200f2).
 The root reads `mq.py why <n>` before any of those.
 
 The holds file stays the root's interface. A `hold` label on a PR holds it too,
