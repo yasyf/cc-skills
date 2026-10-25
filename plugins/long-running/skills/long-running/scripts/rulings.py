@@ -104,7 +104,8 @@ CORPUS_KEY = "corpus/b-tests"
 UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
 DIRECTIONS = ("removes", "permits")
-CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board"})
+ANSWER_SOURCE = "answer"
+CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board", ANSWER_SOURCE})
 RECOMMENDED_MARK = " (Recommended)"
 CARD_OPTIONS = ["Right", "Some wrong", "Open board"]
 ROUND_SIZE = 10
@@ -142,7 +143,6 @@ PLACEMENT = re.compile(
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
 DIGEST_CHARS = 16
 OWNER_ANSWER = "from:owner"
-ANSWER_SOURCE = "answer"
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
 CLAUSE_ENDS = (";", ". ", "\n")
@@ -1233,14 +1233,32 @@ def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return confirmed(args, loaded, args.key)
 
 
+def source_answers(fields: dict[str, str]) -> set[str]:
+    return {str(answer)[:SHORT] for answer in listed(fields.get("answer"))}
+
+
+def later_answers(fields: dict[str, str]) -> set[str]:
+    repeated = {answer[:SHORT] for repeat in listed(fields.get("repeats")) for answer in repeat_answers(repeat)}
+    proven = {token[:SHORT] for item in listed(fields.get("implications")) for token in str(item.get("proof") or "").split()}
+    return (repeated | proven) - source_answers(fields)
+
+
+def confirm_capture(loaded: Register, fields: dict[str, str], identity: str) -> dict | None:
+    if local := captures(loaded.state).get(identity):
+        return local
+    return answer_capture(loaded, identity) if identity[:SHORT] in later_answers(fields) else None
+
+
 def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     fields = loaded.row(key)
-    capture = captures(loaded.state).get(args.capture)
+    capture = confirm_capture(loaded, fields, args.capture)
     card = card_id(key)
     text = (capture or {}).get("text", "")
     block = (capture or {}).get("block") or ""
-    classified = (capture or {}).get("source") == "prompt" and args.capture in repeat_digests(fields)
-    on_card = capture and (classified or block in (card, answer_id(card)) or key in text or card in text)
+    source = (capture or {}).get("source")
+    classified = source == ANSWER_SOURCE or (source == "prompt" and args.capture in repeat_digests(fields))
+    names_source = any(answer in text for answer in source_answers(fields))
+    on_card = capture and (classified or block in (card, answer_id(card)) or key in text or card in text or names_source)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
         print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
         return 1
