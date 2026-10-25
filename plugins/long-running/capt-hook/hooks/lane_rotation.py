@@ -38,6 +38,7 @@ from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
 
 SENDER = "long-running"
+MENTIONS_STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
@@ -444,8 +445,12 @@ def heir(retired: dict[str, str | None], name: str) -> str | None:
     return successor
 
 
-def stand_down(message: object) -> bool:
-    return isinstance(message, str) and session_tree.STAND_DOWN.search(message) is not None
+def orders_stand_down(message: object) -> bool:
+    return isinstance(message, str) and session_tree.orders_stand_down(message)
+
+
+def mentions_stand_down(message: object) -> bool:
+    return isinstance(message, str) and MENTIONS_STAND_DOWN.search(message) is not None
 
 
 @on(
@@ -468,7 +473,7 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
             state.retired.pop(name, None)
             state.retired |= dict.fromkeys(rotated, name)
         return None
-    retired = stopped_lane(evt) or (raw.get("to") if stand_down(raw.get("message")) else None)
+    retired = stopped_lane(evt) or (raw.get("to") if orders_stand_down(raw.get("message")) else None)
     if retired:
         with RotationState.mutate(evt) as state:
             state.retired.setdefault(retired, None)
@@ -508,7 +513,7 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
 def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     raw = evt.input.raw
     retired = RotationState.load(evt).retired
-    if (to := raw.get("to")) not in retired or stand_down(raw.get("message")):
+    if (to := raw.get("to")) not in retired or mentions_stand_down(raw.get("message")):
         return None
     if successor := heir(retired, to):
         return evt.context(
