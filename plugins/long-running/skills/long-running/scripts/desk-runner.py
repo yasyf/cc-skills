@@ -315,11 +315,13 @@ stay on cci, so both run on the first pass after the reset. A quota read that fa
 ends that pass before it gates or enqueues further; it logs `CCI-TAIL-FAILED` and the runner keeps running.
 An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `outage-` lane or a fix lane the runner clocks, or whose
 number an open executor incident names as its `repair_pr`, is never enqueued: in the pass its head reads `APPROVED` and every
-required check passes and the holds file, read again just before, holds no line over it,
+required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`,
+and the holds file, read again just before, holds no line over it,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
-`land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. What
-`rulings.py check-pr --incident` names of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED` is a warning, one `note` to the PR's
-lane per head and set of causes, and the fix merges anyway (4236611). Neither grade
+`land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A head
+those checks name is not merged: it draws one `RULINGS-REFUSED` blocker to the PR's lane and the root per head and set of causes,
+and merges in the first pass they clear (45200f2). Every other cause `check-pr` names stays a warning (4236611).
+Neither grade
 gates the merge: a landed fix whose head has no counted fidelity ok or no finder ok 30 minutes on logs `UNGRADED-30` once (d968e1d). A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, a PR this runner
 merged by plain squash among them however its incident reads by then, sends one cci `release` record to `landing.release_owner` and the root in the pass
@@ -4791,7 +4793,7 @@ class Landing:
         return [pr for pr, row in open_rows.items() if row.get("ours") and row.get("base") == TRUNK and self.is_incident(pr, row)]
 
     def squash_incidents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Merge each unheld incident fix PR on the trunk by plain squash in the pass its head is review-approved and every required check passes, once per head, and post `landed`; the queue never takes it."""
+        """Merge each unheld incident fix PR on the trunk by plain squash in the pass its head is review-approved, every required check passes and `check-pr --incident` names none of its three ruling checks, once per head, and post `landed`; the queue never takes it."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         for pr in sorted(self.incident_rows(open_rows), key=int):
@@ -4815,12 +4817,13 @@ class Landing:
             return
         if not required or any(check["bucket"] != SQUASH_PASS for check in required):
             return
-        if warnings := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_CHECKS]:
-            text = f"#{pr} {view['headRefOid'][:10]}: WARNING `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not hold it for them (4236611): {'; '.join(warnings)}"
-            warning = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
-            if not self.book.known(LANDING, warning):
+        if refusals := [line for line in self.rulings_report(pr, view["headRefOid"], incident=True) if cause(line) in INCIDENT_CHECKS]:
+            text = f"#{pr} {view['headRefOid'][:10]}: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the approved, green incident fix, and the runner does not merge it until they clear (45200f2): {'; '.join(refusals)}"
+            refusal = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+            if not self.book.known(LANDING, refusal):
                 owner = self.owner(pr, row)
-                self.post_record("note", warning, ",".join(self.reach(owner) if owner else [ROOT]), text, pr)
+                self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), text, pr)
+            return
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
         self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
