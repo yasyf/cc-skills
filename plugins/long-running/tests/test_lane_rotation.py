@@ -1629,3 +1629,27 @@ def test_a_lane_that_heard_a_stand_down_in_the_roots_own_words_is_never_asked(tr
         clock[0] += lane_rotation.ASK_GAP_SECONDS
 
     assert (tree.inbox("p8c-ship-2"), pending(evt), timeline(evt)) == ([], [], [])
+
+
+STAND_DOWN_MENTIONS = ["do not stand down", "On STAND-DOWN: stop", "p8c-ship-2 is stood down; stand-down sent to it"]
+
+
+@pytest.mark.parametrize(("text", "asked"), [("Stand down, p8c-ship-2.", 0), *((mention, 1) for mention in STAND_DOWN_MENTIONS)])
+def test_only_a_stand_down_order_heard_by_the_lane_ends_its_asks(tree: Tree, clock: list[float], text: str, asked: int) -> None:
+    task = tree.lane("p8c-ship-2", 550_000)
+    tree.hear("p8c-ship-2", f'<teammate-message teammate_id="team-lead" summary="root">\n{text}\n</teammate-message>')
+    evt = stop(tree, [task])
+
+    rotate_lanes(evt)
+
+    assert len(tree.inbox("p8c-ship-2")) == asked
+
+
+@pytest.mark.parametrize("text", STAND_DOWN_MENTIONS)
+def test_a_root_message_that_only_mentions_a_stand_down_keeps_the_lane_asked(tree: Tree, clock: list[float], text: str) -> None:
+    evt = stop(tree, [tree.lane("p8c-ship-2", 550_000)])
+
+    assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "p8c-ship-2", "message": text}) == []
+    rotate_lanes(evt)
+
+    assert ("p8c-ship-2" in lane_rotation.RotationState.load(evt.evt()).retired, len(tree.inbox("p8c-ship-2"))) == (False, 1)
