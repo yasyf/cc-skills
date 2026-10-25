@@ -1536,11 +1536,12 @@ the PR's lane names in a `full run green <build>: #<pr> #<pr>` note or report. A
 build at the head itself always wins: the head reads `unproven: its own build <url>
 failed` until it passes.
 
-Incident fixes still land by plain squash under every mode. Before the merge, an
-approved, green fix merges once the holds file, read again just before
-`gh pr merge`, holds no line over it. What `check-pr --incident` names of
-`RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED` is a warning, one cci
-`note` to the PR's lane, and the fix merges anyway (4236611). Neither grade gates it: a fix
+Incident fixes still land by plain squash under every mode, and a `checks_wait_for_go`
+pause never stops them. An approved, green fix merges once the holds file, read again
+just before `gh pr merge`, holds no line over it and `check-pr --incident` names none of
+`RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED`. A head it names one of them
+for is refused: one cci `RULINGS-REFUSED` blocker to the PR's lane and the root, and the
+fix merges in the first pass they clear (45200f2). Neither grade gates it: a fix
 whose head has no counted fidelity ok or no finder ok 30 minutes after it lands
 logs `UNGRADED-30` once (d968e1d).
 
