@@ -1598,3 +1598,34 @@ def test_respawn_under_a_retired_name_clears_it(tree: Tree) -> None:
     spawn(tree, "oncall-watch")
 
     assert send(tree, "oncall-watch") is None
+
+
+ROOT_STAND_DOWN = "Root: stand down. Your handoff doc d652fe1 is the record and p8c-ship-3 has been spawned from your brief plus that doc."
+
+
+def test_a_lane_the_root_stood_down_loses_its_root_action_and_is_never_asked_again(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("p8c-ship-2", 450_000)])
+    rotate_lanes(evt)
+    tree.read("p8c-ship-2")
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    rotate_lanes(evt)
+    assert [line.split(":")[0] for line in pending(evt)] == ["ROOT-ACTION `p8c-ship-2`"]
+
+    assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "p8c-ship-2", "message": ROOT_STAND_DOWN}) == []
+    for _ in range(6):
+        clock[0] += lane_rotation.ROOT_ACTION_GAP_SECONDS
+        rotate_lanes(evt)
+
+    assert (len(tree.inbox("p8c-ship-2")), pending(evt)) == (1, [])
+
+
+def test_a_lane_that_heard_a_stand_down_in_the_roots_own_words_is_never_asked(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("p8c-ship-2", 550_000)
+    tree.hear("p8c-ship-2", f'<teammate-message teammate_id="team-lead" summary="stand down">\n{ROOT_STAND_DOWN}\n</teammate-message>')
+    evt = stop(tree, [task])
+
+    for _ in range(4):
+        rotate_lanes(evt)
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+
+    assert (tree.inbox("p8c-ship-2"), pending(evt), timeline(evt)) == ([], [], [])

@@ -38,7 +38,6 @@ from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
 
 SENDER = "long-running"
-STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
@@ -275,6 +274,7 @@ def awake(evt: BaseHookEvent, lanes: list[Lane], state: RotationState) -> list[L
         for lane in lanes
         if lane.agent_id not in state.frozen
         and lane.name not in state.flushed
+        and lane.name not in state.retired
         and not stood_down(evt, lane, live, rotated)
     ]
 
@@ -445,7 +445,7 @@ def heir(retired: dict[str, str | None], name: str) -> str | None:
 
 
 def stand_down(message: object) -> bool:
-    return isinstance(message, str) and STAND_DOWN.search(message) is not None
+    return isinstance(message, str) and session_tree.STAND_DOWN.search(message) is not None
 
 
 @on(
@@ -472,6 +472,7 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     if retired:
         with RotationState.mutate(evt) as state:
             state.retired.setdefault(retired, None)
+        cancel_root_action(evt, retired)
     return None
 
 
