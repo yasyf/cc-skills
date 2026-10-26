@@ -1868,7 +1868,7 @@ def fork_rows() -> list[dict]:
     ]
 
 
-def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, config, tmp_path):
+def test_a_fork_enqueues_its_first_chain_and_names_the_other_green_tip_deferred(shell, config, tmp_path):
     shell.launch("release-order", "ctx_r")
     (tmp_path / "holds.md").write_text("#36510 owner hold until the monitors soak\n")
     shell.rows = fork_rows()
@@ -1879,18 +1879,19 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
         "#36510 BLOCKED dddd444444 held",
         "#36520 BLOCKED eeee555555 graphite FAILING_REQUIRED",
     )
-    shell.gates["36487"] = [gate(*verdicts)]
+    shell.gates["36487"] = [gate(*verdicts), gate(*verdicts[:2], would="#36463 #36487")]
     shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
-    shell.gates["36487 36501"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
     shell.combined_statuses["eeee555555"] = [{"context": "buildkite/test", "state": "failure"}]
     grade_gated_heads_ok(shell)
-    shell.enqueue_out["36487 36501"] = (0, "enqueue #36463 #36487 #36501: {}\n")
+    shell.enqueue_out["36487"] = (0, "enqueue #36463 #36487: {}\n")
     landing_pass(shell, config)
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
-    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
-    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--partial"]]
+    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36600",)}
+    assert [call[1:] for call in shell.enqueues()] == [["36487", "--partial"]]
+    [deferred] = [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ")]
+    assert "#36501 fork off #36463; Graphite keeps one linear chain per batch, so this pass enqueues #36463 #36487" in deferred
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
@@ -2660,6 +2661,33 @@ def test_the_prs_a_root_go_names_enqueue_before_any_status_read_of_the_rest_of_t
     assert all(shell.calls.index(call) > last for call in checks(shell) if call[1] in rest)
     assert all(shell.calls.index(call) > last for call in graphql_reads(shell) if any(head in call[4] for head in rest.values()))
     assert {call[1] for call in checks(shell)} == set(heads)
+
+
+def test_a_forked_stack_of_five_with_go_on_all_enqueues_one_chain_per_batch(shell, config, tmp_path):
+    merge_mode(config, "every")
+    heads = {"31001": "aaaa111111", "31002": "bbbb222222", "31003": "cccc333333", "31004": "dddd444444", "31005": "eeee555555"}
+    bases = {"31001": "dev", "31002": "f/1", "31003": "f/2", "31004": "f/2", "31005": "f/4"}
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"f/{pr[-1]}", "base": bases[pr], "head": head, "state": "open", "reported_head": head, "landed_sha": f"f00d00{pr}"} for pr, head in heads.items()]
+    green = {pr: f"#{pr} GREEN {head} graphite READY" for pr, head in heads.items()}
+    queued = {pr: f"#{pr} QUEUED {heads[pr]} graphite QUEUED_TO_MERGE" for pr in ("31001", "31002", "31003")}
+    shell.gates["31003"] = [gate(*green.values()), gate(green["31001"], green["31002"], green["31003"], would="#31001 #31002 #31003")]
+    shell.gates["31003 31005"] = [gate(*green.values(), would="#31001 #31002 #31003 #31004 #31005"), gate(*queued.values(), green["31004"], green["31005"], would="#31004 #31005")]
+    shell.enqueue_out["31003"] = (0, "enqueue #31001 #31002 #31003: {}\n")
+    for pr, head in heads.items():
+        grade(shell, pr, f"ok F307 at {head[:7]}.")
+        merge_go(shell, pr, f"merge #{pr} at {head[:7]}")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["31003", "--partial"]]
+    [deferred] = [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ")]
+    assert "#31004 #31005 fork off #31002; Graphite keeps one linear chain per batch, so this pass enqueues #31001 #31002 #31003 and the others enqueue once #31002 lands" in deferred
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ") and "#31004 #31005 fork off #31002, which has not landed" in line]
+    shell.rows = [dict(row, state="landed") if row["pr"] in queued else dict(row, base="dev") if row["pr"] == "31004" else row for row in shell.rows]
+    shell.gates["31005"] = [gate(green["31004"], green["31005"], would="#31004 #31005")]
+    shell.enqueue_out["31005"] = (0, "enqueue #31004 #31005: {}\n")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["31003", "--partial"], ["31005", "--partial"]]
 
 
 def ruling_card(cards: Path, key: str, title: str) -> Path:
