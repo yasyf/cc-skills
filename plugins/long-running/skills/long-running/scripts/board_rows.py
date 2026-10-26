@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""The merge-row gate: every merge-triage row the owner sees names its PR's current head, carries what he needs to decide, in words written after that head, and keeps his verdict.
+"""The merge-row gate: every merge row the owner sees names its PR's current head, carries what he needs to decide, in words written after that head, and keeps his verdict.
 
     board_rows.py --config RUNNER_JSON --check [--json] [--session ID] [--finders DIR] BLOCK_JSON
     board_rows.py --config RUNNER_JSON [--json] [--session ID] [--finders DIR] BLOCK_JSON -- cc-present update-block|push [ARGS...]
 
 STDLIB ONLY. `--config` is the landing runner's config, which names the drive, `landing.repo`, and
 `landing.fidelity_lane`. A row is a triage item whose id is `merge-row-<pr>[-<sha7>]`, anywhere in
-the block; its head is the `commit <sha>` its hint names, and its `textAt` is the RFC 3339 time
-the writer last wrote its words. Each row fails, with one line `<row-id> <pr> <head> <reasons>`, when:
+the block, its head the `commit <sha>` its hint names; or a `pr-groups` row, its id its PR number
+and its head its `head`. Its `textAt` is the RFC 3339 time the writer last wrote its words. Each row
+fails, with one line `<row-id> <pr> <head> <reasons>`, when:
 
     stale     its head is not the PR's head on GitHub; the reason names the new head
     old text  its `textAt` is missing or not newer than its head's commit time
     not open  the PR is closed or merged on GitHub, or a root go, decide or decision record says it
               is superseded or closed, naming that record's seq, and no later root go names it at
               its head
-    missing   its label has no words after `#<pr>:`, or a fact in `FIELDS` is absent or empty:
-              what it changes for users, how it differs from the plan, its risk, the finder's
-              verdict, CI, and what gates its landing
-    moved     the board's outcomes record a verdict on its id under another triage block, and none
+    missing   a triage row's label has no words after `#<pr>:`, or a fact in `FIELDS` is absent or
+              empty: what it changes for users, how it differs from the plan, its risk, the
+              finder's verdict, CI, and what gates its landing; a `pr-groups` row's field in
+              `PR_FIELDS` is absent or empty, `review` carrying the finder and CI
+    moved     the board's outcomes record a verdict on its id under another block, and none
               under this one
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
-              none on this id, and no root record that re-keys names this id or its head
+              none on this id, and no root record that re-keys names this id or its head; a
+              `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
 
 A row with no fidelity grade or no finder review at its head gets a `WARN` line and fails
 nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
@@ -63,6 +66,8 @@ SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
+PR_FIELDS = ("change", "plan", "risk", "review", "blocker")
+PR_GROUPS = "pr-groups"
 TEXT_AT = "textAt"
 PRS_PER_QUERY = 40
 SENTENCE_WORDS = 5
@@ -112,6 +117,7 @@ class Row:
     label: str
     sentence: str
     facts: dict[str, str]
+    required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -134,9 +140,20 @@ def triage_items(node: object) -> Iterator[tuple[str, dict]]:
             yield from triage_items(value)
 
 
-def first_sentence(item: dict) -> str:
-    sentences = [part.strip() for part in SENTENCE.split(item.get("md", "").strip())]
-    return next((part for part in sentences if len(WORD.findall(part.lower())) >= SENTENCE_WORDS), LABEL_NUMBER.sub("", item.get("label", "")))
+def pr_group_rows(node: object) -> Iterator[tuple[str, dict]]:
+    if isinstance(node, dict):
+        if node.get("type") == PR_GROUPS:
+            yield from ((node["id"], pr) for group in node.get("groups", []) for pr in group.get("prs", []))
+        for value in node.values():
+            yield from pr_group_rows(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from pr_group_rows(value)
+
+
+def first_sentence(md: str, fallback: str) -> str:
+    sentences = [part.strip() for part in SENTENCE.split(md.strip())]
+    return next((part for part in sentences if len(WORD.findall(part.lower())) >= SENTENCE_WORDS), fallback)
 
 
 def rows_of(block: dict) -> list[Row]:
@@ -146,13 +163,23 @@ def rows_of(block: dict) -> list[Row]:
             continue
         head = ROW_HEAD.search(item.get("hint", ""))
         facts = {fact["label"]: str(fact.get("value", "")).strip() for fact in item.get("facts", [])}
-        rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), item.get("label", ""), first_sentence(item), facts))
+        label = item.get("label", "")
+        rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts))
+    for block_id, pr in pr_group_rows(block):
+        facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, PR_FIELDS))
     return rows
 
 
 def missing_fields(row: Row) -> list[str]:
-    absent = [] if LABEL_NUMBER.sub("", row.label).strip() else ["label"]
-    return absent + [name for name in FIELDS if not row.facts.get(name)]
+    absent = [] if row.required == PR_FIELDS or LABEL_NUMBER.sub("", row.label).strip() else ["label"]
+    return absent + [name for name in row.required if not row.facts.get(name)]
+
+
+def pr_of(row_id: str) -> str | None:
+    if row_id.isdigit():
+        return row_id
+    return named["pr"] if (named := ROW_ID.match(row_id)) else None
 
 
 def pulls_query(repo: str, prs: list[str]) -> str:
@@ -216,11 +243,12 @@ def closing_ruling(rulings: list[dict], pr: str, head: str) -> dict | None:
 
 def rekeyed(rulings: list[dict], row: Row) -> dict | None:
     """The newest root record that re-keys a row and names `row`'s id, or its PR with its head or id's short sha."""
-    keyed = ROW_ID.match(row.id)["sha"] or ""
+    named = ROW_ID.match(row.id)
+    keyed = (named["sha"] or "") if named else ""
     shas = [sha for sha in (row.head, keyed) if sha]
 
     def names(text: str) -> bool:
-        if row.id in text:
+        if named and row.id in text:
             return True
         if not re.search(rf"#{row.pr}\b|\bmerge-row-{row.pr}\b", text):
             return False
@@ -236,7 +264,7 @@ def outcomes_args(session: str | None, command: list[str]) -> list[str]:
 
 
 def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, str]]:
-    """Each triage block's recorded verdicts, a row id to its verdict, from the board's outcomes."""
+    """Each triage or pr-groups block's recorded verdicts, a row id or PR number to its verdict, from the board's outcomes."""
     done = shell.run(argv)
     start = done.out.find("{")
     if done.code != 0 or start < 0:
@@ -259,7 +287,7 @@ def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], ruling
         if elsewhere := sorted(block for block, row_id in decided if row_id == row.id):
             reasons.setdefault(row.id, []).append(f"moved: decided under block {', '.join(elsewhere)}, pushed under {row.block}")
             continue
-        dropped = sorted({row_id for _, row_id in decided if row_id != row.id and row_id not in pushed and (named := ROW_ID.match(row_id)) and named["pr"] == row.pr})
+        dropped = sorted({row_id for _, row_id in decided if row_id != row.id and row_id not in pushed and pr_of(row_id) == row.pr})
         if dropped and rulings is not None and not rekeyed(rulings, row):
             reasons.setdefault(row.id, []).append(f"renamed: decided as {', '.join(dropped)}, and no root re-key record names {row.id}")
     return reasons
@@ -318,7 +346,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if missing := missing_fields(row):
             row.reasons.append(f"missing: {', '.join(missing)}")
         if not row.head:
-            row.reasons.append("stale: the hint names no `commit <sha>`")
+            row.reasons.append("stale: the row names no head" if row.required == PR_FIELDS else "stale: the hint names no `commit <sha>`")
     named = [row for row in rows if row.head]
     pulls = read_pulls(shell, repo, sorted({row.pr for row in named}, key=int), warnings)
     try:
