@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.util
 import re
-import sys
 from pathlib import Path
 
+import grades
 import pytest
 
 SKILL = Path(__file__).resolve().parents[1] / "skills/long-running"
 FIXTURES = SKILL / "reference/fidelity-fixtures"
-SCRIPT = SKILL / "scripts/desk-runner.py"
-if "desk_runner" not in sys.modules:
-    spec = importlib.util.spec_from_file_location("desk_runner", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["desk_runner"] = module
-    spec.loader.exec_module(module)
-runner_module = sys.modules["desk_runner"]
 
 HEAD = "3f3acff97aa11bb22cc33dd44ee55ff667788990"
 OTHER_HEAD = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
@@ -38,11 +30,11 @@ def test_the_desk_brief_head_grades_are_the_lines_the_landing_runner_reads_for_t
     assert ok == "fidelity: ok <head7> checked <key>,<key>... names <name>|<name>..."
     for line in (missing, ok):
         record = {"seq": 7, "text": filled(line, HEAD)}
-        assert record["text"].startswith(runner_module.FIDELITY_GRADES)
-        assert runner_module.newest_naming([record], HEAD) == record
-        assert runner_module.newest_naming([record], OTHER_HEAD) is None
-    assert filled(ok, HEAD).startswith(runner_module.FIDELITY_OK)
-    assert not filled(missing, HEAD).startswith(runner_module.FIDELITY_OK)
+        assert record["text"].startswith(grades.FIDELITY_GRADES)
+        assert grades.newest_naming([record], HEAD) == record
+        assert grades.newest_naming([record], OTHER_HEAD) is None
+    assert filled(ok, HEAD).startswith(grades.FIDELITY_OK)
+    assert not filled(missing, HEAD).startswith(grades.FIDELITY_OK)
 
 
 def test_the_desk_brief_reads_callers_at_the_head_and_carries_a_restack_grade_past_register_growth():

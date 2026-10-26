@@ -466,6 +466,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews, gone_at, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -503,15 +504,6 @@ BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
-FIDELITY_OK = "fidelity: ok"
-FIDELITY_MISSING = "fidelity: missing"
-FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
-FINDER_PASS = "ok"
-FINDER_FAIL = "major"
-FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
-FINDER_SAYS = re.compile(r"\bfinder: (ok|major)\b", re.IGNORECASE)
-FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
-FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
@@ -530,7 +522,6 @@ DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
 FLAKE_RETRY = "flake"
-SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
 RELAYED_PR = re.compile(r"^(?:blocker|restack):(\d+):")
 RED_BY_DESIGN = re.compile(r"^\W*red by design\b", re.IGNORECASE)
@@ -3696,32 +3687,6 @@ def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
     return covered
 
 
-def names_head(named: str, sha: str) -> bool:
-    return bool(sha) and (sha.startswith(named) or named.startswith(sha))
-
-
-def graded_head(text: str) -> str:
-    """The head a grade or finder line names: its first short sha, so no register key it lists after the head reads as one."""
-    found = SHORT_SHA.search(text)
-    return found[0] if found else ""
-
-
-def finder_grade(text: str) -> str:
-    if said := FINDER_SAYS.search(text):
-        return said[1].lower()
-    if FINDER_MAJOR.search(text):
-        return FINDER_FAIL
-    return FINDER_PASS if FINDER_CLEAN.search(text) else ""
-
-
-def newest_finder(records: list[dict], sha: str) -> dict | None:
-    return max((record for record in records if names_head(record["head"], sha)), key=lambda record: record["seq"], default=None)
-
-
-def newest_naming(grades: list[dict], sha: str) -> dict | None:
-    return max((record for record in grades if (head := graded_head(record["text"])) and names_head(head, sha)), key=lambda record: record["seq"], default=None)
-
-
 def cause(line: str) -> str:
     return line.split(" ", 1)[0]
 
@@ -3732,25 +3697,10 @@ def reserved_row(line: str) -> tuple[str, str]:
     return key.strip(), sentence.strip()
 
 
-def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
-    """Each PR `record` names that may be in `repo`, with whether its ref says so: `owner/repo#N` refs to `repo`, and bare numbers, which name no repo."""
-    named = []
-    for ref in record.get("refs", {}).get("prs", []):
-        if isinstance(ref, int):
-            named.append((str(ref), False))
-        elif (where := str(ref).rpartition("#"))[0].lower() == repo.lower():
-            named.append((where[2], True))
-    return named
-
-
 def red_contract(records: list[dict], pr: str) -> bool:
     """Whether the newest `contract` record whose `--pr` refs name `pr` names its failing run as expected."""
     named = [record for record in records if record["kind"] == "contract" and pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])}]
     return bool(named) and RED_CONTRACT.search(max(named, key=lambda record: record["seq"])["text"]) is not None
-
-
-def names_pr(record: dict, pr: str) -> bool:
-    return pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])} or re.search(rf"#{pr}\b", record["text"]) is not None
 
 
 def pr_name(pr: int | str) -> str:
@@ -3780,11 +3730,6 @@ def unlanded_fork(prefix: list[str], open_rows: dict[str, dict]) -> str:
         if parent and parent not in prefix and sum(row.get("base") == open_rows[parent]["branch"] for row in open_rows.values()) > 1:
             return parent
     return ""
-
-
-def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
-    """The root `go` records of `gos` that name `pr` and its `head` by a short sha."""
-    return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
 
 
 def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> bool:
@@ -4242,14 +4187,10 @@ class Landing:
         return " or ".join(self.fidelity_lanes)
 
     def grades(self, pr: str) -> list[dict]:
-        """Every grade a fidelity lane posted about `pr`, read by its `owner/repo#N` reference, which cci also matches to a post that named the bare number."""
-        drive, lanes = self.runner.config.drive, self.fidelity_lanes
-        reviews = [record for lane in lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane, "--pr", f"{self.repo}#{pr}")]
-        return [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in lanes and record["text"].startswith(FIDELITY_GRADES) and pr in dict(repo_prs(record, self.repo))]
+        return fidelity_grades(self.runner.cci_tail, self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
 
     def standing(self, grades: list[dict], sha: str) -> list[dict]:
-        """Each fidelity lane's newest grade naming `sha`."""
-        return [grade for lane in self.fidelity_lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
+        return standing(grades, self.fidelity_lanes, sha)
 
     def fidelity(self, pr: str, sha: str) -> Grade:
         """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts; an ok counts as posted (4236611). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""
@@ -4498,19 +4439,10 @@ class Landing:
         return {}
 
     def finder_reviews(self, pr: str) -> list[dict]:
-        drive = self.runner.config.drive
-        records = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=head", "--pr", f"{self.repo}#{pr}") if record["drive"] == drive and pr in dict(repo_prs(record, self.repo))]
-        heads = [record for record in records if record["kind"] == "head"]
-        reviews = []
-        for record in records:
-            if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(FIDELITY_GRADES):
-                continue
-            posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
-            reviews.append(record | {"grade": finder_grade(record["text"]), "head": graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")})
-        return reviews
+        return finder_reviews(self.runner.cci_tail, self.runner.config.drive, self.repo, pr)
 
     def finder_records(self, pr: str) -> list[dict]:
-        return [record for record in self.finder_reviews(pr) if record["grade"] and record["head"]]
+        return finder_records(self.finder_reviews(pr))
 
     def finder(self, pr: str, sha: str) -> dict | None:
         """The newest finder review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
