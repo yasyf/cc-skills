@@ -713,6 +713,38 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert not list((state / "register").glob("repeat-*.json"))
 
 
+def test_a_repeat_folds_onto_an_order_row_whose_own_names_and_repeat_words_it_carries(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    fidelity_desks(state)
+    words = "how many times: use your judgement and act like a frontier model, not a literal machine"
+    captured(state, capture("7", words))
+    register = seeded(package) | {
+        "rule/fffffff": {
+            "kind": "order",
+            "status": "in-force",
+            "global": "yes",
+            "words": "Use your judgement, act like a frontier model.",
+            "answer": '["fffffff"]',
+            "at": "Oct 23 9:00 AM PT",
+            "said": "1",
+            "names": '["frontier model", "literal machine"]',
+            "steps": '["all"]',
+            "lanes": '["all"]',
+            "paths": "none",
+        }
+    }
+    shell = RegisterShell(register, records=LIVE)
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "7" * 16, "extends": "rule/fffffff", "words": words})
+
+    assert code == 0, out
+    row = shell.rows["rule/fffffff"]
+    assert row["kind"] == "order"
+    assert row["said"] == "2"
+    assert [(repeat["words"], repeat["repeat"]) for repeat in json.loads(row["repeats"])] == [(words, True)]
+
+
 def test_an_extension_without_repeat_words_is_no_repeat_and_posts_no_sweep(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:

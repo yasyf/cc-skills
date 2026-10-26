@@ -932,8 +932,11 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
     markers = repeat_markers(loaded, words)
     supersedes = entry.get("supersedes")
     repeated = [key for key in named_rows(loaded, words) if kind != "pick" and key != supersedes]
-    if kind == "order" and (markers or PLACEMENT.search(words) or named_rows(loaded, words)):
-        because = ", ".join(markers) or (f"a placement rule ({match.group(0)})" if (match := PLACEMENT.search(words)) else f"names of {', '.join(named_rows(loaded, words))}")
+    placement = PLACEMENT.search(words)
+    unfolded = [] if extends else markers
+    named_keys = [] if extends else named_rows(loaded, words)
+    if kind == "order" and (unfolded or placement or named_keys):
+        because = ", ".join(unfolded) or (f"a placement rule ({placement.group(0)})" if placement else f"names of {', '.join(named_keys)}")
         found.append(f"ORDER-IS-SCOPE {item}: the words carry {because}; a repeat extends its row and a placement is a scope row")
     if extends and extends not in loaded.rulings():
         found.append(f"EXTENDS {item}: {extends} is no in-force row")
