@@ -189,6 +189,22 @@ def test_a_drive_worker_resolves_its_program_from_the_registry(
     assert shell.queries == [("brief", str(state / "rulings"))]
 
 
+def test_a_registry_entry_without_a_program_resolves_it_from_its_state_dir(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    state = home / "state" / "brook"
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "state_dir": str(state)}))
+    shell = FakeShell(["1984bf6"], [])
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
+    assert rulings.main(["match", "--drive", "d1", "--repo", REPO], shell) == 0
+
+    assert capsys.readouterr().out.startswith("- 1984bf6 ")
+    assert shell.queries == [("brief", str(state / "rulings"))]
+
+
 def test_match_reads_only_the_drives_program_and_branch_answers(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
