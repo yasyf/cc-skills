@@ -102,6 +102,7 @@ class FakeShell(runner_module.Shell):
         self.files_error = ""
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
         self.quota_error = ""
+        self.status_error = ""
         self.pr_labels: dict[str, list[str]] = {}
         self.head_refs: dict[str, str] = {}
         self.pr_label_error = ""
@@ -267,6 +268,8 @@ class FakeShell(runner_module.Shell):
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
+            if self.status_error:
+                return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[7:]]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
@@ -2791,6 +2794,18 @@ def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell
     reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
     assert [call[7:] for call in reads] == [["29020", "29100"]]
     assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
+
+
+def test_a_status_read_that_fails_is_one_visible_escalation_per_cause_and_hour(shell, config, tmp_path):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.status_error = "ccx vcs pr status -R Forge-AI/monorepo --json 29020 timed out after 300s and was killed"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("STATUS-READ-FAILED")] == [
+        f"STATUS-READ-FAILED pr-status:{shell.now():%Y%m%d%H}:{hashlib.sha1(shell.status_error.encode()).hexdigest()[:8]} landing: `ccx vcs pr status` over 1 open rows failed: {shell.status_error};"
+        " this pass requeues nothing, settles no landing from the queue, and routes no PR without a go, and the next pass reads again"
+    ]
 
 
 def ruling_card(cards: Path, key: str, title: str) -> Path:
