@@ -275,7 +275,8 @@ desk reads once per PR and head with `gh pr view --json labels,headRefName` for 
 under its head branch, so the next pass gates it as ours. A row `ledger.py unadmit` withdrew is never admitted again
 except by an explicit `ledger.py register`. It logs one `NOT-OURS` escalation per head of an open stack-top PR it skips
 for that reason. Every PR an open cci `hold` record
-names is held until a `lift --resolves <seq>` closes that record. A `hold:all <reason>` line in
+names is held until a `lift --resolves <seq>` closes that record. No check or enqueue call names a held PR or a PR stacked above one: the gate names
+the tips below it, and a prefix a check would sweep it into is cut below it, with one `HELD-OUT` line to root naming the hold. A `hold:all <reason>` line in
 the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
 `<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
 parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
@@ -3999,23 +4000,25 @@ class Landing:
         for pr, row in open_rows.items():
             if not row.get("ours") and pr not in admitted and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: {NOT_ADMITTED}, so the desk never gates or enqueues it; {ADMIT_HOW.format(pr=pr)}")
-        self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows) if not holds_any(open_rows, tree, gone)])
+        self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows, held) if not holds_any(open_rows, tree, gone)])
 
     def land_gone(self, rows: dict[str, dict], held: list[str]) -> set[str]:
         """Gate and enqueue each tree holding a PR the root's `go` names at its ledger head, one tree at a time, before the pass reads anything ledger-wide: only those PRs can land, so they reach the queue first. Returns those PRs."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         gos = self.root_gos()
         gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
-        for tree in self.stack_trees(rows):
+        for tree in self.stack_trees(rows, held):
             if holds_any(open_rows, tree, gone):
                 self.gate_trees(rows, held, [tree])
                 self.enqueue()
         return gone
 
-    def stack_trees(self, rows: dict[str, dict]) -> list[list[str]]:
-        """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, leaving out every tip at or above an incident fix."""
+    def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
+        """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
+        covered = under_hold(open_rows, held)
+        free = {pr: row for pr, row in rows.items() if pr not in covered}
+        trees = [[tip] for tree in self.trees(free) for tip in tree] if self.whole() else self.trees(free)
         waiting = under_hold(open_rows, self.incident_rows(open_rows))
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
@@ -4032,7 +4035,7 @@ class Landing:
                 self.gate_failed(tips, done)
                 continue
             if done.would is not None:
-                self.accept(tips, done.would, verdicts, rows)
+                self.accept(tips, done.would, verdicts, rows, held)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
@@ -4341,7 +4344,7 @@ class Landing:
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
             self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded)}; {why}", pr)
 
-    def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
+    def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
@@ -4350,6 +4353,13 @@ class Landing:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        if out := [pr for pr in prefix if downstack(open_rows, pr) & set(held)]:
+            prefix = [pr for pr in prefix if pr not in out]
+            named = numbered([pr for pr in out if pr in held])
+            left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
+            self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {named}, so {numbered(out)} stay out of the batch and {left}")
+        if not prefix:
+            return
         if fork := unlanded_fork(prefix, open_rows):
             self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
             return

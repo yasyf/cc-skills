@@ -1790,18 +1790,32 @@ def test_a_pr_its_lane_contracted_as_red_by_design_gets_no_failing_required_bloc
     assert blockers(shell) == [] and not [call for call in shell.sends() if "FAILING_REQUIRED" in call[call.index("--body") + 1]]
 
 
-def test_a_held_prefix_is_never_routed_and_stack_enqueue_gets_no_hold_flag(shell, config, tmp_path):
+def test_a_held_pr_is_never_named_in_a_stack_enqueue_call_or_routed(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\nlane:d4 ships whole\n")
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
         {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
     ]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
-    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 changes requested by poetic-svc on dddd444444; held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) and all("--hold" not in call for call in stack_enqueue_calls(shell))
+    assert stack_enqueue_calls(shell) == []
     assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is_named(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\n")
+    shell.rows = stack_rows()
+    shell.gates["29016"] = [
+        gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020"),
+        gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016"),
+    ]
+    shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29016", "--partial"]]
+    assert not [call for call in stack_enqueue_calls(shell) if "29020" in call]
+    [line] = [line for line in escalations(shell) if line.startswith("HELD-OUT ")]
+    assert line.endswith("#29016: a hold covers #29020, so #29020 stay out of the batch and the enqueue names only #28997 #29016, with `--partial`")
 
 
 def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
@@ -1880,7 +1894,7 @@ def test_a_fork_enqueues_its_first_chain_and_names_the_other_green_tip_deferred(
         "#36520 BLOCKED eeee555555 graphite FAILING_REQUIRED",
     )
     shell.gates["36487"] = [gate(*verdicts), gate(*verdicts[:2], would="#36463 #36487")]
-    shell.gates["36487 36501 36510 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
+    shell.gates["36487 36501 36520"] = [gate(*verdicts, would="#36463 #36487 #36501")]
     shell.gates["36600"] = [gate("#36600 BLOCKED ffff666666 not approved by poetic-svc")]
     shell.combined_statuses["eeee555555"] = [{"context": "buildkite/test", "state": "failure"}]
     grade_gated_heads_ok(shell)
@@ -1889,7 +1903,7 @@ def test_a_fork_enqueues_its_first_chain_and_names_the_other_green_tip_deferred(
     shell.gates["36487"] = [gate(*verdicts)]
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
-    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36600",)}
+    assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36520"), ("36600",)}
     assert [call[1:] for call in shell.enqueues()] == [["36487", "--partial"]]
     [deferred] = [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ")]
     assert "#36501 fork off #36463; Graphite keeps one linear chain per batch, so this pass enqueues #36463 #36487" in deferred
@@ -2419,7 +2433,7 @@ def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_ma
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
     with store.owned("desk-landing", 0) as live:
         live.start(key, shell.now())
@@ -3283,7 +3297,7 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     seq = grade(shell, "29020", "missing F307 at cccc333.")
     landing.enqueue()
     assert shell.enqueues() == []
@@ -3570,7 +3584,7 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
     with store.owned("desk-landing", 0) as live:
         live.start(key, shell.now())
@@ -4721,7 +4735,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     shell.gates["28997"] = [gate("#28997 GREEN abab111111 graphite READY", would="#28997")]
     landing.enqueue()
     assert shell.enqueues() == []
