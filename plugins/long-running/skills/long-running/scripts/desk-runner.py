@@ -553,6 +553,7 @@ RELEASE_BUILDS = "release-builds"
 FREEZES = "freezes"
 FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
+CONFLICT_BLOCKER = "GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"
 REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
 BUILD_NUMBER = re.compile(r"/builds/\d+")
 FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
@@ -3743,7 +3744,7 @@ def status_blocker(entry: dict) -> str:
     causes = entry["verdict"].removeprefix("blocked:").split(",")
     said = []
     if "conflict" in causes:
-        said.append("GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree")
+        said.append(CONFLICT_BLOCKER)
     if "ci-red" in causes:
         said.append(f"CI is red: {', '.join(entry['ci']['failing'])}")
     if "changes-requested" in causes:
@@ -5438,7 +5439,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: a conflict, red CI or requested changes goes to its lane as that head's blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM)."""
+        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM)."""
         if not self.no_go or (statuses := self.pr_statuses()) is None:
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -5450,7 +5451,8 @@ class Landing:
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
             if why := status_blocker(entry):
-                self.route(f"blocker:{pr}:{head}", self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
+                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else f"blocker:{pr}:{head}"
+                self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)
