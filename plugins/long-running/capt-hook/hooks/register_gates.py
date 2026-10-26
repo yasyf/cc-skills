@@ -25,7 +25,7 @@ from captain_hook import (
 )
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, CompactionState, ccn, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, REGISTER_FENCE, ROOT_LANE, CompactionState, bus_name, ccn, drive_entry, post_blocker, rulings, script
 from .incident_lane_pr import FIX_LANE, INCIDENT_LANE
 from .lane_landing import GH_REPO_FLAGS, lane_name, program
 from .lane_rotation import DriveActive
@@ -74,6 +74,7 @@ UNCLASSIFIED = (
     'Owner capture {digest} ({at}) has no row in register {program}: "{excerpt}". '
     "Classify it with `rulings.py classify` before the next key moment."
 )
+REGISTER_LANE_GONE = " The register lane `{lane}` is not running, so this blocker goes to the root."
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 UNQUOTED = (
     "An owner question is open and this reply or brief touches it without quoting it. Quote its words, sentence and rows below,"
@@ -165,6 +166,25 @@ def register_lane(evt: BaseHookEvent) -> str | None:
     return entry.get("register_lane") if entry else None
 
 
+def lane_live(evt: BaseHookEvent, lane: str) -> bool:
+    if not (entry := drive_entry(evt)):
+        return False
+    argv = ["cci", "who", "--drive", bus_name(entry), "--lane", lane, "--json"]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0 and bool(done.stdout.strip())
+
+
+def unclassified_route(evt: BaseHookEvent) -> tuple[str, str]:
+    if not (lane := register_lane(evt)):
+        return ROOT_LANE, ""
+    if lane_live(evt, lane):
+        return lane, ""
+    return ROOT_LANE, REGISTER_LANE_GONE.format(lane=lane)
+
+
 def failed_open(evt: BaseHookEvent, hook: str, error: Exception) -> None:
     blocker(evt, f"{hook}:read", READ_FAILED.format(hook=hook, cause=cause(error)))
 
@@ -217,12 +237,14 @@ def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     if not prompts.is_file():
         return
     classified = set(register["classified"])
-    to = register_lane(evt) or ROOT_LANE
+    route = None
     for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip()):
-        if capture["digest"] not in classified:
-            excerpt = " ".join(capture["text"].split())[:EXCERPT]
-            text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt)
-            blocker(evt, f"unclassified:{capture['digest']}", text, to)
+        if capture["digest"] in classified or not evt.ctx.s.once(f"unclassified:{capture['digest']}", scope=BLOCKERS):
+            continue
+        to, note = route = route or unclassified_route(evt)
+        excerpt = " ".join(capture["text"].split())[:EXCERPT]
+        text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt)
+        post_blocker(evt, text + note, to=to)
 
 
 def is_answer(evt: BaseHookEvent, token: str) -> bool:
