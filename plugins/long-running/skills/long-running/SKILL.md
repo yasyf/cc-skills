@@ -938,7 +938,7 @@ The root never settles a plan gap by DECIDE. A new column, table, route, field, 
 timer, or metric that neither the plan nor an owner row names goes on the owner's board
 as a card, and the lane that met the gap stops on it. A root `cci post --kind decide`
 that adds a mechanism the plan file does not name, with no owner row id or plan line
-cited in the same sentence, is blocked by `root_decide_gate`. The root also reads what
+cited in the same sentence, draws a warning from `root_decide_gate`. The root also reads what
 each lane reports it did against the plan before relaying it; "a worker did X" is the
 root's to check, not to pass on.
 
