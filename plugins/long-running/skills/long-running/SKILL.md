@@ -1423,7 +1423,11 @@ clears the pulled or labelled mark that otherwise refuses the same head.
 A PR's lane, for every blocker and restack the runner routes, is the poster
 of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, else
 the lane that registered its ledger row; a cci blocker also goes to the root
-when `cci who` lists no live session for that lane.
+when `cci who` lists no live session for that lane. A lane with no live session
+or dispatch and no cci record on the drive in the last 60 minutes is dead: its
+blocker goes to the root alone, opening with `owner lane dead`, and its conflict
+is never parked (root #131190). To hand a PR to a new lane, post a `claim`
+record naming it as that lane.
 
 The runner also requires a fidelity ok at every prefix head. It reads the cci
 `review` records the fidelity lanes posted about each PR with `--pr <owner/repo>#<n>`,
@@ -1743,8 +1747,9 @@ next `go` record naming the PR, and a `flaky-check` drop the queue is still
 retrying is not routed.
 It re-runs the gate immediately before creating the route and suppresses a
 blocker that already cleared. A merge conflict whose lane has no dispatch Orca
-shows active and no session `cci who` lists is parked instead: the root gets one
-`PARKED parked:<pr>` line per PR, and the conflict routes once the lane is back.
+shows active and no session `cci who` lists, but a cci record in the last 60
+minutes, is parked instead: the root gets one `PARKED parked:<pr>` line per PR,
+and the conflict routes once the lane is back.
 
 Orca delivery can follow later; this is not a recheck at
 that later send. Orca lanes receive a relay; other lanes receive

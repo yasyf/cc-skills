@@ -1576,12 +1576,28 @@ def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_
     shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
     shell.records = [
-        {"seq": 34766 + index, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [29020]}, "text": text[0] if text else f"#29020 {kind}", "source": "post"}
+        {"seq": 34766 + index, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [29020]}, "text": text[0] if text else f"#29020 {kind}", "source": "post", "at": actions.stamp(shell.clock)}
         for index, (lane, kind, *text) in enumerate(posted)
     ]
     shell.gone = gone
     landing_pass(shell, config)
     assert [post["to"] for post in shell.posts if post["kind"] == "blocker"] == [to]
+
+
+def post_body(post: dict) -> str:
+    return Path(post["path"]).read_text() if "path" in post else post["text"]
+
+
+@pytest.mark.parametrize(("minutes", "to"), [(59, "p8e-desktop-ship-3,root"), (61, "root")])
+def test_a_blocker_whose_lane_has_no_session_and_no_record_in_an_hour_goes_to_root_alone_as_owner_lane_dead(shell, config, minutes, to):
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=minutes))}]
+    shell.gone = {"p8e-desktop-ship-3"}
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    dead = post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to root; #29020 cccc333333: ")
+    assert (blocker["to"], dead) == (to, to == "root")
 
 
 CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
@@ -1591,11 +1607,16 @@ def parked(shell: FakeShell) -> list[str]:
     return [line for line in escalations(shell) if line.startswith("PARKED")]
 
 
+def posted_lately(shell: FakeShell, lane: str) -> None:
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "note", "to": ["root"], "refs": {}, "text": "still working", "source": "post", "at": actions.stamp(shell.clock)})
+
+
 @pytest.mark.parametrize("dispatch", [None, "completed"], ids=["no-dispatch", "settled-dispatch"])
 def test_a_conflict_for_a_lane_with_no_live_dispatch_or_session_is_parked_once(shell, config, tmp_path, dispatch):
     if dispatch:
         shell.launch(LANE, "ctx_a", status=dispatch)
     shell.gone = {LANE}
+    posted_lately(shell, LANE)
     shell.rows = [ONE_ROW]
     shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
     landing_pass(shell, config)
@@ -1609,6 +1630,7 @@ def test_a_conflict_for_a_lane_with_no_live_dispatch_or_session_is_parked_once(s
 
 def test_a_parked_conflict_routes_once_its_lane_is_back(shell, config, tmp_path):
     shell.gone = {LANE}
+    posted_lately(shell, LANE)
     shell.rows = [ONE_ROW]
     shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
     landing_pass(shell, config)

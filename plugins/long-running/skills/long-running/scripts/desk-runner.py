@@ -265,8 +265,9 @@ failed only in a queue draft holding nothing but its stack, goes back in at the 
 policy, which the adapter comments on the PR, and routes no blocker meanwhile; a second at the same head logs `AWAITS-GO`, and the root's next `go`
 naming the PR puts it back the same way. A retry the adapter refuses logs `FLAKE-RETRY-FAILED`. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane. A conflict blocker for a lane with no dispatch Orca shows active and no session
-`cci who` lists routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
+when `cci who` lists no live session for that lane, and to the root alone, opening with `owner lane dead`, once that lane has no
+live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
+shows active and no session `cci who` lists, but a record in that hour, routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no failing-required-check blocker
@@ -622,6 +623,7 @@ UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "r
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
+DEAD_LANE = timedelta(minutes=60)
 HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
@@ -3857,6 +3859,7 @@ class Landing:
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
         self.sessions: dict[str, bool] = {}
+        self.dead: dict[str, bool] = {}
         self.queues: dict[str, str] | None = None
         self.queues_read = False
         self.designed_red: dict[str, bool] = {}
@@ -4371,7 +4374,7 @@ class Landing:
             why = grade.why
             owner = self.owner(pr, rows[pr])
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
-            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
+            self.post_blocker(key, to, f"{self.dead_note(owner)}#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
@@ -4475,14 +4478,14 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
@@ -4940,7 +4943,7 @@ class Landing:
             refusal = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
             if not self.book.known(LANDING, refusal):
                 owner = self.owner(pr, row)
-                self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), text, pr)
+                self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), self.dead_note(owner) + text, pr)
             return
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
@@ -5367,7 +5370,7 @@ class Landing:
         red = self.red_cause(pr, sha) if failing and not blocker.conflict else ""
         cause = hashlib.sha1(f"{blocker.text}\n{red}".encode()).hexdigest()[:12] if red else ""
         earlier = self.cause_blocker(pr, cause) if cause else None
-        parked = bool(owner and blocker.conflict and not self.lane_live(owner))
+        parked = bool(owner and blocker.conflict and not self.lane_dead(owner) and not self.lane_live(owner))
         if parked and self.book.known(RUNNER, f"escalation:{PARKED}:{pr}"):
             return
         current = self.checked(tips).verdicts.get(pr)
@@ -5377,7 +5380,7 @@ class Landing:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
         elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
-            self.post_record("note", key, to, f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
+            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
         else:
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
 
@@ -5405,8 +5408,25 @@ class Landing:
         return claims[-1]["lane"] if claims else row.get("lane", "")
 
     def reach(self, lane: str) -> list[str]:
-        """Who a blocker for `lane` goes to: the lane, and the root too when `cci who` lists no live session for it."""
-        return [lane] if self.session_live(lane) else [lane, ROOT]
+        """Who a blocker for `lane` goes to: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
+        if self.session_live(lane):
+            return [lane]
+        return [ROOT] if self.lane_dead(lane) else [lane, ROOT]
+
+    def lane_dead(self, lane: str) -> bool:
+        """Whether `lane` has no live dispatch or session and posted nothing on this drive under either of its `lane_aliases` in the last `DEAD_LANE`, read once per lane a pass."""
+        if lane not in self.dead:
+            self.dead[lane] = not self.lane_live(lane) and not self.posted_lately(lane)
+        return self.dead[lane]
+
+    def posted_lately(self, lane: str) -> bool:
+        drive, names = self.runner.config.drive, lane_aliases(lane)
+        posted = cci.records(self.runner.cci_tail, drive, *(arg for name in names for arg in ("--lane", name)), since=actions.stamp(self.runner.now() - DEAD_LANE))
+        return any(record["drive"] == drive and record["lane"] in names for record in posted)
+
+    def dead_note(self, lane: str) -> str:
+        """The words that open a blocker `reach` sends to the root alone because its owner lane is dead."""
+        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to root; " if lane and self.lane_dead(lane) else ""
 
     def session_live(self, lane: str) -> bool:
         """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""
@@ -5441,6 +5461,8 @@ class Landing:
             return
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
+        elif self.lane_dead(lane):
+            self.post_blocker(key, ROOT, self.dead_note(lane) + text, pr, cause)
         elif self.runner.orca.receipt(lane):
             relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
@@ -5510,7 +5532,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported, self.sessions, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}
+        self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}, {}
         self.queues, self.queues_read = None, False
         if self.quota_low():
             return
