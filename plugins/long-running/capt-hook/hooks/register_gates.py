@@ -74,7 +74,13 @@ UNCLASSIFIED = (
     'Owner capture {digest} ({at}) has no row in register {program}: "{excerpt}". '
     "Classify it with `rulings.py classify` before the next key moment."
 )
-REGISTER_LANE_GONE = " The register lane `{lane}` is not running, so this blocker goes to the root."
+UNCLASSIFIED_BATCH = (
+    "{count} owner captures have no row in register {program}: {captures}. "
+    "Classify them with `rulings.py classify` before the next key moment."
+)
+BATCH_ENTRY = '{digest} ({at}) "{excerpt}"'
+BATCH_EXCERPT = 80
+REGISTER_LANE_GONE = " `cci who` does not list the register lane `{lane}`, so this blocker goes to the root: resume the register lane {lane} by SendMessage with {these}."
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 UNQUOTED = (
     "An owner question is open and this reply or brief touches it without quoting it. Quote its words, sentence and rows below,"
@@ -177,12 +183,12 @@ def lane_live(evt: BaseHookEvent, lane: str) -> bool:
     return done.returncode == 0 and bool(done.stdout.strip())
 
 
-def unclassified_route(evt: BaseHookEvent) -> tuple[str, str]:
+def unclassified_route(evt: BaseHookEvent, count: int) -> tuple[str, str]:
     if not (lane := register_lane(evt)):
         return ROOT_LANE, ""
     if lane_live(evt, lane):
         return lane, ""
-    return ROOT_LANE, REGISTER_LANE_GONE.format(lane=lane)
+    return ROOT_LANE, REGISTER_LANE_GONE.format(lane=lane, these="these captures" if count > 1 else "this capture")
 
 
 def failed_open(evt: BaseHookEvent, hook: str, error: Exception) -> None:
@@ -232,19 +238,30 @@ def register_files(register: dict, pattern: str) -> list[tuple[Path, dict]]:
     return [(path, json.loads(path.read_text())) for path in sorted((Path(register["state_dir"]) / "register").glob(pattern))]
 
 
+def excerpt(capture: dict, width: int) -> str:
+    return " ".join(capture["text"].split())[:width]
+
+
 def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     prompts = captures(register)
     if not prompts.is_file():
         return
     classified = set(register["classified"])
-    route = None
-    for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip()):
-        if capture["digest"] in classified or not evt.ctx.s.once(f"unclassified:{capture['digest']}", scope=BLOCKERS):
-            continue
-        to, note = route = route or unclassified_route(evt)
-        excerpt = " ".join(capture["text"].split())[:EXCERPT]
-        text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt)
-        post_blocker(evt, text + note, to=to)
+    fresh = [
+        capture
+        for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip())
+        if capture["digest"] not in classified and evt.ctx.s.once(f"unclassified:{capture['digest']}", scope=BLOCKERS)
+    ]
+    if not fresh:
+        return
+    to, note = unclassified_route(evt, len(fresh))
+    if len(fresh) == 1:
+        [capture] = fresh
+        text = UNCLASSIFIED.format(digest=capture["digest"], at=capture["at"], program=register["program"], excerpt=excerpt(capture, EXCERPT))
+    else:
+        entries = "; ".join(BATCH_ENTRY.format(digest=c["digest"], at=c["at"], excerpt=excerpt(c, BATCH_EXCERPT)) for c in fresh)
+        text = UNCLASSIFIED_BATCH.format(count=len(fresh), program=register["program"], captures=entries)
+    post_blocker(evt, text + note, to=to)
 
 
 def is_answer(evt: BaseHookEvent, token: str) -> bool:
