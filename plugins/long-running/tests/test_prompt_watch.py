@@ -47,6 +47,10 @@ def worker_show(dispatch: str) -> tuple[str, ...]:
     return ("orchestration", "worker-show", "--dispatch", dispatch)
 
 
+def key(terminal: str, text: str, environment: str = "") -> tuple[str, ...]:
+    return ("--terminal", terminal, "--text", text, *(("--environment", environment) if environment else ()))
+
+
 class FakeShell(prompt_watch.Shell):
     def __init__(self):
         self.clock = datetime(2026, 10, 10, 10, 24, tzinfo=timezone.utc)
@@ -59,9 +63,22 @@ class FakeShell(prompt_watch.Shell):
         self.refuse_cards = False
         self.sends: list[list[str]] = []
         self.send_reply = fixture("terminal-send.turn-started")
+        self.keys: list[tuple[str, ...]] = []
+        self.on_keys: dict[tuple[str, ...], dict] = {}
+        self.mail: list[dict] = []
 
     def run(self, argv, env=None):
         self.calls.append(list(argv))
+        if argv[:3] == ["orca", "terminal", "send"] and "--enter" not in argv:
+            assert argv[-1] == "--json", argv
+            self.keys.append(tuple(argv[3:-1]))
+            self.orca |= self.on_keys
+            self.on_keys = {}
+            return prompt_watch.Done(0, json.dumps(fixture("terminal-send.accepted")), "")
+        if argv[:3] == ["orca", "orchestration", "send"]:
+            assert argv[-1] == "--json", argv
+            self.mail.append(dict(zip(argv[3:-1:2], argv[4:-1:2], strict=True)))
+            return prompt_watch.Done(0, json.dumps({"ok": True, "result": {"message": {"id": f"msg_{len(self.mail)}"}}}), "")
         if argv[:3] == ["orca", "terminal", "send"]:
             assert argv[3:5] == ["--terminal", SUPERVISOR] and argv[5] == "--text" and argv[7:] == ["--enter", "--wait-submit", "5", "--json"], argv
             self.sends.append(argv)
@@ -169,7 +186,11 @@ def whole(post: dict) -> str:
 
 
 def notice(name: str, role: str, waits: str, title: str, capture: str, read_it: str, tail: str) -> str:
-    return f"PROMPT {name} ({role}) waits on {waits} ({title}). Screen: {capture}. Read: {read_it}. {tail}"
+    return f"PROMPT {name} ({role}) waits on {waits} ({title}). {tail} Screen: {capture}. Read: {read_it}."
+
+
+def answer_line(target: str, episode: str, by: str = "root") -> str:
+    return f"Answer: prompt_watch.py answer {target} --episode {episode} --by {by} yes|no."
 
 
 def shown(shell: FakeShell, capsys) -> list[str]:
@@ -191,7 +212,13 @@ def test_a_hook_approval_on_the_coordinator_goes_once_to_the_supervisor_and_neve
     assert post["--to"] == "codex-supervisor" and post["--kind"] == "blocker" and post["--lane"] == "prompt-watch" and post["--topic"] == "prompt:coordinator"
     capture = Path(rows[ROOT]["capture"])
     assert whole(post) == notice(
-        "coordinator", "coordinator", "an approval dialog", HOOK_TITLE, str(capture), f"orca terminal read --terminal {ROOT} --screen", "Answer only within what the owner already authorized, else ask the owner."
+        "coordinator",
+        "coordinator",
+        "an approval dialog",
+        HOOK_TITLE,
+        str(capture),
+        f"orca terminal read --terminal {ROOT} --screen",
+        f"Answer only within what the owner already authorized, else ask the owner. {answer_line(f'--terminal {ROOT}', rows[ROOT]['episode'], 'codex-supervisor')}",
     )
     assert rows[ROOT]["detail"] == f"screen saved at {capture}; supervisor is busy"
     assert shell.sends == [] and shell.cards == [] and "wake" not in rows[ROOT]
@@ -457,7 +484,7 @@ def test_a_second_prompt_on_the_same_terminal_is_a_second_card(home, shell):
 
     first, cleared, second = shell.cards
     assert (first["status"], cleared["status"], second["status"]) == ("needs_you", "info", "needs_you") and shell.posts == []
-    assert f"waits on an approval dialog ({HOOK_TITLE}). Screen: " in second["body"] and state()[ROOT]["capture"] in second["body"] and state()[ROOT]["capture"] != earlier
+    assert f"waits on an approval dialog ({HOOK_TITLE}). It froze the coordinator" in second["body"] and state()[ROOT]["capture"] in second["body"] and state()[ROOT]["capture"] != earlier
 
 
 @pytest.mark.parametrize("screen", ["coordinator.question", "coordinator.preview-question"])
@@ -606,13 +633,14 @@ def test_a_workers_dialog_whose_auto_deny_countdown_ticks_is_one_blocker_one_sti
 
     assert shell.kinds("bake") == ["blocker"]
     [blocker] = [post for post in shell.posts if post["--topic"] == "prompt:bake"]
-    assert f"waits on an approval dialog ({HOOK_TITLE}; auto-denies in 1:58). Screen: " in whole(blocker)
+    episode = state()[f"dispatch:{LOCAL}"]["episode"]
+    assert f"waits on an approval dialog ({HOOK_TITLE}; auto-denies in 1:58). {answer_line(f'--dispatch {LOCAL}', episode)} Screen: " in whole(blocker)
 
     poll(shell, 20)
 
     assert shell.kinds("bake") == ["blocker", "report"]
     reminder = [post for post in shell.posts if post["--topic"] == "prompt:bake"][1]
-    assert reminder["--to"] == "root" and whole(reminder).endswith(f"Still open 10m after #{blocker['seq']}; the watch answers nothing.")
+    assert reminder["--to"] == "root" and f"Still open 10m after #{blocker['seq']}. {answer_line(f'--dispatch {LOCAL}', episode)} Screen: " in whole(reminder)
 
     shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.clear")
     poll(shell)
@@ -652,7 +680,13 @@ def test_a_managed_server_worker_sets_no_wait_so_its_screen_is_read_through_its_
     assert rows[f"dispatch:{REMOTE}"]["state"] == "approval"
     assert shell.kinds(REMOTE) == ["blocker"]
     assert whole(shell.to("root")[0]) == notice(
-        REMOTE, "worker", "an approval dialog", "• I need to clear the stale build directory before the bake can rerun.", rows[f"dispatch:{REMOTE}"]["capture"], f"orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}", "The watch answers nothing."
+        REMOTE,
+        "worker",
+        "an approval dialog",
+        "• I need to clear the stale build directory before the bake can rerun.",
+        rows[f"dispatch:{REMOTE}"]["capture"],
+        f"orca terminal read --terminal {REMOTE_TERMINAL} --screen --environment {ENVIRONMENT}",
+        answer_line(f"--dispatch {REMOTE}", rows[f"dispatch:{REMOTE}"]["episode"]),
     )
 
 
@@ -1203,3 +1237,132 @@ def test_start_records_the_coordinators_terminal_and_detaches_one_run(home, shel
     [(argv, kw)] = spawned
     assert argv[1:] == [str(prompt_watch.SCRIPT), "run", "--drive", DRIVE] and kw["start_new_session"] is True
     assert capsys.readouterr().out == f"prompt-watch {DRIVE} pid 4242 log {home / 'scratch' / 'release-v3' / 'prompt-watch' / 'watch.log'}\n"
+
+
+INSTEAD = "Leave the fetch alone and report what you measured so far."
+CODEX = "screen.managed-server.approval"
+
+
+def at_dialog(shell: FakeShell, screen: dict | None = None, closes: bool = True) -> None:
+    shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.waiting")
+    shell.orca[read(LOCAL_TERMINAL)] = screen or fixture("screen.coordinator.approval")
+    shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
+    shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture(CODEX)
+    shell.orca[show(LOCAL_TERMINAL)] = fixture("terminal-show.coordinator.waiting")
+    if closes:
+        shell.on_keys = {read(LOCAL_TERMINAL): fixture("screen.coordinator.answered"), read(REMOTE_TERMINAL, ENVIRONMENT): fixture("screen.managed-server.working")}
+
+
+def answer(shell: FakeShell, *argv: str) -> int:
+    return prompt_watch.main(["answer", *argv], shell)
+
+
+def listed(source: str, run: str | None = None) -> dict:
+    reply = fixture("worker-list")
+    reply["result"]["scope"] = {"run": run, "source": source}
+    return reply
+
+
+def trust_dialog() -> dict:
+    screen = fixture("screen.coordinator.approval")
+    screen["result"]["terminal"]["tail"] = ["─" * 80, " Quick safety check: Is this a project you created or one you trust?", " ❯ No, exit", "   Yes, I trust this folder", " Enter to confirm · Esc to cancel"]
+    return screen
+
+
+def test_yes_types_the_yes_options_number_as_raw_keys_and_the_workers_run_mail_names_who_chose_what(shell, capsys):
+    at_dialog(shell)
+
+    assert answer(shell, "--dispatch", LOCAL, "--by", "root", "yes") == 0
+
+    assert shell.keys == [key(LOCAL_TERMINAL, "1")]
+    chose = f'root chose "1. Yes" for {LOCAL} on {LOCAL_TERMINAL}; the dialog closed'
+    assert shell.mail == [{"--to": f"run:{RUN}", "--dispatch-id": LOCAL, "--type": "status", "--subject": f"root answered yes: {HOOK_TITLE}", "--body": f"{chose}. Dialog: {ASKED}"}]
+    assert capsys.readouterr().out == f"ANSWERED {chose}; recorded in run:{RUN}\n"
+
+
+def test_no_types_no_then_submits_what_to_do_instead_so_orca_takes_prompts_again(shell):
+    at_dialog(shell)
+
+    assert answer(shell, "--dispatch", LOCAL, "--by", "root", "no", "--instead", INSTEAD) == 0
+
+    assert shell.keys == [key(LOCAL_TERMINAL, "2"), key(LOCAL_TERMINAL, INSTEAD), key(LOCAL_TERMINAL, "\r")]
+    assert f'the dialog closed; told it instead: "{INSTEAD}". Dialog: ' in shell.mail[0]["--body"]
+
+
+@pytest.mark.parametrize(("choice", "extra", "typed"), [("yes", (), "1"), ("no", ("--instead", INSTEAD), "3")])
+def test_a_remote_codex_dialog_is_answered_through_its_server_with_its_own_numbering(shell, choice, extra, typed):
+    at_dialog(shell)
+
+    assert answer(shell, "--dispatch", REMOTE, "--by", "root", choice, *extra) == 0
+
+    assert shell.keys[0] == key(REMOTE_TERMINAL, typed, ENVIRONMENT)
+    assert shell.mail[0]["--to"] == f"run:{RUN}" and shell.mail[0]["--dispatch-id"] == REMOTE
+
+
+@pytest.mark.parametrize(
+    ("scope", "dispatch"),
+    [(listed("all"), LOCAL), (listed("bound", RUN), None)],
+    ids=["a worker's terminal names its dispatch", "a coordinator's terminal names its bound Run"],
+)
+def test_a_terminal_handle_finds_the_run_whose_mail_records_the_answer(shell, scope, dispatch):
+    at_dialog(shell)
+    shell.orca[("orchestration", "worker-list", "--include-remote")] = scope
+
+    assert answer(shell, "--terminal", LOCAL_TERMINAL, "--by", "root", "yes") == 0
+
+    assert shell.envs[("orchestration", "worker-list", "--include-remote")] == {prompt_watch.TERMINAL_ENV: LOCAL_TERMINAL}
+    assert shell.mail[0]["--to"] == f"run:{RUN}" and shell.mail[0].get("--dispatch-id") == dispatch
+
+
+@pytest.mark.parametrize(
+    ("screen", "argv", "refusal"),
+    [
+        (fixture("screen.coordinator.answered"), ("yes",), "shows no approval dialog: it reads stale"),
+        (fixture("screen.coordinator.question"), ("yes",), "shows no approval dialog: it reads question"),
+        (fixture("screen.coordinator.approval"), ("--episode", "000000000000", "yes"), "not 000000000000"),
+        (fixture("screen.coordinator.approval"), ("no",), "--instead goes with no and only with no"),
+        (fixture("screen.coordinator.approval"), ("--instead", INSTEAD, "yes"), "--instead goes with no and only with no"),
+        (trust_dialog(), ("yes",), "no numbered option"),
+    ],
+    ids=["no dialog", "a question picker", "another dialog than the record's", "a no that says nothing to do instead", "a yes with text to type", "options without numbers"],
+)
+def test_a_terminal_that_shows_no_answerable_dialog_gets_no_keys_and_no_mail(shell, screen, argv, refusal):
+    at_dialog(shell, screen)
+
+    with pytest.raises(SystemExit, match=refusal):
+        answer(shell, "--dispatch", LOCAL, "--by", "root", *argv)
+
+    assert shell.keys == [] and shell.mail == []
+
+
+def test_a_terminal_in_no_run_and_owned_by_no_worker_gets_no_keys(shell):
+    at_dialog(shell)
+    unlisted = listed("all")
+    unlisted["result"]["workers"] = []
+    shell.orca[("orchestration", "worker-list", "--include-remote")] = unlisted
+
+    with pytest.raises(SystemExit, match="coordinates no Run"):
+        answer(shell, "--terminal", LOCAL_TERMINAL, "--by", "root", "yes")
+
+    assert shell.keys == [] and shell.mail == []
+
+
+def test_a_dialog_still_open_after_the_keys_is_recorded_as_open_and_types_nothing_more(shell):
+    at_dialog(shell, closes=False)
+
+    assert answer(shell, "--dispatch", LOCAL, "--by", "root", "no", "--instead", INSTEAD) == 1
+
+    assert shell.keys == [key(LOCAL_TERMINAL, "2")]
+    assert shell.mail[0]["--body"].startswith(f'root chose "2. No" for {LOCAL} on {LOCAL_TERMINAL}; the dialog was still open 5s later. ')
+
+
+def test_the_command_in_a_workers_blocker_answers_that_dialog(home, shell):
+    workers(home, shell, "waiting")
+    shell.orca[read(LOCAL_TERMINAL)] = fixture("screen.coordinator.approval")
+    poll(shell)
+    command = whole(shell.to("root")[0]).split("Answer: ", 1)[1].split(" yes|no.", 1)[0]
+    at_dialog(shell)
+
+    assert answer(shell, *command.split()[2:], "yes") == 0
+
+    assert shell.keys == [key(LOCAL_TERMINAL, "1")] and shell.mail[0]["--subject"].startswith("root answered yes")

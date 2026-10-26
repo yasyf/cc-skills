@@ -4,6 +4,7 @@
     prompt_watch.py start --drive ID [--root-terminal HANDLE]
     prompt_watch.py run   --drive ID [--once]
     prompt_watch.py show  (--drive ID | --cci-drive NAME) [--json]
+    prompt_watch.py answer (--dispatch ID | --terminal HANDLE [--environment NAME]) --by NAME [--episode KEY] (yes | no --instead TEXT)
 
 STDLIB ONLY. Every 30 seconds `run` reads the drive's registry entry and polls its terminals:
 the coordinator's (`root_terminal`), each standing desk `drive.py desk` registered, and every
@@ -58,6 +59,17 @@ again. The row keeps what the send reached: `turn_started` when Orca saw the tur
 `input_accepted` when it only took the line. A line is never typed twice, and a send Orca
 refuses, by an error or by `accepted: false`, is the owner's card at once.
 
+An approval's record names the `answer` command that settles it. `answer` is run by whoever
+decides, never by the watch: it reads the terminal's screen, refuses unless an approval dialog
+is open there (and is the one `--episode` names, when given), types the number of the dialog's
+first option that reads Yes or Allow, or No or Deny, as raw keys with no Enter, since Orca
+refuses a text-plus-Enter prompt into a dialog with `agent_prompt_blocked`, and reads the
+screen again until that dialog is gone. A denied agent ends its turn and Orca refuses every
+prompt to it until one is typed, so a `no` takes `--instead`, typed and submitted as raw keys
+once the dialog closes. It then posts one `status` message to the Run mailbox
+of the worker, or of the Run bound to the terminal, naming who chose which option for which
+dialog. It refuses before typing when no Run can be found to hold that line.
+
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
 restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock` and writes its own script
 path there, so a second `run` of the same script exits at once. A `run` from another script, as
@@ -79,6 +91,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -135,6 +148,10 @@ LOCK_FILE = "lock"
 SUCCESSOR_FILE = "successor"
 LOG_FILE = "watch.log"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
+OPTION = re.compile(r"^[❯›]?\s*(\d+)\.\s+(.+)$")
+CHOICES = {"yes": re.compile(r"^(?:Yes|Allow)\b"), "no": re.compile(r"^(?:No|Deny)\b")}
+SETTLE_SECONDS = 5
+KEY_GAP_SECONDS = 1
 
 
 @dataclass
@@ -215,6 +232,26 @@ def supervisor_note(row: dict) -> str:
     return f"; supervisor is {row['supervisor_input']}" if "supervisor_input" in row else ""
 
 
+def episode_of(seen: Seen) -> str:
+    return hashlib.sha1(f"{seen.subject.key}|{seen.state}|{seen.asked}".encode()).hexdigest()[:12]
+
+
+def answer_command(seen: Seen, by: str) -> str:
+    subject = seen.subject
+    target = f"--dispatch {subject.dispatch}" if subject.dispatch else f"--terminal {subject.terminal}" + (f" --environment {subject.environment}" if subject.environment else "")
+    return f"prompt_watch.py answer {target} --episode {episode_of(seen)} --by {by} yes|no"
+
+
+def how_to_answer(seen: Seen, by: str) -> str:
+    return f"Answer: {answer_command(seen, by)}." if seen.state == prompt_screen.APPROVAL else "The watch answers nothing."
+
+
+def option(asked: str, choice: str) -> tuple[str, str] | None:
+    """The number and label of the dialog's first numbered option whose label answers `choice`."""
+    numbered = (found.groups() for row in asked.split(" / ") if (found := OPTION.match(row)))
+    return next(((number, label) for number, label in numbered if CHOICES[choice].match(label)), None)
+
+
 def receipt_lane(receipt: Path) -> dict[str, str] | None:
     try:
         document = json.loads(receipt.read_text())
@@ -280,14 +317,14 @@ class Watch:
             found.append(Subject(desk["terminal"], SUPERVISOR if desk.get("supervisor") else DESK, name, desk["terminal"], desk.get("environment") or ""))
         return found + self.workers(entry)
 
-    def observe(self, subject: Subject) -> Seen:
+    def observe(self, subject: Subject, always: bool = False) -> Seen:
         """One terminal's state; a reply Orca shaped in a way this reader does not know makes it unknown and never ends the poll."""
         try:
-            return self.read(subject)
+            return self.read(subject, always)
         except (KeyError, TypeError, AttributeError) as failure:
             return Seen(subject, UNKNOWN, f"unreadable Orca reply ({type(failure).__name__}: {failure})")
 
-    def read(self, subject: Subject) -> Seen:
+    def read(self, subject: Subject, always: bool = False) -> Seen:
         if subject.failure:
             return Seen(subject, *subject.failure)
         if subject.dispatch:
@@ -305,7 +342,7 @@ class Watch:
                 return Seen(subject, *unseen(shown["error"]))
             wait = shown["result"]["terminal"].get("agentWait")
         since = (wait or {}).get("since")
-        if subject.role == WORKER and not subject.environment and not wait:
+        if subject.role == WORKER and not subject.environment and not wait and not always:
             return Seen(subject, CLEAR)
         read = self.orca("terminal", "read", "--terminal", subject.terminal, "--screen", environment=subject.environment)
         if not read.get("ok"):
@@ -394,23 +431,24 @@ class Watch:
     def prompt_text(self, row: dict, seen: Seen, tail: str) -> str:
         subject = seen.subject
         deny = f"; auto-denies in {seen.countdown}" if seen.countdown else ""
-        return f"PROMPT {subject.name} ({subject.role}) waits on {WAITS_ON[seen.state]} ({seen.title}{deny}). Screen: {row['capture']}. Read: {read_command(subject)}. {tail}"
+        return f"PROMPT {subject.name} ({subject.role}) waits on {WAITS_ON[seen.state]} ({seen.title}{deny}). {tail} Screen: {row['capture']}. Read: {read_command(subject)}."
 
     def alert(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
         alerts, subject = row["alerts"], seen.subject
         if subject.role != COORDINATOR:
-            if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(row, seen, "The watch answers nothing."))):
+            if ROOT not in alerts and (seq := self.post(entry, "blocker", ROOT, subject.name, self.prompt_text(row, seen, how_to_answer(seen, ROOT)))):
                 alerts[ROOT], row["told_at"] = seq, stamp(self.shell.now())
             told = parse_stamp(row.setdefault("told_at", stamp(self.shell.now())))
             if ROOT in alerts and "reminded" not in row and self.shell.now() - told >= STILL_OPEN_AFTER:
                 minutes = int(STILL_OPEN_AFTER.total_seconds() // 60)
-                if seq := self.post(entry, "report", ROOT, subject.name, self.prompt_text(row, seen, f"Still open {minutes}m after #{alerts[ROOT]}; the watch answers nothing.")):
+                if seq := self.post(entry, "report", ROOT, subject.name, self.prompt_text(row, seen, f"Still open {minutes}m after #{alerts[ROOT]}. {how_to_answer(seen, ROOT)}")):
                     row["reminded"] = seq
             return
         if OWNER in alerts or seen.state == prompt_screen.QUESTION:
             return
         ready = supervisor is not None and supervisor.state in (CLEAR, STALE)
-        text = self.prompt_text(row, seen, "Answer only within what the owner already authorized, else ask the owner.")
+        by = supervisor.subject.name if supervisor else SUPERVISOR
+        text = self.prompt_text(row, seen, f"Answer only within what the owner already authorized, else ask the owner. {how_to_answer(seen, by)}")
         if SUPERVISOR not in alerts and ready and (seq := self.post(entry, "blocker", supervisor.subject.name, subject.name, text)):
             alerts[SUPERVISOR], row["told_at"] = seq, stamp(self.shell.now())
         if SUPERVISOR not in alerts and ready:
@@ -472,7 +510,7 @@ class Watch:
         if seen.state not in PROMPTS:
             self.close(entry, row)
             return
-        episode = hashlib.sha1(f"{subject.key}|{seen.state}|{seen.asked}".encode()).hexdigest()[:12]
+        episode = episode_of(seen)
         if row.get("episode") != episode:
             self.close(entry, row)
             if row["alerts"]:
@@ -558,6 +596,72 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def run_of(watch: Watch, subject: Subject) -> tuple[str, str] | None:
+    """The Run whose mailbox records an answer and the dispatch it names: the worker's own, else the Run bound to the terminal."""
+    if subject.dispatch:
+        return watch.orca("orchestration", "worker-show", "--dispatch", subject.dispatch)["result"]["dispatch"]["runId"], subject.dispatch
+    cursor: list[str] = []
+    while (listed := watch.orca("orchestration", "worker-list", "--include-remote", *cursor, env={TERMINAL_ENV: subject.terminal})).get("ok"):
+        result = listed["result"]
+        if result["scope"]["source"] == "bound":
+            return result["scope"]["run"], ""
+        if worker := next((worker for worker in result["workers"] if worker["agentTerminalHandle"] == subject.terminal), None):
+            return worker["runId"], worker["dispatchId"]
+        if not result["page"]["hasMore"]:
+            return None
+        cursor = ["--cursor", result["page"]["nextCursor"]]
+    return None
+
+
+def typed(watch: Watch, subject: Subject, *keys: str) -> str:
+    """Type each string as raw keys a second apart, outside Orca's prompt path; Orca's refusal, or '' when it took them all."""
+    for index, text in enumerate(keys):
+        if index:
+            watch.shell.sleep(KEY_GAP_SECONDS)
+        sent = watch.orca("terminal", "send", "--terminal", subject.terminal, "--text", text, environment=subject.environment)
+        if not sent.get("ok") or not sent["result"]["send"].get("accepted"):
+            return json.dumps(sent.get("error") or sent["result"]["send"])
+    return ""
+
+
+def cmd_answer(args: argparse.Namespace, shell: Shell) -> int:
+    if (args.choice == "no") != bool(args.instead):
+        raise SystemExit("--instead goes with no and only with no: a denied agent ends its turn, and Orca refuses every prompt to it until one is typed")
+    watch = Watch(shell, "")
+    asked_of = Subject(f"dispatch:{args.dispatch}", WORKER, args.dispatch, dispatch=args.dispatch) if args.dispatch else Subject(args.terminal, DESK, args.terminal, args.terminal, args.environment or "")
+    seen = watch.observe(asked_of, always=True)
+    subject, episode = seen.subject, episode_of(seen)
+    if seen.state != prompt_screen.APPROVAL:
+        raise SystemExit(f"{subject.name} shows no approval dialog: it reads {seen.state}" + (f" ({seen.detail})" if seen.detail else ""))
+    if args.episode and args.episode != episode:
+        raise SystemExit(f"{subject.name} shows episode {episode}, not {args.episode}: {seen.title}")
+    if not (picked := option(seen.asked, args.choice)):
+        raise SystemExit(f"no numbered option of {subject.name}'s dialog answers {args.choice}: {seen.asked}")
+    if not (found := run_of(watch, subject)):
+        raise SystemExit(f"terminal {subject.terminal} is no worker and coordinates no Run, so no Run's mail could record the answer")
+    run, dispatch = found
+    if refused := typed(watch, subject, picked[0]):
+        raise SystemExit(f"Orca refused the keys for {subject.name}: {refused}")
+    after = seen
+    for _ in range(SETTLE_SECONDS):
+        shell.sleep(1)
+        if (after := watch.observe(subject, always=True)).state != prompt_screen.APPROVAL or episode_of(after) != episode:
+            break
+    cleared = after.state != prompt_screen.APPROVAL or episode_of(after) != episode
+    outcome = "the dialog closed" if cleared else f"the dialog was still open {SETTLE_SECONDS}s later"
+    if cleared and args.instead:
+        refused = typed(watch, subject, args.instead, "\r")
+        outcome += f"; Orca refused the text to do instead: {refused}" if refused else f'; told it instead: "{args.instead}"'
+    chose = f'{args.by} chose "{picked[0]}. {picked[1]}" for {subject.name} on {subject.terminal}'
+    audit = watch.orca(
+        "orchestration", "send", "--to", f"run:{run}", *(["--dispatch-id", dispatch] if dispatch else []),
+        "--type", "status", "--subject", f"{args.by} answered {args.choice}: {seen.title}", "--body", f"{chose}; {outcome}. Dialog: {seen.asked}",
+    )
+    recorded = f"recorded in run:{run}" if audit.get("ok") else f"NOT recorded in run:{run}: {json.dumps(audit.get('error'))}"
+    print(f"ANSWERED {chose}; {outcome}; {recorded}")
+    return 0 if cleared and not refused and audit.get("ok") else 1
+
+
 def free(lock) -> bool:
     """Take a file's exclusive lock without waiting; False while another open file holds it."""
     try:
@@ -635,6 +739,16 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--cci-drive", metavar="NAME")
     show.add_argument("--json", action="store_true")
     show.set_defaults(handler=cmd_show)
+    answer = verbs.add_parser("answer", help="choose Yes or No on the approval dialog open in one terminal, and record who chose it in the Run's mail")
+    target = answer.add_mutually_exclusive_group(required=True)
+    target.add_argument("--dispatch", metavar="ID", help="the worker's dispatch id, ctx_...")
+    target.add_argument("--terminal", metavar="HANDLE")
+    answer.add_argument("--environment", metavar="NAME", help="the paired Orca server holding --terminal")
+    answer.add_argument("--by", required=True, metavar="NAME", help="who decided, as the Run's mail should name them")
+    answer.add_argument("--episode", metavar="KEY", help="the prompt's key from the watch's record; refuse when the dialog on screen is another")
+    answer.add_argument("--instead", metavar="TEXT", help="with no: what the agent should do instead, typed and submitted once the dialog closes")
+    answer.add_argument("choice", choices=sorted(CHOICES))
+    answer.set_defaults(handler=cmd_answer)
     return parser
 
 

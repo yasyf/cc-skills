@@ -3155,7 +3155,9 @@ prompt. Orca rewrites `agentWait.since` every few seconds while one dialog stays
 so it identifies nothing.
 
 - A worker's or desk's prompt is a `blocker` to `root`. The root reads the screen with
-  the command in the record and decides.
+  the command in the record and decides. An approval's record also carries the
+  `prompt_watch.py answer` command that settles it, as [Answering a dialog](#answering-a-dialog)
+  describes.
 - A question dialog on the coordinator's terminal already waits on the owner there, so
   it raises no record, and `show` still lists it. During execution an owner question
   goes on the board and to Slack through `cc-present send`, never that dialog (owner answers 01736af, b4dfb16).
@@ -3194,6 +3196,33 @@ an `unblock` record that resolves each record it raised, and an `info` card unde
 owner's card says the prompt cleared. The watch answers no prompt and types into no
 terminal that waits on one; the supervisor's wake is the only line
 it types. It never stops, restarts, releases, closes, or signals anything.
+
+#### Answering a dialog
+
+Orca refuses `orca terminal send --enter` into an agent that shows an approval dialog,
+with `agent_prompt_blocked`, and its `--retry-request` refuses the same way. Whoever
+decides answers the dialog with the command the record names:
+
+```bash
+prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root yes
+prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root no --instead "<what to do instead>"
+```
+
+`--terminal <handle>`, with `--environment <server>` for a remote one, takes the place of
+`--dispatch` for a desk, the coordinator, or a worker known only by its terminal.
+
+- `answer` reads the live screen and refuses, typing nothing, unless an approval dialog
+  is open there and, given `--episode`, it is the one the record named.
+- It types the number of the first option that reads Yes or Allow, or No or Deny, as raw
+  keys, which Orca does not refuse, then reads the screen again until the dialog closes.
+- A denied agent ends its turn, and Orca keeps refusing prompts to it until one is
+  typed. A `no` therefore requires `--instead`, which `answer` types and submits as raw
+  keys once the dialog closes.
+- It posts one `status` message to the Run mailbox of the worker, or of the Run the
+  terminal coordinates, naming who chose which option for which dialog, and refuses
+  before typing when no Run can hold that line.
+- A dialog whose options carry no numbers, such as a folder trust check, is refused;
+  answer it in the terminal.
 
 `prompt_watch.py show --drive <id>` prints the last poll as a count line, then one line
 per terminal that is not clear. `ledger.py summary` prints the same lines after its
