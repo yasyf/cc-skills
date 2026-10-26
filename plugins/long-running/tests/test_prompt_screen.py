@@ -54,6 +54,7 @@ def screen(*tail: str, **extra: str) -> dict:
     ("terminal", "idle"),
     [
         (screen(*IDLE), True),
+        (screen("⏺ Done.", RULE[:-12] + " ultracode ─", "❯", RULE, "  ⏸ manual mode on"), True),
         (screen("⏺ done", RULE, "❯\xa0", RULE), True),
         (screen("❯ update the plan again", "  ⎿ ok", RULE, "❯", RULE, MODE, "", "new task? /clear to save 448.8k tokens".rjust(WIDTH - 2)), True),
         (screen(RULE, "❯", RULE, "  ⏸ plan mode on (shift+tab to cycle)", "current: 2.1.287 · latest: 2.1.288 ✔ Update installed".rjust(WIDTH - 2)), True),
