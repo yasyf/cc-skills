@@ -117,3 +117,19 @@ def test_a_block_missing_from_the_document_gets_no_stand_in_capture(tmp_path: Pa
 
     assert [(capture["block"], capture["text"]) for capture in captured] == [("gone", "ship it"), ("banner-ok", "rejected")]
     assert "gone is not in the board's document" in capsys.readouterr().out
+
+
+class TriageShell(RecordedShell):
+    def watch(self, session: str):
+        yield '{"blockId":"merge-triage","schemaVersion":1,"type":"triage.decided","verdicts":{"merge-row-101":{"verdict":"approved"}}}\n'
+        yield '{"blockId":"merge-triage","schemaVersion":1,"type":"triage.decided","verdicts":{"merge-row-101":{"verdict":"approved","note":"group these three"},"merge-row-102":{"verdict":"rejected","note":"group these three"}}}\n'
+
+
+def test_each_note_on_a_triage_row_is_captured_with_its_row_and_verdict(tmp_path: Path) -> None:
+    captured = run(tmp_path, TriageShell())
+
+    assert [(capture["block"], capture["row"], capture["verdict"], capture["text"], capture["at"]) for capture in captured] == [
+        ("merge-triage", "merge-row-101", "approved", "group these three", "2026-01-02T03:04:05Z"),
+        ("merge-triage", "merge-row-102", "rejected", "group these three", "2026-01-02T03:04:05Z"),
+    ]
+    assert captured[0]["digest"] == hashlib.sha256(f"{SESSION}\0group these three\0merge-row-101".encode()).hexdigest()[:16]
