@@ -203,7 +203,7 @@ def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
 def entry_of(args: argparse.Namespace) -> dict | None:
     if args.drive:
         return drive.load(drive.drives_dir() / f"{args.drive}.json")
-    return next((entry for entry in drive.drives() if entry.get("program") == args.program), None)
+    return next((entry for entry in drive.drives() if drive.program_of(entry) == args.program), None)
 
 
 def register_repo(args: argparse.Namespace) -> str:
@@ -211,7 +211,7 @@ def register_repo(args: argparse.Namespace) -> str:
 
 
 def program_of(args: argparse.Namespace) -> str:
-    return args.program or drive.load(drive.drives_dir() / f"{args.drive}.json")["program"]
+    return args.program or drive.program_of(drive.load(drive.drives_dir() / f"{args.drive}.json"))
 
 
 def state_dir(args: argparse.Namespace) -> Path:

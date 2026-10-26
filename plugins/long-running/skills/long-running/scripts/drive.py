@@ -167,7 +167,7 @@ def write_atomic(path: Path, payload: dict) -> Path:
 
 
 def program_of(entry: dict) -> str:
-    return Path(entry["state_dir"]).name
+    return entry.get("program") or Path(entry["state_dir"]).name
 
 
 def cci_drive(entry: dict) -> str:
