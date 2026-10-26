@@ -2852,9 +2852,11 @@ loop beside it.
 A resumed root in a new session runs `drive.py start --drive <id> --ledger <id>`
 to join the existing drive. Run `drive.py end` only when the drive is over.
 `--register-lane <lane>` names the lane that classifies owner captures. The register gate
-sends each unclassified capture's blocker to that lane instead of the root, and the lane
-holds the `classify`, `names`, `authorize`, and `supersede` seats. With no lane named,
-the blocker goes to the root.
+posts one blocker per pass listing every unclassified capture, and sends it to that lane
+instead of the root while `cci who` lists the lane. The lane holds the `classify`, `names`,
+`authorize`, and `supersede` seats. With no lane named, the blocker goes to the root. When
+`cci who` does not list the lane, the blocker goes to the root, which resumes the lane by
+`SendMessage` with the listed captures.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")

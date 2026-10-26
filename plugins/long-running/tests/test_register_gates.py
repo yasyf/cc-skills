@@ -100,7 +100,15 @@ def option(call: tuple[str, ...], name: str) -> str:
     [
         ({}, set(), "root", ""),
         ({"register_lane": "register-desk"}, {"register-desk"}, "register-desk", ""),
-        ({"register_lane": "register-desk"}, set(), "root", " The register lane `register-desk` is not running, so this blocker goes to the root."),
+        (
+            {"register_lane": "register-desk"},
+            set(),
+            "root",
+            (
+                " `cci who` does not list the register lane `register-desk`, so this blocker goes to the root:"
+                " resume the register lane register-desk by SendMessage with this capture."
+            ),
+        ),
     ],
 )
 def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_lane_else_the_root(root, configured, live, to, note):
@@ -122,6 +130,52 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_l
     assert option(blocker, "--to") == to
     assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
     assert option(blocker, "--text").endswith(f"before the next key moment.{note}")
+
+
+@pytest.mark.parametrize(
+    ("live", "to", "note"),
+    [
+        ({"register-desk"}, "register-desk", ""),
+        (
+            set(),
+            "root",
+            (
+                " `cci who` does not list the register lane `register-desk`, so this blocker goes to the root:"
+                " resume the register lane register-desk by SendMessage with these captures."
+            ),
+        ),
+    ],
+)
+def test_unclassified_owner_captures_of_one_pass_post_one_blocker_listing_each(root, live, to, note):
+    root.configure(register_lane="register-desk")
+    root.live = live
+    prompts = root.state_dir / "owner-prompts.jsonl"
+    long = "split the nightly report into one file per team and mail each team its own file every morning before standup"
+    captures = [
+        {"digest": CLASSIFIED, "at": "Oct 23 4:12 AM", "session": SESSION, "source": "prompt", "text": "rename the export button"},
+        {"digest": UNCLASSIFIED, "at": "Oct 23 4:20 AM", "session": SESSION, "source": "prompt", "text": "keep the\nnightly report"},
+        {"digest": "1f2e3d4c5b6a7980", "at": "Oct 23 4:21 AM", "session": SESSION, "source": "prompt", "text": long},
+    ]
+    prompts.write_text("".join(json.dumps(capture) + "\n" for capture in captures))
+    go = "cci post --lane root --kind go --to walker --text 'cut web'"
+
+    assert root.bash(PreToolUseEvent, go) == []
+    assert root.bash(PreToolUseEvent, go) == []
+
+    [blocker] = root.blockers()
+    assert option(blocker, "--to") == to
+    assert option(blocker, "--text") == (
+        f'2 owner captures have no row in register brook: {UNCLASSIFIED} (Oct 23 4:20 AM) "keep the nightly report"; '
+        f'1f2e3d4c5b6a7980 (Oct 23 4:21 AM) "{long[:80]}". '
+        f"Classify them with `rulings.py classify` before the next key moment.{note}"
+    )
+
+    later = {"digest": "0a9b8c7d6e5f4321", "at": "Oct 23 4:30 AM", "session": SESSION, "source": "prompt", "text": "drop the beta flag"}
+    prompts.write_text(prompts.read_text() + json.dumps(later) + "\n")
+    assert root.bash(PreToolUseEvent, go) == []
+
+    [_, single] = root.blockers()
+    assert option(single, "--text").startswith('Owner capture 0a9b8c7d6e5f4321 (Oct 23 4:30 AM) has no row in register brook: "drop the beta flag".')
 
 
 def test_a_drive_whose_plan_stem_differs_from_its_program_reads_the_program_register(root):
