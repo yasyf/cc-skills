@@ -97,6 +97,7 @@ class FakeShell(runner_module.Shell):
         self.advance_error = ""
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
+        self.pr_commits: dict[str, int] = {}
         self.files: dict[str, list[str]] = {}
         self.files_error = ""
         self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
@@ -287,6 +288,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, diff, "")
         if argv == ["gh", "api", "user", "--jq", ".login"]:
             return runner_module.Done(0, f"{self.viewer}\n", "")
+        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".commits"]:
+            return runner_module.Done(0, f"{self.pr_commits.get(argv[2].rsplit('/', 1)[1], 1)}\n", "")
         if argv[:3] == ["gh", "api", "--paginate"]:
             assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[].filename"]
             if self.files_error:
@@ -3311,12 +3314,25 @@ def test_a_restack_with_the_graded_heads_patch_carries_its_ok_and_cites_that_hea
     seq = grade(shell, "29020", "ok F307 at bbbb222.")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
     finder_verdict(shell, "29020", "ok cccc333 no findings")
-    carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333", "dev")
+    carried = landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333")
     assert (carried.ok, carried.record["seq"], carried.why) == (True, seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
     shell.calls.clear()
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == [] and escalations(shell) == []
-    assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
+    assert compare_calls(shell) == ["cccc333333~1...cccc333333", "bbbb222~1...bbbb222"]
+
+
+def test_a_restacked_head_with_its_own_commits_patch_identical_carries_both_fidelity_and_finder(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.pr_commits["29020"] = 3
+    seq = grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
+    assert set(compare_calls(shell)) == {"cccc333333~3...cccc333333", "bbbb222~3...bbbb222"}
+    [action] = enqueues_of(tmp_path).values()
+    assert action.action_id.startswith("enqueue:29020@cccc333333")
+    assert landing_of(shell, config, tmp_path).fidelity("29020", "cccc333333").record["seq"] == seq
 
 
 def test_a_restack_whose_patch_differs_waits_for_its_own_grade(shell, config, tmp_path):
@@ -3357,7 +3373,7 @@ def test_a_short_sha_that_is_no_commit_carries_nothing_and_escalates_nothing(she
     shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
     assert shell.enqueues() == [] and escalations(shell) == []
-    assert compare_calls(shell) == ["dev...cccc333333", "dev...9057dda"]
+    assert compare_calls(shell) == ["cccc333333~1...cccc333333", "9057dda~1...9057dda"]
 
 
 def test_a_register_key_a_grade_lists_after_its_head_is_never_probed_as_a_head(shell, config, tmp_path):
@@ -3367,7 +3383,7 @@ def test_a_register_key_a_grade_lists_after_its_head_is_never_probed_as_a_head(s
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/x b/x\n+same\n"
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and escalations(shell) == []
-    assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
+    assert compare_calls(shell) == ["cccc333333~1...cccc333333", "bbbb222~1...bbbb222"]
 
 
 def test_the_whole_stack_policy_never_cuts_the_prefix_at_a_missing_grade(shell, config, tmp_path):
@@ -3401,7 +3417,7 @@ def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, confi
     landing_pass(shell, config)
     assert shell.enqueues() == []
     assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [
-        "PATCH-READ-FAILED patch:29020:cccc333333 #29020: GitHub refused the diff of dev...cccc333333: gh: API rate limit exceeded (HTTP 403); no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass"
+        "PATCH-READ-FAILED patch:29020:cccc333333 #29020: GitHub refused the diff of cccc333333~1...cccc333333: gh: API rate limit exceeded (HTTP 403); no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass"
     ]
 
 

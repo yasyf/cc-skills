@@ -1467,11 +1467,13 @@ it landed as 2b06f105 without its test, because the gate read only
 
 A restack carries its grade. When no grade names the current head, the runner
 takes each head an older `fidelity: ok` names whose own newest grades are ok, one of them counted, and
-compares `git patch-id --stable` of both heads' diffs against the PR's base, read
-from GitHub's compare. Equal patch ids carry the ok to the new head in that pass,
+compares `git patch-id --stable` of the PR's own commits at both heads, read from
+GitHub's compare of `<head>~<n>...<head>` with n the PR's commit count, so a restack
+whose parent also moved still matches. Equal patch ids carry the ok to the new head in that pass,
 cited as `fidelity: ok at <new head>, patch-identical to <graded head>` with the
 graded record's cci seq. A grade naming the new head always wins, and a changed
-patch waits for its own grade. A fidelity lane asked to grade such a head answers
+patch waits for its own grade. The newest `finder: ok` carries the same way (root
+#131054). A fidelity lane asked to grade such a head answers
 the minute it is asked with the same line, without a re-read.
 
 *Prevents the Oct 16 restack of monorepo #39264 to e41b99cc needing a fresh fidelity

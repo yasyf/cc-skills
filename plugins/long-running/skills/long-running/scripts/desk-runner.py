@@ -295,8 +295,9 @@ a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which
 `owner/repo#N` reference, whose text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the head it grades. Each
 lane's newest grade of the head stands for that lane: a `missing` blocks until the same lane grades the head ok, whatever another lane
 posts, and an ok counts as posted, whatever rows the register gained since (4236611). A head no
-grade names carries the ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
-diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
+grade names carries the ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of the PR's own
+commits at both heads, GitHub's compare of `<head>~<n>...<head>` with n the PR's commit count, is equal, so a restack whose
+parent also moved still matches (root #131054), cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing. The compare is read with
 `--allow-escape-sequences`, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and any accept check
@@ -308,7 +309,7 @@ words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. A finder ok of an older head
-carries to a head with no finder record when both patches against the PR's base match, as a fidelity ok does. A PR whose body opens with "Red by design", or whose lane's newest
+carries to a head with no finder record when both heads' own patches match, as a fidelity ok does. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
@@ -3845,7 +3846,8 @@ class Landing:
         self.status_card = config.get("status_card", False)
         self.card_drawn = ""
         self.landed: set[str] = set()
-        self.patch_ids: dict[tuple[str, str], str] = {}
+        self.patch_ids: dict[tuple[int, str], str] = {}
+        self.commit_counts: dict[tuple[str, str], int] = {}
         self.risky: dict[tuple[str, str], list[str]] = {}
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
@@ -4229,8 +4231,8 @@ class Landing:
         """Each fidelity lane's newest grade naming `sha`."""
         return [grade for lane in self.fidelity_lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
 
-    def fidelity(self, pr: str, sha: str, base: str) -> Grade:
-        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts; an ok counts as posted (4236611). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when both patches against `base` match."""
+    def fidelity(self, pr: str, sha: str) -> Grade:
+        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts; an ok counts as posted (4236611). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
         if missing := max((grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)), key=lambda record: record["seq"], default=None):
@@ -4238,13 +4240,13 @@ class Landing:
         if newest:
             return Grade(True, max(newest, key=lambda record: record["seq"]), "")
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
-        if not (sha and base and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
+        if not (sha and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
-        carried = self.carried(pr, sha, base, grades)
+        carried = self.carried(pr, sha, grades)
         return Grade(True, carried[0], f"{FIDELITY_OK} at {sha}, patch-identical to {carried[1]}") if carried else none
 
-    def carried(self, pr: str, sha: str, base: str, grades: list[dict]) -> tuple[dict, str] | None:
-        """The newest ok of an older head whose fidelity lanes all stand at ok, with that head, when its patch against `base` is identical to `sha`'s."""
+    def carried(self, pr: str, sha: str, grades: list[dict]) -> tuple[dict, str] | None:
+        """The newest ok of an older head whose fidelity lanes all stand at ok, with that head, when its patch is identical to `sha`'s."""
         graded = dict.fromkeys(
             head
             for record in sorted(grades, key=lambda record: record["seq"], reverse=True)
@@ -4255,23 +4257,33 @@ class Landing:
             for named in graded
             if (stand := self.standing(grades, named)) and all(grade["text"].startswith(FIDELITY_OK) for grade in stand)
         }
-        if not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
+        if not oks or not (commits := self.own_commits(pr, sha)) or not (ours := self.patch_id(pr, sha, commits, escalate=True)):
             return None
-        return next(((grade, named) for named, grade in oks.items() if self.patch_id(pr, named, base, escalate=False) == ours), None)
+        return next(((grade, named) for named, grade in oks.items() if self.patch_id(pr, named, commits, escalate=False) == ours), None)
 
-    def patch_id(self, pr: str, sha: str, base: str, escalate: bool) -> str:
-        """`git patch-id --stable` of `sha`'s diff against its merge base with `base`, read from GitHub's compare; empty when GitHub refuses the read, which escalates once for the PR's own head and is silent for a short sha a grade names that is no commit."""
-        if (base, sha) in self.patch_ids:
-            return self.patch_ids[(base, sha)]
-        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{base}...{sha}", "-H", DIFF_MEDIA, ALLOW_ESCAPES])
+    def own_commits(self, pr: str, sha: str) -> int:
+        """How many commits `pr` carries at its head `sha`, from GitHub's read of the PR, kept per head once it reads; 0 when GitHub refuses it, and the next use reads again."""
+        if (pr, sha) not in self.commit_counts:
+            done = self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".commits"])
+            if done.code != 0 or not done.out.strip().isdigit():
+                return 0
+            self.commit_counts[(pr, sha)] = int(done.out)
+        return self.commit_counts[(pr, sha)]
+
+    def patch_id(self, pr: str, sha: str, commits: int, escalate: bool) -> str:
+        """`git patch-id --stable` of the last `commits` commits up to `sha`, the PR's own patch whatever its parent was restacked onto, read from GitHub's compare; empty when GitHub refuses the read, which escalates once for the PR's own head and is silent for a short sha a grade names that is no commit."""
+        if (commits, sha) in self.patch_ids:
+            return self.patch_ids[(commits, sha)]
+        span = f"{sha}~{commits}...{sha}"
+        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{span}", "-H", DIFF_MEDIA, ALLOW_ESCAPES])
         if diff.code != 0:
             if escalate:
                 last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
-                self.runner.escalate(f"patch:{pr}:{sha}", "PATCH-READ-FAILED", f"#{pr}", f"GitHub refused the diff of {base}...{sha}: {last[0]}; no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass")
+                self.runner.escalate(f"patch:{pr}:{sha}", "PATCH-READ-FAILED", f"#{pr}", f"GitHub refused the diff of {span}: {last[0]}; no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass")
             return ""
         done = self.shell.run(["git", "patch-id", "--stable"], stdin=diff.out)
-        self.patch_ids[(base, sha)] = done.out.split()[0] if done.code == 0 and done.out.strip() else ""
-        return self.patch_ids[(base, sha)]
+        self.patch_ids[(commits, sha)] = done.out.split()[0] if done.code == 0 and done.out.strip() else ""
+        return self.patch_ids[(commits, sha)]
 
     def head_statuses(self, pr: str, sha: str) -> list[dict] | None:
         return self.read_heads({sha: pr}).get(sha)
@@ -4330,8 +4342,8 @@ class Landing:
             )
         return bool(low)
 
-    def ungraded(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, Grade]:
-        grades = {pr: self.fidelity(pr, sha, rows[pr].get("base") or "") for pr, sha in heads.items()}
+    def ungraded(self, heads: dict[str, str]) -> dict[str, Grade]:
+        grades = {pr: self.fidelity(pr, sha) for pr, sha in heads.items()}
         return {pr: grade for pr, grade in grades.items() if not grade.ok}
 
     def refuse_ungraded(self, heads: dict[str, str], ungraded: dict[str, Grade], rows: dict[str, dict]) -> None:
@@ -4488,13 +4500,13 @@ class Landing:
         """The newest finder review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
         return newest_finder(self.finder_records(pr), sha)
 
-    def finder_carried(self, pr: str, sha: str, base: str) -> bool:
+    def finder_carried(self, pr: str, sha: str) -> bool:
         records = self.finder_records(pr)
         heads = dict.fromkeys(record["head"] for record in records if not names_head(record["head"], sha))
         oks = [head for head in heads if (newest := newest_finder(records, head)) and newest["grade"] == FINDER_PASS]
-        if not base or not oks or not (ours := self.patch_id(pr, sha, base, escalate=True)):
+        if not oks or not (commits := self.own_commits(pr, sha)) or not (ours := self.patch_id(pr, sha, commits, escalate=True)):
             return False
-        return any(self.patch_id(pr, head, base, escalate=False) == ours for head in oks)
+        return any(self.patch_id(pr, head, commits, escalate=False) == ours for head in oks)
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
         """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
@@ -4506,7 +4518,7 @@ class Landing:
                         self.ask_finder_line(pr, record)
             if (verdict := self.finder(pr, sha)) and verdict["grade"] == FINDER_PASS:
                 continue
-            if not verdict and self.finder_carried(pr, sha, graded.rows[pr].get("base") or ""):
+            if not verdict and self.finder_carried(pr, sha):
                 continue
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else "no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
@@ -4524,7 +4536,7 @@ class Landing:
         self.post_record("note", key, record["lane"], text, pr)
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
-        ungraded = self.ungraded(graded.heads, graded.rows)
+        ungraded = self.ungraded(graded.heads)
         if graded.act and ungraded:
             self.refuse_ungraded(graded.heads, ungraded, graded.rows)
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
@@ -4930,7 +4942,7 @@ class Landing:
             landed = json.loads(action.target)
             pr, head = landed["pr"], landed["head"]
             verdict = self.finder(pr, head)
-            owed = [name for name, ok in (("fidelity ok", self.fidelity(pr, head, TRUNK).ok), ("finder ok", bool(verdict and verdict["grade"] == FINDER_PASS))) if not ok]
+            owed = [name for name, ok in (("fidelity ok", self.fidelity(pr, head).ok), ("finder ok", bool(verdict and verdict["grade"] == FINDER_PASS))) if not ok]
             if owed:
                 self.runner.escalate(
                     f"ungraded-30:{pr}@{head}",
