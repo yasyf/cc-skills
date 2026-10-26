@@ -93,11 +93,6 @@ def standing(grades: list[dict], lanes: list[str], sha: str) -> list[dict]:
     return [grade for lane in lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
 
 
-def finder_reviews(tail: Callable[[list[str]], str], drive: str, repo: str, pr: str) -> list[dict]:
-    """Every finder review about `pr` its `owner/repo#N` reference finds, as `finder_reviews_in` reads them."""
-    return finder_reviews_in(cci.records(tail, drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{pr}"), drive, repo, pr)
-
-
 def about_pr(record: dict, repo: str, pr: str) -> bool:
     """Whether `record` is about `pr`: its refs name it, or it carries no PR ref and its text names `#<pr>` or `[<pr>]`."""
     if record.get("refs", {}).get("prs"):
