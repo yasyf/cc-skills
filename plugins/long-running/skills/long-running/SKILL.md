@@ -1402,9 +1402,10 @@ Oct 26 runner brief:
 - `HELD-OUT`: a hold covers a PR the check would sweep into the batch. The PR and
   every PR above it stay out, and the enqueue names only the tops below it, with
   `--partial`. No check or enqueue call ever names a held PR.
-- `FORK-DEFERRED`: the batch forks, or sits on an open fork outside it. Graphite
-  keeps one linear chain per batch, so the line names the PRs that wait and the
-  fork they wait on.
+- `FORK-DEFERRED`: the batch sits on an open fork outside it, so it waits until
+  that fork lands, and the line names the PRs that wait and the fork. Graphite keeps
+  one linear chain per batch, so a batch that forks within itself goes in as one
+  stack-enqueue call per chain in the same pass, bottom chain first.
 
 A failing required check posts one `blocker` per PR, refusal, red job and cause. The
 cause is the job's status description with run numbers and durations folded. A later
