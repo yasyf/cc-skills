@@ -1396,6 +1396,16 @@ ejection, never the PR's comment text:
   PR, and no blocker goes to the lane. A second at that head logs `AWAITS-GO`, and
   the root's next `go` naming the PR puts it back the same way.
 
+Two lines to root name what a batch leaves out, per root #131054 and the root's
+Oct 26 runner brief:
+
+- `HELD-OUT`: a hold covers a PR the check would sweep into the batch. The PR and
+  every PR above it stay out, and the enqueue names only the tops below it, with
+  `--partial`. No check or enqueue call ever names a held PR.
+- `FORK-DEFERRED`: the batch forks, or sits on an open fork outside it. Graphite
+  keeps one linear chain per batch, so the line names the PRs that wait and the
+  fork they wait on.
+
 A failing required check posts one `blocker` per PR, refusal, red job and cause. The
 cause is the job's status description with run numbers and durations folded. A later
 head that fails the same way gets one `note` under that blocker. A changed cause or a
