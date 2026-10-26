@@ -923,7 +923,7 @@ def named_rows(loaded: Register, words: str) -> tuple[list[str], list[str]]:
     strong, weak = [], []
     for key, fields in loaded.rulings().items():
         hits = [name for name in names_of(fields) if named(words, name)]
-        if len(hits) > 1 or any(specific(name) for name in hits):
+        if any(specific(name) for name in hits):
             strong.append(key)
         elif hits:
             weak.append(key)
