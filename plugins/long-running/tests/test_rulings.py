@@ -1618,3 +1618,67 @@ def test_one_answer_extends_several_rows_in_one_batch_and_never_again(home: Path
     assert code == 0
     assert [json.loads(shell.rows[key]["repeats"])[0]["proof"] for key in ("rule/5eed0c0", "rule/bbbbbbb")] == ["proof:answer:5eed0c0de1b2c3d4"] * 2
     assert ran(capsys, shell, "classify", "--answer", "5eed0c0", str(path))[0] == 1
+
+
+MIGRATION_DIFF = DIFF + """diff --git a/db/migrations/0042_parking.sql b/db/migrations/0042_parking.sql
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/db/migrations/0042_parking.sql
+@@ -0,0 +1,3 @@
++CREATE TABLE parked (
++  parked_at TEXT NOT NULL
++);
+"""
+MIGRATION = "db/migrations/0042_parking.sql"
+GRADED_OK = "fidelity: ok cafef00 checked exception/E1,rule/aaaaaaa,rule/bbbbbbb names relay-server|parked worker\n"
+
+
+def graded(capsys: pytest.CaptureFixture[str], shell: RegisterShell, out: Path, *argv: str) -> tuple[int, str, str]:
+    code, printed = ran(capsys, shell, "grade", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main", "--out", str(out), *argv)
+    return code, printed, out.read_text()
+
+
+def test_a_new_migration_file_is_a_mechanism_the_grade_refuses_ok_until_grounded(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    code, printed, grade = graded(capsys, RegisterShell(seeded(package), diff=MIGRATION_DIFF), tmp_path / "head.grade")
+    assert code == 1
+    assert f"scanned 2 files: src/relay/pool.rs, {MIGRATION}" in printed
+    assert f"UNGROUNDED {MIGRATION}:1 [migration, table] CREATE TABLE parked (" in printed
+    assert f"UNGROUNDED {MIGRATION}:2 [column] parked_at TEXT NOT NULL" in printed
+    assert "fidelity: ok" not in grade
+    assert grade.splitlines()[0].startswith(f"fidelity: missing cafef00 plan {MIGRATION}:1 plan names no migration or table")
+
+
+def test_a_root_seq_or_a_design_row_citing_no_owner_answer_is_rejected_as_grounds(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    rows = seeded(package) | {"design/s1": {"kind": "design", "status": "in-force", "global": "yes", "words": "One database per session.", "answer": "[]", "proof": "design-rev.md"}}
+    for ground in ("#126206", "design/s1"):
+        code, printed, grade = graded(capsys, RegisterShell(rows, diff=MIGRATION_DIFF), tmp_path / "head.grade", "--ground", f"{MIGRATION}:*={ground}")
+        assert code == 1
+        assert f"REJECTED {ground}: {rulings.ROOT_GROUNDS}" in printed
+        assert f"; {ground}: {rulings.ROOT_GROUNDS}" in grade
+        assert "fidelity: ok" not in grade
+
+
+def test_a_plan_line_grounds_a_mechanism_and_is_printed_beside_it(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    code, printed, grade = graded(capsys, RegisterShell(seeded(package), diff=MIGRATION_DIFF), tmp_path / "head.grade", "--ground", f"{MIGRATION}:*=#126206,plan:12")
+    assert code == 0
+    assert f"grounded {MIGRATION}:1 [migration, table] CREATE TABLE parked (" in printed
+    assert "  accepted plan:12 | 2. Drain on close." in printed
+    assert f"  REJECTED #126206: {rulings.ROOT_GROUNDS}" in printed
+    assert grade == GRADED_OK
+
+
+def test_an_owner_rule_row_grounds_a_mechanism_and_a_not_a_mechanism_mark_sets_one_aside(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    code, printed, grade = graded(
+        capsys,
+        RegisterShell(seeded(package), diff=MIGRATION_DIFF),
+        tmp_path / "head.grade",
+        "--ground",
+        f"{MIGRATION}:1=rule/bbbbbbb",
+        "--not-a-mechanism",
+        f"{MIGRATION}:2=the column the plan's table names",
+    )
+    assert code == 0
+    assert "  accepted rule/bbbbbbb | Drain the pool when a run closes." in printed
+    assert f"not-a-mechanism {MIGRATION}:2 [column] parked_at TEXT NOT NULL : the column the plan's table names" in printed
+    assert grade == GRADED_OK

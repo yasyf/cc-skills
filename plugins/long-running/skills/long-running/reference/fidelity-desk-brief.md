@@ -99,10 +99,28 @@ reports READY, or when the runner's `blocker` names it ungraded.
    (its callers and callees as the head has them, and their base versions too when the head deletes or moves
    behavior), the tests it adds or edits, and the PR body.
 3. Grade every required row.
-4. Post `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, or
-   one `fidelity: missing <head7> <key> <one line>` per failing row. The runner
-   counts an ok as posted, whatever rows the register gains after it (4236611). Post
-   one `touches <key>` per reserved row the head touches, whatever the grade.
+4. Write the grade with `rulings.py grade --pr <owner/name>#<n> --head <sha>
+   --out <file>`. It lists every mechanism the head adds as `<file>:<line>`, and
+   prints the files it scanned and skipped. A mechanism is a migration file, a
+   table, a column, a route, an enum variant or state string, a timer or retry,
+   a metric, an env var, a flag, or a wire or struct field. Ground each one with
+   `--ground <id>=plan:<line>` or `--ground <id>=<owner row key>`, or set it aside
+   with `--not-a-mechanism <id>=<why>`; an id may be a glob. Ground a mechanism
+   the scan missed with `--ground <file>:<line>=...` all the same. Name each row
+   the head breaks with `--missing <key>=<one line>`.
+5. Post each line of the file: `fidelity: ok <head7> checked <key>,<key>...
+   names <name>|<name>...`, or one `fidelity: missing <head7> <key> <one line>`
+   per failing row and ungrounded mechanism. The runner counts an ok as posted,
+   whatever rows the register gains after it (4236611). Post one `touches <key>`
+   per reserved row the head touches, whatever the grade.
+
+Grounds are the plan's own text or the owner's words, never ours. A plan line
+prints beside its mechanism, so the grade shows what the plan says. An owner row is a
+`rule/` or `prompt/` row with his words, an `exception/` row his answers approve,
+or a board pick. A cci seq, a root note, a `design/` row and a pending row are
+root rulings. `grade` rejects them with "root rulings are not grounds; put it on
+the owner's board", and the desk posts the mechanism to the root as a `finding`
+for a board card.
 
 A restack whose patch is identical to a head already graded ok gets the same line
 the minute it is asked, without a re-read of the diff ([SKILL.md](../SKILL.md), "A
