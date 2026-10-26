@@ -412,8 +412,9 @@ PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge 
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
 (default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. Under `every` the runner
-then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, it gets no
-blocker and no `MERGE-ASK`, and a PR stacked on it waits. A go'd head touching a reserved row still logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
+then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
+stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
+blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
 no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
@@ -586,6 +587,7 @@ QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = 180
 QUEUE_STATUS_SECONDS = 300
+LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
 QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
@@ -3791,6 +3793,19 @@ def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> boo
     return any(downstack(open_rows, tip) & prs for tip in tree)
 
 
+def status_blocker(entry: dict) -> str:
+    """What a `ccx vcs pr status` entry asks its lane to fix, or empty while the PR only waits: a conflict, red CI with its failing checks, or requested changes."""
+    causes = entry["verdict"].removeprefix("blocked:").split(",")
+    said = []
+    if "conflict" in causes:
+        said.append("GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree")
+    if "ci-red" in causes:
+        said.append(f"CI is red: {', '.join(entry['ci']['failing'])}")
+    if "changes-requested" in causes:
+        said.append(f"changes requested by {', '.join(entry['approval']['changes_requested_by'])}")
+    return "; ".join(said)
+
+
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     bases = {rows[pr].get("base") for pr in prefix}
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
@@ -3860,7 +3875,7 @@ class Landing:
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
         self.sessions: dict[str, bool] = {}
         self.dead: dict[str, bool] = {}
-        self.queues: dict[str, str] | None = None
+        self.statuses: dict[str, dict] | None = None
         self.queues_read = False
         self.designed_red: dict[str, bool] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
@@ -4024,7 +4039,7 @@ class Landing:
         return gone
 
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
-        """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR, so no check or enqueue call names it as a top or sweeps it in, and no check runs on it (root #131119, #131287). Empty in every other mode, where the gate's check is what asks the owner."""
+        """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
         if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
             return set()
         gos = self.root_gos()
@@ -5443,14 +5458,33 @@ class Landing:
             self.landed.add(pr)
         return pr in self.landed
 
-    def queue_states(self) -> dict[str, str] | None:
-        """Every open ledger row's queue state, from one `ccx vcs pr status` call a pass that the requeue read and the landed check share; None when the call fails, and then neither acts that pass."""
+    def pr_statuses(self) -> dict[str, dict] | None:
+        """Every open ledger row's `ccx vcs pr status` entry, from one call a pass that the requeue read, the landed check, and the routing of PRs no go names share; None when the call fails, and then none of them acts that pass."""
         if not self.queues_read:
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
-            self.queues = {str(entry["number"]): entry["queue"] for entry in json.loads(done.out)} if done.code == 0 else None
+            self.statuses = {str(entry["number"]): entry for entry in json.loads(done.out)} if done.code == 0 else None
             self.queues_read = True
-        return self.queues
+        return self.statuses
+
+    def queue_states(self) -> dict[str, str] | None:
+        statuses = self.pr_statuses()
+        return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
+
+    def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
+        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: a conflict, red CI or requested changes goes to its lane as that head's blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM)."""
+        if not self.no_go or (statuses := self.pr_statuses()) is None:
+            return
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        covered = under_hold(open_rows, held)
+        told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted(self.no_go - covered, key=int) if pr in statuses and open_rows[pr].get("head")}
+        landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE}
+        self.read_reports(landable)
+        for pr, head in landable.items():
+            self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
+        for pr, (head, entry) in told.items():
+            if why := status_blocker(entry):
+                self.route(f"blocker:{pr}:{head}", self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)
@@ -5533,7 +5567,7 @@ class Landing:
 
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}, {}
-        self.queues, self.queues_read = None, False
+        self.statuses, self.queues_read = None, False
         if self.quota_low():
             return
         advanced = self.advance()
@@ -5566,6 +5600,7 @@ class Landing:
                 self.retry_flakes(rows)
                 self.gate(rows, barred, gone)
                 self.enqueue()
+                self.tell_unpassed(rows, held)
         self.runner.overdue(LANDING, "landing")
 
 

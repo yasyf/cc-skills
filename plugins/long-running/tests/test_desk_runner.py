@@ -107,6 +107,7 @@ class FakeShell(runner_module.Shell):
         self.pr_label_error = ""
         self.dequeue_code = 0
         self.queue: dict[str, str] = {}
+        self.pr_status: dict[str, dict] = {}
         self.bodies: dict[str, str] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
@@ -266,7 +267,7 @@ class FakeShell(runner_module.Shell):
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued")} for pr in argv[7:]]), "")
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[7:]]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -2910,17 +2911,39 @@ def stack_named(shell: FakeShell) -> set[str]:
     return {pr for call in shell.calls if Path(call[0]).name == "stack-enqueue" for pr in itertools.takewhile(str.isdigit, call[1:])}
 
 
-def test_a_board_surface_checks_nothing_until_a_root_go_names_the_head_then_enqueues(shell, config, tmp_path):
+def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go_names_the_head(shell, config, tmp_path):
     board_surface(config)
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert checks(shell) == [] and escalations(shell) == [] and shell.pr_cards == []
+    assert checks(shell) == [] and shell.pr_cards == []
+    [line] = escalations(shell)
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers on the root's board, where the root asks it, waiting on `merge:29020:cccc333`")
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and escalations(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
+
+
+def test_on_a_board_surface_a_pr_without_a_go_gets_its_blockers_from_the_status_read_once_per_head(shell, config, tmp_path):
+    board_surface(config)
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.queue |= {"29020": "not queued", "29100": "not queued"}
+    shell.pr_status["29020"] = {"verdict": "blocked:conflict,ci-pending"}
+    shell.pr_status["29100"] = {"verdict": "blocked:ci-red,changes-requested", "ci": {"state": "red", "failing": ["buildkite/test"]}, "approval": {"state": "changes-requested", "changes_requested_by": ["poetic-svc"]}}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert checks(shell) == []
+    assert [(post["to"], post_body(post)) for post in blockers(shell) if post["to"] != "root"] == [
+        (LANE, "#29020 cccc333333: GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"),
+        (LANE, "#29100 dddd444444: CI is red: buildkite/test; changes requested by poetic-svc"),
+    ]
 
 
 def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_its_head(shell, config, tmp_path):
