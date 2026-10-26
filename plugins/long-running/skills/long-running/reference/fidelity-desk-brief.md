@@ -108,9 +108,10 @@ reports READY, or when the runner's `blocker` names it ungraded.
    with `--not-a-mechanism <id>=<why>`; an id may be a glob. Ground a mechanism
    the scan missed with `--ground <file>:<line>=...` all the same. Name each row
    the head breaks with `--missing <key>=<one line>`.
-5. Post each line of the file: `fidelity: ok <head7> checked <key>,<key>...
-   names <name>|<name>...`, or one `fidelity: missing <head7> <key> <one line>`
-   per failing row and ungrounded mechanism. The runner counts an ok as posted,
+5. Post each line of the file. An ok is
+   `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, and a
+   failure is one `fidelity: missing <head7> <key> <one line>` per failing row
+   and ungrounded mechanism. The runner counts an ok as posted,
    whatever rows the register gains after it (4236611). Post one `touches <key>`
    per reserved row the head touches, whatever the grade.
 
