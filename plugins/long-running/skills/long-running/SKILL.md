@@ -1424,8 +1424,9 @@ lane never clears it. An ok counts as posted: rows the register gains after it
 never void it or hold the head (4236611).
 A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
-lane, and nothing in its prefix is enqueued. The check runs again just before
-the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
+lane, and the prefix is cut below it: the PRs under it that pass every check
+enqueue now with `--partial`, leaving it and every PR above it out, and its
+blocker names it as the cut. The check runs again just before the enqueue call. The lane is `landing.fidelity_lane` in `runner.json`, one lane
 name or a list of lane names when grading is sharded. The runner re-reads the lane from
 `runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.

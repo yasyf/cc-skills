@@ -277,11 +277,14 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
             return runner_module.Done(0, "ahead\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
-            assert argv[2].startswith("repos/Forge-AI/monorepo/compare/") and argv[3:] == ["-H", "Accept: application/vnd.github.diff"]
+            assert argv[2].startswith("repos/Forge-AI/monorepo/compare/") and argv[3:5] == ["-H", "Accept: application/vnd.github.diff"] and argv[5:] in ([], ["--allow-escape-sequences"])
             head = argv[2].rsplit("...", 1)[1]
             if head in self.compare_errors:
                 return runner_module.Done(1, "", self.compare_errors[head])
-            return runner_module.Done(0, self.diffs.get(head, f"diff --git a/{head} b/{head}\n"), "")
+            diff = self.diffs.get(head, f"diff --git a/{head} b/{head}\n")
+            if "\x1b" in diff and "--allow-escape-sequences" not in argv:
+                return runner_module.Done(1, "", "the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway")
+            return runner_module.Done(0, diff, "")
         if argv == ["gh", "api", "user", "--jq", ".login"]:
             return runner_module.Done(0, f"{self.viewer}\n", "")
         if argv[:3] == ["gh", "api", "--paginate"]:
@@ -1374,7 +1377,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     assert len(lines) == 1 and "STALE-POLICY L260" in lines[0] and "prefix at a1b2c3d4e5" in lines[0]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29016"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29016", "--partial"]]
     assert all("--whole" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
     shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
     landing_pass(shell, config)
@@ -1423,7 +1426,7 @@ def test_a_rowless_prefix_pr_carrying_the_drive_label_is_registered_under_its_br
     shell.rows = stack_rows()
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert not [line for line in escalations(shell) if "FOREIGN" in line]
 
 
@@ -1831,7 +1834,7 @@ def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, con
     grade_gated_heads_ok(shell)
     shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["28349"]]
+    assert [call[1:] for call in shell.enqueues()] == [["28349", "--partial"]]
     assert shell.sends() == []
 
 
@@ -1887,7 +1890,7 @@ def test_every_green_tip_of_a_fork_enqueues_in_one_call_naming_each_tip(shell, c
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36487", "36501"), ("36600",)}
-    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501"]]
+    assert [call[1:] for call in shell.enqueues()] == [["36487", "36501", "--partial"]]
     blockers = [call[call.index("--body") + 1] for call in shell.sends()]
     assert [body for body in blockers if "#36520" in body] and not [body for body in blockers if "#36510" in body]
 
@@ -2451,7 +2454,7 @@ def test_a_head_the_fidelity_lane_graded_ok_is_enqueued(shell, config, tmp_path)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307,F321 at cccc333. The restack onto dev has a range-diff of '='.")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert blockers(shell) == [] and escalations(shell) == []
 
 
@@ -2461,7 +2464,7 @@ def test_the_enqueue_names_the_prefix_top_with_no_head_pin_or_hold(shell, config
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert not [call for call in stack_enqueue_calls(shell) if "--head" in call or "--hold" in call]
 
 
@@ -2502,15 +2505,43 @@ def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, c
     assert len(shell.enqueues()) == 1 and len(blockers(shell)) == 1
 
 
-def test_one_ungraded_pr_keeps_its_whole_prefix_out_of_the_queue(shell, config, tmp_path):
+def test_an_ungraded_pr_cuts_the_prefix_and_the_graded_pr_below_it_enqueues_alone(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]
+    shell.gates["28997"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    shell.enqueue_out["28997"] = (0, "enqueue #28997: {}\n")
     grade(shell, "28997", "ok F307 at aaaa111.")
     landing_pass(shell, config)
-    assert shell.enqueues() == []
+    assert [call[1:] for call in shell.enqueues()] == [["28997", "--partial"]]
     [blocker] = [post for post in blockers(shell) if post["topic"] == "29016"]
     assert blocker["to"] == "artifact-retry,fidelity-desk" and not [post for post in blockers(shell) if post["topic"] == "28997"]
-    assert blocker["text"].startswith("#29016 bbbb222222: nothing in #28997 #29016 was enqueued; no review from fidelity-desk")
+    assert blocker["text"].startswith("#29016 bbbb222222: the prefix is cut at #29016, and only #28997 below it may enqueue, without #29016; no review from fidelity-desk")
+
+
+def four_pr_stack(shell: FakeShell) -> None:
+    heads = {"42590": "aaaa111111", "42615": "bbbb222222", "42634": "dddd444444", "42620": "eeee555555"}
+    shell.rows = [
+        {"pr": pr, "lane": LANE, "branch": f"s/{index}", "base": f"s/{index - 1}" if index else "dev", "head": head, "state": "open", "reported_head": head}
+        for index, (pr, head) in enumerate(heads.items())
+    ]
+    shell.gates["42620"] = [gate(*(f"#{pr} GREEN {head} graphite READY" for pr, head in heads.items()), would="#42590 #42615 #42634 #42620")]
+    shell.gates["42615"] = [gate("#42590 GREEN aaaa111111 graphite READY", "#42615 GREEN bbbb222222 graphite READY", would="#42590 #42615")]
+    shell.enqueue_out["42615"] = (0, "enqueue #42590 #42615: {}\n")
+
+
+def test_a_missing_grade_on_the_third_pr_of_four_enqueues_the_bottom_two_and_names_the_cut(shell, config, tmp_path):
+    four_pr_stack(shell)
+    grade(shell, "42590", "ok F307 at aaaa111.")
+    grade(shell, "42615", "ok F307 at bbbb222.")
+    seq = grade(shell, "42634", "missing F335 at dddd444: the sealed read is not folded in.")
+    grade(shell, "42620", "ok F307 at eeee555.")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["42615", "--partial"]]
+    assert list(enqueues_of(tmp_path)) == ["enqueue:42590@aaaa111111,42615@bbbb222222#1"]
+    assert all("--partial" in call for call in checks(shell) if call[1] == "42615")
+    [blocker] = blockers(shell)
+    assert blocker["topic"] == "42634" and blocker["to"] == f"{LANE},fidelity-desk"
+    assert blocker["text"] == f"#42634 dddd444444: the prefix is cut at #42634, and only #42590 #42615 below it may enqueue, without #42634 #42620; fidelity-desk graded this head on cci #{seq}: fidelity: missing F335 at dddd444: the sealed read is not folded in."
 
 
 def test_the_fidelity_lane_is_the_one_runner_json_names(shell, config, tmp_path):
@@ -2571,7 +2602,7 @@ def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues
     assert shell.enqueues() == []
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
@@ -2608,7 +2639,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert shell.enqueues() == []
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def ruling_card(cards: Path, key: str, title: str) -> Path:
@@ -2661,7 +2692,7 @@ def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(she
     shell.files["29020"] = ["dashboard/src/iris/Thread.tsx", "docs/object-hierarchy.md"]
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and escalations(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and escalations(shell) == []
 
 
 def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, config, tmp_path):
@@ -2756,7 +2787,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     assert shell.enqueues() == [] and len(escalations(shell)) == 1
     shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
 
 
 def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_a_later_go_authorizes_nothing(shell, config, tmp_path):
@@ -2779,7 +2810,7 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     assert shell.enqueues() == []
     shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_go_naming_the_reserved_key_authorizes_nothing(shell, config, tmp_path):
@@ -2810,7 +2841,7 @@ def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless
     assert shell.enqueues() == [] and [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-ASK"]
     shell.check_pr["29020"] = (0, "")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(escalations(shell)) == 1
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
 
 
 def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_posted_twice(shell, config, tmp_path):
@@ -2930,7 +2961,7 @@ def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_b
     assert any("#29020 cccc333333: unproven: redundant skip, no child in the ledger, so no full test build proves cccc333333" in body for body in bodies)
     built(shell, "cccc333333", "78286", FULL_BUILD)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def status(pipeline: str, number: str, state: str = "success") -> dict:
@@ -2987,7 +3018,7 @@ def test_a_redundant_skip_head_is_proven_by_a_full_run_its_lane_reports_green_on
     cci_record(shell, lane=LANE, kind="note", to=["root"], at=actions.stamp(shell.now()), text="full run green 78301 (ffff666, 84 jobs): #28997 #29020. #29031 moved to a new head.")
     shell.builds["78301"] = FULL_BUILD | {"state": "passed", "commit": "ffff666666", "finished_at": "2026-10-01T18:00:00Z"}
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):
@@ -3053,16 +3084,18 @@ def test_every_lane_a_fidelity_list_names_can_grade_a_head(shell, config, tmp_pa
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
+    shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
+    shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     grade(shell, "28997", "ok F307 at aaaa111.")
     grade(shell, "29016", "ok F307 at bbbb222.", lane="fidelity-desk-7")
     landing_pass(shell, config)
-    assert shell.enqueues() == []
+    assert [call[1:] for call in shell.enqueues()] == [["29016", "--partial"]]
     [blocker] = blockers(shell)
     assert blocker["to"].endswith(",fidelity-desk,fidelity-desk-7")
     assert "no review from fidelity-desk or fidelity-desk-7" in blocker["text"]
     grade(shell, "29020", "ok F307 at cccc333.", lane="fidelity-desk-7")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29016", "--partial"], ["29020", "--partial"]]
 
 
 def test_the_newest_grade_across_a_fidelity_list_decides_the_head(shell, config, tmp_path):
@@ -3167,7 +3200,7 @@ def test_a_quota_under_the_floor_reads_nothing_until_its_reset_and_keeps_the_acc
     assert backoff.startswith(f"GITHUB-BACKOFF github-backoff:{bucket}:1790892000 landing: GitHub's {bucket} quota has")
     shell.quota[bucket]["remaining"] = shell.quota[bucket]["limit"]
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shell, config, tmp_path):
@@ -3176,7 +3209,7 @@ def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shel
     shell.quota_error = "ccx: GitHub unreachable"
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["QUOTA-READ-FAILED"]
 
 
@@ -3222,7 +3255,7 @@ def test_a_restack_with_the_graded_heads_patch_carries_its_ok_and_cites_that_hea
     assert (carried.ok, carried.record["seq"], carried.why) == (True, seq, "fidelity: ok at cccc333333, patch-identical to bbbb222")
     shell.calls.clear()
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == [] and escalations(shell) == []
     assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
 
 
@@ -3277,6 +3310,16 @@ def test_a_register_key_a_grade_lists_after_its_head_is_never_probed_as_a_head(s
     assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
 
 
+def test_a_diff_carrying_terminal_escape_sequences_reads_and_carries_the_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at bbbb222.")
+    shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = 'diff --git a/log.go b/log.go\n+const reset = "\x1b[0m"\n'
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert [line for line in escalations(shell) if "PATCH-READ-FAILED" in line] == [] and blockers(shell) == []
+
+
 def test_an_unreadable_head_diff_carries_nothing_and_escalates_once(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at bbbb222.")
@@ -3307,7 +3350,7 @@ def test_a_restack_with_the_finder_ok_heads_patch_carries_the_finder_ok(shell, c
     finder_verdict(shell, "29020", "ok bbbb222 no findings")
     shell.diffs["bbbb222"] = shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
 
 
 def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shell, config, tmp_path):
@@ -3320,7 +3363,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert f"FINDER-PENDING #29020: {LANE} posted on cci #{seq}: finder: major cccc333 1 open: go/a.go:12" in blocker["text"]
     finder_verdict(shell, "29020", "ok cccc333 answered: the PR rebuts it with the sealed-read test")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and len(blockers(shell)) == 1
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
 @pytest.mark.parametrize(
@@ -3352,7 +3395,7 @@ def test_a_check_pr_killed_at_its_bound_warns_once_that_the_rulings_are_unproven
     shell.check_pr["29020"] = (runner_module.TIMED_OUT, "")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
     [note] = [post for post in shell.posts if post["kind"] == "note"]
     assert note["text"].endswith(f"CHECK-PR-TIMEOUT it ran past {runner_module.CHECK_PR_SECONDS}s and was killed, so the rulings at cccc333333 are unproven this pass")
 
@@ -3369,7 +3412,7 @@ def test_a_head_check_pr_names_findings_for_is_enqueued_with_one_warning_naming_
     shell.check_pr["29020"] = (1, out)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == [] and escalations(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == [] and escalations(shell) == []
     [note] = [post for post in shell.posts if post["kind"] == "note"]
     assert note["to"] == LANE
     assert note["text"].endswith(f"WARNING `rulings.py check-pr` warns at cccc333333, and the head is not held for it: {'; '.join(out.splitlines())}")
@@ -3414,7 +3457,7 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     assert shell.enqueues() == []
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333"})
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     tails = [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--lane" in call and "fidelity-desk" in call]
     assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
 
@@ -3439,7 +3482,7 @@ def test_an_ok_counts_whatever_rows_its_checked_set_lists_and_the_register_gains
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333 checked reserved/user-data names user data")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020"]] and blockers(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
 
 
 def test_a_cci_outage_ends_the_landing_pass_without_killing_the_runner(shell, config, tmp_path):
@@ -3800,7 +3843,7 @@ def test_a_lower_priority_value_gates_and_enqueues_first(shell, config, tmp_path
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     shell.enqueue_out["29100"] = (0, "enqueue #29100: {}\n")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29100"], ["29020"]]
+    assert [call[1:] for call in shell.enqueues()] == [["29100", "--partial"], ["29020", "--partial"]]
     assert mq(shell, config, "status") == 0
     trees = [line for line in capsys.readouterr().out.splitlines() if line.startswith("tree ")]
     assert trees == ["tree #29100 priority 0: #29100", "tree #29020 priority 100: #29020"]

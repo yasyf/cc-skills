@@ -777,7 +777,7 @@ def root_slice(loaded: Register) -> str:
 
 
 def compare(shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
-    return parse_diff(shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA]))
+    return parse_diff(shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences"]))
 
 
 def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:

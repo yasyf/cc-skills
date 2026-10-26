@@ -293,7 +293,8 @@ lane's newest grade of the head stands for that lane: a `missing` blocks until t
 posts, and an ok counts as posted, whatever rows the register gained since (4236611). A head no
 grade names carries the ok of an older head whose lanes all stand at ok, when `git patch-id --stable` of both heads'
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
-a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
+a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing. The compare is read with
+`--allow-escape-sequences`, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
 in its prefix is enqueued. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
@@ -436,7 +437,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -505,6 +506,7 @@ CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
+ALLOW_ESCAPES = "--allow-escape-sequences"
 HOLD_LABEL = "hold"
 MERGE_MODES = ("every", "high-risk", "auto")
 ACCEPT_CHECKS = ("rules-review", "rulings", "fidelity", "finder", "merge-mode")
@@ -3736,6 +3738,16 @@ def pr_name(pr: int | str) -> str:
     return str(pr) if "#" in str(pr) else f"#{pr}"
 
 
+def cut_at(prefix: list[str], refused: Iterable[str]) -> str:
+    """What a refusal of `refused` leaves of `prefix`, bottom first: the PRs below the lowest refused one go on without it and everything above it."""
+    held = set(refused)
+    below = list(itertools.takewhile(lambda pr: pr not in held, prefix))
+    if not below:
+        return f"nothing in {numbered(prefix)} was enqueued"
+    out = prefix[len(below) :]
+    return f"the prefix is cut at #{out[0]}, and only {numbered(below)} below it may enqueue, without {numbered(out)}"
+
+
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     bases = {rows[pr].get("base") for pr in prefix}
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
@@ -4044,7 +4056,11 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
-        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads))
+        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
+
+    def exact(self, tops: list[str]) -> merge_queue.Gate:
+        """The gate of exactly `tops` and the PRs below them, leaving out every PR stacked beside or above, as the enqueue of an accepted prefix names them."""
+        return self.proven(self.adapter.check(tops, self.whole(), self.row_heads, not self.whole()))
 
     def proven(self, gate: merge_queue.Gate) -> merge_queue.Gate:
         """`gate` with each GREEN head whose passing build is the Graphite optimizer's redundant-within-its-stack skip read as BLOCKED, and the prefix that would enqueue cut below it, until a full build passes at that head or at the open child it defers to."""
@@ -4187,7 +4203,7 @@ class Landing:
         """`git patch-id --stable` of `sha`'s diff against its merge base with `base`, read from GitHub's compare; empty when GitHub refuses the read, which escalates once for the PR's own head and is silent for a short sha a grade names that is no commit."""
         if (base, sha) in self.patch_ids:
             return self.patch_ids[(base, sha)]
-        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{base}...{sha}", "-H", DIFF_MEDIA])
+        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{base}...{sha}", "-H", DIFF_MEDIA, ALLOW_ESCAPES])
         if diff.code != 0:
             if escalate:
                 last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
@@ -4266,31 +4282,38 @@ class Landing:
             why = grade.why
             owner = self.owner(pr, rows[pr])
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
-            self.post_blocker(key, to, f"#{pr} {heads[pr]}: nothing in {numbered(list(heads))} was enqueued; {why}", pr)
+            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {cut_at(list(heads), ungraded)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
-        """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head; a fresh attempt only after every earlier one enqueued nothing."""
+        """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
         base = enqueue_key(prefix, verdicts)
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
             admitted = self.admit({pr: rows.get(pr, {}).get("head") or (verdicts[pr]["sha"] if pr in verdicts else "") for pr in foreign if not rows.get(pr, {}).get("unadmitted")})
             if unclaimed := [pr for pr in foreign if pr not in admitted]:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
+        while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)):
+            prefix = list(itertools.takewhile(lambda pr: pr not in refused, prefix))
+
+    def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
+        """Accept one enqueue of `prefix` at its heads unless an earlier attempt, ejection, pull, or awaited `go` already decides it; a fresh attempt only after every earlier one enqueued nothing. Returns the PRs the first refusing accept check holds, empty when nothing refused."""
+        base = enqueue_key(prefix, verdicts)
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
         if any(sha and ejected.get(pr) == sha for pr, sha in enqueued_heads(base).items()):
-            return
+            return set()
         pulled = {(action.response["pulled"]["pr"], enqueued_heads(action.action_id).get(action.response["pulled"]["pr"])) for action in enqueues if (action.response or {}).get("outcome") == PULLED}
         if any((pr, sha) in pulled for pr, sha in enqueued_heads(base).items()):
-            return
+            return set()
         if self.awaiting_go(enqueues, enqueued_heads(base)):
-            return
+            return set()
         attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
-            return
-        if self.failing(ACCEPT_CHECKS, Graded(enqueued_heads(base), rows, self.runner.now(), act=True)):
-            return
+            return set()
+        if failed := self.failing(ACCEPT_CHECKS, Graded(enqueued_heads(base), rows, self.runner.now(), act=True)):
+            return set(failed[1])
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), self.authority(), self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+        return set()
 
     def authority(self) -> str:
         policy = self.runner.landing_policy()
@@ -4346,12 +4369,12 @@ class Landing:
             self.reported[key] = causes
         return self.reported[key]
 
-    def refuse_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
+    def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str]) -> None:
         """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: nothing in {numbered(list(graded.heads))} was enqueued; {why}", pr)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {cut_at(list(graded.heads), refused)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
@@ -4413,7 +4436,7 @@ class Landing:
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
         if graded.act:
             for pr, state in states.items():
-                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}", pr, graded, state.reason)
+                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}", pr, graded, state.reason, states)
         return states
 
     def ask_finder_line(self, pr: str, record: dict) -> None:
@@ -4653,7 +4676,7 @@ class Landing:
             self.refuse(key, prefix, {pr: state.reason for pr, state in failed[1].items()})
             return
         tops = prefix_tops(prefix, rows)
-        fresh = self.checked(tops)
+        fresh = self.exact(tops)
         current = enqueue_key(fresh.would, fresh.verdicts) if fresh.would is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))

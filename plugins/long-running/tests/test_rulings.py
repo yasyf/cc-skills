@@ -362,7 +362,7 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["ccn", "-R", "/repo", "answer", "supersede", _, "--by", _]:
                 return ""
-            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 return self.diff
             case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
                 return ""
@@ -1185,9 +1185,9 @@ class SiblingBase(RegisterShell):
         match argv:
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "lane-b"})
-            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA]:
+            case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 return self.diff
-            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA]:
+            case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 raise AssertionError("the required slice compared against main, not the PR's base branch")
         return super().run(argv, stdin, cwd)
 
@@ -1215,7 +1215,7 @@ FIXTURES_DIFF = (
 class LargeDiff(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         match argv:
-            case ["gh", "api", path, "-H", _] if "/compare/" in path:
+            case ["gh", "api", path, "-H", _, "--allow-escape-sequences"] if "/compare/" in path:
                 raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
             case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"refs/rulings/{FULL_HEAD}-{os.getpid()}...{FULL_HEAD}":
                 Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
