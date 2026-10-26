@@ -7,12 +7,12 @@ from captain_hook import (
     Allow,
     Annotated,
     BaseHookEvent,
-    Block,
     Event,
     FromSubagent,
     HookResult,
     Input,
     Tool,
+    Warn,
     on,
 )
 
@@ -68,8 +68,8 @@ def root_decides(evt: BaseHookEvent) -> list[str]:
     only_if=[DriveActive(), Tool("Bash")],
     skip_if=[FromSubagent(), Annotated("raw")],
     tests={
-        decide(PROVENANCE): Block(pattern=r"^The plan does not name `progress\.run_id`"),
-        decide(PARK): Block(pattern=r"^The plan does not name `time`"),
+        decide(PROVENANCE): Warn(pattern=r"^The plan does not name `progress\.run_id`"),
+        decide(PARK): Warn(pattern=r"^The plan does not name `time`"),
         decide("root DECIDE: parking deleted per plan 364"): Allow(),
         decide("root re #129977: binding. Under plan 364 the launch conversion records its checkpoint as the ninth operation."): Allow(),
         decide("Under rule/4d15d92 the app adds a one-hour credential field to the journal launch."): Allow(),
@@ -87,4 +87,4 @@ def root_decide_gate(evt: BaseHookEvent) -> HookResult | None:
         return None
     words = plan.read_text().lower()
     unnamed = next((found for text in texts if (found := invented(text, words))), None)
-    return evt.block(INVENTED.format(mechanism=unnamed)) if unnamed else None
+    return evt.context(INVENTED.format(mechanism=unnamed)) if unnamed else None
