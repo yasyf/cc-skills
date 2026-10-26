@@ -745,6 +745,34 @@ def test_a_repeat_folds_onto_an_order_row_whose_own_names_and_repeat_words_it_ca
     assert [(repeat["words"], repeat["repeat"]) for repeat in json.loads(row["repeats"])] == [(words, True)]
 
 
+@pytest.mark.parametrize("again", ["again", "agajn", "agian", "agin", "aagin"])
+def test_an_extension_opened_with_and_again_or_its_one_edit_misspelling_is_a_repeat(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, again: str
+) -> None:
+    fidelity_desks(state)
+    words = f"and {again} fkr sikans foxes we dont want to preserve rheir shoae ... use your brain and best judgement here do not be a retarded machine act like a frontier model"
+    captured(state, capture("8", words))
+    shell = RegisterShell(seeded(package), records=LIVE)
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "8" * 16, "extends": "rule/aaaaaaa", "words": words})
+
+    assert code == 0, out
+    assert shell.rows["rule/aaaaaaa"]["said"] == "2"
+    assert [repeat["repeat"] for repeat in json.loads(shell.rows["rule/aaaaaaa"]["repeats"])] == [True]
+
+
+def test_and_gain_is_no_repeat_marker(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    fidelity_desks(state)
+    words = "keep the parked worker off relay-server and gain the headroom back"
+    captured(state, capture("9", words))
+    shell = RegisterShell(seeded(package), records=LIVE)
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "9" * 16, "extends": "rule/aaaaaaa", "words": words})
+
+    assert code == 0, out
+    assert shell.rows["rule/aaaaaaa"]["said"] == "1"
+
+
 def test_an_extension_without_repeat_words_is_no_repeat_and_posts_no_sweep(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
