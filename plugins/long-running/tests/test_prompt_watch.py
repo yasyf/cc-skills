@@ -299,7 +299,7 @@ def test_a_supervisor_that_cannot_act_sends_the_coordinators_prompt_to_the_owner
     poll(shell)
 
     [card] = shell.cards
-    assert card["status"] == "needs_you" and card["body"].endswith(f" It froze the coordinator; {why}. Answer it in that terminal.")
+    assert card["status"] == "needs_you" and f" It froze the coordinator; {why}. Answer it in that terminal. Screen: " in card["body"]
     assert shell.to("codex-supervisor") == [] and shell.to("owner") == []
 
 
@@ -315,7 +315,7 @@ def test_a_prompt_still_open_five_minutes_after_the_supervisor_heard_becomes_one
 
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor"]
     [card] = shell.cards
-    assert card["body"].endswith(" It froze the coordinator; supervisor codex-supervisor stayed busy for 5m. Answer it in that terminal.")
+    assert " It froze the coordinator; supervisor codex-supervisor stayed busy for 5m. Answer it in that terminal. Screen: " in card["body"]
     assert shell.sends == []
 
 
