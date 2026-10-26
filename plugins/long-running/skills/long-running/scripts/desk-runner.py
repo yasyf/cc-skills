@@ -251,6 +251,9 @@ wave per priority, lower first. A check that reads no verdict first settles its 
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
 log `GATE-FAILED`. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
+Right after the ledger and holds read, the pass gates and enqueues each tree holding a PR whose ledger head a root `go` record names,
+one tree at a time, so the only PRs that can land reach the queue before the ledger-wide head read, the queue reads, and the gate over
+every other tree.
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
 is gated again, and the adapter blocks it until a new head. A `batch-mate-red` the adapter retries is gated again; one blaming a PR outside the
@@ -3748,6 +3751,15 @@ def cut_at(prefix: list[str], refused: Iterable[str], whole: bool) -> str:
     return f"the prefix is cut at #{out[0]}, and only {numbered(below)} below it may enqueue, without {numbered(out)}"
 
 
+def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
+    """The root `go` records of `gos` that name `pr` and its `head` by a short sha."""
+    return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
+
+
+def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> bool:
+    return any(downstack(open_rows, tip) & prs for tip in tree)
+
+
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     bases = {rows[pr].get("base") for pr in prefix}
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
@@ -3956,7 +3968,8 @@ class Landing:
     def priority(self, rows: dict[str, dict], pr: str) -> int:
         return int(rows.get(pr, {}).get("priority", DEFAULT_PRIORITY))
 
-    def gate(self, rows: dict[str, dict], held: list[str]) -> None:
+    def gate(self, rows: dict[str, dict], held: list[str], gone: set[str]) -> None:
+        """Admit the drive's rows, then gate every tree but those holding a PR of `gone`, which `land_gone` gated earlier in the pass."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         bases = {row.get("base") for row in open_rows.values()}
         self.labels_read = {key: True for key, admitted in self.labels_read.items() if admitted}
@@ -3964,11 +3977,30 @@ class Landing:
         for pr, row in open_rows.items():
             if not row.get("ours") and pr not in admitted and row.get("branch") not in bases:
                 self.runner.escalate(f"not-ours:{pr}@{row.get('head', '')}", "NOT-OURS", f"#{pr}", f"skipped: {NOT_ADMITTED}, so the desk never gates or enqueues it; {ADMIT_HOW.format(pr=pr)}")
+        self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows) if not holds_any(open_rows, tree, gone)])
+
+    def land_gone(self, rows: dict[str, dict], held: list[str]) -> set[str]:
+        """Gate and enqueue each tree holding a PR the root's `go` names at its ledger head, one tree at a time, before the pass reads anything ledger-wide: only those PRs can land, so they reach the queue first. Returns those PRs."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        gos = self.root_gos()
+        gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
+        for tree in self.stack_trees(rows):
+            if holds_any(open_rows, tree, gone):
+                self.gate_trees(rows, held, [tree])
+                self.enqueue()
+        return gone
+
+    def stack_trees(self, rows: dict[str, dict]) -> list[list[str]]:
+        """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, leaving out every tip at or above an incident fix."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         trees = [[tip] for tree in self.trees(rows) for tip in tree] if self.whole() else self.trees(rows)
+        waiting = under_hold(open_rows, self.incident_rows(open_rows))
+        return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
+
+    def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
-        waiting = under_hold(open_rows, self.incident_rows(open_rows))
-        trees = [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
         self.read_reports({pr: sha for _, done in gated if done.would is not None for pr, sha in enqueued_heads(enqueue_key(done.would, done.verdicts)).items()})
@@ -4517,10 +4549,12 @@ class Landing:
         self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
         return True
 
-    def head_gos(self, pr: str, head: str) -> list[dict]:
+    def root_gos(self) -> list[dict]:
         drive = self.runner.config.drive
-        gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
-        return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
+        return [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+
+    def head_gos(self, pr: str, head: str) -> list[dict]:
+        return gone_at(self.root_gos(), pr, head)
 
     def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> set[str]:
         """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha."""
@@ -4644,8 +4678,7 @@ class Landing:
                     dropped[pr] = max(dropped.get(pr, at), at)
         if not dropped:
             return False
-        drive = self.runner.config.drive
-        gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+        gos = self.root_gos()
         return any(not any(actions.parse_stamp(record["at"]) > at and names_pr(record, pr) for record in gos) for pr, at in dropped.items())
 
     def enqueue(self) -> None:
@@ -5134,8 +5167,7 @@ class Landing:
         waiting = [(action, pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") for pr, sha in action.response.get("flaky", {}).items() if rows.get(pr, {}).get("head", "").startswith(sha)]
         if not waiting:
             return
-        drive = self.runner.config.drive
-        gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+        gos = self.root_gos()
         for action, pr, sha in waiting:
             at = actions.parse_stamp(action.response["dropped_at"])
             go = next((record for record in gos if actions.parse_stamp(record["at"]) > at and names_pr(record, pr)), None)
@@ -5412,22 +5444,25 @@ class Landing:
             return
         if self.status_card:
             self.draw_card(rows)
-        self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         entries = holds.read(self.holds)
         unread = self.holds_unread(entries, rows)
         if not rows:
             return
+        held = self.held(rows) if advanced and not unread else None
+        gating = held is not None and not self.checks_paused()
+        gone = self.land_gone(rows, held) if gating else set()
+        self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()
         self.verify(rows)
         self.releases(rows)
         self.ungraded_after()
         self.verify_restacks(rows)
         self.requeue(rows)
-        if advanced and not unread and (held := self.held(rows)) is not None:
+        if held is not None:
             self.squash_incidents(rows, held)
-            if not self.checks_paused():
+            if gating:
                 self.retry_flakes(rows)
-                self.gate(rows, held)
+                self.gate(rows, held, gone)
                 self.enqueue()
         self.runner.overdue(LANDING, "landing")
 
