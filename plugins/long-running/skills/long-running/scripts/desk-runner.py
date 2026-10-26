@@ -467,7 +467,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews, gone_at, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews, gone_at, goes, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -3990,6 +3990,18 @@ class Landing:
         gos = self.root_gos()
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
+    def refuse_ungone_parents(self, rows: dict[str, dict]) -> None:
+        """Post one blocker to the root for each open row a root `go` names at its head that is stacked on a row `unpassed` keeps out: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
+            if pr in self.no_go or not (parents := sorted(downstack(open_rows, pr) & self.no_go, key=int)):
+                continue
+            key = f"go-parent:{pr}@{row['head']}:" + ",".join(f"{parent}@{open_rows[parent]['head']}" for parent in parents)
+            if self.book.known(LANDING, key):
+                continue
+            named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
+            self.post_blocker(key, ROOT, f"#{pr} {row['head'][:10]}: a root go names this head, but it is stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", pr)
+
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -4566,8 +4578,11 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
+        """The root's `go` records on this drive that no root `withdraw` record answers by `--re`."""
         drive = self.runner.config.drive
-        return [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive)]
+        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go", "--kind=withdraw") if record["lane"] == ROOT and record["drive"] == drive]
+        withdrawn = {record.get("re") for record in records if record["kind"] == "withdraw"}
+        return [record for record in records if record["kind"] == "go" and record["seq"] not in withdrawn]
 
     def head_gos(self, pr: str, head: str) -> list[dict]:
         return gone_at(self.root_gos(), pr, head)
@@ -4695,7 +4710,7 @@ class Landing:
         if not dropped:
             return False
         gos = self.root_gos()
-        return any(not any(actions.parse_stamp(record["at"]) > at and names_pr(record, pr) for record in gos) for pr, at in dropped.items())
+        return any(not any(actions.parse_stamp(record["at"]) > at and goes(record, pr) for record in gos) for pr, at in dropped.items())
 
     def enqueue(self) -> None:
         """Run every accepted enqueue, the lowest priority value first: one parallel wave per priority, so a higher-priority prefix reaches the queue before a lower one."""
@@ -5192,7 +5207,7 @@ class Landing:
         gos = self.root_gos()
         for action, pr, sha in waiting:
             at = actions.parse_stamp(action.response["dropped_at"])
-            go = next((record for record in gos if actions.parse_stamp(record["at"]) > at and names_pr(record, pr)), None)
+            go = next((record for record in gos if actions.parse_stamp(record["at"]) > at and goes(record, pr)), None)
             if go is None:
                 continue
             heads = enqueued_heads(action.action_id)
@@ -5517,6 +5532,7 @@ class Landing:
         held = self.held(rows) if advanced and not unread else None
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
+        self.refuse_ungone_parents(rows)
         barred = sorted({*(held or []), *self.no_go}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})

@@ -18,6 +18,9 @@ FINDER_ISSUES = "issues"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
+GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
+GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b")
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -61,9 +64,19 @@ def names_pr(record: dict, pr: str) -> bool:
     return pr in {str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", [])} or re.search(rf"#{pr}\b", record["text"]) is not None
 
 
+def go_heads(record: dict) -> dict[str, str]:
+    """The PRs a root `go` lets merge, each with the head it names: only the `#<n> at <sha>` pairs of the clause the record opens with, `go` or `merge` then the pairs joined by commas or `and`, so a PR and sha the rest of the text mentions in passing are never a go."""
+    clause = GO_CLAUSE.match(record["text"])
+    return dict(GO_HEAD.findall(clause[1])) if clause else {}
+
+
+def goes(record: dict, pr: str) -> bool:
+    return pr in go_heads(record)
+
+
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
-    """The root `go` records of `gos` that name `pr` and its `head` by a short sha."""
-    return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
+    """The root `go` records of `gos` whose opening clause names `pr` at `head` by a short sha."""
+    return [record for record in gos if (named := go_heads(record).get(pr)) and names_head(named, head)]
 
 
 def fidelity_grades(tail: Callable[[list[str]], str], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
