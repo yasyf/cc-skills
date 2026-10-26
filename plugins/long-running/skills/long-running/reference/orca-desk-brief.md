@@ -768,8 +768,9 @@ files, read once per head from `gh api --paginate repos/<repo>/pulls/<n>/files`,
 secrets, the release pipeline, storage formats, and infra rows. A
 waiting PR's prefix enqueues nothing, and the runner asks one merge card per PR and head
 on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it.
-With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card and logs the `MERGE-ASK` alone;
-the root asks the question on its own board. `landing.checks_wait_for_go`, a cci sequence number,
+With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card, and the root asks every merge
+question on its own board. Under `every` the runner then checks only heads a root `go` names: no check or enqueue call names any
+other PR or sweeps it in, it gets no blocker or `MERGE-ASK`, and a PR stacked on it waits. `landing.checks_wait_for_go`, a cci sequence number,
 pauses the whole gate until a root `go` record comes after it: no `stack-enqueue --check`, `MERGE-ASK`, or
 enqueue runs, one `GATE-PAUSED` says so, and refresh, reconcile, head reads, restack routes, and an approved, green incident fix's plain squash go on. The prefix enqueues on
 the pass after a root `go` record names every waiting PR and its current head by a

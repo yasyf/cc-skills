@@ -252,8 +252,9 @@ reads each tip's squash on the freshly fetched trunk, and drops every tip whose 
 log `GATE-FAILED`. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
 Right after the ledger and holds read, the pass gates every tree holding a PR whose ledger head a root `go` record names, eight
-checks at a time, and enqueues what they accept, so the only PRs that can land reach the queue before the ledger-wide head read,
-the queue read, and the gate over every other tree. The queue read is one `ccx vcs pr status` call over every open row a pass,
+checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read,
+the queue read, and the gate over every other tree. Every gate settles each tree in order as its checks come back, and runs the
+enqueue it accepts at once, while the trees after it are still being checked. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the requeue and the landed check share.
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
@@ -409,8 +410,9 @@ so it lands on the root's board and in the root's Slack status thread like every
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
-(default `slack`), the runner posts and edits no card: it still logs each `MERGE-ASK` and enqueues on the root's `go`, and the root asks the
-question on its own board. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
+(default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. Under `every` the runner
+then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, it gets no
+blocker and no `MERGE-ASK`, and a PR stacked on it waits. A go'd head touching a reserved row still logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
 no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
@@ -3864,6 +3866,7 @@ class Landing:
         self.builds: dict[str, dict] = {}
         self.full_runs_read: dict[str, list[dict]] = {}
         self.stacks: dict[str, set[str]] = {}
+        self.no_go: set[str] = set()
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
         self.book.ensure(LANDING, LANDING)
@@ -4011,8 +4014,14 @@ class Landing:
         gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
         if trees := [tree for tree in self.stack_trees(rows, held) if holds_any(open_rows, tree, gone)]:
             self.gate_trees(rows, held, trees)
-            self.enqueue()
         return gone
+
+    def unpassed(self, rows: dict[str, dict]) -> set[str]:
+        """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR, so no check or enqueue call names it as a top or sweeps it in, and no check runs on it (root #131119, #131287). Empty in every other mode, where the gate's check is what asks the owner."""
+        if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
+            return set()
+        gos = self.root_gos()
+        return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -4024,11 +4033,16 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
+        """Check `trees` `GATE_WORKERS` at a time and settle each in order as its checks come back: accept what it would enqueue and run that enqueue at once, so an accepted tree reaches the queue while the trees after it are still being checked."""
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+            for gated in pool.map(self.proven_stacks, trees):
+                self.settle_tree(rows, held, gated)
+                self.enqueue()
+
+    def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
-        with ThreadPoolExecutor(GATE_WORKERS) as pool:
-            gated = [pair for pairs in pool.map(self.proven_stacks, trees) for pair in pairs]
         self.read_reports({pr: sha for _, done in gated if done.would is not None for pr, sha in enqueued_heads(enqueue_key(done.would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
@@ -4366,9 +4380,9 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         if out := cut_out(prefix, set(held), open_rows):
             prefix = [pr for pr in prefix if pr not in out]
-            named = numbered([pr for pr in out if pr in held])
-            left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
-            self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {named}, so {numbered(out)} stay out of the batch and {left}")
+            if named := [pr for pr in out if pr in held and pr not in self.no_go]:
+                left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
+                self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {numbered(named)}, so {numbered(out)} stay out of the batch and {left}")
         if not prefix:
             return
         if fork := unlanded_fork(prefix, open_rows):
@@ -5510,7 +5524,9 @@ class Landing:
             return
         held = self.held(rows) if advanced and not unread else None
         gating = held is not None and not self.checks_paused()
-        gone = self.land_gone(rows, held) if gating else set()
+        self.no_go = self.unpassed(rows) if gating else set()
+        barred = sorted({*(held or []), *self.no_go}, key=int)
+        gone = self.land_gone(rows, barred) if gating else set()
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()
         self.verify(rows)
@@ -5522,7 +5538,7 @@ class Landing:
             self.squash_incidents(rows, held)
             if gating:
                 self.retry_flakes(rows)
-                self.gate(rows, held, gone)
+                self.gate(rows, barred, gone)
                 self.enqueue()
         self.runner.overdue(LANDING, "landing")
 

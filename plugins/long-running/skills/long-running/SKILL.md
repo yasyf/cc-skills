@@ -1525,6 +1525,13 @@ An answer covers only the head it names, so a new head asks again. A changed-fil
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.
 
+With `landing.merge_ask_surface` set to `board`, the root asks every merge question
+on its own board, and under `every` the runner checks only heads a root `go` names.
+It bars every other open PR like a held one: no `stack-enqueue` call, `--check`
+included, names it as a top or sweeps it in, it gets no blocker and no `MERGE-ASK`,
+and a go'd PR stacked on it waits (root #131119, #131287). Each tree the pass gates
+enqueues right after its accept, while the trees after it are still being checked.
+
 A repository the runner's own GitHub account owns, the login `gh api user` prints,
 lands once green under every merge mode, with no card (de6c88c). A reserved touch
 there still asks.
