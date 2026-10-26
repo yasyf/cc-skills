@@ -1522,7 +1522,10 @@ replies on the board and under the Slack card with the link back to it.
 A tap reaches the root as a `slack.action` directive. The root answers `Merge` with
 `cci post --drive <drive> --lane root --kind go --pr <n> --text "merge #<n> at <short sha>"`,
 and the runner enqueues the prefix on its next pass once a root `go` names every
-waiting PR at its current head. The root answers `Hold` with `holds.py add --pr <n>`. `Other` opens a Slack modal, and
+waiting PR at its current head. Only the clause a `go` opens with names a PR: `go` or
+`merge`, then `#<n> at <short sha>` pairs joined by commas or `and`. A PR and sha the
+rest of the text mentions, a routing note or ruling posted as `go`, and a `go` a root
+`withdraw` answers by `--re` let nothing merge. The root answers `Hold` with `holds.py add --pr <n>`. `Other` opens a Slack modal, and
 the text the owner types there reaches the root as the card's capture. It merges nothing,
 and the root classifies it as a capture.
 An answer covers only the head it names, so a new head asks again. A changed-files
@@ -1533,7 +1536,8 @@ With `landing.merge_ask_surface` set to `board`, the root asks every merge quest
 on its own board, and under `every` the runner checks only heads a root `go` names.
 It bars every other open PR like a held one: no `stack-enqueue` call, `--check`
 included, names it as a top or sweeps it in, and a go'd PR stacked on it waits
-(root #131119, #131287). After the go'd trees enqueue, the pass's one
+(root #131119, #131287), with one blocker to the root per head naming each parent
+that still needs its go. After the go'd trees enqueue, the pass's one
 `ccx vcs pr status` read routes those PRs instead: a conflict, red CI, or requested
 changes goes to the lane as that head's blocker, and a landable head runs the
 accept checks, so its `MERGE-ASK` still reaches the root's board. Each tree the pass gates

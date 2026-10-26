@@ -2963,7 +2963,54 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    assert escalations(shell) == []
+    assert escalations(shell) == [ungone_parent("29101", "ffff666666", "#29100 at eeee555555")]
+
+
+def ungone_parent(pr: str, head: str, parents: str) -> str:
+    return f"#{pr} {head}: a root go names this head, but it is stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+
+
+def two_pr_stack(shell: FakeShell) -> None:
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29031", "lane": LANE, "branch": "a/2", "base": "a/1", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29031"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 GREEN dddd444444 graphite READY", would="#29020 #29031")]
+    shell.enqueue_out["29031"] = (0, "enqueue #29020 #29031: {}\n")
+    for pr, head in (("29020", "cccc333"), ("29031", "dddd444")):
+        grade(shell, pr, f"ok F307 at {head}.")
+
+
+@pytest.mark.parametrize(
+    "passing",
+    [
+        "p5-pass-2 owns #29020 #29031: post your own claim now. Finders for #29020 cccc333 and #29031 dddd444 are running",
+        "merge #29031 at dddd444: it sits above #29020 cccc333, which waits for his fresh tap",
+        "withdrawn: go for #29020 at cccc333 (#131549)",
+    ],
+)
+def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it_into_the_batch(shell, config, tmp_path, passing):
+    board_surface(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    root_go(shell, passing, shell.now())
+    landing_pass(shell, config)
+    assert stack_named(shell) == set() and shell.enqueues() == []
+    assert ungone_parent("29031", "dddd444444", "#29020 at cccc333333") in [post_body(post) for post in blockers(shell) if post["to"] == "root"]
+    merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
+
+
+def test_a_withdrawn_root_go_lets_nothing_merge(shell, config, tmp_path):
+    board_surface(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    seq = shell.records[-1]["seq"]
+    cci_record(shell, lane="root", kind="withdraw", re=seq, text=f"withdrawn: #{seq}, the owner never tapped this head", to=["desk-runner"], at=actions.stamp(shell.clock))
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 
 @pytest.mark.parametrize("mode", ["every", "auto"])
