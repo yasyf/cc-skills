@@ -25,6 +25,7 @@ class FakeShell(board_rows.Shell):
         self.gh_fails = False
         self.verdicts: dict[str, dict[str, dict]] = {}
         self.outcomes_fail = False
+        self.saved: list[str] = []
         self.pushed: list[tuple[list[str], dict]] = []
 
     def run(self, argv: list[str]) -> board_rows.Done:
@@ -59,13 +60,17 @@ class FakeShell(board_rows.Shell):
     def read(self, path: str) -> str | None:
         return self.blobs.get(path)
 
+    def files(self, directory: Path) -> list[str]:
+        assert directory.name == "finders"
+        return self.saved
+
     def pull(self, pr: str, head: str = HEAD, state: str = "OPEN", committed: str = COMMITTED) -> None:
         self.pulls[pr] = {"state": state, "headRefOid": head, "commits": {"nodes": [{"commit": {"committedDate": committed}}]}}
 
-    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None) -> int:
+    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE) -> int:
         seq = len(self.records) + 1
         refs = {"prs": [f"{REPO}#{pr}"]} if pr else {}
-        self.records.append({"seq": seq, "drive": DRIVE, "kind": kind, "lane": lane, "text": text, "refs": refs | ({"path": path} if path else {})})
+        self.records.append({"seq": seq, "drive": drive, "kind": kind, "lane": lane, "text": text, "refs": refs | ({"path": path} if path else {})})
         return seq
 
     def graded(self, pr: str, head: str = HEAD) -> None:
@@ -273,3 +278,52 @@ def test_a_github_or_board_outage_warns_and_fails_no_row_on_what_it_could_not_re
     out = lines(capsys)
     assert out[0].startswith("WARN GitHub refused the PR read for #42590: HTTP 502: Bad Gateway")
     assert out[1].startswith("WARN the board's verdicts did not read (cc-present outcomes exited 1: no board for this session)")
+
+
+def fidelity_only(shell: FakeShell, pr: str) -> None:
+    shell.pull(pr)
+    shell.post("review", "fidelity-desk", f"fidelity: ok {HEAD[:7]} checked rule/1", pr)
+
+
+def warned(capsys: pytest.CaptureFixture[str]) -> int:
+    return json.loads(capsys.readouterr().out)["counts"]["ungraded"]
+
+
+@pytest.mark.parametrize(
+    ("text", "pr_ref"),
+    [
+        (f"finder: ok {HEAD[:7]} no majors", True),
+        (f"finder: major {HEAD[:7]} 2 open: vet.sh:40 row missing", True),
+        (f"finder: issues {HEAD[:12]} #42591: nine majors in two groups", True),
+        (f"finder [42591] issues {HEAD[:7]}: gpt-6.1-sol, 2 majors (finder/s8.1.txt)", False),
+        (f"p8a-step6 finder verdict, #42591 at {HEAD[:7]} (journal ladder): 1 major, fixed", False),
+    ],
+)
+def test_a_finder_review_posted_in_any_form_lanes_use_counts_at_its_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], text: str, pr_ref: bool) -> None:
+    fidelity_only(shell, "42591")
+    shell.post("review", "p8b-step8", text, "42591" if pr_ref else None)
+
+    assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
+
+    assert warned(capsys) == 0
+
+
+def test_a_ref_less_finder_review_about_another_pr_does_not_count(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    fidelity_only(shell, "42591")
+    shell.post("review", "p8b-step8", f"finder [42751] issues {HEAD[:7]}: 2 majors")
+    shell.post("review", "p8b-step8", f"finder: ok {HEAD[:7]} on #42591", "42751")
+    shell.post("review", "p8b-step8", f"finder: ok {HEAD[:7]} #42591", drive="other")
+
+    assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
+
+    assert warned(capsys) == 1
+
+
+@pytest.mark.parametrize(("saved", "ungraded"), [([f"42591-{HEAD[:7]}.md"], 0), ([f"42591-{NEW_HEAD[:7]}.md", f"42592-{HEAD[:7]}.md"], 1)])
+def test_a_saved_codex_finder_reply_counts_only_for_its_pr_and_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], saved: list[str], ungraded: int) -> None:
+    fidelity_only(shell, "42591")
+    shell.saved = saved
+
+    assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
+
+    assert warned(capsys) == ungraded

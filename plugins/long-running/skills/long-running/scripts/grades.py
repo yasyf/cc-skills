@@ -13,7 +13,8 @@ FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
-FINDER_SAYS = re.compile(r"\bfinder: (ok|major)\b", re.IGNORECASE)
+FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|major|issues)\b", re.IGNORECASE)
+FINDER_ISSUES = "issues"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -31,7 +32,7 @@ def graded_head(text: str) -> str:
 
 def finder_grade(text: str) -> str:
     if said := FINDER_SAYS.search(text):
-        return said[1].lower()
+        return FINDER_FAIL if said[1].lower() == FINDER_ISSUES else said[1].lower()
     if FINDER_MAJOR.search(text):
         return FINDER_FAIL
     return FINDER_PASS if FINDER_CLEAN.search(text) else ""
@@ -67,7 +68,10 @@ def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
 
 def fidelity_grades(tail: Callable[[list[str]], str], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
     """Every grade a fidelity lane posted about `pr`, read by its `owner/repo#N` reference, which cci also matches to a post that named the bare number."""
-    reviews = [record for lane in lanes for record in cci.records(tail, drive, "--kind=review", "--lane", lane, "--pr", f"{repo}#{pr}")]
+    return fidelity_grades_in([record for lane in lanes for record in cci.records(tail, drive, "--kind=review", "--lane", lane, "--pr", f"{repo}#{pr}")], drive, lanes, repo, pr)
+
+
+def fidelity_grades_in(reviews: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
     return [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in lanes and record["text"].startswith(FIDELITY_GRADES) and pr in dict(repo_prs(record, repo))]
 
 
@@ -77,8 +81,20 @@ def standing(grades: list[dict], lanes: list[str], sha: str) -> list[dict]:
 
 
 def finder_reviews(tail: Callable[[list[str]], str], drive: str, repo: str, pr: str) -> list[dict]:
-    """Every finder review about `pr`, with the verdict it reads as and the head it names, or the head the newest `head` record before it posted."""
-    records = [record for record in cci.records(tail, drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{pr}") if record["drive"] == drive and pr in dict(repo_prs(record, repo))]
+    """Every finder review about `pr` its `owner/repo#N` reference finds, as `finder_reviews_in` reads them."""
+    return finder_reviews_in(cci.records(tail, drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{pr}"), drive, repo, pr)
+
+
+def about_pr(record: dict, repo: str, pr: str) -> bool:
+    """Whether `record` is about `pr`: its refs name it, or it carries no PR ref and its text names `#<pr>` or `[<pr>]`."""
+    if record.get("refs", {}).get("prs"):
+        return pr in dict(repo_prs(record, repo))
+    return re.search(rf"#{pr}\b|\[{pr}\]", record["text"]) is not None
+
+
+def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list[dict]:
+    """Every finder review in `found` about `pr`, with the verdict it reads as and the head it names, or the head the newest `head` record about `pr` before it posted."""
+    records = [record for record in found if record["drive"] == drive and record["kind"] in ("review", "head") and about_pr(record, repo, pr)]
     heads = [record for record in records if record["kind"] == "head"]
     reviews = []
     for record in records:
