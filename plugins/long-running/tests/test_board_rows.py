@@ -1,4 +1,4 @@
-"""board_rows.py over a fake GitHub, drive bus, and board: a merge row passes only at its PR's current head, with every field the owner decides by, in words written after that head, while the PR is open and unruled and its recorded verdict stays where the board keys it."""
+"""board_rows.py over a fake GitHub, drive bus, and board: a merge row, a triage item or a pr-groups row, passes only at its PR's current head, with every field the owner decides by, in words written after that head, while the PR is open and unruled and its recorded verdict stays where the board keys it."""
 
 from __future__ import annotations
 
@@ -88,6 +88,15 @@ def row(pr: str, head: str = HEAD, text_at: str | None = WRITTEN, md: str = "Sav
 
 def card(*items: dict, block: str = "merge-triage") -> dict:
     return {"id": "card-merge-triage", "type": "card", "children": [{"id": block, "type": "triage", "items": list(items)}]}
+
+
+def pr_row(pr: str, head: str = HEAD, text_at: str | None = WRITTEN, **fields: str) -> dict:
+    row = {"number": int(pr), "head": head[:7], "title": "A change", "md": "Full text."} | {name: f"{name} in plain words" for name in board_rows.PR_FIELDS} | fields
+    return row | ({"textAt": text_at} if text_at else {})
+
+
+def groups(*rows: dict, block: str = "merge-prs") -> dict:
+    return {"id": "card-merge-triage", "type": "card", "children": [{"id": block, "type": "pr-groups", "repo": REPO, "groups": [{"id": "g1", "title": "A group", "summary": "One line.", "prs": list(rows)}]}]}
 
 
 def gate(tmp_path: Path, shell: FakeShell, block: dict, *argv: str) -> int:
@@ -327,3 +336,39 @@ def test_a_saved_codex_finder_reply_counts_only_for_its_pr_and_head(tmp_path: Pa
     assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
 
     assert warned(capsys) == ungraded
+
+
+def test_a_fresh_graded_pr_groups_row_pushes_a_copy_without_its_text_time(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
+
+    [(_, pushed)] = shell.pushed
+    assert pushed == groups(pr_row("42590", text_at=None))
+    assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0"]
+
+
+def test_a_pr_groups_row_behind_its_prs_head_or_missing_a_field_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("42590", head=NEW_HEAD)
+
+    assert gate(tmp_path, shell, groups(pr_row("42590", review="")), "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} missing: review; stale: GitHub's head is {NEW_HEAD[:7]}"
+    assert shell.pushed == []
+
+
+def test_a_triage_verdict_moved_onto_its_pr_groups_row_passes(tmp_path: Path, shell: FakeShell) -> None:
+    shell.verdicts = {"merge-triage": {}, "merge-prs": {"42590": {"verdict": "approved", "head": HEAD[:7]}}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
+def test_a_triage_verdict_left_behind_fails_the_pr_groups_row_until_a_re_key_names_its_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} renamed: decided as merge-row-42590, and no root re-key record names 42590"
+
+    shell.post("go", "root", "re-key 42590 to ad4a275")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+
+    shell.post("go", "root", f"re-key #42590 to {HEAD[:7]}")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
