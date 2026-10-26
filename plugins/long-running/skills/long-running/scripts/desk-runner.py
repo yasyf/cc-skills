@@ -303,8 +303,8 @@ a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and any accept check
 that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own with `--partial`, leaving the refused PR
 and every PR above it out, and the refused PR's blocker names it as the cut. Graphite keeps one linear chain per batch, so a
-prefix that forks enqueues only the chain under its first top and logs `FORK-DEFERRED` naming the other PRs and the fork; a
-prefix stacked on an open fork outside it waits, with the same line, until that fork lands. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
+prefix that forks enqueues one call per chain in the same pass, bottom chain first, each naming its top with `--partial`; a
+prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until that fork lands. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
@@ -3746,23 +3746,18 @@ def pr_name(pr: int | str) -> str:
     return str(pr) if "#" in str(pr) else f"#{pr}"
 
 
-def cut_at(prefix: list[str], refused: Iterable[str], whole: bool) -> str:
-    """What a refusal of `refused` leaves of `prefix`, bottom first: the PRs below the lowest refused one go on without it and everything above it, and nothing goes on under the whole-stack policy."""
-    held = set(refused)
-    below = list(itertools.takewhile(lambda pr: pr not in held, prefix))
-    if whole or not below:
+def cut_at(prefix: list[str], refused: Iterable[str], whole: bool, open_rows: dict[str, dict]) -> str:
+    """What a refusal of `refused` leaves of `prefix`: every PR not stacked on a refused one goes on without the refused PRs and those above them, and nothing goes on under the whole-stack policy."""
+    out = cut_out(prefix, set(refused), open_rows)
+    kept = [pr for pr in prefix if pr not in out]
+    if whole or not kept:
         return f"nothing in {numbered(prefix)} was enqueued"
-    out = prefix[len(below) :]
-    return f"the prefix is cut at #{out[0]}, and only {numbered(below)} below it may enqueue, without {numbered(out)}"
+    return f"the prefix is cut at #{out[0]}, and only {numbered(kept)} may enqueue, without {numbered(out)}"
 
 
-def first_chain(prefix: list[str], open_rows: dict[str, dict]) -> list[str]:
-    """The PRs of `prefix` below and at its first top, in prefix order: the one linear chain a Graphite batch keeps."""
-    tops = prefix_tops(prefix, open_rows)
-    if len(tops) < 2:
-        return prefix
-    below = downstack(open_rows, tops[0])
-    return [pr for pr in prefix if pr in below]
+def cut_out(prefix: list[str], refused: set[str], open_rows: dict[str, dict]) -> list[str]:
+    """The PRs of `prefix` that are refused or stacked above a refused one."""
+    return [pr for pr in prefix if pr in refused or downstack(open_rows, pr) & refused]
 
 
 def unlanded_fork(prefix: list[str], open_rows: dict[str, dict]) -> str:
@@ -4117,8 +4112,8 @@ class Landing:
     def checked(self, tips: list[str]) -> merge_queue.Gate:
         return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
 
-    def left(self, prefix: list[str], refused: Iterable[str]) -> str:
-        return cut_at(prefix, refused, self.whole())
+    def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
+        return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})
 
     def exact(self, tops: list[str]) -> merge_queue.Gate:
         """The gate of exactly `tops` and the PRs below them, leaving out every PR stacked beside or above, as the enqueue of an accepted prefix names them."""
@@ -4354,7 +4349,7 @@ class Landing:
             why = grade.why
             owner = self.owner(pr, rows[pr])
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
-            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded)}; {why}", pr)
+            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
@@ -4365,7 +4360,7 @@ class Landing:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        if out := [pr for pr in prefix if downstack(open_rows, pr) & set(held)]:
+        if out := cut_out(prefix, set(held), open_rows):
             prefix = [pr for pr in prefix if pr not in out]
             named = numbered([pr for pr in out if pr in held])
             left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
@@ -4375,13 +4370,9 @@ class Landing:
         if fork := unlanded_fork(prefix, open_rows):
             self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
             return
-        chain = first_chain(prefix, open_rows)
-        if deferred := [pr for pr in prefix if pr not in chain]:
-            fork = [pr for pr in chain if any(pr in downstack(open_rows, other) for other in deferred)][-1]
-            self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(deferred)} fork off #{fork}; Graphite keeps one linear chain per batch, so this pass enqueues {numbered(chain)} and the others enqueue once #{fork} lands")
-            prefix = chain
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
-            prefix = list(itertools.takewhile(lambda pr: pr not in refused, prefix))
+            out = cut_out(prefix, refused, open_rows)
+            prefix = [pr for pr in prefix if pr not in out]
 
     def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
         """Accept one enqueue of `prefix` at its heads unless an earlier attempt, ejection, pull, or awaited `go` already decides it; a fresh attempt only after every earlier one enqueued nothing. Returns the PRs the first refusing accept check holds, empty when nothing refused."""
@@ -4462,7 +4453,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused)}; {why}", pr)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
@@ -4775,12 +4766,23 @@ class Landing:
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
             return
-        outcome, out, last = self.adapter.enqueue(tops, self.whole(), enqueued_heads(key))
+        outcome, out, last = self.enqueue_chains(tops, enqueued_heads(key))
         if outcome in BELIEVED_QUEUED and "hold" in self.checks and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last)
+
+    def enqueue_chains(self, tops: list[str], heads: dict[str, str]) -> tuple[str, str, str]:
+        """One adapter enqueue per top, bottom chain first, since Graphite keeps one linear chain per batch: a sibling chain after the first goes in as its own batch on the queued fork. The first call that does not enqueue ends the run and names its outcome."""
+        outcome, outs, last = "noop", [], ""
+        for top in tops:
+            done, out, last = self.adapter.enqueue([top], self.whole(), heads)
+            outs.append(out)
+            if done not in BELIEVED_QUEUED:
+                return done, "".join(outs)[-1500:], last
+            outcome = "enqueued" if "enqueued" in (outcome, done) else done
+        return outcome, "".join(outs)[-1500:], last
 
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
