@@ -2156,6 +2156,31 @@ def test_a_gate_pass_never_runs_more_checks_at_once_than_gate_workers(shell, con
     assert peak[0] <= runner_module.GATE_WORKERS
 
 
+def test_an_accepted_tree_enqueues_while_a_later_tree_is_still_being_checked(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.gates["29100"] = [gate("#29100 BLOCKED dddd444444 CI running (graphite RUNNING)")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    check, queued_first = shell.stack_enqueue, []
+
+    def slow(argv):
+        if argv[0] == "29100" and "--check" in argv:
+            deadline = time.monotonic() + 5
+            while not shell.enqueues() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            queued_first.append(bool(shell.enqueues()))
+        return check(argv)
+
+    shell.stack_enqueue = slow
+    landing_pass(shell, config)
+    assert queued_first and all(queued_first)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
     (tmp_path / "holds.md").write_text("release #29020 owner reviewed\n")
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
@@ -2852,22 +2877,48 @@ def test_checks_wait_for_go_runs_no_gate_until_a_root_go_comes_after_its_sequenc
     assert checks() and len(shell.enqueues()) == 1
 
 
-def test_a_board_surface_posts_no_merge_card_and_still_logs_the_ask_and_enqueues_on_the_go(shell, config, tmp_path):
+def board_surface(config: Path) -> None:
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
     raw["landing"]["merge_ask_surface"] = "board"
     config.write_text(json.dumps(raw))
+
+
+def stack_named(shell: FakeShell) -> set[str]:
+    return {pr for call in shell.calls if Path(call[0]).name == "stack-enqueue" for pr in itertools.takewhile(str.isdigit, call[1:])}
+
+
+def test_a_board_surface_checks_nothing_until_a_root_go_names_the_head_then_enqueues(shell, config, tmp_path):
+    board_surface(config)
     batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers on the root's board, where the root asks it, waiting on `merge:29020:cccc333`")
-    assert shell.pr_cards == [] and not [call for call in shell.calls if call[:2] == ["cc-present", "ask"]]
+    assert checks(shell) == [] and escalations(shell) == [] and shell.pr_cards == []
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and escalations(shell) == []
+
+
+def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_its_head(shell, config, tmp_path):
+    board_surface(config)
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29031", "lane": LANE, "branch": "a/2", "base": "a/1", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+        {"pr": "29101", "lane": LANE, "branch": "b/2", "base": "b/1", "head": "ffff666666", "state": "open", "reported_head": "ffff666666"},
+    ]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 GREEN dddd444444 graphite READY", would="#29020 #29031"), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    for pr, head in (("29020", "cccc333"), ("29101", "ffff666")):
+        grade(shell, pr, f"ok F307 at {head}.")
+        merge_go(shell, pr, f"merge #{pr} at {head}")
+    merge_go(shell, "29100", "merge #29100 at bbbb222")
+    landing_pass(shell, config)
+    assert stack_named(shell) == {"29020"}
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert escalations(shell) == []
 
 
 @pytest.mark.parametrize("mode", ["every", "auto"])
