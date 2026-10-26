@@ -1338,6 +1338,15 @@ def finder_verdict(shell: FakeShell, pr: str, text: str, lane: str = LANE) -> in
     return seq
 
 
+def test_a_finder_review_that_names_the_pr_only_in_its_text_lets_the_head_enqueue(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.", finder=False)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "review", "to": ["root"], "refs": {}, "text": "finder [29020] ok cccc333 no findings"})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=head" in call and "--pr" in call]
+
+
 def grade_gated_heads_ok(shell: FakeShell) -> None:
     for outs in shell.gates.values():
         for out in outs:

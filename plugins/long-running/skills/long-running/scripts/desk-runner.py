@@ -467,7 +467,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews, gone_at, goes, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews_in, gone_at, goes, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -3822,6 +3822,8 @@ class Landing:
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
+        self.reviews: list[dict] | None = None
+        self.scanning = threading.Lock()
         self.designed_red: dict[str, bool] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
@@ -4466,7 +4468,12 @@ class Landing:
         return {}
 
     def finder_reviews(self, pr: str) -> list[dict]:
-        return finder_reviews(self.runner.cci_tail, self.runner.config.drive, self.repo, pr)
+        """Every finder review about `pr`, from one scan of the drive's `review` and `head` records a pass, so a review whose text names the PR but whose refs do not still counts."""
+        drive = self.runner.config.drive
+        with self.scanning:
+            if self.reviews is None:
+                self.reviews = cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=head")
+        return finder_reviews_in(self.reviews, drive, self.repo, pr)
 
     def finder_records(self, pr: str) -> list[dict]:
         return finder_records(self.finder_reviews(pr))
@@ -5522,7 +5529,7 @@ class Landing:
 
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}, {}
-        self.statuses, self.queues_read = None, False
+        self.statuses, self.queues_read, self.reviews = None, False, None
         if self.quota_low():
             return
         advanced = self.advance()
