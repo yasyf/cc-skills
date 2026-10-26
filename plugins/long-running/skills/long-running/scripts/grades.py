@@ -20,7 +20,7 @@ FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", r
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
-GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b")
+GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -67,7 +67,7 @@ def names_pr(record: dict, pr: str) -> bool:
 def go_heads(record: dict) -> dict[str, str]:
     """The PRs a root `go` lets merge, each with the head it names: only the `#<n> at <sha>` pairs of the clause the record opens with, `go` or `merge` then the pairs joined by commas or `and`, so a PR and sha the rest of the text mentions in passing are never a go."""
     clause = GO_CLAUSE.match(record["text"])
-    return dict(GO_HEAD.findall(clause[1])) if clause else {}
+    return {pr: sha.lower() for pr, sha in GO_HEAD.findall(clause[1])} if clause else {}
 
 
 def goes(record: dict, pr: str) -> bool:

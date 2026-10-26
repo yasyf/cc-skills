@@ -2997,7 +2997,7 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
     landing_pass(shell, config)
     assert stack_named(shell) == set() and shell.enqueues() == []
     assert ungone_parent("29031", "dddd444444", "#29020 at cccc333333") in [post_body(post) for post in blockers(shell) if post["to"] == "root"]
-    merge_go(shell, "29020", "go #29020 at cccc333 and #29031 at dddd444 (owner taps 3:10 PM)")
+    merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
 
