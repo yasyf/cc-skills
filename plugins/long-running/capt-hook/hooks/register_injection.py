@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -82,7 +83,7 @@ def agent_spawn(call: TaskCall) -> Spawn | None:
         return None
     prompt = call.raw.get("prompt") or ""
     lane, incident = call.agent_name or "lane", incident_spawn(call, prose(call)[:1])
-    named = [path for found in BRIEF_FILE.findall(prompt) if (path := Path(found).expanduser()).is_file()]
+    named = [path for found in BRIEF_FILE.findall(prompt) if os.path.isfile(path := Path(found).expanduser())]
     holder = next((path for path in named if SLICE_HEADER.search(path.read_text())), None)
     if SLICE_HEADER.search(prompt) or not holder:
         return Spawn(lane, incident, prompt, holder or next(iter(named), None), inline=True)
@@ -92,7 +93,7 @@ def agent_spawn(call: TaskCall) -> Spawn | None:
 def launch_spawn(evt: BaseHookEvent) -> Spawn | None:
     for call in evt.command.calls():
         name, args = Path(call.name).name, list(call.args)
-        if not args or not (brief := Path(args[-1]).expanduser()).is_file():
+        if not args or not os.path.isfile(brief := Path(args[-1]).expanduser()):
             continue
         if name == "orca-launch.sh" and len(args) >= 4:
             return Spawn(args[0], args[1] == "incident", brief.read_text(), brief, inline=False)
@@ -141,6 +142,8 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
         Input(command=f"codex-ask --dispatch --lane lane-a {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Warn(pattern=r"unsliced\.md"),
         Input(command=f"codex-ask --dispatch --lane lane-a-sub {BRIEFS / 'unsliced.md'}", agent_id="a1b2c3", state=[ACTIVE], env=DRIVE_CONFIG): Warn(pattern=r"unsliced\.md"),
         Input(command=f"codex-ask -s /tmp/finder {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
+        Input(command=f"codex-ask --dispatch --lane lane-a '{'inline brief ' * 40}'", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
+        spawn("lane-a", f"Lane lane-a: read /{'x' * 300}.md. {SLICED}", commands=FRESH_SLICE): Allow(),
     },
 )
 def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
