@@ -2198,11 +2198,8 @@ def test_each_lane_form_holds_the_open_rows_of_the_lane_it_names(shell, config, 
 def test_the_two_lane_lines_the_reader_dropped_hold_both_lanes(shell, config, tmp_path):
     (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n{SIZING_HOLD}\n")
     shell.rows = phase_b_rows()
-    shell.gates["36934"] = [gate("#36934 BLOCKED dddd444444 held")]
-    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell)
-    assert shell.enqueues() == [] and escalations(shell) == []
+    assert stack_enqueue_calls(shell) == [] and escalations(shell) == []
 
 
 @pytest.mark.parametrize("line", [PUBLISH_HOLD, f"HOLD {PUBLISH_LANE} (L34 re-land)", f"lane:{PUBLISH_LANE} waits for the L32 pass"])
@@ -2222,10 +2219,8 @@ def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escala
     ]
     assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["blocker"]
     holds_file.write_text("#36935 HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'\n")
-    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
     landing_pass(shell, config)
-    assert stack_enqueue_calls(shell)
-    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+    assert stack_enqueue_calls(shell) == [] and len(escalations(shell)) == 1
 
 
 def test_a_lane_line_whose_rows_have_all_landed_holds_nothing_and_stops_nothing(shell, config, tmp_path):
@@ -3254,7 +3249,7 @@ def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):
 def test_a_quota_under_the_floor_reads_nothing_until_its_reset_and_keeps_the_accepted_enqueue(shell, config, tmp_path, bucket):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
-    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.quota[bucket]["remaining"] = int(shell.quota[bucket]["limit"] * 0.05) - 1
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -3282,7 +3277,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     batch_posts(shell, POSTED)
-    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}})
+    landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
     landing_of(shell, config, tmp_path).enqueue()
     assert shell.enqueues() == []
@@ -4750,7 +4745,7 @@ def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config,
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
-    runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
+    runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(key for key in store.load("desk-landing").actions if key.startswith("enqueue:"))
     with store.owned("desk-landing", 0) as live:
         live.start(key, shell.now())
