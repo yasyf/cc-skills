@@ -2668,7 +2668,7 @@ def test_the_prs_a_root_go_names_enqueue_before_any_status_read_of_the_rest_of_t
         grade(shell, pr, f"ok F307 at {heads[pr][:7]}.")
         merge_go(shell, pr, f"merge #{pr} at {heads[pr][:7]}")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [[pr, "--partial"] for pr in gone]
+    assert sorted(call[1:] for call in shell.enqueues()) == [[pr, "--partial"] for pr in gone]
     last = max(shell.calls.index(call) for call in shell.enqueues())
     rest = {pr: head for pr, head in heads.items() if pr not in gone}
     assert all(shell.calls.index(call) > last for call in checks(shell) if call[1] in rest)
@@ -2722,6 +2722,27 @@ def test_a_chain_stacked_on_an_open_fork_waits_for_the_fork_to_land(shell, confi
     shell.gates["31005"] = [gate(green["31004"], green["31005"], would="#31004 #31005")]
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["31003", "--partial"], ["31005", "--partial"]]
+
+
+def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.gates["29100"] = [gate(f"#29100 BLOCKED dddd444444 {CONFLICT}")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.calls.clear()
+    shell.rows[1] = dict(shell.rows[1], head="eeee555555", reported_head="eeee555555")
+    shell.gates["29100"] = [gate(f"#29100 BLOCKED eeee555555 {CONFLICT}")]
+    landing_pass(shell, config)
+    reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+    assert [call[7:] for call in reads] == [["29020", "29100"]]
+    assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
 
 
 def ruling_card(cards: Path, key: str, title: str) -> Path:

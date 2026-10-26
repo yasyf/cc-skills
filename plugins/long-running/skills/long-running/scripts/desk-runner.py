@@ -251,9 +251,10 @@ wave per priority, lower first. A check that reads no verdict first settles its 
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
 log `GATE-FAILED`. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
-Right after the ledger and holds read, the pass gates and enqueues each tree holding a PR whose ledger head a root `go` record names,
-one tree at a time, so the only PRs that can land reach the queue before the ledger-wide head read, the queue reads, and the gate over
-every other tree.
+Right after the ledger and holds read, the pass gates every tree holding a PR whose ledger head a root `go` record names, eight
+checks at a time, and enqueues what they accept, so the only PRs that can land reach the queue before the ledger-wide head read,
+the queue read, and the gate over every other tree. The queue read is one `ccx vcs pr status` call over every open row a pass,
+allowed 300 s, which the requeue and the landed check share.
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
 is gated again, and the adapter blocks it until a new head. A `batch-mate-red` the adapter retries is gated again; one blaming a PR outside the
@@ -580,6 +581,7 @@ COMMAND_TIMEOUT_SECONDS = 1800
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = 180
+QUEUE_STATUS_SECONDS = 300
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
 QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
@@ -744,6 +746,8 @@ def time_bound(argv: list[str]) -> float:
         return CHECK_PR_SECONDS
     if "--check" in argv:
         return GATE_CHECK_SECONDS
+    if argv[:4] == ["ccx", "vcs", "pr", "status"]:
+        return QUEUE_STATUS_SECONDS
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
 
 
@@ -3847,7 +3851,8 @@ class Landing:
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
         self.sessions: dict[str, bool] = {}
-        self.unlanded: set[str] = set()
+        self.queues: dict[str, str] | None = None
+        self.queues_read = False
         self.designed_red: dict[str, bool] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
@@ -4000,14 +4005,13 @@ class Landing:
         self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows, held) if not holds_any(open_rows, tree, gone)])
 
     def land_gone(self, rows: dict[str, dict], held: list[str]) -> set[str]:
-        """Gate and enqueue each tree holding a PR the root's `go` names at its ledger head, one tree at a time, before the pass reads anything ledger-wide: only those PRs can land, so they reach the queue first. Returns those PRs."""
+        """Gate every tree holding a PR the root's `go` names at its ledger head, `GATE_WORKERS` checks at a time, and enqueue what they accept, before the pass reads anything ledger-wide: only those PRs can land, so they reach the queue first. Returns those PRs."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         gos = self.root_gos()
         gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
-        for tree in self.stack_trees(rows, held):
-            if holds_any(open_rows, tree, gone):
-                self.gate_trees(rows, held, [tree])
-                self.enqueue()
+        if trees := [tree for tree in self.stack_trees(rows, held) if holds_any(open_rows, tree, gone)]:
+            self.gate_trees(rows, held, trees)
+            self.enqueue()
         return gone
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
@@ -5139,13 +5143,8 @@ class Landing:
     def requeue(self, rows: dict[str, dict]) -> None:
         """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR."""
         believed = self.believed_queued(rows)
-        numbers = sorted({pr for prs in believed.values() for pr in prs}, key=int)
-        if not numbers:
+        if not any(believed.values()) or (queue := self.queue_states()) is None:
             return
-        done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
-        if done.code != 0:
-            return
-        queue = {str(entry["number"]): entry["queue"] for entry in json.loads(done.out)}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         for key, prs in believed.items():
             dropped = [pr for pr in prs if queue[pr] in OUT_OF_QUEUE]
@@ -5401,14 +5400,19 @@ class Landing:
         return self.sessions[lane]
 
     def has_landed(self, pr: str) -> bool:
-        """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker. The first ask of a pass reads every open ledger row in one `ccx vcs pr status` call."""
-        if pr not in self.landed and pr not in self.unlanded:
-            numbers = sorted({pr, *(number for number, row in self.ledger_rows.items() if row.get("state", "open") == "open")} - self.landed - self.unlanded, key=int)
-            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
-            landed = {str(entry["number"]) for entry in json.loads(done.out) if entry["queue"] == "landed"} if done.code == 0 else set()
-            self.landed |= landed
-            self.unlanded |= set(numbers) - landed
+        """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
+        if pr not in self.landed and (self.queue_states() or {}).get(pr) == "landed":
+            self.landed.add(pr)
         return pr in self.landed
+
+    def queue_states(self) -> dict[str, str] | None:
+        """Every open ledger row's queue state, from one `ccx vcs pr status` call a pass that the requeue read and the landed check share; None when the call fails, and then neither acts that pass."""
+        if not self.queues_read:
+            numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
+            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
+            self.queues = {str(entry["number"]): entry["queue"] for entry in json.loads(done.out)} if done.code == 0 else None
+            self.queues_read = True
+        return self.queues
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)
@@ -5488,7 +5492,8 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported, self.sessions, self.unlanded, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, set(), {}, {}, {}
+        self.reported, self.sessions, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}
+        self.queues, self.queues_read = None, False
         if self.quota_low():
             return
         advanced = self.advance()
