@@ -1749,3 +1749,16 @@ def test_an_owner_rule_row_grounds_a_mechanism_and_a_not_a_mechanism_mark_sets_o
     assert "  accepted rule/bbbbbbb | Drain the pool when a run closes." in printed
     assert f"not-a-mechanism {MIGRATION}:2 [column] parked_at TEXT NOT NULL : the column the plan's table names" in printed
     assert grade == GRADED_OK
+
+
+@pytest.mark.parametrize(("key", "refused"), [("design/s1", True), ("rule/bbbbbbb", False), ("plan:12", False)])
+def test_a_missing_row_must_be_a_plan_line_or_an_owner_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys, key: str, refused: bool) -> None:
+    rows = seeded(package) | {"design/s1": {"kind": "design", "status": "in-force", "global": "yes", "words": "One database per session.", "answer": "[]", "proof": "design-rev.md"}}
+    argv = ("--ground", f"{MIGRATION}:*=plan:12", "--missing", f"{key}=the head keeps a second database")
+    if refused:
+        with pytest.raises(SystemExit, match=re.escape(f"--missing takes a plan line plan:<n> or an owner row: {key}: {rulings.ROOT_GROUNDS}")):
+            graded(capsys, RegisterShell(rows, diff=MIGRATION_DIFF), tmp_path / "head.grade", *argv)
+        return
+    code, _, grade = graded(capsys, RegisterShell(rows, diff=MIGRATION_DIFF), tmp_path / "head.grade", *argv)
+    assert code == 1
+    assert grade == f"fidelity: missing cafef00 {key} the head keeps a second database\n"
