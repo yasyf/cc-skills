@@ -543,7 +543,16 @@ def test_one_shared_plain_word_is_no_repeat_so_classify_adds_the_row_and_notes_t
     assert json.loads(shell.rows["rule/9999999"].get("repeats") or "[]") == []
 
 
-def test_two_names_of_one_row_are_a_repeat(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+def test_plain_word_names_of_one_row_are_no_repeat_but_a_phrase_name_is(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    plain = "the sync loop and its replication lag stay on the follow-up list"
+    captured(state, capture("7", plain))
+    shell = RegisterShell(seeded(package) | SYNC_ROW | {"rule/9999999": SYNC_ROW["rule/9999999"] | {"names": '["remote syncing", "sync", "replication", "local experience"]'}})
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "7" * 16, "kind": "order", "words": plain})
+
+    assert code == 0, out
+    assert json.loads(out.splitlines()[0])["repeat_candidates"] == ["rule/9999999"]
+
     words = "the sync loop must not hurt the local experience"
     captured(state, capture("8", words))
 
