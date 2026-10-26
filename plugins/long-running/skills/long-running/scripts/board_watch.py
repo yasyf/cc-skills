@@ -9,10 +9,11 @@ line is appended verbatim to `<state dir>/boards/<session>-events.jsonl`. Each o
 is appended to `<state dir>/owner-prompts.jsonl` as one capture line,
 `{"digest", "at", "session", "source": "board", "block", "text"}`, where `digest` is the first 16
 hex digits of sha256 over `session`, `text` and `block` joined by NUL and `at` is the arrival
-time in UTC:
+time in UTC. A triage row's note also carries the row's `row` id and `verdict`, and its digest
+takes the row id in place of the block:
 
     write-in   choice.selected with `other`, and input.submitted: the text the owner typed
-    note       feedback.created, and the note on a decision.created
+    note       feedback.created, the note on a decision.created, and each row note a triage.decided carries
     pick       choice.selected option ids, as the option labels in the board's current document
     verdict    decision.created: an approval's exact prompt, or `rejected` or `cleared`
 
@@ -117,6 +118,12 @@ def texts(event: dict, session: str, shell: Shell) -> list[str]:
 
 def captures(event: dict, session: str, shell: Shell, moment: datetime) -> list[dict]:
     block = event.get("blockId", "")
+    if event.get("type") == "triage.decided":
+        return [
+            {"digest": digest(session, row["note"], row_id), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "row": row_id, "verdict": row["verdict"], "text": row["note"]}
+            for row_id, row in event["verdicts"].items()
+            if row.get("note")
+        ]
     return [
         {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": text}
         for text in texts(event, session, shell)
