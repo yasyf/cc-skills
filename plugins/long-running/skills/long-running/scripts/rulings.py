@@ -130,6 +130,7 @@ REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
     re.IGNORECASE,
 )
+AND_AGAIN = re.compile(r"\band\W+(a\w{3,5})\b", re.IGNORECASE)
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 QUOTED_WORDS = 4
 CAPTURE_STAMP = "%Y-%m-%d %I:%M %p PT"
@@ -868,8 +869,18 @@ def quoted(words: str) -> list[str]:
     return [span for span in QUOTED.findall(words) if len(span.split()) >= QUOTED_WORDS]
 
 
+def one_edit(word: str, target: str) -> bool:
+    if len(word) == len(target):
+        diff = [index for index, (left, right) in enumerate(zip(word, target)) if left != right]
+        swapped = len(diff) == 2 and diff[1] == diff[0] + 1 and word[diff[0]] == target[diff[1]] and word[diff[1]] == target[diff[0]]
+        return len(diff) <= 1 or swapped
+    shorter, longer = sorted((word, target), key=len)
+    return len(longer) - len(shorter) == 1 and any(longer[:index] + longer[index + 1 :] == shorter for index in range(len(longer)))
+
+
 def repeat_markers(loaded: Register, words: str) -> list[str]:
     found = [match.group(0) for match in REPEAT_MARKERS.finditer(words)]
+    found += [match.group(0) for match in AND_AGAIN.finditer(words) if one_edit(match.group(1).lower(), "again")]
     return found + [f'a quoted sentence "{span}"' for span in quoted(words)]
 
 
