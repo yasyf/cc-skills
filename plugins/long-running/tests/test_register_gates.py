@@ -32,6 +32,7 @@ class Root:
         (self.state_dir / "register").mkdir(parents=True)
         self.session_dir = home / "session"
         self.calls: list[tuple[str, ...]] = []
+        self.live: set[str] = set()
         self.rows: str | tuple[int, str] = json.dumps(
             {"ledger": LEDGER, "program": "brook", "state_dir": str(self.state_dir), "rows": {}, "classified": [CLASSIFIED]}
         )
@@ -44,7 +45,11 @@ class Root:
     def run(self, args, *pargs, **kwargs) -> subprocess.CompletedProcess:
         argv = tuple(str(arg) for arg in args)
         self.calls.append(argv)
-        outcome = self.rows if argv[: len(ROWS.split())] == tuple(ROWS.split()) else "#1"
+        if argv[:2] == ("cci", "who"):
+            lane = option(argv, "--lane")
+            outcome = json.dumps({"lane": lane, "live": True}) if lane in self.live else ""
+        else:
+            outcome = self.rows if argv[: len(ROWS.split())] == tuple(ROWS.split()) else "#1"
         code, out, err = (0, outcome, "") if isinstance(outcome, str) else (outcome[0], "", outcome[1])
         if kwargs.get("check") and code:
             raise subprocess.CalledProcessError(code, args, out, err)
@@ -90,9 +95,17 @@ def option(call: tuple[str, ...], name: str) -> str:
     return call[call.index(name) + 1]
 
 
-@pytest.mark.parametrize(("configured", "to"), [({}, "root"), ({"register_lane": "register-desk"}, "register-desk")])
-def test_an_unclassified_owner_capture_posts_one_blocker_to_the_register_lane_and_never_refuses(root, configured, to):
+@pytest.mark.parametrize(
+    ("configured", "live", "to", "note"),
+    [
+        ({}, set(), "root", ""),
+        ({"register_lane": "register-desk"}, {"register-desk"}, "register-desk", ""),
+        ({"register_lane": "register-desk"}, set(), "root", " The register lane `register-desk` is not running, so this blocker goes to the root."),
+    ],
+)
+def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_lane_else_the_root(root, configured, live, to, note):
     root.configure(**configured)
+    root.live = live
     captures = [
         {"digest": CLASSIFIED, "at": "Oct 23 4:12 AM", "session": SESSION, "source": "prompt", "text": "rename the export button"},
         {"digest": UNCLASSIFIED, "at": "Oct 23 4:20 AM", "session": SESSION, "source": "prompt", "text": "keep the nightly report"},
@@ -108,6 +121,7 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_the_register_lane_an
     assert option(blocker, "--lane") == "root"
     assert option(blocker, "--to") == to
     assert option(blocker, "--text").startswith(f'Owner capture {UNCLASSIFIED} (Oct 23 4:20 AM) has no row in register brook: "keep the nightly report".')
+    assert option(blocker, "--text").endswith(f"before the next key moment.{note}")
 
 
 def test_a_drive_whose_plan_stem_differs_from_its_program_reads_the_program_register(root):
