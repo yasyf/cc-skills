@@ -2642,6 +2642,26 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+def test_the_prs_a_root_go_names_enqueue_before_any_status_read_of_the_rest_of_the_ledger(shell, config, tmp_path):
+    merge_mode(config, "every")
+    heads = {str(pr): f"{pr:x}aaaaaa" for pr in range(30000, 30040)}
+    gone = ["30005", "30017", "30031"]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"b/{pr}", "base": "dev", "head": head, "state": "open", "reported_head": head} for pr, head in heads.items()]
+    for pr, head in heads.items():
+        shell.gates[pr] = [gate(f"#{pr} GREEN {head} graphite READY", would=f"#{pr}") if pr in gone else gate(f"#{pr} BLOCKED {head} CI running (graphite RUNNING)")]
+    for pr in gone:
+        shell.enqueue_out[pr] = (0, f"enqueue #{pr}: {{}}\n")
+        grade(shell, pr, f"ok F307 at {heads[pr][:7]}.")
+        merge_go(shell, pr, f"merge #{pr} at {heads[pr][:7]}")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [[pr, "--partial"] for pr in gone]
+    last = max(shell.calls.index(call) for call in shell.enqueues())
+    rest = {pr: head for pr, head in heads.items() if pr not in gone}
+    assert all(shell.calls.index(call) > last for call in checks(shell) if call[1] in rest)
+    assert all(shell.calls.index(call) > last for call in graphql_reads(shell) if any(head in call[4] for head in rest.values()))
+    assert {call[1] for call in checks(shell)} == set(heads)
+
+
 def ruling_card(cards: Path, key: str, title: str) -> Path:
     card = cards / f"{key}.json"
     card.write_text(json.dumps({"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies it to the laptop.", "options": ["Right", "Some wrong", "Open board"], "waits": key}))
