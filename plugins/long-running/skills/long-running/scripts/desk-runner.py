@@ -298,8 +298,11 @@ grade names carries the ok of an older head whose lanes all stand at ok, when `g
 diffs against the PR's base, read from GitHub's compare, is equal, cited as `fidelity: ok at <head>, patch-identical to <graded head>`;
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing. The compare is read with
 `--allow-escape-sequences`, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
-Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and nothing
-in its prefix is enqueued. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
+Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and any accept check
+that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own with `--partial`, leaving the refused PR
+and every PR above it out, and the refused PR's blocker names it as the cut. Graphite keeps one linear chain per batch, so a
+prefix that forks enqueues only the chain under its first top and logs `FORK-DEFERRED` naming the other PRs and the fork; a
+prefix stacked on an open fork outside it waits, with the same line, until that fork lands. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
@@ -3751,6 +3754,25 @@ def cut_at(prefix: list[str], refused: Iterable[str], whole: bool) -> str:
     return f"the prefix is cut at #{out[0]}, and only {numbered(below)} below it may enqueue, without {numbered(out)}"
 
 
+def first_chain(prefix: list[str], open_rows: dict[str, dict]) -> list[str]:
+    """The PRs of `prefix` below and at its first top, in prefix order: the one linear chain a Graphite batch keeps."""
+    tops = prefix_tops(prefix, open_rows)
+    if len(tops) < 2:
+        return prefix
+    below = downstack(open_rows, tops[0])
+    return [pr for pr in prefix if pr in below]
+
+
+def unlanded_fork(prefix: list[str], open_rows: dict[str, dict]) -> str:
+    """The open PR outside `prefix` that a PR of `prefix` is stacked on and that has another open child, or empty: a queued fork the prefix may not join until it lands."""
+    by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
+    for pr in prefix:
+        parent = by_branch.get(open_rows[pr].get("base"))
+        if parent and parent not in prefix and sum(row.get("base") == open_rows[parent]["branch"] for row in open_rows.values()) > 1:
+            return parent
+    return ""
+
+
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
     """The root `go` records of `gos` that name `pr` and its `head` by a short sha."""
     return [record for record in gos if names_pr(record, pr) and any(names_head(named, head) for named in SHORT_SHA.findall(record["text"]))]
@@ -4327,6 +4349,15 @@ class Landing:
             if unclaimed := [pr for pr in foreign if pr not in admitted]:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        if fork := unlanded_fork(prefix, open_rows):
+            self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
+            return
+        chain = first_chain(prefix, open_rows)
+        if deferred := [pr for pr in prefix if pr not in chain]:
+            fork = [pr for pr in chain if any(pr in downstack(open_rows, other) for other in deferred)][-1]
+            self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(deferred)} fork off #{fork}; Graphite keeps one linear chain per batch, so this pass enqueues {numbered(chain)} and the others enqueue once #{fork} lands")
+            prefix = chain
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             prefix = list(itertools.takewhile(lambda pr: pr not in refused, prefix))
 
