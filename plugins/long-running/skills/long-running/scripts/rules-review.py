@@ -135,7 +135,7 @@ def overridden_by(review: dict[str, str], lines: list[tuple[str, frozenset[str]]
 
 
 def pr_diff(shell: Shell, repo: str, base: str, head: str) -> str:
-    return shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA])
+    return shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences"])
 
 
 def section_path(section: str) -> str | None:

@@ -144,14 +144,14 @@ class GraphiteStackEnqueue:
                 break
         return done
 
-    def check(self, tips: list[str], whole: bool, heads: dict[str, str]) -> Gate:
-        done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
+    def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
+        done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else []), *(["--partial"] if partial else [])])
         would = WOULD_ENQUEUE.search(done.out)
         verdicts = {match["pr"]: match.groupdict() for match in VERDICT_LINE.finditer(done.out)}
         return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None)
 
     def enqueue(self, tops: list[str], whole: bool, heads: dict[str, str]) -> tuple[str, str, str]:
-        done = self.run([self.script, *tops, *(["--whole"] if whole else [])])
+        done = self.run([self.script, *tops, "--whole" if whole else "--partial"])
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
@@ -243,7 +243,7 @@ class LabelEnqueue:
     def label(self, tip: str, head: str, *flags: str):
         return self.ledger_py("label", "--ledger", self.ledger, "--repo", self.repo, "--pr", tip, *(["--expect-head", head] if head else []), "--checkout", self.checkout, *flags)
 
-    def check(self, tips: list[str], whole: bool, heads: dict[str, str]) -> Gate:
+    def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         verdicts: dict[str, dict] = {}
         would: list[str] = []
         outs, errs, code = [], [], 0

@@ -144,7 +144,7 @@ def test_each_open_head_gets_one_detached_review_carrying_rulings_ethos_and_its_
     assert "## ec2881e Is the release ledger ever a source of truth?" in question
     assert "AGENTS.md:2: Write new CLI logic in Go under go/ci." in question
     assert f"ledger.Base() // {HEAD[:4]}" in question
-    assert ["gh", "api", f"repos/{REPO}/compare/resolver/1...{OTHER_HEAD}", "-H", rules_review.DIFF_MEDIA] in shell.calls
+    assert ["gh", "api", f"repos/{REPO}/compare/resolver/1...{OTHER_HEAD}", "-H", rules_review.DIFF_MEDIA, "--allow-escape-sequences"] in shell.calls
     assert shell.rows[ledger.review_key("30312", HEAD)]["verdict"] == "pending"
     assert blocked(shell) == {"30312": True, "30313": True}
     assert capsys.readouterr().out.splitlines() == [f"REVIEWING #30312 {HEAD[:9]}", f"REVIEWING #30313 {OTHER_HEAD[:9]}"]
