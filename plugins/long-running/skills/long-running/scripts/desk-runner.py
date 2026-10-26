@@ -467,7 +467,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews_in, gone_at, goes, graded_head, names_head, names_pr, newest_finder, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews_in, gone_at, goes, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, repo_prs, standing
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -4343,6 +4343,10 @@ class Landing:
                 continue
             why = grade.why
             owner = self.owner(pr, rows[pr])
+            if grade.record and grade.record["text"].startswith(FIDELITY_MISSING) and not owner_grounded(grade.record["text"]):
+                grounds = missing_grounds(grade.record["text"]) or "nothing"
+                self.post_blocker(key, ",".join([ROOT, *self.fidelity_lanes]), f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why} | it rests on `{grounds}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board", pr)
+                continue
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
             self.post_blocker(key, to, f"{self.dead_note(owner)}#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
