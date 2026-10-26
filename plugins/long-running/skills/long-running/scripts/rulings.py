@@ -22,6 +22,8 @@
     rulings.py names        (--program SLUG | --drive ID) KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
     rulings.py supersede    (--program SLUG | --drive ID) OLD --by NEW
     rulings.py check-pr     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
+    rulings.py grade        (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA --out FILE [--base REF] [--plan PATH]
+                            [--ground ID=GROUND,...]... [--not-a-mechanism ID=WHY]... [--missing KEY=WORDS]...
 
 The standing-rules doc is the newest cc-notes doc labelled ``standing-rules:<program>``.
 ``register`` prints it as JSON ``{id, body}``, or ``null`` when none exists.
@@ -56,6 +58,13 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
+``grade`` writes a fidelity desk's head grade to ``--out``. It lists every mechanism the head adds, one per
+added line that matches a shape in ``MECHANISM_SHAPES`` or opens a migration file, as ``<file>:<line>``, and
+needs each one grounded by ``--ground`` or set aside by ``--not-a-mechanism``; an ``ID`` may be an fnmatch glob.
+A ground is ``plan:<line>`` or ``plan:<a>-<b>``, printed beside the plan's own words, or an owner row of the register:
+a ``rule/`` or ``prompt/`` row with words, an ``exception/`` row the owner's answers approve, or a pick. A cci seq,
+a root note, a ``design/`` row and any other row is a root ruling, and grounds nothing. The grade is
+``fidelity: ok`` only when every mechanism is grounded and no ``--missing`` row was named.
 Standard library only.
 """
 
@@ -164,6 +173,23 @@ HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
 VERDICT = re.compile(r"\b(?:delete|keep)\b", re.IGNORECASE)
 CCI_TEXT = 400
 READ_ERRORS = (OSError, ValueError, KeyError, subprocess.SubprocessError, SystemExit)
+ROOT_GROUNDS = "root rulings are not grounds; put it on the owner's board"
+PLAN_GROUND = re.compile(r"plan:(?P<start>\d+)(?:-(?P<end>\d+))?")
+MIGRATION_FILE = re.compile(r"(?:^|/)migrations?/|migration[^/]*$|\.sql$", re.IGNORECASE)
+COMMENT_STARTS = ("//", "/*", "*", "--", "#")
+SQL_TYPES = r"(?:TEXT|INTEGER|INT|BIGINT|SMALLINT|BLOB|REAL|NUMERIC|BOOLEAN|BOOL|TIMESTAMPTZ|TIMESTAMP|DATE|JSONB?|UUID|VARCHAR|BIGSERIAL|SERIAL|DOUBLE|FLOAT|BYTEA)"
+MECHANISM_SHAPES = (
+    ("table", re.compile(r"\bCREATE\s+(?:VIRTUAL\s+|TEMP(?:ORARY)?\s+)?TABLE\b", re.IGNORECASE)),
+    ("column", re.compile(rf"\bADD\s+COLUMN\b|^\s*[\"`]?\w+[\"`]?\s+{SQL_TYPES}\b", re.IGNORECASE)),
+    ("route", re.compile(r"\.route\(|\bHandleFunc\(|\bmux\.Handle\(|\.Handle\(\s*\"|\.(?:get|post|put|patch|delete|all)\(\s*[\"'`]/|\.(?:Get|Post|Put|Patch|Delete|Method)\(\s*\"/")),
+    ("enum or variant", re.compile(r"\benum\s+\w+|\btype\s+\w+\s+(?:string|u?int\d*)\s*$|=\s*iota\b|^\s*[A-Z][A-Za-z0-9]*(?:\([^()]*\)|\s*\{[^{}]*\}|\s*=\s*[^=>\s][^=>]*)?,?\s*$|^\s*[A-Z]\w*\s+[A-Z]\w*\s*=\s*\S")),
+    ("state string", re.compile(r"\b\w*(?:status|state|kind|phase|mode|step)\w*\b[^\n]{0,40}?(?:===?|!==?|:|=)\s*[\"'][\w.:-]+[\"']|[\"'][\w.:-]+[\"']\s*\|\s*[\"']|^\s*\|\s*[\"']", re.IGNORECASE)),
+    ("timer or retry", re.compile(r"\btime\.(?:Duration\(|(?:Nanosecond|Microsecond|Millisecond|Second|Minute|Hour)\b)|Duration::from_\w+\(|\bset(?:Timeout|Interval)\(|\b\w*(?:timeout|interval|delay|backoff|ttl|deadline|retries|retry|attempts)\w*\b\s*[:=]\s*[\d(]", re.IGNORECASE)),
+    ("metric", re.compile(r"(?:counter|histogram|gauge|distribution|increment|timing|metric|stats|meter)\w*!?\s*\(\s*[\"'][a-z][\w.]*\.[\w.]+[\"']", re.IGNORECASE)),
+    ("env var", re.compile(r"\bos\.(?:Getenv|LookupEnv)\(|\benv::var(?:_os)?\(|\bprocess\.env\b|\bos\.environ\b")),
+    ("flag", re.compile(r"\bflag\.\w+\(|\.Flags?\(\)\.\w+\(|#\[(?:arg|clap)\b|\.option\(\s*[\"']--|add_argument\(\s*[\"']--")),
+    ("field", re.compile(r"json:\"[^\"]+\"|#\[serde\b|^\s*pub\s+\w+\s*:\s*\S|^\s*(?:readonly\s+)?\w+\??:(?!:)\s*[^=;,]+;\s*$|^\s*(?:optional\s+|repeated\s+)?\w+\s+\w+\s*=\s*\d+\s*;")),
+)
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
@@ -814,8 +840,12 @@ def touched(fields: dict[str, str], diff: Diff) -> bool:
     return any(fnmatch.fnmatch(file, anchor) for anchor in anchors(fields) for file in diff.files) or any(symbol_hit(symbol, diff) for symbol in symbols(fields))
 
 
+def required_rows(loaded: Register, diff: Diff) -> list[tuple[str, dict[str, str]]]:
+    return [(key, fields) for key, fields in loaded.rulings().items() if is_global(fields) or touched(fields, diff)]
+
+
 def required_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
-    rows = [(key, fields) for key, fields in loaded.rulings().items() if is_global(fields) or touched(fields, diff)]
+    rows = required_rows(loaded, diff)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
     return hashed(lines + section("Every global, pending and touched row", rows))
 
@@ -1965,6 +1995,141 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 1 if findings.refusals else 0
 
 
+@dataclass(frozen=True)
+class Mechanism:
+    file: str
+    line: int
+    shapes: tuple[str, ...]
+    text: str
+
+    @property
+    def id(self) -> str:
+        return f"{self.file}:{self.line}" if self.line else self.file
+
+    def __str__(self) -> str:
+        return f"{self.id} [{', '.join(self.shapes)}] {self.text}"
+
+
+def desk_named(target: str) -> Mechanism:
+    file, _, line = target.rpartition(":")
+    return Mechanism(file, int(line), ("named by the desk",), "") if file and line.isdigit() else Mechanism(target, 0, ("named by the desk",), "")
+
+
+def commented(text: str) -> bool:
+    stripped = text.lstrip()
+    return stripped.startswith(COMMENT_STARTS) and not stripped.startswith("#[")
+
+
+def mechanisms(diff: Diff) -> tuple[list[Mechanism], list[str], list[str]]:
+    """Each added line of a non-test, non-prose file that matches a mechanism shape, plus each such file's first added line when it is a migration; then the files scanned and the files skipped."""
+    scanned: list[str] = []
+    skipped: list[str] = []
+    for file in dict.fromkeys(file for file, _, _ in diff.added):
+        (skipped if testfiles.test_file(file) or Path(file).suffix in PROSE_SUFFIXES else scanned).append(file)
+    wanted = set(scanned)
+    opened: set[str] = set()
+    found = []
+    for file, number, text in diff.added:
+        if file not in wanted:
+            continue
+        shapes = [] if file in opened or not MIGRATION_FILE.search(file) else ["migration"]
+        opened.add(file)
+        if not commented(text):
+            shapes += [shape for shape, pattern in MECHANISM_SHAPES if pattern.search(text)]
+        if shapes:
+            found.append(Mechanism(file, number, tuple(shapes), text.strip()))
+    return found, scanned, skipped
+
+
+def owner_row(key: str, fields: dict[str, str]) -> bool:
+    if fields.get("status") in ("pending-owner", "superseded") or not (fields.get("words") or "").strip():
+        return False
+    if key.startswith(("rule/", "prompt/")):
+        return True
+    if key.startswith("exception/"):
+        return bool(listed(fields.get("answer")))
+    return confirmed_by_owner(fields)
+
+
+def grounded(loaded: Register, plan: list[str] | None, ground: str) -> tuple[bool, str]:
+    if span := PLAN_GROUND.fullmatch(ground):
+        if plan is None:
+            return False, f"{ground}: the register names no plan file; pass --plan"
+        start, end = int(span["start"]), int(span["end"] or span["start"])
+        if not 1 <= start <= end <= len(plan):
+            return False, f"{ground}: the plan has {len(plan)} lines"
+        if not (said := [plan[number - 1].strip() for number in range(start, end + 1) if plan[number - 1].strip()]):
+            return False, f"{ground}: blank plan lines"
+        return True, f"{ground} | {' / '.join(said)}"
+    if "/" in ground and ground in loaded.rows:
+        fields = loaded.rows[ground]
+        if owner_row(ground, fields):
+            return True, f"{ground} | {first_sentence(fields.get('words') or '')}"
+    elif "/" in ground and not ground.startswith("#"):
+        return False, f"{ground}: no register row"
+    return False, f"{ground}: {ROOT_GROUNDS}"
+
+
+def assignments(values: list[str], flag: str) -> list[tuple[str, str]]:
+    pairs = []
+    for value in values:
+        target, _, said = value.partition("=")
+        if not target.strip() or not said.strip():
+            raise SystemExit(f"{flag} {value!r} is not ID=VALUE")
+        pairs.append((target.strip(), said.strip()))
+    return pairs
+
+
+def grade_lines(head7: str, rows: list[tuple[str, dict[str, str]]], misses: list[str]) -> list[str]:
+    if misses:
+        return [f"fidelity: missing {head7} {miss}" for miss in misses]
+    names = dict.fromkeys(name for _, fields in rows for name in names_of(fields))
+    return [f"fidelity: ok {head7} checked {','.join(key for key, _ in rows)} names {'|'.join(names)}"]
+
+
+def cmd_grade(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    loaded = Register.load(args, shell)
+    repo, number = pull(args, shell)
+    base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+    diff = pr_diff(args, shell, repo, base, args.head)
+    plan_file = plan_path(args, loaded)
+    plan = plan_file.read_text().splitlines() if plan_file and plan_file.is_file() else None
+    grounds = assignments(args.ground, "--ground")
+    asides = assignments(args.not_a_mechanism, "--not-a-mechanism")
+    missing = assignments(args.missing, "--missing")
+    for key, _ in missing:
+        loaded.row(key)
+    found, scanned, skipped = mechanisms(diff)
+    if stray := [target for target, _ in asides if not any(fnmatch.fnmatch(mechanism.id, target) for mechanism in found)]:
+        raise SystemExit(f"--not-a-mechanism names no listed mechanism: {', '.join(stray)}")
+    extra = [desk_named(target) for target, _ in grounds if not any(fnmatch.fnmatch(mechanism.id, target) for mechanism in found)]
+    print(f"scanned {len(scanned)} files: {', '.join(scanned) or 'none'}")
+    print(f"skipped {len(skipped)} test or prose files: {', '.join(skipped) or 'none'}")
+    print(f"shapes: migration, {', '.join(shape for shape, _ in MECHANISM_SHAPES)}")
+    print(f"mechanisms {len(found)}")
+    misses = [f"{key} {words}" for key, words in missing]
+    for mechanism in [*found, *extra]:
+        aside = next((why for target, why in asides if fnmatch.fnmatch(mechanism.id, target)), None)
+        cited = [ground for target, said in grounds if fnmatch.fnmatch(mechanism.id, target) for ground in said.split(",") if ground.strip()]
+        verdicts = [grounded(loaded, plan, ground.strip()) for ground in cited]
+        if aside:
+            print(f"not-a-mechanism {mechanism} : {aside}")
+        elif any(ok for ok, _ in verdicts):
+            print(f"grounded {mechanism}")
+        else:
+            print(f"UNGROUNDED {mechanism}")
+            rejected = [said for ok, said in verdicts if not ok]
+            why = "; ".join(rejected) if rejected else "no plan line or owner row names it; put it on the owner's board"
+            misses.append(f"plan {mechanism.id} plan names no {' or '.join(mechanism.shapes)} `{mechanism.text[:CCI_TEXT // 4]}`; {why}")
+        for ok, said in verdicts:
+            print(f"  {'accepted' if ok else 'REJECTED'} {said}")
+    lines = grade_lines(args.head[:7], required_rows(loaded, diff), misses)
+    write_atomic(Path(args.out), "\n".join(lines) + "\n")
+    print(f"grade -> {args.out}")
+    print("\n".join(lines))
+    return 1 if misses else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rulings.py", description=__doc__.splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2059,6 +2224,15 @@ def build_parser() -> argparse.ArgumentParser:
     checked.add_argument("--base", metavar="REF")
     checked.add_argument("--incident", action="store_true")
     checked.add_argument("--plan", metavar="PATH")
+    graded = verb("grade", cmd_grade, "write a head's fidelity grade, refusing ok while any added mechanism lacks a plan line or an owner row")
+    graded.add_argument("--pr", required=True, metavar="[OWNER/NAME#]N")
+    graded.add_argument("--head", required=True, metavar="SHA")
+    graded.add_argument("--base", metavar="REF")
+    graded.add_argument("--plan", metavar="PATH")
+    graded.add_argument("--out", required=True, metavar="FILE")
+    graded.add_argument("--ground", action="append", default=[], metavar="ID=GROUND,...")
+    graded.add_argument("--not-a-mechanism", action="append", default=[], metavar="ID=WHY")
+    graded.add_argument("--missing", action="append", default=[], metavar="KEY=WORDS")
     for sub in verbs:
         sub.add_argument("--repo", default=".", metavar="PATH")
         which = sub.add_mutually_exclusive_group(required=True)
