@@ -3310,6 +3310,19 @@ def test_a_register_key_a_grade_lists_after_its_head_is_never_probed_as_a_head(s
     assert compare_calls(shell) == ["dev...cccc333333", "dev...bbbb222"]
 
 
+def test_the_whole_stack_policy_never_cuts_the_prefix_at_a_missing_grade(shell, config, tmp_path):
+    four_pr_stack(shell)
+    assert cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling") == 0
+    grade(shell, "42590", "ok F307 at aaaa111.")
+    grade(shell, "42615", "ok F307 at bbbb222.")
+    grade(shell, "42634", "missing F335 at dddd444: the sealed read is not folded in.")
+    grade(shell, "42620", "ok F307 at eeee555.")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
+    [blocker] = blockers(shell)
+    assert blocker["text"].startswith("#42634 dddd444444: nothing in #42590 #42615 #42634 #42620 was enqueued; ")
+
+
 def test_a_diff_carrying_terminal_escape_sequences_reads_and_carries_the_ok(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at bbbb222.")

@@ -3738,11 +3738,11 @@ def pr_name(pr: int | str) -> str:
     return str(pr) if "#" in str(pr) else f"#{pr}"
 
 
-def cut_at(prefix: list[str], refused: Iterable[str]) -> str:
-    """What a refusal of `refused` leaves of `prefix`, bottom first: the PRs below the lowest refused one go on without it and everything above it."""
+def cut_at(prefix: list[str], refused: Iterable[str], whole: bool) -> str:
+    """What a refusal of `refused` leaves of `prefix`, bottom first: the PRs below the lowest refused one go on without it and everything above it, and nothing goes on under the whole-stack policy."""
     held = set(refused)
     below = list(itertools.takewhile(lambda pr: pr not in held, prefix))
-    if not below:
+    if whole or not below:
         return f"nothing in {numbered(prefix)} was enqueued"
     out = prefix[len(below) :]
     return f"the prefix is cut at #{out[0]}, and only {numbered(below)} below it may enqueue, without {numbered(out)}"
@@ -4058,6 +4058,9 @@ class Landing:
     def checked(self, tips: list[str]) -> merge_queue.Gate:
         return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
 
+    def left(self, prefix: list[str], refused: Iterable[str]) -> str:
+        return cut_at(prefix, refused, self.whole())
+
     def exact(self, tops: list[str]) -> merge_queue.Gate:
         """The gate of exactly `tops` and the PRs below them, leaving out every PR stacked beside or above, as the enqueue of an accepted prefix names them."""
         return self.proven(self.adapter.check(tops, self.whole(), self.row_heads, not self.whole()))
@@ -4282,7 +4285,7 @@ class Landing:
             why = grade.why
             owner = self.owner(pr, rows[pr])
             to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
-            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {cut_at(list(heads), ungraded)}; {why}", pr)
+            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
@@ -4292,7 +4295,7 @@ class Landing:
             if unclaimed := [pr for pr in foreign if pr not in admitted]:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
             return
-        while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)):
+        while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             prefix = list(itertools.takewhile(lambda pr: pr not in refused, prefix))
 
     def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
@@ -4374,7 +4377,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {cut_at(list(graded.heads), refused)}; {why}", pr)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
