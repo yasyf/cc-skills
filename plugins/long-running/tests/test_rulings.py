@@ -495,6 +495,48 @@ def test_classify_refuses_a_repeat_that_adds_a_second_row(home: Path, package: P
     assert out.strip() == f"REPEAT {'6' * 16}: the words carry how many times; extend rule/aaaaaaa with extends=<key>, never a second row"
 
 
+SYNC_ROW = {
+    "rule/9999999": {
+        "kind": "scope",
+        "status": "in-force",
+        "global": "yes",
+        "words": "the local sessions never block on remote syncing, even when it is slow or failing",
+        "answer": '["9999999"]',
+        "at": "Oct 22 6:11 PM PT",
+        "said": "1",
+        "names": '["remote syncing", "sync", "local experience"]',
+        "steps": '["all"]',
+        "lanes": '["all"]',
+        "paths": "none",
+    }
+}
+
+
+def test_one_shared_plain_word_is_no_repeat_so_classify_adds_the_row_and_notes_the_candidate(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+) -> None:
+    words = "Explain what the sync loop fixes actually are and if they are fixed in the latest litestream"
+    captured(state, capture("8", words))
+    shell = RegisterShell(seeded(package) | SYNC_ROW)
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "8" * 16, "kind": "order", "words": words})
+
+    assert code == 0, out
+    assert json.loads(out.splitlines()[0])["repeat_candidates"] == ["rule/9999999"]
+    assert json.loads(shell.rows[PROMPT_KEY]["repeat_candidates"]) == ["rule/9999999"]
+    assert json.loads(shell.rows["rule/9999999"].get("repeats") or "[]") == []
+
+
+def test_two_names_of_one_row_are_a_repeat(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = "the sync loop must not hurt the local experience"
+    captured(state, capture("8", words))
+
+    three = [{"text": f"Line {n}.", "direction": "removes"} for n in range(3)]
+    code, out = classify(tmp_path, capsys, RegisterShell(seeded(package) | SYNC_ROW), {"digest": "8" * 16, "kind": "scope", "words": words, "names": ["sync loop"], "implications": three})
+
+    assert (code, out.strip()) == (1, f"REPEAT {'8' * 16}: the words carry names of rule/9999999; extend rule/9999999 with extends=<key>, never a second row")
+
+
 def test_classify_refuses_two_new_rows_under_one_key_in_one_batch(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("1", "the shell never uploads"), capture("2", "the journal keeps the queue"))
     shell = RegisterShell(seeded(package))

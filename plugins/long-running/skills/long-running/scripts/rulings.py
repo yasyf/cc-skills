@@ -142,6 +142,7 @@ REPEAT_MARKERS = re.compile(
 AND_AGAIN = re.compile(r"\band\W+(a\w{3,5})\b", re.IGNORECASE)
 QUOTED = re.compile(r"[\"“]([^\"”\n]+)[\"”]")
 QUOTED_WORDS = 4
+PLAIN_WORD = re.compile(r"[a-z]+", re.IGNORECASE)
 CAPTURE_STAMP = "%Y-%m-%d %I:%M %p PT"
 PLAIN_WORDS = 3
 PLACEMENT = re.compile(
@@ -914,8 +915,19 @@ def repeat_markers(loaded: Register, words: str) -> list[str]:
     return found + [f'a quoted sentence "{span}"' for span in quoted(words)]
 
 
-def named_rows(loaded: Register, words: str) -> list[str]:
-    return [key for key, fields in loaded.rulings().items() if any(named(words, name) for name in names_of(fields))]
+def specific(name: str) -> bool:
+    return len(name.split()) > 1 or not PLAIN_WORD.fullmatch(name)
+
+
+def named_rows(loaded: Register, words: str) -> tuple[list[str], list[str]]:
+    strong, weak = [], []
+    for key, fields in loaded.rulings().items():
+        hits = [name for name in names_of(fields) if named(words, name)]
+        if len(hits) > 1 or any(specific(name) for name in hits):
+            strong.append(key)
+        elif hits:
+            weak.append(key)
+    return strong, weak
 
 
 def widened(loaded: Register, entry: dict) -> tuple[str, list[str]] | None:
@@ -972,17 +984,18 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
         found.append(f"IMPLICATION {item}: each implication is one plain sentence marked removes or permits")
     markers = repeat_markers(loaded, words)
     supersedes = entry.get("supersedes")
-    repeated = [key for key in named_rows(loaded, words) if kind != "pick" and key != supersedes]
+    strong, _ = named_rows(loaded, words)
+    repeated = [key for key in strong if kind != "pick" and key != supersedes]
     placement = PLACEMENT.search(words)
     unfolded = [] if extends else markers
-    named_keys = [] if extends else named_rows(loaded, words)
+    named_keys = [] if extends else strong
     if kind == "order" and (unfolded or placement or named_keys):
         because = ", ".join(unfolded) or (f"a placement rule ({placement.group(0)})" if placement else f"names of {', '.join(named_keys)}")
         found.append(f"ORDER-IS-SCOPE {item}: the words carry {because}; a repeat extends its row and a placement is a scope row")
     if extends and extends not in loaded.rulings():
         found.append(f"EXTENDS {item}: {extends} is no in-force row")
     if (markers or repeated) and not extends:
-        candidates = ", ".join(named_rows(loaded, words)) or "the row it repeats"
+        candidates = ", ".join(strong) or "the row it repeats"
         because = ", ".join(markers) or f"names of {', '.join(repeated)}"
         found.append(f"REPEAT {item}: the words carry {because}; extend {candidates} with extends=<key>, never a second row")
     if not extends:
@@ -1190,6 +1203,8 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         if kind == "reserved":
             fields |= {"ops": "pending", "checks": "none"}
         supersedes = entry.get("supersedes")
+        if candidates := [key for key in named_rows(loaded, words)[1] if key != supersedes]:
+            fields["repeat_candidates"] = candidates
         loaded.write(key, **fields)
         if supersedes:
             superseded(loaded, supersedes, key)
@@ -1209,6 +1224,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         "supersedes": entry.get("supersedes"),
         "extends": extends,
         "repeated": repeated,
+        "repeat_candidates": listed(row.get("repeat_candidates")),
         "cards": [str(path) for path in cards],
         "hits": [str(hit) for hit in hits],
     }
