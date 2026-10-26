@@ -3215,12 +3215,16 @@ prompt_watch.py answer --dispatch <ctx_id> --episode <key> --by root no --instea
   is open there and, given `--episode`, it is the one the record named.
 - It types the number of the first option that reads Yes or Allow, or No or Deny, as raw
   keys, which Orca does not refuse, then reads the screen again until the dialog closes.
+  Options come only from the dialog's closing list, so a numbered line in the command
+  above it never chooses.
 - A denied agent ends its turn, and Orca keeps refusing prompts to it until one is
   typed. A `no` therefore requires `--instead`, which `answer` types and submits as raw
-  keys once the dialog closes.
-- It posts one `status` message to the Run mailbox of the worker, or of the Run the
-  terminal coordinates, naming who chose which option for which dialog, and refuses
-  before typing when no Run can hold that line.
+  keys once the screen shows the agent's empty input box.
+- It posts one `status` message to the Run mailbox of the worker that owns the terminal,
+  or of the Run the terminal coordinates. The message names who chose which option, the
+  dialog's title, and its episode, which names the watch's saved screen. The dialog's
+  text stays out of the mail. With no Run to hold that line, `answer` refuses before
+  typing.
 - A dialog whose options carry no numbers, such as a folder trust check, is refused;
   answer it in the terminal.
 

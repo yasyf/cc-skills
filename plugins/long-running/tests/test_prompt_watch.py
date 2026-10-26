@@ -1239,28 +1239,43 @@ def test_start_records_the_coordinators_terminal_and_detaches_one_run(home, shel
     assert capsys.readouterr().out == f"prompt-watch {DRIVE} pid 4242 log {home / 'scratch' / 'release-v3' / 'prompt-watch' / 'watch.log'}\n"
 
 
+
 INSTEAD = "Leave the fetch alone and report what you measured so far."
 CODEX = "screen.managed-server.approval"
+WORKER_LIST = ("orchestration", "worker-list", "--include-remote")
 
 
-def at_dialog(shell: FakeShell, screen: dict | None = None, closes: bool = True) -> None:
+def codex_idle() -> dict:
+    screen = fixture("screen.managed-server.working")
+    screen["result"]["terminal"]["tail"] = ["• Left build/out in place.", "", "› "]
+    return screen
+
+
+def at_dialog(shell: FakeShell, screen: dict | None = None, after: dict | None = None) -> None:
     shell.orca[worker_show(LOCAL)] = fixture("worker-show.local.waiting")
     shell.orca[read(LOCAL_TERMINAL)] = screen or fixture("screen.coordinator.approval")
     shell.orca[worker_show(REMOTE)] = fixture("worker-show.remote")
     shell.orca[read(REMOTE_TERMINAL, ENVIRONMENT)] = fixture(CODEX)
     shell.orca[show(LOCAL_TERMINAL)] = fixture("terminal-show.coordinator.waiting")
-    if closes:
-        shell.on_keys = {read(LOCAL_TERMINAL): fixture("screen.coordinator.answered"), read(REMOTE_TERMINAL, ENVIRONMENT): fixture("screen.managed-server.working")}
+    shell.on_keys = {read(LOCAL_TERMINAL): after or fixture("screen.supervisor.claude-idle"), read(REMOTE_TERMINAL, ENVIRONMENT): codex_idle()}
 
 
 def answer(shell: FakeShell, *argv: str) -> int:
     return prompt_watch.main(["answer", *argv], shell)
 
 
-def listed(source: str, run: str | None = None) -> dict:
+def listed(source: str, run: str | None = None, workers: bool = True) -> dict:
     reply = fixture("worker-list")
     reply["result"]["scope"] = {"run": run, "source": source}
+    reply["result"]["workers"] = reply["result"]["workers"] if workers else []
     return reply
+
+
+def with_rows(screen: dict, before: str, *rows: str) -> dict:
+    tail = screen["result"]["terminal"]["tail"]
+    at = next(index for index, line in enumerate(tail) if before in line)
+    tail[at:at] = list(rows)
+    return screen
 
 
 def trust_dialog() -> dict:
@@ -1276,7 +1291,9 @@ def test_yes_types_the_yes_options_number_as_raw_keys_and_the_workers_run_mail_n
 
     assert shell.keys == [key(LOCAL_TERMINAL, "1")]
     chose = f'root chose "1. Yes" for {LOCAL} on {LOCAL_TERMINAL}; the dialog closed'
-    assert shell.mail == [{"--to": f"run:{RUN}", "--dispatch-id": LOCAL, "--type": "status", "--subject": f"root answered yes: {HOOK_TITLE}", "--body": f"{chose}. Dialog: {ASKED}"}]
+    [mail] = shell.mail
+    assert (mail["--to"], mail["--dispatch-id"], mail["--type"], mail["--subject"]) == (f"run:{RUN}", LOCAL, "status", f"root answered yes: {HOOK_TITLE}")
+    assert mail["--body"].startswith(f"{chose}. Prompt episode ") and "single-stream fetch" not in mail["--body"]
     assert capsys.readouterr().out == f"ANSWERED {chose}; recorded in run:{RUN}\n"
 
 
@@ -1286,7 +1303,16 @@ def test_no_types_no_then_submits_what_to_do_instead_so_orca_takes_prompts_again
     assert answer(shell, "--dispatch", LOCAL, "--by", "root", "no", "--instead", INSTEAD) == 0
 
     assert shell.keys == [key(LOCAL_TERMINAL, "2"), key(LOCAL_TERMINAL, INSTEAD), key(LOCAL_TERMINAL, "\r")]
-    assert f'the dialog closed; told it instead: "{INSTEAD}". Dialog: ' in shell.mail[0]["--body"]
+    assert f'the dialog closed; told it instead: "{INSTEAD}". Prompt episode ' in shell.mail[0]["--body"]
+
+
+@pytest.mark.parametrize(("choice", "typed"), [("yes", "1"), ("no", "2")])
+def test_numbered_lines_in_the_command_above_the_options_never_choose_the_answer(shell, choice, typed):
+    at_dialog(shell, with_rows(fixture("screen.coordinator.approval"), "Do you want to proceed?", " │ 1. No", " │ 2. Yes"))
+
+    answer(shell, "--dispatch", LOCAL, "--by", "root", choice, *(("--instead", INSTEAD) if choice == "no" else ()))
+
+    assert shell.keys[0] == key(LOCAL_TERMINAL, typed)
 
 
 @pytest.mark.parametrize(("choice", "extra", "typed"), [("yes", (), "1"), ("no", ("--instead", INSTEAD), "3")])
@@ -1301,16 +1327,17 @@ def test_a_remote_codex_dialog_is_answered_through_its_server_with_its_own_numbe
 
 @pytest.mark.parametrize(
     ("scope", "dispatch"),
-    [(listed("all"), LOCAL), (listed("bound", RUN), None)],
-    ids=["a worker's terminal names its dispatch", "a coordinator's terminal names its bound Run"],
+    [(listed("all"), LOCAL), (listed("bound", RUN), LOCAL), (listed("bound", RUN, workers=False), None)],
+    ids=["a worker's terminal names its dispatch", "a worker that also coordinates keeps its dispatch", "a coordinator's terminal names its bound Run"],
 )
-def test_a_terminal_handle_finds_the_run_whose_mail_records_the_answer(shell, scope, dispatch):
+def test_a_terminal_handle_finds_the_run_whose_mail_records_the_answer_before_reading_the_dialog(shell, scope, dispatch):
     at_dialog(shell)
-    shell.orca[("orchestration", "worker-list", "--include-remote")] = scope
+    shell.orca[WORKER_LIST] = scope
 
     assert answer(shell, "--terminal", LOCAL_TERMINAL, "--by", "root", "yes") == 0
 
-    assert shell.envs[("orchestration", "worker-list", "--include-remote")] == {prompt_watch.TERMINAL_ENV: LOCAL_TERMINAL}
+    assert shell.envs[WORKER_LIST] == {prompt_watch.TERMINAL_ENV: LOCAL_TERMINAL}
+    assert shell.calls.index(["orca", *WORKER_LIST, "--json"]) < shell.calls.index(["orca", *read(LOCAL_TERMINAL), "--json"])
     assert shell.mail[0]["--to"] == f"run:{RUN}" and shell.mail[0].get("--dispatch-id") == dispatch
 
 
@@ -1337,9 +1364,7 @@ def test_a_terminal_that_shows_no_answerable_dialog_gets_no_keys_and_no_mail(she
 
 def test_a_terminal_in_no_run_and_owned_by_no_worker_gets_no_keys(shell):
     at_dialog(shell)
-    unlisted = listed("all")
-    unlisted["result"]["workers"] = []
-    shell.orca[("orchestration", "worker-list", "--include-remote")] = unlisted
+    shell.orca[WORKER_LIST] = listed("all", workers=False)
 
     with pytest.raises(SystemExit, match="coordinates no Run"):
         answer(shell, "--terminal", LOCAL_TERMINAL, "--by", "root", "yes")
@@ -1347,13 +1372,27 @@ def test_a_terminal_in_no_run_and_owned_by_no_worker_gets_no_keys(shell):
     assert shell.keys == [] and shell.mail == []
 
 
-def test_a_dialog_still_open_after_the_keys_is_recorded_as_open_and_types_nothing_more(shell):
-    at_dialog(shell, closes=False)
+@pytest.mark.parametrize(
+    ("after", "reads"),
+    [(fixture("screen.coordinator.approval"), "approval"), (another_command(), "approval"), (fixture("screen.unavailable"), "unknown")],
+    ids=["the same dialog", "another dialog", "an unreadable screen"],
+)
+def test_keys_that_leave_no_idle_input_box_are_recorded_and_type_nothing_more(shell, after, reads):
+    at_dialog(shell, after=after)
 
     assert answer(shell, "--dispatch", LOCAL, "--by", "root", "no", "--instead", INSTEAD) == 1
 
     assert shell.keys == [key(LOCAL_TERMINAL, "2")]
-    assert shell.mail[0]["--body"].startswith(f'root chose "2. No" for {LOCAL} on {LOCAL_TERMINAL}; the dialog was still open 5s later. ')
+    assert shell.mail[0]["--body"].startswith(f'root chose "2. No" for {LOCAL} on {LOCAL_TERMINAL}; after the keys the terminal reads {reads}')
+
+
+def test_a_closed_dialog_over_a_busy_input_box_gets_no_text_to_do_instead(shell):
+    at_dialog(shell, after=fixture("screen.coordinator.answered"))
+
+    assert answer(shell, "--dispatch", LOCAL, "--by", "root", "no", "--instead", INSTEAD) == 1
+
+    assert shell.keys == [key(LOCAL_TERMINAL, "2")]
+    assert "its input box is not empty and idle, so nothing was typed instead" in shell.mail[0]["--body"]
 
 
 def test_the_command_in_a_workers_blocker_answers_that_dialog(home, shell):

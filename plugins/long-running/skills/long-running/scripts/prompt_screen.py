@@ -26,6 +26,7 @@ COUNTDOWN = re.compile(r"\bdeny\b.*?\bin (\d+:\d{2})\b", re.IGNORECASE)
 TITLE_CHARS = 80
 FRAME = "│☐ "
 WORD = re.compile(r"\w")
+RULED = re.compile(rf"^{RULE}{{2,}}(?: [^{RULE}]+ {RULE}+)?$")
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ def idle_prompt(terminal: dict) -> bool:
     if terminal.get("draft") or terminal.get("source") != "screen":
         return False
     tail = [line.rstrip() for line in terminal.get("tail") or []]
-    rules = [i for i, line in enumerate(tail) if line and set(line.strip()) == {RULE}]
+    rules = [i for i, line in enumerate(tail) if is_rule(line)]
     if len(rules) < 2 or rules[-1] - rules[-2] != 2 or tail[rules[-2] + 1].strip() != PROMPT:
         return False
     width = len(tail[rules[-1]])
@@ -65,7 +66,8 @@ def idle_prompt(terminal: dict) -> bool:
 
 
 def is_rule(line: str) -> bool:
-    return bool(line.strip()) and set(line.strip()) == {RULE}
+    """A row of rule characters, bare or carrying one label near its right end, as Claude Code's `──── ultracode ─`."""
+    return bool(RULED.match(line.strip()))
 
 
 def composer(tail: list[str]) -> int | None:

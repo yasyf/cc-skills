@@ -66,9 +66,12 @@ first option that reads Yes or Allow, or No or Deny, as raw keys with no Enter, 
 refuses a text-plus-Enter prompt into a dialog with `agent_prompt_blocked`, and reads the
 screen again until that dialog is gone. A denied agent ends its turn and Orca refuses every
 prompt to it until one is typed, so a `no` takes `--instead`, typed and submitted as raw keys
-once the dialog closes. It then posts one `status` message to the Run mailbox
-of the worker, or of the Run bound to the terminal, naming who chose which option for which
-dialog. It refuses before typing when no Run can be found to hold that line.
+once the dialog closes. The text is typed only once the screen shows the agent's
+empty input box. It then posts one `status` message to the Run mailbox of the worker that owns
+the terminal, or of the Run the terminal coordinates, naming who chose which option, the
+dialog's title, and its episode, which names the watch's saved screen; the dialog's text stays
+out of the mail. It finds that Run before reading the screen, and refuses before typing when
+there is none.
 
 The watch answers no prompt and types into no terminal that waits on one. It never stops,
 restarts, releases, closes, or signals anything. `run` holds `<state dir>/prompt-watch/lock` and writes its own script
@@ -247,9 +250,13 @@ def how_to_answer(seen: Seen, by: str) -> str:
 
 
 def option(asked: str, choice: str) -> tuple[str, str] | None:
-    """The number and label of the dialog's first numbered option whose label answers `choice`."""
-    numbered = (found.groups() for row in asked.split(" / ") if (found := OPTION.match(row)))
-    return next(((number, label) for number, label in numbered if CHOICES[choice].match(label)), None)
+    """The number and label of the first option answering `choice`, read only from the dialog's closing option list.
+
+    That list starts at the last row numbered 1, so numbered lines in the command or text above it never count.
+    """
+    numbered = [found.groups() for row in asked.split(" / ") if (found := OPTION.match(row))]
+    start = max((index for index, (number, _) in enumerate(numbered) if number == "1"), default=len(numbered))
+    return next(((number, label) for number, label in numbered[start:] if CHOICES[choice].match(label)), None)
 
 
 def receipt_lane(receipt: Path) -> dict[str, str] | None:
@@ -603,10 +610,10 @@ def run_of(watch: Watch, subject: Subject) -> tuple[str, str] | None:
     cursor: list[str] = []
     while (listed := watch.orca("orchestration", "worker-list", "--include-remote", *cursor, env={TERMINAL_ENV: subject.terminal})).get("ok"):
         result = listed["result"]
-        if result["scope"]["source"] == "bound":
-            return result["scope"]["run"], ""
         if worker := next((worker for worker in result["workers"] if worker["agentTerminalHandle"] == subject.terminal), None):
             return worker["runId"], worker["dispatchId"]
+        if result["scope"]["source"] == "bound":
+            return result["scope"]["run"], ""
         if not result["page"]["hasMore"]:
             return None
         cursor = ["--cursor", result["page"]["nextCursor"]]
@@ -624,11 +631,19 @@ def typed(watch: Watch, subject: Subject, *keys: str) -> str:
     return ""
 
 
+def idle(watch: Watch, subject: Subject) -> bool:
+    read = watch.orca("terminal", "read", "--terminal", subject.terminal, "--screen", environment=subject.environment)
+    return read.get("ok") and prompt_screen.input_state(read["result"]["terminal"]) == prompt_screen.IDLE
+
+
 def cmd_answer(args: argparse.Namespace, shell: Shell) -> int:
     if (args.choice == "no") != bool(args.instead):
         raise SystemExit("--instead goes with no and only with no: a denied agent ends its turn, and Orca refuses every prompt to it until one is typed")
     watch = Watch(shell, "")
     asked_of = Subject(f"dispatch:{args.dispatch}", WORKER, args.dispatch, dispatch=args.dispatch) if args.dispatch else Subject(args.terminal, DESK, args.terminal, args.terminal, args.environment or "")
+    if not (found := run_of(watch, asked_of)):
+        raise SystemExit(f"terminal {args.terminal} is no worker and coordinates no Run, so no Run's mail could record the answer")
+    run, dispatch = found
     seen = watch.observe(asked_of, always=True)
     subject, episode = seen.subject, episode_of(seen)
     if seen.state != prompt_screen.APPROVAL:
@@ -637,29 +652,31 @@ def cmd_answer(args: argparse.Namespace, shell: Shell) -> int:
         raise SystemExit(f"{subject.name} shows episode {episode}, not {args.episode}: {seen.title}")
     if not (picked := option(seen.asked, args.choice)):
         raise SystemExit(f"no numbered option of {subject.name}'s dialog answers {args.choice}: {seen.asked}")
-    if not (found := run_of(watch, subject)):
-        raise SystemExit(f"terminal {subject.terminal} is no worker and coordinates no Run, so no Run's mail could record the answer")
-    run, dispatch = found
     if refused := typed(watch, subject, picked[0]):
         raise SystemExit(f"Orca refused the keys for {subject.name}: {refused}")
     after = seen
     for _ in range(SETTLE_SECONDS):
         shell.sleep(1)
-        if (after := watch.observe(subject, always=True)).state != prompt_screen.APPROVAL or episode_of(after) != episode:
+        if (after := watch.observe(subject, always=True)).state in (CLEAR, STALE):
             break
-    cleared = after.state != prompt_screen.APPROVAL or episode_of(after) != episode
-    outcome = "the dialog closed" if cleared else f"the dialog was still open {SETTLE_SECONDS}s later"
+    cleared = after.state in (CLEAR, STALE)
+    outcome = "the dialog closed" if cleared else f"after the keys the terminal reads {after.state}" + (f" ({after.title})" if after.title else "")
+    told = not args.instead
     if cleared and args.instead:
-        refused = typed(watch, subject, args.instead, "\r")
-        outcome += f"; Orca refused the text to do instead: {refused}" if refused else f'; told it instead: "{args.instead}"'
+        if not idle(watch, subject):
+            outcome += "; its input box is not empty and idle, so nothing was typed instead"
+        elif refused := typed(watch, subject, args.instead, "\r"):
+            outcome += f"; Orca refused the text to do instead: {refused}"
+        else:
+            told, outcome = True, outcome + f'; told it instead: "{args.instead}"'
     chose = f'{args.by} chose "{picked[0]}. {picked[1]}" for {subject.name} on {subject.terminal}'
     audit = watch.orca(
         "orchestration", "send", "--to", f"run:{run}", *(["--dispatch-id", dispatch] if dispatch else []),
-        "--type", "status", "--subject", f"{args.by} answered {args.choice}: {seen.title}", "--body", f"{chose}; {outcome}. Dialog: {seen.asked}",
+        "--type", "status", "--subject", f"{args.by} answered {args.choice}: {seen.title}", "--body", f"{chose}; {outcome}. Prompt episode {episode}.",
     )
     recorded = f"recorded in run:{run}" if audit.get("ok") else f"NOT recorded in run:{run}: {json.dumps(audit.get('error'))}"
     print(f"ANSWERED {chose}; {outcome}; {recorded}")
-    return 0 if cleared and not refused and audit.get("ok") else 1
+    return 0 if cleared and told and audit.get("ok") else 1
 
 
 def free(lock) -> bool:
