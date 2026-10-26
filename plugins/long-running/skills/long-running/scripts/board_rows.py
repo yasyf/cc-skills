@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""The merge-row gate: every merge-triage row the owner sees names its PR's current head, graded at that head, in words written after it.
+"""The merge-row gate: every merge-triage row the owner sees names its PR's current head, carries what he needs to decide, in words written after that head, and keeps his verdict.
 
-    board_rows.py --config RUNNER_JSON --check [--json] BLOCK_JSON
-    board_rows.py --config RUNNER_JSON [--json] BLOCK_JSON -- cc-present update-block|push [ARGS...]
+    board_rows.py --config RUNNER_JSON --check [--json] [--session ID] BLOCK_JSON
+    board_rows.py --config RUNNER_JSON [--json] [--session ID] BLOCK_JSON -- cc-present update-block|push [ARGS...]
 
 STDLIB ONLY. `--config` is the landing runner's config, which names the drive, `landing.repo`, and
 `landing.fidelity_lane`. A row is a triage item whose id is `merge-row-<pr>[-<sha7>]`, anywhere in
@@ -10,19 +10,28 @@ the block; its head is the `commit <sha>` its hint names, and its `textAt` is th
 the writer last wrote its words. Each row fails, with one line `<row-id> <pr> <head> <reasons>`, when:
 
     stale     its head is not the PR's head on GitHub; the reason names the new head
-    ungraded  no fidelity grade or no finder review on the drive's bus names its head, read as
-              desk-runner.py reads them
     old text  its `textAt` is missing or not newer than its head's commit time
     not open  the PR is closed or merged on GitHub, or a root go, decide or decision record says it
               is superseded or closed, naming that record's seq, and no later root go names it at
               its head
+    missing   its label has no words after `#<pr>:`, or a fact in `FIELDS` is absent or empty:
+              what it changes for users, how it differs from the plan, its risk, the finder's
+              verdict, CI, and what gates its landing
+    moved     the board's outcomes record a verdict on its id under another triage block, and none
+              under this one
+    renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
+              none on this id, and no root record that re-keys names this id or its head
 
-Two rows whose first sentences of five words or more, the label when there is none, share a
-token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
-root; a flag fails nothing. A GitHub or cci read that fails prints a `WARN` line and fails no row
-on the checks it would have read. Any failing row exits 1. Otherwise `--check` exits 0, and the
-push form runs its command with a copy of the block, `textAt` removed, as its last argument and
-exits with the command's status. `--json` prints rows, flags, and warnings as one object.
+A row with no fidelity grade or no finder review on the drive's bus at its head, read as
+desk-runner.py reads them, gets a `WARN` line and fails nothing: the grade gates the enqueue, never
+the row. Two rows whose first sentences of five words or more, the label when there is none, share
+a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
+root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints a `WARN` line and
+fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
+for `--session`, else the push command's `--session`, else cc-present's default session. A last
+line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1. Otherwise
+`--check` exits 0, and the push form runs its command with a copy of the block, `textAt` removed,
+as its last argument and exits with the command's status. `--json` prints it all as one object.
 """
 
 from __future__ import annotations
@@ -43,12 +52,14 @@ from pathlib import Path
 import cci
 import grades
 
-ROW_ID = re.compile(r"^merge-row-(?P<pr>\d+)(?:-[0-9a-f]{7,40})?$")
+ROW_ID = re.compile(r"^merge-row-(?P<pr>\d+)(?:-(?P<sha>[0-9a-f]{7,40}))?$")
 ROW_HEAD = re.compile(r"\bcommit (?P<sha>[0-9a-f]{7,40})\b")
 SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 WORD = re.compile(r"[a-z0-9]+")
 LABEL_NUMBER = re.compile(r"^#\d+:\s*")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
+REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
+FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
 TEXT_AT = "textAt"
 PRS_PER_QUERY = 40
 READERS = 8
@@ -66,7 +77,7 @@ class Done:
 
 
 class Shell:
-    """The single side-effect boundary: gh, cci, the push command, and blob reads."""
+    """The single side-effect boundary: gh, cci, cc-present, the push command, and blob reads."""
 
     def run(self, argv: list[str]) -> Done:
         done = subprocess.run(argv, capture_output=True, text=True)
@@ -89,11 +100,15 @@ class ReadFailed(Exception):
 @dataclass
 class Row:
     id: str
+    block: str
     pr: str
     head: str
     text_at: str
+    label: str
     sentence: str
+    facts: dict[str, str]
     reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -103,10 +118,10 @@ class Pull:
     committed: str
 
 
-def triage_items(node: object) -> Iterator[dict]:
+def triage_items(node: object) -> Iterator[tuple[str, dict]]:
     if isinstance(node, dict):
         if node.get("type") == "triage":
-            yield from node.get("items", [])
+            yield from ((node["id"], item) for item in node.get("items", []))
         for value in node.values():
             yield from triage_items(value)
     elif isinstance(node, list):
@@ -121,12 +136,18 @@ def first_sentence(item: dict) -> str:
 
 def rows_of(block: dict) -> list[Row]:
     rows = []
-    for item in triage_items(block):
+    for block_id, item in triage_items(block):
         if not (named := ROW_ID.match(item.get("id", ""))):
             continue
         head = ROW_HEAD.search(item.get("hint", ""))
-        rows.append(Row(item["id"], named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), first_sentence(item)))
+        facts = {fact["label"]: str(fact.get("value", "")).strip() for fact in item.get("facts", [])}
+        rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), item.get("label", ""), first_sentence(item), facts))
     return rows
+
+
+def missing_fields(row: Row) -> list[str]:
+    absent = [] if LABEL_NUMBER.sub("", row.label).strip() else ["label"]
+    return absent + [name for name in FIELDS if not row.facts.get(name)]
 
 
 def pulls_query(repo: str, prs: list[str]) -> str:
@@ -167,6 +188,12 @@ def ruling_text(shell: Shell, record: dict) -> str:
     return (shell.read(path) if path else None) or record["text"]
 
 
+def root_rulings(shell: Shell, drive: str) -> list[dict]:
+    kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
+    records = [record for record in cci.records(tail(shell), drive, "--lane", "root", *kinds) if record["lane"] == "root" and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
+    return [record | {"full": ruling_text(shell, record)} for record in records]
+
+
 def closes(pr: str, text: str) -> bool:
     verb = rf"\b(?:clos(?:e|es|ed|ing)|supersed(?:es|ing))\s+(?:#\d+(?:\s*,\s*|\s*,?\s+and\s+))*#{pr}\b"
     ruled = rf"#{pr}\b[^.;:()\n]{{0,40}}?\b(?:superseded|closed)\b"
@@ -182,19 +209,71 @@ def closing_ruling(rulings: list[dict], pr: str, head: str) -> dict | None:
     return None if revived else ruling
 
 
-def root_rulings(shell: Shell, drive: str) -> list[dict]:
-    kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
-    records = [record for record in cci.records(tail(shell), drive, "--lane", "root", *kinds) if record["lane"] == "root" and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
-    return [record | {"full": ruling_text(shell, record)} for record in records]
+def rekeyed(rulings: list[dict], row: Row) -> dict | None:
+    """The newest root record that re-keys a row and names `row`'s id, or its PR with its head or id's short sha."""
+    keyed = ROW_ID.match(row.id)["sha"] or ""
+    shas = [sha for sha in (row.head, keyed) if sha]
+
+    def names(text: str) -> bool:
+        if row.id in text:
+            return True
+        if not re.search(rf"#{row.pr}\b|\bmerge-row-{row.pr}\b", text):
+            return False
+        return any(grades.names_head(named, sha) for named in grades.SHORT_SHA.findall(text) for sha in shas)
+
+    return max((record for record in rulings if REKEY.search(record["full"]) and names(record["full"])), key=lambda record: record["seq"], default=None)
 
 
-def graded_reasons(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
-    reasons = []
-    if not grades.standing(grades.fidelity_grades(tail(shell), drive, lanes, repo, row.pr), lanes, row.head):
-        reasons.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
-    if not grades.newest_finder(grades.finder_records(grades.finder_reviews(tail(shell), drive, repo, row.pr)), row.head):
-        reasons.append(f"ungraded: no finder review names {row.head}")
+def outcomes_args(session: str | None, command: list[str]) -> list[str]:
+    if session is None and "--session" in command[:-1]:
+        session = command[command.index("--session") + 1]
+    return ["cc-present", "outcomes", "--no-doc", *(["--session", session] if session else [])]
+
+
+def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, str]]:
+    """Each triage block's recorded verdicts, a row id to its verdict, from the board's outcomes."""
+    done = shell.run(argv)
+    start = done.out.find("{")
+    if done.code != 0 or start < 0:
+        raise ReadFailed(f"cc-present outcomes exited {done.code}: {(done.err or done.out).strip()[:200]}")
+    try:
+        triage = json.loads(done.out[start:])["interactions"].get("triage") or {}
+    except (ValueError, KeyError) as error:
+        raise ReadFailed(f"cc-present outcomes printed no interactions: {error}") from error
+    return {block: {row: entry.get("verdict", "") for row, entry in rows.items() if entry.get("verdict")} for block, rows in triage.items()}
+
+
+def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], rulings: list[dict] | None) -> dict[str, list[str]]:
+    """Why each row would hide a recorded verdict: its id decided under another block, or its PR decided under an id this push drops, with no root re-key."""
+    pushed = {row.id for row in rows}
+    decided = [(block, row_id) for block, by_row in verdicts.items() for row_id in by_row]
+    reasons: dict[str, list[str]] = {}
+    for row in rows:
+        if row.id in verdicts.get(row.block, {}):
+            continue
+        if elsewhere := sorted(block for block, row_id in decided if row_id == row.id):
+            reasons.setdefault(row.id, []).append(f"moved: decided under block {', '.join(elsewhere)}, pushed under {row.block}")
+            continue
+        dropped = sorted({row_id for _, row_id in decided if row_id != row.id and row_id not in pushed and (named := ROW_ID.match(row_id)) and named["pr"] == row.pr})
+        if dropped and rulings is not None and not rekeyed(rulings, row):
+            reasons.setdefault(row.id, []).append(f"renamed: decided as {', '.join(dropped)}, and no root re-key record names {row.id}")
     return reasons
+
+
+def graded_warnings(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
+    warnings = []
+    if not grades.standing(grades.fidelity_grades(tail(shell), drive, lanes, repo, row.pr), lanes, row.head):
+        warnings.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
+    if not grades.newest_finder(grades.finder_records(grades.finder_reviews(tail(shell), drive, repo, row.pr)), row.head):
+        warnings.append(f"ungraded: no finder review names {row.head}")
+    return warnings
+
+
+def read_graded(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str] | ReadFailed:
+    try:
+        return graded_warnings(shell, drive, lanes, repo, row)
+    except ReadFailed as failed:
+        return failed
 
 
 def parsed(stamp: str) -> datetime | None:
@@ -229,13 +308,15 @@ def flags(rows: list[Row]) -> list[dict]:
     return found
 
 
-def check(shell: Shell, config: dict, block: dict) -> tuple[list[Row], list[dict], list[str]]:
+def check(shell: Shell, config: dict, block: dict, outcomes: list[str]) -> tuple[list[Row], list[dict], list[str]]:
     drive, landing = config["drive"], config["landing"]
     repo, configured = landing["repo"], landing["fidelity_lane"]
     lanes = [configured] if isinstance(configured, str) else list(configured)
     rows = rows_of(block)
     warnings: list[str] = []
     for row in rows:
+        if missing := missing_fields(row):
+            row.reasons.append(f"missing: {', '.join(missing)}")
         if not row.head:
             row.reasons.append("stale: the hint names no `commit <sha>`")
     named = [row for row in rows if row.head]
@@ -244,27 +325,26 @@ def check(shell: Shell, config: dict, block: dict) -> tuple[list[Row], list[dict
         rulings = root_rulings(shell, drive)
     except ReadFailed as failed:
         rulings = None
-        warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a superseded or closed ruling")
+        warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling, and no renamed row is excused by a re-key")
+    try:
+        moved = verdict_reasons(rows, read_verdicts(shell, outcomes), rulings)
+    except ReadFailed as failed:
+        moved = {}
+        warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved or renamed verdict")
     with ThreadPoolExecutor(READERS) as pool:
         graded = dict(zip((row.id for row in named), pool.map(lambda row: read_graded(shell, drive, lanes, repo, row), named), strict=True))
+    for row in rows:
+        row.reasons += moved.get(row.id, [])
     for row in named:
         if row.pr in pulls:
             row.reasons += github_reasons(row, pulls[row.pr])
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
-        reasons = graded[row.id]
-        if isinstance(reasons, ReadFailed):
-            warnings.append(f"WARN #{row.pr}: the grades did not read ({reasons}); its ungraded check is skipped")
+        if isinstance(found := graded[row.id], ReadFailed):
+            warnings.append(f"WARN #{row.pr}: the grades did not read ({found}); its ungraded check is skipped")
         else:
-            row.reasons += reasons
+            row.warnings += found
     return rows, flags(rows), warnings
-
-
-def read_graded(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str] | ReadFailed:
-    try:
-        return graded_reasons(shell, drive, lanes, repo, row)
-    except ReadFailed as failed:
-        return failed
 
 
 def stripped(block: object) -> object:
@@ -275,17 +355,33 @@ def stripped(block: object) -> object:
     return block
 
 
+def counts(rows: list[Row], found: list[dict]) -> dict[str, int]:
+    return {"rows": len(rows), "failing": sum(bool(row.reasons) for row in rows), "ungraded": sum(bool(row.warnings) for row in rows), "flags": len(found)}
+
+
 def report(rows: list[Row], found: list[dict], warnings: list[str], as_json: bool) -> None:
+    tally = counts(rows, found)
     if as_json:
-        print(json.dumps({"rows": [asdict(row) | {"ok": not row.reasons} for row in rows], "flags": found, "warnings": warnings}))
+        print(json.dumps({"rows": [asdict(row) | {"ok": not row.reasons} for row in rows], "flags": found, "warnings": warnings, "counts": tally}))
         return
-    for line in warnings:
-        print(line, file=sys.stderr)
     for row in rows:
         if row.reasons:
             print(f"{row.id} {row.pr} {row.head or '-'} {'; '.join(row.reasons)}")
+    for row in rows:
+        if row.warnings:
+            print(f"WARN {row.id} {row.pr} {row.head} {'; '.join(row.warnings)}")
+    for line in warnings:
+        print(line)
     for flag in found:
         print(f"FLAG {' '.join(flag['rows'])} {' '.join(f'#{pr}' for pr in flag['prs'])} first sentences match (jaccard {flag['jaccard']}): {flag['sentences'][0]}")
+    print(" ".join(f"{name} {count}" for name, count in tally.items()))
+
+
+def split(argv: list[str]) -> tuple[list[str], list[str]]:
+    if "--" not in argv:
+        return argv, []
+    at = argv.index("--")
+    return argv[:at], argv[at + 1 :]
 
 
 def main(argv: list[str], shell: Shell | None = None) -> int:
@@ -295,12 +391,13 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--session")
     parser.add_argument("block", type=Path)
     args = parser.parse_args(ours)
     if args.check == bool(command):
         parser.error("pass --check, or a push command after --, not both")
     block = json.loads(args.block.read_text())
-    rows, found, warnings = check(shell, json.loads(args.config.expanduser().read_text()), block)
+    rows, found, warnings = check(shell, json.loads(args.config.expanduser().read_text()), block, outcomes_args(args.session, command))
     report(rows, found, warnings, args.json)
     if any(row.reasons for row in rows):
         return 1
@@ -310,13 +407,6 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
         json.dump(stripped(block), copy, indent=1)
         copy.flush()
         return shell.push([*command, copy.name])
-
-
-def split(argv: list[str]) -> tuple[list[str], list[str]]:
-    if "--" not in argv:
-        return argv, []
-    at = argv.index("--")
-    return argv[:at], argv[at + 1 :]
 
 
 if __name__ == "__main__":

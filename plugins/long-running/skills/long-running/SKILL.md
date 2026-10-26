@@ -1542,15 +1542,20 @@ enqueues right after its accept, while the trees after it are still being checke
 Every push of a merge-triage block goes through
 `board_rows.py --config <runner config> <block.json> -- cc-present update-block <args>`,
 and `--check` runs the gate alone. A row, a triage item `merge-row-<pr>[-<sha7>]`,
-fails when its hint's `commit <sha>` is not the PR's GitHub head, when no fidelity grade
-or finder review on the bus names that head, when its `textAt` (the time its words were
-written, which the writer sets on every edit) is not after the head's commit, or when
-the PR is closed, merged, or ruled superseded or closed by a root record. Any failing
-row stops the push; `FLAG` lines name rows whose first sentences match, for the root to
-merge or reword. The push hands cc-present a copy without `textAt`. Owner, 1:55 PM
-Oct 26: "if theres stale PRs etc on herr why have you kusr been sititg here waiting for
-me insyea dif oroactively sddresijg them, orgsnzijg the bosrd better etc? ficnit sns
-your toolijg".
+fails when its hint's `commit <sha>` is not the PR's GitHub head, when its `textAt` (the
+time its words were written, which the writer sets on every edit) is not after the
+head's commit, or when the PR is closed, merged, or ruled superseded or closed by a root
+record. It also fails when it lacks a field the owner decides by: a plain-words label and
+the facts `For users`, `Differs from plan`, `Risk`, `Finder`, `Build (CI)` and `Gate`,
+the Slack merge card's fields (root #131642). A row whose recorded verdict the push
+would hide fails too: its id decided under another triage block, or its PR decided
+under an id the push drops with no root record that re-keys it (root #131681). A head
+with no fidelity grade or finder review is a `WARN` line, because the grade gates the
+enqueue, never the row (root #131645). Any failing row stops the push; `FLAG` lines
+name rows whose first sentences match, for the root to merge or reword. The push hands
+cc-present a copy without `textAt`. Owner, 1:55 PM Oct 26: "if theres stale PRs etc on
+herr why have you kusr been sititg here waiting for me insyea dif oroactively
+sddresijg them, orgsnzijg the bosrd better etc? ficnit sns your toolijg".
 
 A repository the runner's own GitHub account owns, the login `gh api user` prints,
 lands once green under every merge mode, with no card (de6c88c). A reserved touch
