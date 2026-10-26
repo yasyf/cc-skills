@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The merge-row gate: every merge-triage row the owner sees names its PR's current head, carries what he needs to decide, in words written after that head, and keeps his verdict.
 
-    board_rows.py --config RUNNER_JSON --check [--json] [--session ID] BLOCK_JSON
-    board_rows.py --config RUNNER_JSON [--json] [--session ID] BLOCK_JSON -- cc-present update-block|push [ARGS...]
+    board_rows.py --config RUNNER_JSON --check [--json] [--session ID] [--finders DIR] BLOCK_JSON
+    board_rows.py --config RUNNER_JSON [--json] [--session ID] [--finders DIR] BLOCK_JSON -- cc-present update-block|push [ARGS...]
 
 STDLIB ONLY. `--config` is the landing runner's config, which names the drive, `landing.repo`, and
 `landing.fidelity_lane`. A row is a triage item whose id is `merge-row-<pr>[-<sha7>]`, anywhere in
@@ -22,9 +22,11 @@ the writer last wrote its words. Each row fails, with one line `<row-id> <pr> <h
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
               none on this id, and no root record that re-keys names this id or its head
 
-A row with no fidelity grade or no finder review on the drive's bus at its head, read as
-desk-runner.py reads them, gets a `WARN` line and fails nothing: the grade gates the enqueue, never
-the row. Two rows whose first sentences of five words or more, the label when there is none, share
+A row with no fidelity grade or no finder review at its head gets a `WARN` line and fails
+nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
+scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
+finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
+review too. `--finders` names that directory, `finders/` beside the config by default. Two rows whose first sentences of five words or more, the label when there is none, share
 a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
 root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints a `WARN` line and
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
@@ -44,7 +46,6 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -58,11 +59,12 @@ SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 WORD = re.compile(r"[a-z0-9]+")
 LABEL_NUMBER = re.compile(r"^#\d+:\s*")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
+SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
+FINDERS = "finders"
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
 TEXT_AT = "textAt"
 PRS_PER_QUERY = 40
-READERS = 8
 SENTENCE_WORDS = 5
 SAME_PREFIX = 60
 SAME_JACCARD = 0.8
@@ -91,6 +93,9 @@ class Shell:
             return Path(path).read_text(errors="replace")
         except OSError:
             return None
+
+    def files(self, directory: Path) -> list[str]:
+        return [path.name for path in directory.iterdir()] if directory.is_dir() else []
 
 
 class ReadFailed(Exception):
@@ -260,20 +265,15 @@ def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], ruling
     return reasons
 
 
-def graded_warnings(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
+def graded_warnings(reviews: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
     warnings = []
-    if not grades.standing(grades.fidelity_grades(tail(shell), drive, lanes, repo, row.pr), lanes, row.head):
+    if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
         warnings.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
-    if not grades.newest_finder(grades.finder_records(grades.finder_reviews(tail(shell), drive, repo, row.pr)), row.head):
+    found = [record for record in grades.finder_reviews_in(reviews, drive, repo, row.pr) if record["head"]]
+    replies = [name for name in saved if (named := SAVED_FINDER.match(name)) and named["pr"] == row.pr and grades.names_head(named["sha"], row.head)]
+    if not (grades.newest_finder(found, row.head) or replies):
         warnings.append(f"ungraded: no finder review names {row.head}")
     return warnings
-
-
-def read_graded(shell: Shell, drive: str, lanes: list[str], repo: str, row: Row) -> list[str] | ReadFailed:
-    try:
-        return graded_warnings(shell, drive, lanes, repo, row)
-    except ReadFailed as failed:
-        return failed
 
 
 def parsed(stamp: str) -> datetime | None:
@@ -308,7 +308,7 @@ def flags(rows: list[Row]) -> list[dict]:
     return found
 
 
-def check(shell: Shell, config: dict, block: dict, outcomes: list[str]) -> tuple[list[Row], list[dict], list[str]]:
+def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders: Path) -> tuple[list[Row], list[dict], list[str]]:
     drive, landing = config["drive"], config["landing"]
     repo, configured = landing["repo"], landing["fidelity_lane"]
     lanes = [configured] if isinstance(configured, str) else list(configured)
@@ -331,8 +331,12 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str]) -> tuple
     except ReadFailed as failed:
         moved = {}
         warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved or renamed verdict")
-    with ThreadPoolExecutor(READERS) as pool:
-        graded = dict(zip((row.id for row in named), pool.map(lambda row: read_graded(shell, drive, lanes, repo, row), named), strict=True))
+    try:
+        reviews = cci.records(tail(shell), drive, "--kind=review", "--kind=head")
+    except ReadFailed as failed:
+        reviews = None
+        warnings.append(f"WARN the grades did not read ({failed}); no row is checked for a grade or finder at its head")
+    saved = shell.files(finders)
     for row in rows:
         row.reasons += moved.get(row.id, [])
     for row in named:
@@ -340,10 +344,8 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str]) -> tuple
             row.reasons += github_reasons(row, pulls[row.pr])
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
-        if isinstance(found := graded[row.id], ReadFailed):
-            warnings.append(f"WARN #{row.pr}: the grades did not read ({found}); its ungraded check is skipped")
-        else:
-            row.warnings += found
+        if reviews is not None:
+            row.warnings += graded_warnings(reviews, saved, drive, lanes, repo, row)
     return rows, flags(rows), warnings
 
 
@@ -392,12 +394,14 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--session")
+    parser.add_argument("--finders", type=Path)
     parser.add_argument("block", type=Path)
     args = parser.parse_args(ours)
     if args.check == bool(command):
         parser.error("pass --check, or a push command after --, not both")
     block = json.loads(args.block.read_text())
-    rows, found, warnings = check(shell, json.loads(args.config.expanduser().read_text()), block, outcomes_args(args.session, command))
+    config = args.config.expanduser()
+    rows, found, warnings = check(shell, json.loads(config.read_text()), block, outcomes_args(args.session, command), (args.finders or config.parent / FINDERS).expanduser())
     report(rows, found, warnings, args.json)
     if any(row.reasons for row in rows):
         return 1

@@ -1551,7 +1551,9 @@ the Slack merge card's fields (root #131642). A row whose recorded verdict the p
 would hide fails too: its id decided under another triage block, or its PR decided
 under an id the push drops with no root record that re-keys it (root #131681). A head
 with no fidelity grade or finder review is a `WARN` line, because the grade gates the
-enqueue, never the row (root #131645). Any failing row stops the push; `FLAG` lines
+enqueue, never the row (root #131645). A finder review counts in any form lanes post,
+`finder: ok|major|issues <sha>`, `finder [<pr>] issues <sha>` without a PR ref, or a
+codex reply saved as `finders/<pr>-<sha7>.md` in the drive's state directory. Any failing row stops the push; `FLAG` lines
 name rows whose first sentences match, for the root to merge or reword. The push hands
 cc-present a copy without `textAt`. Owner, 1:55 PM Oct 26: "if theres stale PRs etc on
 herr why have you kusr been sititg here waiting for me insyea dif oroactively

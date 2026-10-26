@@ -74,3 +74,17 @@ def test_both_graders_hold_each_added_test_to_the_plan_line_it_rests_on():
         brief = " ".join((SKILL / "reference" / name).read_text().split())
         assert "pins unplanned behavior" in brief and "(e20e623)" in brief, name
         assert "behavior a plan line, sub-plan line, or owner ruling names" in brief, name
+
+
+@pytest.mark.parametrize(
+    ("text", "grade"),
+    [
+        ("finder: ok 28cf4ad identical replay", "ok"),
+        ("finder: major fb1d3f0 11 open", "major"),
+        ("finder: issues 96d3048f7ec1 #42785: nine majors in two groups", "major"),
+        ("finder [42751] issues 6a2abdc: gpt-6.1-sol, 2 majors", "major"),
+        ("p8a-step6 finder verdict, #42745 at eca764c: 1 major, fixed in 408772a", "major"),
+    ],
+)
+def test_every_finder_line_lanes_post_reads_as_a_verdict(text: str, grade: str) -> None:
+    assert grades.finder_grade(text) == grade
