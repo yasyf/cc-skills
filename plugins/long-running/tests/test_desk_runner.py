@@ -1886,6 +1886,7 @@ def test_a_fork_enqueues_its_first_chain_and_names_the_other_green_tip_deferred(
     grade_gated_heads_ok(shell)
     shell.enqueue_out["36487"] = (0, "enqueue #36463 #36487: {}\n")
     landing_pass(shell, config)
+    shell.gates["36487"] = [gate(*verdicts)]
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]
     assert {tuple(itertools.takewhile(str.isdigit, call[1:])) for call in checks} == {("36487",), ("36487", "36501", "36510", "36520"), ("36600",)}
@@ -2671,7 +2672,7 @@ def test_a_forked_stack_of_five_with_go_on_all_enqueues_one_chain_per_batch(shel
     green = {pr: f"#{pr} GREEN {head} graphite READY" for pr, head in heads.items()}
     queued = {pr: f"#{pr} QUEUED {heads[pr]} graphite QUEUED_TO_MERGE" for pr in ("31001", "31002", "31003")}
     shell.gates["31003"] = [gate(*green.values()), gate(green["31001"], green["31002"], green["31003"], would="#31001 #31002 #31003")]
-    shell.gates["31003 31005"] = [gate(*green.values(), would="#31001 #31002 #31003 #31004 #31005"), gate(*queued.values(), green["31004"], green["31005"], would="#31004 #31005")]
+    shell.gates["31003 31005"] = [gate(*green.values(), would="#31001 #31002 #31003 #31004 #31005")]
     shell.enqueue_out["31003"] = (0, "enqueue #31001 #31002 #31003: {}\n")
     for pr, head in heads.items():
         grade(shell, pr, f"ok F307 at {head[:7]}.")
@@ -2680,6 +2681,8 @@ def test_a_forked_stack_of_five_with_go_on_all_enqueues_one_chain_per_batch(shel
     assert [call[1:] for call in shell.enqueues()] == [["31003", "--partial"]]
     [deferred] = [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ")]
     assert "#31004 #31005 fork off #31002; Graphite keeps one linear chain per batch, so this pass enqueues #31001 #31002 #31003 and the others enqueue once #31002 lands" in deferred
+    shell.gates["31003"] = [gate(*queued.values(), green["31004"], green["31005"])]
+    shell.gates["31003 31005"] = [gate(*queued.values(), green["31004"], green["31005"], would="#31004 #31005")]
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
     assert [line for line in escalations(shell) if line.startswith("FORK-DEFERRED ") and "#31004 #31005 fork off #31002, which has not landed" in line]
