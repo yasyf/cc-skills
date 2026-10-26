@@ -5406,12 +5406,20 @@ class Landing:
         return pr in self.landed
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one call a pass that the requeue read, the landed check, and the routing of PRs no go names share; None when the call fails, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one call a pass that the requeue read, the landed check, and the routing of PRs no go names share; None when the call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
             self.statuses = {str(entry["number"]): entry for entry in json.loads(done.out)} if done.code == 0 else None
             self.queues_read = True
+            if self.statuses is None:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(
+                    f"pr-status:{self.runner.now():%Y%m%d%H}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}",
+                    "STATUS-READ-FAILED",
+                    "landing",
+                    f"`ccx vcs pr status` over {len(numbers)} open rows failed: {last[0]}; this pass requeues nothing, settles no landing from the queue, and routes no PR without a go, and the next pass reads again",
+                )
         return self.statuses
 
     def queue_states(self) -> dict[str, str] | None:
