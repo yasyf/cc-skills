@@ -423,7 +423,8 @@ plugin version the runner runs. A runner behind the version `installed_plugins.j
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the end
-of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. `drive.py digest`
+of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. It waits up to 20 minutes
+for the exit mark, as long as a slow pass takes; past that it starts nothing and logs `HANDOFF-STALLED` to root. `drive.py digest`
 prints each desk's running and installed versions.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
 per board round, however many cards join it; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
@@ -619,7 +620,7 @@ UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "r
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
-HANDOFF_WAIT = timedelta(minutes=5)
+HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
@@ -1547,7 +1548,10 @@ class Runner:
             deadline = self.now() + HANDOFF_WAIT
             while marker.exists():
                 if self.now() >= deadline:
-                    print(f"desk-runner handoff: runner {pid} wrote no exit mark within {HANDOFF_WAIT}; {marker} stays until it does, and no successor started", file=sys.stderr)
+                    why = f"runner {pid} wrote no exit mark within {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    self.escalate(f"handoff:{desk}:{pid}", "HANDOFF-STALLED", "runner", why)
+                    self.flush()
+                    print(f"desk-runner handoff: {why}", file=sys.stderr)
                     return 1
                 self.shell.sleep(WAKE_SECONDS)
         started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)

@@ -5495,10 +5495,13 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     assert "AWS_PROFILE" not in shell.environ
 
 
-def test_a_handoff_whose_runner_writes_no_exit_mark_starts_no_successor(shell, config, tmp_path):
+def test_a_handoff_whose_runner_writes_no_exit_mark_in_twenty_minutes_starts_no_successor_and_tells_root(shell, config, tmp_path):
     orca_pass(shell, config)
+    started = shell.now()
     assert cli(shell, config, "handoff", "--desk", "orca") == 1
-    assert shell.successors == []
+    assert shell.successors == [] and shell.now() - started >= timedelta(minutes=20)
+    [line] = [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
+    assert "wrote no exit mark within 0:20:00, so no successor started" in line and "handoff --desk orca` starts the successor" in line
 
 
 def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
