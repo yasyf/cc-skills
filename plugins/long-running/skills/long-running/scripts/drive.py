@@ -91,6 +91,7 @@ SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
+CALLER_VERSION_ENV = "LONG_RUNNING_CALLER_VERSION"
 DRIVE_ID_LENGTH = 8
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
@@ -129,6 +130,15 @@ def version_key(version: str) -> tuple[int, ...]:
 def behind(running: str, installed: str) -> bool:
     """Whether a runner reporting ``running``, empty for one that reports none, runs older code than the installed version."""
     return bool(installed) and (not running or version_key(running) < version_key(installed))
+
+
+def refuse_stale(script: str) -> None:
+    """Exit before `script` runs when it is a copy of an older plugin version than the installed one and no process of its own version started it, so a stale copy never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
+    running = plugin_manifest()["version"]
+    if os.environ.get(CALLER_VERSION_ENV) != running and behind(running, installed := installed_version()):
+        tool = Path(script).name
+        raise SystemExit(f"STALE-SCRIPT {script} is long-running {running}, and {installed} is installed; run {PLUGIN / 'bin' / tool}, which runs the installed version")
+    os.environ[CALLER_VERSION_ENV] = running
 
 
 def stamp() -> str:
@@ -557,4 +567,5 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
 
 
 if __name__ == "__main__":
+    refuse_stale(__file__)
     raise SystemExit(main())
