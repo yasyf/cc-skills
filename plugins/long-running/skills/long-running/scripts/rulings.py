@@ -1160,6 +1160,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     proof = f"proof:{capture.get('source', 'prompt')}:{item}"
     at = pacific(capture["at"])
     words = entry["words"]
+    quote = words if capture.get("source") == ANSWER_SOURCE else capture["text"]
     repeated = False
     if extends := entry.get("extends"):
         key, how, repeated = extends, "extended", bool(repeat_markers(loaded, capture["text"]))
@@ -1170,7 +1171,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         loaded.write(
             key,
             **reclassified,
-            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": words, "proof": proof, "repeat": repeated}],
+            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": quote, "proof": proof, "repeat": repeated}],
             said=str(int(fields.get("said") or 1) + repeated),
             names=union(names_of(fields), entry.get("names") or []),
             surfaces=union(listed(fields.get("surfaces")), entry.get("surfaces") or []),
@@ -1182,7 +1183,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         status = "pending-owner" if kind == "exception" and not any(named(words, name) for name in names) else "in-force"
         fields = {
             "kind": kind,
-            "words": words,
+            "words": quote,
             "answer": entry.get("answer") or [],
             "proof": proof,
             "at": at,
@@ -1217,7 +1218,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         "how": how,
         "kind": row.get("kind"),
         "status": row.get("status"),
-        "words": words,
+        "words": quote,
         "implications": listed(row.get("implications")),
         "names": names_of(row),
         "surfaces": listed(row.get("surfaces")),
