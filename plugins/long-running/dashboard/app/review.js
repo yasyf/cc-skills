@@ -158,6 +158,7 @@ document.addEventListener('keydown', (e) => {
   else return;
   e.preventDefault();
 });
+const STALE_LINE = '<p class="assist-line stale">Showing the last copy of this review: GitHub is refusing requests for now, so new pushes and comments show up once it answers again.</p>';
 const ASSISTANT_LINE = `<p class="assist-line"><i class="on"></i><b>Assistant connected.</b> Ask in the bar under the code; it answers from<span class="pill" title="The files and lines this pull request changes">the diff</span><span class="pill" title="This pull request's row on the merge board: change, plan, risk, review, blocker">its board row</span><span class="pill" title="Your recorded rulings that match the question">your rulings</span><span class="pill" title="The drive's records that name this pull request">the drive's records</span></p>`;
 function syncReviewEmbed(r) {
   const note = [...document.querySelectorAll('.hold-form input')].find((input) => input.offsetParent);
@@ -188,10 +189,10 @@ function syncReviewEmbed(r) {
   code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
   fetch(`/api/review/${number}`, { cache: 'no-store' })
     .then((res) => res.json())
-    .then(({ url, assistant, error }) => {
+    .then(({ url, assistant, stale, error }) => {
       if (embed.number !== number) return;
       code.innerHTML = url
-        ? `${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
+        ? `${stale ? STALE_LINE : ''}${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
         : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>`;
     });
 }

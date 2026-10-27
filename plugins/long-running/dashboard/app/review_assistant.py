@@ -14,6 +14,7 @@ WATCH_BACKOFF = 30
 ATTACH_FOR = 20 * 60
 SERVED = {"ai.request.created", "comment.created"}
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
+STALE_LINE = re.compile(r"^stale: ", re.M)
 DAEMON_PORT = re.compile(r"^http:\s+\S+:(\d+)$", re.M)
 
 PROMPT = """You are the review assistant behind the drive dashboard's embedded cc-review of {repo}#{number}. This directory is that review's scope and your session owns it. Handle the one event below, then stop. Never edit a file.
@@ -38,6 +39,7 @@ class ReviewAssistant:
         self.watching = {}
         self.seen = set()
         self.urls = {}
+        self.stale = set()
         self.closed = set()
         self.starting = {}
         self.warming = queue.Queue()
@@ -71,9 +73,14 @@ class ReviewAssistant:
                 except subprocess.CalledProcessError:
                     if not (viewing and (url := self.opened(cwd))):
                         raise
+                    self.stale.add(number)
                 else:
                     url = TAILNET_LINE.search(started.stdout)[1]
-                    self.urls[(number, head)] = url
+                    if STALE_LINE.search(started.stdout):
+                        self.stale.add(number)
+                    else:
+                        self.stale.discard(number)
+                        self.urls[(number, head)] = url
             if landed and url not in self.closed:
                 subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
                 self.closed.add(url)
