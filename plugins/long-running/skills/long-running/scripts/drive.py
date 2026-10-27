@@ -113,14 +113,18 @@ def plugin_manifest() -> dict:
     return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
 
 
-def installed_version() -> str:
-    """The newest version of this plugin Claude Code lists in ``installed_plugins.json``, or empty when it lists none."""
+def newest_install() -> dict | None:
+    """The newest install of this plugin Claude Code lists in ``installed_plugins.json``, or None when it lists none."""
     path = drives_dir().parents[1] / "plugins" / "installed_plugins.json"
     if not path.is_file():
-        return ""
+        return None
     name = plugin_manifest()["name"]
     installs = [install for key, entries in load(path)["plugins"].items() if key.partition("@")[0] == name for install in entries]
-    return max((install["version"] for install in installs), key=version_key, default="")
+    return max(installs, key=lambda install: version_key(install["version"]), default=None)
+
+
+def installed_version() -> str:
+    return (newest_install() or {}).get("version", "")
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -132,12 +136,12 @@ def behind(running: str, installed: str) -> bool:
     return bool(installed) and (not running or version_key(running) < version_key(installed))
 
 
-def refuse_stale(script: str) -> None:
-    """Exit before `script` runs when it is a copy of an older plugin version than the installed one and no process of its own version started it, so a stale copy never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
+def run_installed(script: str) -> None:
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
     running = plugin_manifest()["version"]
-    if os.environ.get(CALLER_VERSION_ENV) != running and behind(running, installed := installed_version()):
-        tool = Path(script).name
-        raise SystemExit(f"STALE-SCRIPT {script} is long-running {running}, and {installed} is installed; run {PLUGIN / 'bin' / tool}, which runs the installed version")
+    if os.environ.get(CALLER_VERSION_ENV) != running and (install := newest_install()) and behind(running, install["version"]):
+        fresh = Path(install["installPath"]) / Path(__file__).resolve().parent.relative_to(PLUGIN) / Path(script).name
+        os.execv(sys.executable, [sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
 
 
@@ -567,5 +571,5 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
 
 
 if __name__ == "__main__":
-    refuse_stale(__file__)
+    run_installed(__file__)
     raise SystemExit(main())

@@ -437,30 +437,30 @@ def test_digest_names_a_desk_with_no_heartbeat_and_exits_one(repo, capsys):
 def installed(*versions: str) -> None:
     plugins = drive.drives_dir().parents[1] / "plugins"
     plugins.mkdir(parents=True, exist_ok=True)
-    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": version} for version in versions]}}))
+    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": version, "installPath": f"/plugins/cache/skills/long-running/{version}"} for version in versions]}}))
 
 
-@pytest.mark.parametrize(("caller", "refused"), [(None, True), ("0.7.99", False), ("0.7.320", True)])
-def test_a_script_behind_the_installed_plugin_refuses_unless_a_process_of_its_own_version_started_it(repo, monkeypatch, caller, refused):
-    """On Oct 26 root ran holds.py from 0.7.99 with 0.7.320 installed, and the runner could not read the holds line it left (#131579)."""
+@pytest.mark.parametrize(("caller", "reexecs"), [(None, True), ("0.7.99", False), ("0.7.320", True)])
+def test_a_script_behind_the_installed_plugin_reexecutes_the_installed_copy_unless_a_process_of_its_own_version_started_it(repo, monkeypatch, caller, reexecs):
+    """On Oct 26 root ran holds.py from 0.7.99 with 0.7.320 installed, and the runner could not read the holds line it left (#131579); a brief naming a versioned desk-wait.sh path then refused instead of running (#136583)."""
     monkeypatch.setattr(drive, "plugin_manifest", lambda: {"name": "long-running", "version": "0.7.99"})
     installed("0.7.99", "0.7.320")
     if caller:
         monkeypatch.setenv(drive.CALLER_VERSION_ENV, caller)
     else:
         monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
-    script = "/plugins/cache/skills/long-running/0.7.99/skills/long-running/scripts/holds.py"
-    if refused:
-        with pytest.raises(SystemExit, match=rf"^STALE-SCRIPT {script} is long-running 0\.7\.99, and 0\.7\.320 is installed; run \S+/bin/holds\.py, which runs the installed version$"):
-            drive.refuse_stale(script)
-        return
-    drive.refuse_stale(script)
-    assert drive.os.environ[drive.CALLER_VERSION_ENV] == "0.7.99"
+    execs: list[list[str]] = []
+    monkeypatch.setattr(drive.os, "execv", lambda path, argv: execs.append(argv))
+    monkeypatch.setattr(drive.sys, "argv", ["holds.py", "add", "#1"])
+
+    drive.run_installed("/plugins/cache/skills/long-running/0.7.99/skills/long-running/scripts/holds.py")
+
+    assert execs == ([[drive.sys.executable, "/plugins/cache/skills/long-running/0.7.320/skills/long-running/scripts/holds.py", "add", "#1"]] if reexecs else [])
 
 
 def test_a_current_script_marks_its_children_with_its_version(repo, monkeypatch):
     monkeypatch.setattr(drive, "plugin_manifest", lambda: {"name": "long-running", "version": "0.7.320"})
     installed("0.7.320")
     monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
-    drive.refuse_stale("holds.py")
+    drive.run_installed("holds.py")
     assert drive.os.environ[drive.CALLER_VERSION_ENV] == "0.7.320"
