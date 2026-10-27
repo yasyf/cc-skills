@@ -24,7 +24,7 @@ SLOTS = {
     ("headline",): "headline",
     ("because",): "sentence",
     ("band", "text"): "sentence",
-    ("progress", "sentence"): "sentence",
+    ("progress", "sentence"): "headline",
     ("progress", "code_line"): "line",
     ("calm",): "sentence",
 }
@@ -44,9 +44,9 @@ NODE_SCHEMA = {
     "required": ["id", "text", "state", "how", "item", "since"],
     "properties": {
         "id": {"type": "string"},
-        "text": {"type": "string", "description": "what is stuck or what must happen, at most 14 words"},
+        "text": {"type": "string", "description": "what is stuck or what must happen, at most 12 words"},
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
-        "how": {"type": "string", "description": "how it is being unblocked and the next step, at most 16 words; empty for done"},
+        "how": {"type": "string", "description": "how it is being unblocked and the next step, at most 14 words; empty for done"},
         "item": {"type": "string", "description": "the work item id fixing it, or empty"},
         "since": {"type": "string", "description": "Pacific clock time it got stuck, such as 11:45 AM, or empty"},
     },
@@ -72,14 +72,14 @@ SCHEMA = {
         },
         "paths": {
             "type": "array",
-            "maxItems": 3,
+            "maxItems": 2,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
                 "required": ["milestone", "nodes", "edges"],
                 "properties": {
                     "milestone": {"type": "integer", "description": "index into the milestones list"},
-                    "nodes": {"type": "array", "maxItems": 6, "items": NODE_SCHEMA},
+                    "nodes": {"type": "array", "maxItems": 4, "items": NODE_SCHEMA},
                     "edges": {
                         "type": "array",
                         "items": {"type": "object", "additionalProperties": False, "required": ["from", "to"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}}},
@@ -115,6 +115,7 @@ Rules for every string:
 - Never a record number, pull request number, release code (R1, P8), step number, hash, file path, branch, URL, worker name from worker_names, or these coined words: lane, desk, watchdog, finder, slice, census, fidelity, register, mirror, forest, tap row, ci-grade, rider, carry, restack, rebase, enqueue, old world, new world, cherry-pick. Say "a worker", "the merge process", "the automated review", "old code", "new code" instead. Describe what changed for users or what is left, never git mechanics.
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
+- Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
 - Keep every string from previous_brief whose facts did not change, word for word.
 
 Fields:
@@ -122,9 +123,9 @@ Fields:
 - because: up to three short sentences naming the facts the headline rests on.
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
 - progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is three to five words for paused or broken, else empty.
-- progress.sentence: at most 40 words: how many milestones are live and what ships before the next one.
+- progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
 - progress.code_line: "Code: X of Y changes are merged" style, from code.by_state (landed of tracked).
-- paths: the dependency chart of blockers. One path per milestone that something blocks (at most three, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most six nodes per path; merge small things. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how says how it is being unblocked and the next step; for nobody say who was told and when. item names the work item fixing it.
+- paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most four nodes per path; merge small things. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how says how it is being unblocked and the next step; for nobody say who was told and when, and who should assign a worker (the coordinator). item names the work item fixing it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
 - work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work."""
 
@@ -150,7 +151,7 @@ def slot_of(path):
     if path[:1] == ("progress",) and path[1:2] == ("stops",):
         return "line" if path[-1] in ("label", "why") else None
     if path[:1] == ("paths",):
-        return {"text": "node", "how": "unblock"}.get(path[-1])
+        return {"text": "node", "how": "how"}.get(path[-1])
     if path[:1] == ("work",):
         return {"title": "title", "latest": "latest"}.get(path[-1])
     if path[:1] == ("because",):
@@ -206,6 +207,7 @@ class Curator:
         self.brief = json.loads(self.path.read_text()) if self.path.exists() else None
         self.dirty = threading.Event()
         self.error = None
+        self.running = False
 
     def poke(self, kind=None):
         if kind is None or kind in CURATOR_KINDS:
@@ -217,11 +219,14 @@ class Curator:
             self.dirty.wait()
             self.dirty.clear()
             started = time.monotonic()
+            self.running = True
             try:
                 self.curate()
                 self.error = None
             except Exception as error:
                 self.error = f"{type(error).__name__}: {str(error)[:300]}"
+            finally:
+                self.running = False
             time.sleep(max(0.0, MIN_GAP - (time.monotonic() - started)))
 
     def curate(self):

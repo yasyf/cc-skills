@@ -16,6 +16,7 @@ import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from review_assistant import ReviewAssistant
 
@@ -27,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-ru
 import holds
 
 HERE = Path(__file__).resolve().parent
+PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
@@ -509,7 +511,7 @@ class Drive:
         self.carried = {}
         self.board_raw = None
         self.curator = Curator(config, self.curator_model, self.bump)
-        self.stories = Stories(config, self.lane_names)
+        self.stories = Stories(config, self.lane_names, self.worker_reports)
 
     def curator_model(self):
         while "prs" not in self.model:
@@ -521,6 +523,12 @@ class Drive:
     def lane_names(self):
         with self.lock:
             return tuple({record["lane"] for record in self.records})
+
+    def worker_reports(self, workers):
+        bases = {re.sub(r"-\d+$", "", lane) for lane in workers}
+        with self.lock:
+            mine = [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) in bases and r["kind"] not in ("state", "review")]
+        return [f"[{dt.datetime.fromisoformat(r['at'].replace('Z', '+00:00')).astimezone(PACIFIC).strftime('%-I:%M %p')}] {r['kind']}: {r['text'][:600]}" for r in mine[-12:]]
 
     def bump(self):
         with self.changed:
@@ -617,6 +625,16 @@ class Drive:
                 self.touch()
                 self.curator.poke()
             time.sleep(1)
+
+    def follow_code(self):
+        sources = [*HERE.glob("*.py"), *HERE.parent.glob("*.py")]
+        seen = {path: path.stat().st_mtime_ns for path in sources}
+        while all(path.stat().st_mtime_ns == stamp for path, stamp in seen.items()):
+            time.sleep(2)
+        while self.curator.running:
+            time.sleep(1)
+        self.stories.stop_all()
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
     def follow_paths(self):
         cache_file = Path(self.config["paths_cache"])
@@ -974,7 +992,7 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), (drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True

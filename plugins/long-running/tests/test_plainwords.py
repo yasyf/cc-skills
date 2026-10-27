@@ -55,7 +55,7 @@ def test_a_failing_string_keeps_the_last_passing_one(tmp_path):
 
 
 def test_slots_cover_every_rendered_field():
-    assert slot_of(("paths", 0, "nodes", 1, "how")) == "unblock"
+    assert slot_of(("paths", 0, "nodes", 1, "how")) == "how"
     assert slot_of(("paths", 0, "nodes", 1, "item")) is None
     assert slot_of(("work", 2, "workers", 0)) is None
     assert slot_of(("progress", "stops", 3, "label")) == "line"

@@ -638,7 +638,7 @@ function entries(){
  Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
  m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
  m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
- [["","Overview"],["now","Needs you"],["review","Review"],["releases","Releases"],["workers","Workers"],["timeline","Timeline"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ [["","Now"],["status","Plan"],["workers","Work"],["review","Review"],["timeline","History"],["now","Needs you"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
  const said={};

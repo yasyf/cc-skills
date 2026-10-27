@@ -143,9 +143,9 @@ function workList(b) {
 }
 function workRow(w) {
   const live = state.model.pulse?.[w.item];
-  return `<a class="wr" href="${storyHref(w.item)}"><span class="pulse${live?.pulse ? ' on' : ''}${w.status === 'Stuck' ? ' bad' : ''}"></span>
+  return `<a class="wr" href="${storyHref(w.item)}">
     <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
-    <span class="side">${live?.started ? since(live.started) : ''}<span class="open">Live story ›</span></span></a>`;
+    <span class="side">${live?.started ? `working ${since(live.started).replace('for ', '')}` : ''}<span class="open">${live?.pulse ? '<i class="live-dot"></i>' : ''}Live story ›</span></span></a>`;
 }
 
 function follow(item) {
@@ -190,14 +190,14 @@ function storyBody(item) {
   const hidden = lines.length - shown.length;
   return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span><b>Now:</b> ${esc(w.latest)}</p>
     ${latest ? `<p class="nw-sub">Latest update ${esc(latest.at)}</p>` : ''}</div>
-    ${story.status ? `<p class="catching"><i></i>${esc(story.status)}</p>` : ''}
+    ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}
     ${shown.map((l) => `<div class="beat ${esc(l.mark)}"><span class="t">${esc(l.at)}</span><span class="mk">${MARK_WORD[l.mark]}</span><span class="ln">${esc(l.line)}</span></div>`).join('')}
     ${hidden ? `<button class="linkish" data-story-more>${hidden} earlier update${hidden === 1 ? '' : 's'} today</button>` : ''}`;
 }
 
 const DIAGRAMS = {
-  'end-state': () => `<h2 class="nw-h">How much of the end state has landed</h2><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>
+  'end-state': () => `<h2 class="nw-h">How much of the end state has landed</h2><p class="nw-cap">Each light is one change the drive tracks, placed where it runs: on your Mac, in the cloud, or in the tools that ship it. ${(() => { const t = tally(state.model.drive.prs); return `${t.landed} of ${t.total} have merged, so ${pct(t)}% of the end state is in.`; })()}</p><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>
     ${state.overlay === 'pr' ? prSheet() : ''}${state.overlay === 'part' ? partSheet() : ''}${state.overlay === 'key' ? keySheet() : ''}`,
   parts: () => `<h2 class="nw-h">How much of each part has landed</h2><div class="nw-panel nw-parts">${state.model.parts.map((p) => {
     const t = tally(state.model.drive.prs.filter((e) => e.part === p.key));

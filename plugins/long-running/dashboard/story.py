@@ -18,6 +18,8 @@ from brief import QUIET
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CATCH_UP = dt.timedelta(minutes=30)
 CATCH_UP_CHARS = 90_000
+MIN_CATCH_UP = 60
+FRESH = 2 * 3600
 BATCH_EVENTS = 40
 BATCH_IDLE = 90
 LINGER = 180
@@ -81,9 +83,9 @@ def is_beat(event):
 
 
 class Sidecar:
-    def __init__(self, item, title, goal, transcript, saved_path, publish, lanes, model):
+    def __init__(self, item, title, goal, saved_path, publish, lanes, model, raw_log):
         self.item = item
-        self.transcript = transcript
+        self.raw_log = raw_log
         self.saved_path = saved_path
         self.publish = publish
         self.lanes = lanes
@@ -110,6 +112,9 @@ class Sidecar:
         pending = ""
         for raw in self.proc.stdout:
             event = json.loads(raw)
+            if event.get("type") == "result":
+                with self.raw_log.open("a") as log:
+                    log.write(json.dumps({"at": time.time(), "result": event.get("result")}) + "\n")
             if event.get("type") == "stream_event":
                 delta = event["event"].get("delta", {})
                 if delta.get("type") == "text_delta":
@@ -157,8 +162,13 @@ class Story:
         return [json.loads(line) for line in self.saved.read_text().splitlines()] if self.saved.exists() else []
 
     def publish(self, entry):
+        if entry["type"] == "idle" and not self.saved.exists():
+            entry = {"type": "status", "text": "Nothing worth telling in its recent work yet; the next step it takes shows here."}
         if entry["type"] == "draft":
             self.draft = entry["text"]
+        elif entry["type"] == "status":
+            self.status = entry["text"]
+            self.draft = None
         elif entry["type"] in ("line", "idle"):
             self.draft = None
             self.status = None
@@ -184,28 +194,47 @@ class Story:
 
     def run(self):
         transcript = self.stories.transcript(self.work["workers"])
-        if transcript is None:
-            self.publish({"type": "status", "text": "This work has no transcript on this Mac; its latest report is shown above."})
-            return
+        fresh = transcript is not None and time.time() - transcript.stat().st_mtime < FRESH
         meta = json.loads(self.meta_path.read_text()) if self.meta_path.exists() else {}
-        offset = meta.get("offset", 0) if meta.get("file") == str(transcript) else 0
-        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), transcript, self.saved, self.publish, self.stories.lanes(), self.stories.model)
+        resume = fresh and meta.get("file") == str(transcript) and self.saved.exists()
+        offset = meta["offset"] if resume else 0
+        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
         self.stories.started(self)
+        self.status = "Catching up on the last 30 minutes"
+        self.publish({"type": "status", "text": self.status})
+        if not fresh:
+            reports = self.stories.reports(self.work["workers"])
+            if not reports:
+                self.publish({"type": "status", "text": "This work has not reported anything yet."})
+                return self.linger()
+            self.sidecar.send("This worker's transcript is not on this Mac. Here are its latest reports. Write three to five lines that tell the story so far.\n\n" + "\n".join(reports))
+            return self.linger()
         cutoff = dt.datetime.now(dt.timezone.utc) - CATCH_UP
+        rendered = []
         with transcript.open() as handle:
             handle.seek(offset)
-            backlog = []
             for raw in handle:
                 event = json.loads(raw)
-                if event.get("timestamp") and stamp(event["timestamp"]) >= cutoff and (text := render(event)):
-                    backlog.append(text)
+                if text := render(event):
+                    rendered.append((event, text))
             offset = handle.tell()
+        recent = [text for event, text in rendered if stamp(event["timestamp"]) >= cutoff]
+        backlog = recent if resume or len(recent) >= MIN_CATCH_UP else [text for _, text in rendered[-MIN_CATCH_UP:]]
         catch_up = "\n".join(backlog)[-CATCH_UP_CHARS:]
         if catch_up:
-            self.status = "Catching up on the last 30 minutes"
-            self.publish({"type": "status", "text": self.status})
-            self.sidecar.send(f"Here is the last 30 minutes of the transcript. Write three to five lines that tell the story so far.\n\n{catch_up}")
+            self.sidecar.send(f"Here is the worker's recent transcript. Write three to five lines that tell the story so far.\n\n{catch_up}")
         self.follow(transcript, offset)
+
+    def linger(self):
+        try:
+            while self.sidecar.proc.poll() is None:
+                time.sleep(5)
+                with self.lock:
+                    if self.left_at is not None and time.monotonic() - self.left_at > LINGER:
+                        return
+        finally:
+            self.sidecar.stop()
+            self.stories.ended(self)
 
     def follow(self, transcript, offset):
         events = []
@@ -234,7 +263,7 @@ class Story:
                     self.meta_path.write_text(json.dumps({"file": str(transcript), "offset": offset}))
                 if self.sidecar.chars > MAX_CONTEXT_CHARS:
                     self.sidecar.stop()
-                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), transcript, self.saved, self.publish, self.stories.lanes(), self.stories.model)
+                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
                     self.sidecar.send("The story so far:\n" + "\n".join(f"{e['at']} | {e['mark']} | {e['line']}" for e in self.lines()[-20:]) + "\n\nAnswer SKIP to this message.")
         finally:
             os.close(fd)
@@ -245,12 +274,13 @@ class Story:
 
 
 class Stories:
-    def __init__(self, config, lanes):
+    def __init__(self, config, lanes, reports):
         self.dir = Path(config["stories_dir"])
         self.dir.mkdir(parents=True, exist_ok=True)
         self.transcripts = Path(config["transcripts"])
         self.model = config.get("story_model", "claude-sonnet-5-5")
         self.lanes = lanes
+        self.reports = reports
         self.open = {}
         self.running = []
         self.firsts = {}
@@ -290,6 +320,12 @@ class Stories:
         for old in evict:
             with old.lock:
                 old.left_at = 0.0
+
+    def stop_all(self):
+        with self.lock:
+            running = list(self.running)
+        for story in running:
+            story.sidecar.stop()
 
     def ended(self, story):
         with self.lock:

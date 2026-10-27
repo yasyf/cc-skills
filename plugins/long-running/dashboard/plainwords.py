@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-LIMITS = {"headline": 25, "stuck": 18, "unblock": 16, "node": 14, "title": 8, "latest": 16, "story": 30, "sentence": 40, "line": 20}
+LIMITS = {"headline": 25, "stuck": 18, "unblock": 16, "how": 14, "node": 12, "title": 8, "latest": 16, "story": 30, "sentence": 40, "line": 20}
 COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "old world", "new world")
 GIT_VERBS = ("restack", "rebase", "enqueue", "cherry-pick")
 CHECKS = (
