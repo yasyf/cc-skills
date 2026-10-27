@@ -406,9 +406,9 @@ def github_get(path: str):
             if e.code == 404:
                 return None
             raise
-    if not shutil.which("gh"):
-        raise RuntimeError("set GITHUB_TOKEN or install the gh CLI to resolve GitHub links")
-    p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if not shutil.which("ccx"):
+        raise RuntimeError("set GITHUB_TOKEN or install ccx to resolve GitHub links")
+    p = subprocess.run(["ccx", "vcs", "gh", "--max-age", "5m", "--", "api", path], capture_output=True, text=True, env={**os.environ, "CCX_CALLER": os.environ.get("CCX_CALLER", "ddshared-links")})
     if p.returncode:
         if "404" in p.stderr or "Not Found" in p.stderr:
             return None
