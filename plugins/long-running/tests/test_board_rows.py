@@ -192,6 +192,7 @@ def test_a_root_ruling_that_supersedes_the_pr_fails_it_with_that_seq_until_a_lat
     assert lines(capsys)[0] == f"merge-row-42590 42590 {HEAD[:7]} not open: root ruled it superseded or closed on cci #{seq}"
 
     shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 2:10 PM)", "42590")
+    shell.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
     assert gate(tmp_path, shell, card(row("42590")), "--check") == 0
 
 
@@ -390,6 +391,7 @@ def test_a_carry_record_tying_the_head_to_the_pr_counts_as_its_grade_and_finder(
     fake = FakeShell()
     fake.pull("42590")
     fake.post(kind, lane, text, pr)
+    fake.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
 
     assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
     assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0"]
@@ -410,3 +412,76 @@ def test_a_record_that_does_not_carry_the_head_for_the_pr_leaves_it_ungraded(tmp
 
     assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
     assert lines(capsys)[-1] == "rows 1 failing 0 ungraded 1 flags 0"
+
+
+def approved(pr: str, head: str = HEAD, at: str = WRITTEN) -> dict:
+    return {"verdict": "approved", "head": head[:7], "at": at}
+
+
+def rejected(pr: str, head: str = HEAD, at: str = WRITTEN) -> dict:
+    return {"verdict": "rejected", "head": head[:7], "at": at}
+
+
+def claimed(summary: str, *rows: dict) -> dict:
+    block = groups(*rows)
+    block["children"][0]["groups"][0]["summary"] = summary
+    return block
+
+
+def test_a_row_root_approved_at_its_head_fails_until_the_board_holds_the_approval_or_the_go_is_withdrawn(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    seq = shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 9:12 PM)", "42590")
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} approved: root go cci #{seq} names it at {HEAD[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"
+
+    shell.verdicts = {"merge-prs": {"42590": approved("42590")}}
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+    shell.verdicts = {}
+    shell.post("withdraw", "root", "withdrawn: that go named the wrong head")
+    shell.records[-1]["re"] = seq
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
+@pytest.mark.parametrize(("verdict_head", "failing"), [(HEAD, 1), (NEW_HEAD, 0)])
+def test_a_row_he_rejected_at_its_head_fails_and_returns_at_a_new_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], verdict_head: str, failing: int) -> None:
+    shell.verdicts = {"merge-prs": {"42590": rejected("42590", verdict_head)}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == failing
+    assert lines(capsys)[-1] == f"rows 1 failing {failing} ungraded 0 flags 0"
+
+
+@pytest.mark.parametrize(("state", "failing"), [("MERGED", 1), ("OPEN", 0)])
+def test_a_blocker_naming_a_merged_pr_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], state: str, failing: int) -> None:
+    shell.pull("42740", state=state)
+
+    assert gate(tmp_path, shell, groups(pr_row("42590", blocker="#42740 merges first")), "--check") == failing
+    assert lines(capsys)[-1] == f"rows 1 failing {failing} ungraded 0 flags 0"
+
+
+@pytest.mark.parametrize(
+    ("summary", "verdicts", "failing"),
+    [
+        ("Gateway fix: your one tap approves all five.", {"42590": approved("42590"), "42593": rejected("42593", NEW_HEAD)}, 1),
+        ("Gateway fix: your one tap approves both.", {"42590": approved("42590"), "42593": approved("42593")}, 0),
+        ("Gateway fix in two steps.", {"42593": rejected("42593", NEW_HEAD)}, 0),
+    ],
+)
+def test_a_one_tap_claim_over_a_rejected_pr_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], summary: str, verdicts: dict, failing: int) -> None:
+    shell.pull("42593")
+    shell.verdicts = {"merge-prs": verdicts}
+
+    assert gate(tmp_path, shell, claimed(summary, pr_row("42590"), pr_row("42593")), "--check") == failing
+    if failing:
+        assert lines(capsys)[0].endswith("one tap: its words say one tap approves 2 PRs, but #42593 rejected on the board")
+
+
+@pytest.mark.parametrize(("state", "failing"), [("MERGED", 1), ("CLOSED", 1), ("OPEN", 0)])
+def test_a_pr_listed_in_a_markdown_block_after_it_merged_or_closed_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], state: str, failing: int) -> None:
+    shell.pull("42740", state=state)
+    block = groups(pr_row("42590"))
+    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "**Approved by you and landing.**\n\n- #42740: One writer per run."})
+
+    assert gate(tmp_path, shell, block, "--check") == failing
+    if failing:
+        assert lines(capsys)[0] == f"merge-approved-landing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-approved-landing"

@@ -24,6 +24,18 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
               none on this id, and no root record that re-keys names this id or its head; a
               `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
+    approved  a root `go` names the PR at its head, no root `withdraw` closes that go, and the board
+              records no approval for the row at that head, so the row asks a tap he already gave;
+              `cc-present verdict import` at the head, or dropping the row, clears it
+    rejected  the board records his reject for the row at its head, so the row asks again what he
+              refused; it returns only at a new head
+    landed    its blocker, the `blocker` field or the `Gate` fact, names a PR GitHub shows merged
+    one tap   a row's or its group's words say one tap approves several PRs, and one they name or
+              group with it is rejected on the board or no longer open on GitHub
+
+A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
+`<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
+list the owner reads in the same push.
 
 A row with no fidelity grade or no finder review at its head gets a `WARN` line and fails
 nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
@@ -69,6 +81,10 @@ FINDERS = "finders"
 CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
 PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
+ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
+PR_REF = re.compile(r"#(\d+)\b")
+LISTED = re.compile(r"^\s*[-*] #(\d+):", re.MULTILINE)
+MERGED = "MERGED"
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
 PR_FIELDS = ("change", "plan", "risk", "review", "blocker")
 PR_GROUPS = "pr-groups"
@@ -121,6 +137,7 @@ class Row:
     label: str
     sentence: str
     facts: dict[str, str]
+    words: str = ""
     required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -168,11 +185,44 @@ def rows_of(block: dict) -> list[Row]:
         head = ROW_HEAD.search(item.get("hint", ""))
         facts = {fact["label"]: str(fact.get("value", "")).strip() for fact in item.get("facts", [])}
         label = item.get("label", "")
-        rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts))
+        words = "\n".join([label, item.get("md", ""), *facts.values()])
+        rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts, words))
     for block_id, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
-        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, PR_FIELDS))
+        words = "\n".join([pr.get("title", ""), pr.get("md", ""), *facts.values()])
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, PR_FIELDS))
     return rows
+
+
+def group_claims(node: object) -> Iterator[tuple[str, str, str, set[str]]]:
+    """Each pr-groups group whose title or summary says one tap approves several PRs: its block, its first PR, the words, and every PR it groups or names."""
+    if isinstance(node, dict):
+        if node.get("type") == PR_GROUPS:
+            for group in node.get("groups", []):
+                words = f"{group.get('title', '')}\n{group.get('summary', '')}"
+                prs = [str(pr["number"]) for pr in group.get("prs", [])]
+                if prs and ONE_TAP.search(words):
+                    yield node["id"], prs[0], words, set(prs) | set(PR_REF.findall(words))
+        for value in node.values():
+            yield from group_claims(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from group_claims(value)
+
+
+def listed_prs(node: object) -> Iterator[tuple[str, str]]:
+    if isinstance(node, dict):
+        if node.get("type") == "markdown":
+            yield from ((node["id"], pr) for pr in LISTED.findall(node.get("md", "")))
+        for value in node.values():
+            yield from listed_prs(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from listed_prs(value)
+
+
+def blocker_prs(row: Row) -> set[str]:
+    return set(PR_REF.findall(row.facts.get("blocker" if row.required == PR_FIELDS else "Gate", ""))) - {row.pr}
 
 
 def missing_fields(row: Row) -> list[str]:
@@ -267,8 +317,8 @@ def outcomes_args(session: str | None, command: list[str]) -> list[str]:
     return ["cc-present", "outcomes", "--no-doc", *(["--session", session] if session else [])]
 
 
-def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, str]]:
-    """Each triage or pr-groups block's recorded verdicts, a row id or PR number to its verdict, from the board's outcomes."""
+def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, dict]]:
+    """Each triage or pr-groups block's recorded verdicts, a row id or PR number to its entry of verdict, head and time, from the board's outcomes."""
     done = shell.run(argv)
     start = done.out.find("{")
     if done.code != 0 or start < 0:
@@ -277,10 +327,10 @@ def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, str]]:
         triage = json.loads(done.out[start:])["interactions"].get("triage") or {}
     except (ValueError, KeyError) as error:
         raise ReadFailed(f"cc-present outcomes printed no interactions: {error}") from error
-    return {block: {row: entry.get("verdict", "") for row, entry in rows.items() if entry.get("verdict")} for block, rows in triage.items()}
+    return {block: {row: entry for row, entry in rows.items() if entry.get("verdict")} for block, rows in triage.items()}
 
 
-def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], rulings: list[dict] | None) -> dict[str, list[str]]:
+def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, dict]], rulings: list[dict] | None) -> dict[str, list[str]]:
     """Why each row would hide a recorded verdict: its id decided under another block, or its PR decided under an id this push drops, with no root re-key."""
     pushed = {row.id for row in rows}
     decided = [(block, row_id) for block, by_row in verdicts.items() for row_id in by_row]
@@ -295,6 +345,40 @@ def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], ruling
         if dropped and rulings is not None and not rekeyed(rulings, row):
             reasons.setdefault(row.id, []).append(f"renamed: decided as {', '.join(dropped)}, and no root re-key record names {row.id}")
     return reasons
+
+
+def at_head(entry: dict | None, verdict: str, head: str) -> bool:
+    return entry is not None and entry.get("verdict") == verdict and (not entry.get("head") or grades.names_head(entry["head"], head))
+
+
+def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -> list[dict]:
+    return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head)
+
+
+def tap_reasons(row: Row, entry: dict | None, gos: list[dict]) -> list[str]:
+    if at_head(entry, "rejected", row.head):
+        return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
+    if gos and not at_head(entry, "approved", row.head):
+        return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"]
+    return []
+
+
+def newest_by_pr(verdicts: dict[str, dict[str, dict]]) -> dict[str, dict]:
+    newest: dict[str, dict] = {}
+    for by_row in verdicts.values():
+        for row_id, entry in by_row.items():
+            if (pr := pr_of(row_id)) and entry.get("at", "") >= newest.get(pr, {}).get("at", ""):
+                newest[pr] = entry
+    return newest
+
+
+def claim_reason(members: set[str], newest: dict[str, dict], pulls: dict[str, Pull | None]) -> str | None:
+    rejected = sorted((pr for pr in members if newest.get(pr, {}).get("verdict") == "rejected"), key=int)
+    closed = sorted((pr for pr in members if pr in pulls and (pulls[pr] is None or pulls[pr].state != OPEN)), key=int)
+    if not rejected and not closed:
+        return None
+    parts = ([f"{' '.join(f'#{pr}' for pr in rejected)} rejected on the board"] if rejected else []) + ([f"{' '.join(f'#{pr}' for pr in closed)} no longer open"] if closed else [])
+    return f"one tap: its words say one tap approves {len(members)} PRs, but {' and '.join(parts)}"
 
 
 def sentence_at(text: str, at: int) -> str:
@@ -377,17 +461,23 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if not row.head:
             row.reasons.append("stale: the row names no head" if row.required == PR_FIELDS else "stale: the hint names no `commit <sha>`")
     named = [row for row in rows if row.head]
-    pulls = read_pulls(shell, repo, sorted({row.pr for row in named}, key=int), warnings)
+    claims = [(row.block, row.pr, row.words, {row.pr} | set(PR_REF.findall(row.words))) for row in rows if ONE_TAP.search(row.words)] + list(group_claims(block))
+    blockers = {row.id: blocker_prs(row) for row in rows}
+    listed = sorted(set(listed_prs(block)))
+    asked = {row.pr for row in named} | {pr for prs in blockers.values() for pr in prs} | {pr for *_, members in claims for pr in members} | {pr for _, pr in listed}
+    pulls = read_pulls(shell, repo, sorted(asked, key=int), warnings)
     try:
         rulings = root_rulings(shell, drive)
+        withdrawn = {seq for record in cci.records(tail(shell), drive, "--lane", "root", "--kind=withdraw") if record["lane"] == "root" for seq in grades.closes(record)}
     except ReadFailed as failed:
-        rulings = None
-        warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling, and no renamed row is excused by a re-key")
+        rulings, withdrawn = None, set()
+        warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling or a root go at its head, and no renamed row is excused by a re-key")
     try:
-        moved = verdict_reasons(rows, read_verdicts(shell, outcomes), rulings)
+        verdicts = read_verdicts(shell, outcomes)
     except ReadFailed as failed:
-        moved = {}
-        warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved or renamed verdict")
+        verdicts = None
+        warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved, renamed, rejected or already approved verdict, or a one-tap claim over a rejected PR")
+    moved = verdict_reasons(rows, verdicts, rulings) if verdicts is not None else {}
     try:
         reviews = cci.records(tail(shell), drive, "--kind=review", "--kind=head")
     except ReadFailed as failed:
@@ -401,9 +491,23 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             row.reasons += github_reasons(row, pulls[row.pr])
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
+        if verdicts is not None:
+            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [])
+    for row in rows:
+        if landed := sorted((pr for pr in blockers[row.id] if (pull := pulls.get(pr)) and pull.state == MERGED), key=int):
+            row.reasons.append(f"landed: its blocker names {' '.join(f'#{pr}' for pr in landed)}, merged on GitHub")
+    if verdicts is not None:
+        newest = newest_by_pr(verdicts)
+        for block_id, anchor, _, members in claims:
+            if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
+                owner.reasons.append(reason)
         if reviews is not None:
             row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
-    return rows, flags(rows), warnings
+    found = flags(rows)
+    for block_id, pr in listed:
+        if pr in pulls and (pull := pulls[pr]) is not None and pull.state != OPEN:
+            rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head, "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
+    return rows, found, warnings
 
 
 def stripped(block: object) -> object:
