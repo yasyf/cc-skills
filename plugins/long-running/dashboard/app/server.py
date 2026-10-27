@@ -616,7 +616,7 @@ def handler(drive):
                     url = drive.review_url(int(found[1]))
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
-                return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching}).encode())
+                return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching, "stale": int(found[1]) in drive.assistant.stale}).encode())
             if path == "/ai.json":
                 return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
             if found := RECORD_ROUTE.fullmatch(path):
