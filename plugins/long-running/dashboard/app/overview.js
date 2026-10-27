@@ -287,10 +287,23 @@ function desksSheet() {
       return `<li><button class="linkish" data-worker="${esc(d.lane)}">${esc(deskName(d.lane))}</button><span class="bx">${d.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><span class="dsaid">${r ? `<b>${SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind}</b> ${inline(firstSentences(r.text, 110))}` : ''}</span><time>${agoWords(d.at)}</time></li>`;
     }).join('')}</ul>`);
 }
+function waits() {
+  const m = state.model;
+  const rels = m.now.releases ?? [];
+  const next = rels.find((r) => ['now', 'blocked'].includes(r.word));
+  const held = rels.find((r) => r.word === 'held');
+  const taps = needsTotal();
+  const named = next ? [...new Set([...next.state.matchAll(/#(\d{5})\b/g)].map((x) => x[1]))].filter((n) => prState(n) !== 'landed') : [];
+  return [
+    ...(taps ? [{ who: '<b>You</b>', what: `<a href="#/now">${plural(taps, 'decision')} in Needs you</a>`, unblocks: 'those pull requests and questions move' }] : []),
+    ...(held ? [{ who: '<b>You, this morning</b>', what: `<button class="linkish" data-release="${esc(held.id)}">${esc(held.id)} ${esc(held.name)}</button>`, unblocks: rels.filter((r) => r.word === 'unreachable').map((r) => r.id).join(', ') }] : []),
+    ...named.map((n) => ({ who: ownerOf(n) ? `<button class="linkish" data-worker="${esc(ownerOf(n))}">${esc(ownerOf(n))}</button>` : 'Nobody named', what: `${dot(n)} #${n} ${esc(shortName(n) ?? plainTitle(n))}`, unblocks: `${next.id} ${next.name}`, since: latestOn(n)?.at })),
+    ...(m.now.waiting ?? []).map((w) => ({ who: esc(w.owed_by ?? 'Nobody named'), what: esc(w.what), unblocks: w.unblocks ?? '', since: null, at: w.since, expected: w.expected })),
+  ];
+}
 function waitingOn() {
-  const items = state.model.now.waiting ?? [];
-  if (!items.length) return '';
-  return `<section class="waiting"><h4>Waiting on</h4><ul>${items.map((w) => `<li><b>${esc(w.what)}</b><span>${[w.owed_by && `owed by ${esc(w.owed_by)}`, w.since && `since ${esc(w.since)}`, w.expected && (overdue(w.expected) ? `<strong>overdue, expected ${esc(w.expected)}</strong>` : `expected ${esc(w.expected)}`)].filter(Boolean).join(' · ')}</span>${w.unblocks ? `<em>unblocks ${esc(w.unblocks)}</em>` : ''}</li>`).join('')}</ul></section>`;
+  const items = waits();
+  return `<section class="waiting"><h4>Waiting on</h4>${items.length ? `<ul>${items.map((w) => `<li><span class="who">${w.who}</span><span class="what">${w.what}</span><em>${w.unblocks ? `unblocks ${esc(w.unblocks)}` : ''}${w.since ? ` · last word ${agoWords(w.since)}` : w.at ? ` · since ${esc(w.at)}` : ''}${w.expected ? (overdue(w.expected) ? ` · <strong>overdue, expected ${esc(w.expected)}</strong>` : ` · expected ${esc(w.expected)}`) : ''}</em></li>`).join('')}</ul>` : '<p class="dim">Nobody: nothing is waiting on a person right now.</p>'}</section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -305,9 +318,8 @@ function overview() {
     ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
     ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
     ${tonight()}
-    <div class="body"><div class="left">${deck()}${tracks()}</div>${gate()}${destination()}</div>
+    <div class="body"><div class="left">${deck()}${tracks()}${waitingOn()}</div>${gate()}${destination()}</div>
     ${routeStrip()}${crew()}${dock()}
-    <div class="below">${waitingOn()}</div>
     <div id="tip" class="tip" hidden></div>
   </div>
   ${state.overlay === 'track' ? trackSheet() : ''}
