@@ -213,7 +213,9 @@ function workers() {
   const quiet = lanes.filter((l) => l.stall);
   const rest = lanes.filter((l) => !l.stall);
   const fold = (id, label, list) => list.length ? `<details class="wfold" data-id="${id}"${state.open.has(id) ? ' open' : ''}><summary>${label}</summary><div class="lives">${list.map(liveBox).join('')}</div></details>` : '';
-  return `<div class="ck"><section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} wrote in the last 20 minutes</span></div><div class="wgrid">${live.map(workerTile).join('') || '<span class="dim">Nobody wrote in the last 20 minutes.</span>'}</div></section>
+  const onStep = [...state.model.steps, { id: null, label: 'Other work', prs: [] }].map((st) => [st, live.filter((w) => w.step === st.id)]).filter(([, ws]) => ws.length);
+  return `<div class="ck"><section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} wrote in the last 20 minutes, on the step they serve</span></div>
+    ${onStep.map(([st, ws]) => `<div class="wstep"${st.id ? ` data-track="${esc(st.id)}"` : ''}><div class="wstep-h"><b>${esc(st.label)}</b><span class="tdots">${byLight(st.prs).map((e) => dot(e.number)).join('')}</span></div><div class="wgrid">${ws.map((w) => workerTile(w, w.lane)).join('')}</div></div>`).join('') || '<span class="dim">Nobody wrote in the last 20 minutes.</span>'}</section>
     ${fold('w-quiet', `${plural(quiet.length, 'worker')} quiet for ${STALL_MIN}+ minutes while holding a pull request`, quiet)}
     ${fold('w-rest', `${plural(rest.length, 'worker')} finished or idle in the last 3 hours`, rest)}</div>`;
 }

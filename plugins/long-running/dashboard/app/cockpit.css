@@ -590,3 +590,6 @@ body:has(.ck.ov) .top .tabs { display: none; }
 .ck .left .waiting li em { grid-column: 2; font-size: 11.5px; }
 .ck .left .waiting .who { color: var(--ink); } .ck .left .waiting .who .linkish { font-weight: 650; }
 .ck .left .waiting .what .dot { display: inline-block; vertical-align: -1px; margin-right: 3px; }
+.ck .wstep { margin-top: 12px; }
+.ck .wstep-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+.ck .wstep-h .tdots { display: flex; flex-wrap: wrap; gap: 3px; --d: 8px; }
