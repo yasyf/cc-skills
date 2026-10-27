@@ -3878,6 +3878,11 @@ def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> boo
     return any(downstack(open_rows, tip) & prs for tip in tree)
 
 
+def blocker_key(pr: str, head: str) -> str:
+    """One blocker per PR and head, whether the gate's 10-character sha or the ledger's full one names it, so a red build and the Graphite `FAILING_REQUIRED` it causes route once (root #142221)."""
+    return f"blocker:{pr}:{head[:10]}"
+
+
 def status_blocker(entry: dict) -> str:
     """What a `ccx vcs pr status` entry asks its lane to fix, or empty while the PR only waits: a conflict, red CI with its failing checks, or requested changes."""
     causes = entry["verdict"].removeprefix("blocked:").split(",")
@@ -5738,7 +5743,7 @@ class Landing:
 
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
-        key = f"blocker:{pr}:{sha}"
+        key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr):
             return
@@ -5864,7 +5869,7 @@ class Landing:
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
             if why := status_blocker(entry):
-                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else f"blocker:{pr}:{head}"
+                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
                 self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
 
     def routed(self, key: str, lane: str) -> bool:
