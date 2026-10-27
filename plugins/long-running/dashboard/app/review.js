@@ -58,10 +58,12 @@ function decideBar(row, v) {
   return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
 }
 async function decide(row, verdict, note) {
+  clearTimeout(pending.advance);
   Object.assign(pending, { number: row.number, holding: false, error: '', note: '' });
   render();
-  const res = await fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ block: row.block, number: row.number, verdict, head: row.head, ...(note ? { note } : {}) }) });
-  const { error } = await res.json();
+  const error = await fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ block: row.block, number: row.number, verdict, head: row.head, ...(note ? { note } : {}) }) })
+    .then((res) => res.json())
+    .then((body) => body.error, (failure) => `could not reach the dashboard server: ${failure.message}`);
   if (error) {
     pending.error = error;
     return render();
@@ -69,7 +71,8 @@ async function decide(row, verdict, note) {
   row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note };
   pending.number = null;
   const next = verdict === 'cleared' ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
-  if (next) setTimeout(() => { location.hash = `#/review/${next.number}`; }, 700);
+  const from = location.hash;
+  if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 700);
   render();
 }
 document.addEventListener('click', (e) => {
