@@ -111,8 +111,9 @@ function tonight() {
   };
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
   const target = stop ?? next;
-  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button>
-    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
+  const rail = rels.map((r, i) => `<button class="mr ${releaseWord(rels, i)[0]}" data-release="${esc(r.id)}" aria-label="${esc(r.id)} ${esc(r.name)}: ${esc(releaseWord(rels, i)[1])}"><i></i><span>${esc(r.id)}</span></button>`).join('');
+  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
+    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
   const c = Math.min(13, Math.max(2, Math.ceil(Math.sqrt(list.length * 2.4))));
@@ -219,7 +220,7 @@ function cta(item) {
     const stuck = r.blocker && !/^nothing/i.test(r.blocker) ? `<span class="stuck">⚠ ${esc(firstSentences(r.blocker, 80))}</span>` : '';
     return shell('★', stuck ? 'Your tap, then it still waits' : 'Tap to merge', `#${r.number} ${esc(shortName(r.number) ?? r.title)}`, `${stuck}${meta}`, acts);
   }
-  if (item.kind === 'prs') return shell('★', `${item.prs.length} pull requests need your approval`, esc(item.group ?? 'Review them together'), meta, `<a class="btn" href="#/review">Review ${item.prs.length} ›</a>`);
+  if (item.kind === 'prs') return shell('★', `${item.prs.length} pull requests need your approval`, esc(item.group ?? 'Review them together'), meta, `<a class="btn" href="#/review/${item.prs[0].number}">Review ${item.prs.length} ›</a>`);
   if (item.kind === 'card') {
     const c = item.card;
     const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
@@ -334,7 +335,7 @@ function prSheet() {
   const row = boardRow(n);
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
   const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
-  const said = latestOn(n);
+  const word = latestOn(n);
   return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
@@ -343,7 +344,7 @@ function prSheet() {
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
     <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
-    ${said ? `<dt>Latest word on it</dt><dd>${inline(firstSentences(shortShas(said.text), 260))} <small class="dim">${esc(said.lane)}, ${clock(said.at)} · <a href="/record/${said.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
+    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
     <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
 }
 function partSheet() {
@@ -369,7 +370,7 @@ function workerSheet() {
   const where = m.steps.find((s) => s.id === w.step)?.label;
   return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
     ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
-    ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${inline(firstSentences(shortShas(last.text), 240))}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
+    ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${said(last, 240)}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
     <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
     <h4 class="sc-h">Before that <span>newest first</span></h4><ul class="tl">${events.length ? timelineRows(events, false) : '<li class="dim">Nothing else in the last day.</li>'}</ul>
     ${w.prs.length ? `<details data-id="worker-prs-${esc(w.lane)}"${state.open.has(`worker-prs-${w.lane}`) ? ' open' : ''}><summary class="sc-h">Pull requests it named <span>${w.prs.length}</span></summary><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul></details>` : ''}`);
@@ -467,10 +468,13 @@ function latestOn(n) {
   const lanes = [ownerOf(n), state.model.prs[n]?.lane];
   return state.model.records.filter((r) => r.topic === String(n) || (lanes.includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
 }
+function said(r, max) {
+  return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));
+}
 function ownerLine(n) {
   const lane = ownerOf(n);
   const r = latestOn(n);
-  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${inline(firstSentences(shortShas(r.text), 160))} <small class="dim">${clock(r.at)}</small>` : ''}</span>`;
+  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${said(r, 160)} <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
 }
 function redWhy(n) {
   const r = state.model.records.filter((x) => x.kind === 'blocker' && x.text.includes(`#${n} `)).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
