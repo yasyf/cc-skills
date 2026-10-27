@@ -4,6 +4,7 @@
     mq.py --config PATH status
     mq.py --config PATH why PR
     mq.py --config PATH gate PR... [--partial]
+    mq.py --config PATH enqueue PR... [--partial]
     mq.py --config PATH checks
     mq.py --config PATH hold PR --reason R
     mq.py --config PATH lift PR
@@ -17,7 +18,9 @@ holds file, action store, and repository adapter the landing desk runs on. `stat
 this drive's store believes queued and each open tree in the order the desk gates it. `why` prints the
 adapter's verdict on the PR's current head, then one `<check> pass|pending|fail <reason>` line per
 configured check, posting nothing. `gate` prints each hold or enqueue check that does not pass a head a hand
-`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any. `checks` prints the registry in order with the stage each runs at.
+`stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any. `enqueue` runs that gate and
+enqueues through the desk's adapter only when it prints nothing, then names the head the queue took
+for each PR, and posts a note for one that moved while the call ran; it is the hand enqueue a desk runs. `checks` prints the registry in order with the stage each runs at.
 `hold` and `lift` write and remove the PR's holds-file line through holds.py. `priority` sets the
 ledger `priority` the desk orders trees and enqueue waves by, lower first. `dequeue` refuses a PR this
 drive's queue does not answer for, naming the drives whose records name it; otherwise it takes the PR
@@ -67,9 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     dequeue.add_argument("--reason", default="dequeued by hand with mq dequeue")
     recover = verbs.add_parser("recover")
     recover.add_argument("prs", nargs="+")
-    gate = verbs.add_parser("gate")
-    gate.add_argument("prs", nargs="+")
-    gate.add_argument("--partial", action="store_true")
+    for verb in ("gate", "enqueue"):
+        gated = verbs.add_parser(verb)
+        gated.add_argument("prs", nargs="+")
+        gated.add_argument("--partial", action="store_true")
     return parser
 
 
@@ -95,9 +99,14 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         print("\n".join(landing.why(args.pr)))
         return 0
     if args.verb == "gate":
-        if lines := landing.hand_enqueue_gate(args.prs, args.partial):
+        if lines := landing.hand_enqueue_gate(args.prs, args.partial)[1]:
             print("\n".join(lines))
         return 1 if lines else 0
+    if args.verb == "enqueue":
+        queued, lines = landing.hand_enqueue(args.prs, args.partial)
+        runner.flush()
+        print("\n".join(lines))
+        return 0 if queued else 1
     if args.verb == "priority":
         done = landing.ledger_py("priority", "--ledger", landing.ledger, "--repo", landing.repo, "--pr", args.pr, "--priority", str(args.value))
         print((done.out or done.err).strip())

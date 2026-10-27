@@ -5163,18 +5163,30 @@ class Landing:
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
             return
-        outcome, out, last = self.enqueue_chains(tops, enqueued_heads(key))
+        outcome, out, last = self.enqueue_chains(tops, enqueued_heads(key), self.whole())
+        if outcome in BELIEVED_QUEUED:
+            self.moved_in_queue(enqueued_heads(key))
         if outcome in BELIEVED_QUEUED and "hold" in self.checks and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last)
 
-    def enqueue_chains(self, tops: list[str], heads: dict[str, str]) -> tuple[str, str, str]:
+    def moved_in_queue(self, heads: dict[str, str]) -> list[str]:
+        """Once the queue accepts an enqueue, read each member's head again and post one note to the root and the fidelity lanes for each that moved since the gate graded it, naming the head the queue took, so that head is graded where it sits (root #144463). Returns the notes."""
+        moved = []
+        for pr, sha in heads.items():
+            if (now := self.current_head(pr)) and not now.startswith(sha):
+                text = f"QUEUED-AT-NEW-HEAD #{pr}: the gate graded {sha[:10]} and the queue took {now[:10]}, pushed while the enqueue ran; grade {now[:10]}"
+                self.post_record("note", f"queued-head:{pr}:{now[:10]}", ",".join([ROOT, *self.fidelity_lanes]), text, pr)
+                moved.append(text)
+        return moved
+
+    def enqueue_chains(self, tops: list[str], heads: dict[str, str], whole: bool) -> tuple[str, str, str]:
         """One adapter enqueue per top, bottom chain first, since Graphite keeps one linear chain per batch: a sibling chain after the first goes in as its own batch on the queued fork. The first call that does not enqueue ends the run and names its outcome."""
         outcome, outs, last = "noop", [], ""
         for top in tops:
-            done, out, last = self.adapter.enqueue([top], self.whole(), heads)
+            done, out, last = self.adapter.enqueue([top], whole, heads)
             outs.append(out)
             if done not in BELIEVED_QUEUED:
                 return done, "".join(outs)[-1500:], last
@@ -5734,8 +5746,19 @@ class Landing:
             lines.append(f"{name} {state.state} {state.reason}".rstrip())
         return lines
 
-    def hand_enqueue_gate(self, prs: list[str], partial: bool) -> list[str]:
-        """One line per hold or enqueue check that does not pass a head a hand `stack-enqueue` of `prs` puts in the queue, graded at GitHub's current head as this desk grades its own enqueue, posting and escalating nothing: each named PR and the open rows below it, and without `partial` every open row stacked beside or above them."""
+    def hand_enqueue(self, prs: list[str], partial: bool) -> tuple[bool, list[str]]:
+        """Enqueue `prs` by hand only when `hand_enqueue_gate` passes every head the queue would take, then name each head the queue took that moved since (root #144463, #145481). Returns whether the queue took them, and the lines to print."""
+        heads, refused = self.hand_enqueue_gate(prs, partial)
+        if refused:
+            return False, [*refused, "REFUSED: a check above does not pass a head this enqueue puts in the queue"]
+        self.read_only = False
+        outcome, _, last = self.enqueue_chains(prefix_tops(list(heads), self.rows() or {}), heads, not partial)
+        if outcome not in BELIEVED_QUEUED:
+            return False, [f"ENQUEUE-{outcome.upper()}: {last}"]
+        return True, [f"{outcome} {numbered(sorted(heads, key=int))} at " + " ".join(f"#{pr} {sha[:10]}" for pr, sha in heads.items()), *self.moved_in_queue(heads)]
+
+    def hand_enqueue_gate(self, prs: list[str], partial: bool) -> tuple[dict[str, str], list[str]]:
+        """The heads a hand `stack-enqueue` of `prs` puts in the queue, read at GitHub's current head, and one line per hold or enqueue check that does not pass one, graded as this desk grades its own enqueue, posting and escalating nothing: each named PR and the open rows below it, and without `partial` every open row stacked beside or above them."""
         self.read_only = True
         rows = self.rows() or {}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -5743,7 +5766,7 @@ class Landing:
         taken = below if partial else {pr for pr in open_rows if downstack(open_rows, pr) & below}
         heads = {pr: self.current_head(pr) or open_rows[pr].get("head", "") for pr in sorted(taken, key=int)}
         graded = Graded(heads, rows, self.runner.now(), act=False)
-        return [
+        return heads, [
             f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip()
             for name in self.checks
             if name in HOLD_CHECKS + ENQUEUE_CHECKS

@@ -19,6 +19,7 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
+ENQUEUERS = frozenset({"stack-enqueue", "mq.py enqueue"})
 NOT_AN_ENQUEUE = frozenset({"--dequeue"})
 QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
 MQ_VALUE_OPTIONS = frozenset({"--config"})
@@ -182,15 +183,19 @@ def without_repo(argv: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(kept)
 
 
-def mq_verb(call: Call) -> str | None:
+def mq_subcommand(call: Call) -> str:
     run = program((call.name, *call.args))
     if not run or Path(run[0]).name != "mq.py":
-        return None
+        return ""
     args = run[1:]
     index = 0
     while index < len(args) and args[index].startswith("-"):
         index += 2 if args[index] in MQ_VALUE_OPTIONS else 1
-    verb = args[index] if index < len(args) else ""
+    return args[index] if index < len(args) else ""
+
+
+def mq_verb(call: Call) -> str | None:
+    verb = mq_subcommand(call)
     return verb if verb in QUEUE_STEERING else None
 
 
@@ -199,6 +204,8 @@ def landing_verb(call: Call) -> str | None:
     run = program((call.name, *call.args))
     if run and Path(run[0]).name == "stack-enqueue":
         return None if READ_ONLY_ENQUEUE & set(run[1:]) else "stack-enqueue"
+    if mq_subcommand(call) == "enqueue":
+        return "mq.py enqueue"
     if argv[:2] == ("gt", "merge"):
         return "gt merge"
     if argv[:3] == ("gh", "pr", "merge"):
@@ -230,6 +237,8 @@ def landing_verb(call: Call) -> str | None:
         Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
         Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
         Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=LANE, state=ACTIVE): Block(pattern=r"lane `lane-a` may not run `mq.py enqueue`"),
+        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=DESK, state=ACTIVE): Allow(),
         Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
         Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
         Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
@@ -286,7 +295,7 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
         return None
     entry = drive_entry(evt)
     incident = bool(INCIDENT_NAME.match(lane))
-    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "stack-enqueue" or not incident) and not outside_drive_repo(evt, call, entry)), None)
+    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb in ENQUEUERS or not incident) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))), None)
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
