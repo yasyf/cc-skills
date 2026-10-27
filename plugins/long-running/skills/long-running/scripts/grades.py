@@ -37,7 +37,7 @@ NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
 CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
-ADDS_BEHAVIOR = re.compile(r"(?<!\bno )\bnew behaviou?r\b", re.IGNORECASE)
+ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:

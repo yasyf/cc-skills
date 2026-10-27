@@ -3244,6 +3244,7 @@ def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
         [("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")],
         [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical"), ("fidelity", "ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.")],
         [("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")],
+        [("fidelity", "ok cccc333333 a fixed version of aaaa111111."), ("head", "HEAD #29020 cccc333333: adds new behavior: upload retries")],
     ],
 )
 def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
@@ -3265,6 +3266,7 @@ def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and
     [
         [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"), ("fidelity", "ok cccc333333 a fixed version of aaaa111111: a nil check answers the finder's major.")],
         [("fidelity", "ok F307 at cccc333.")],
+        [("fidelity", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")],
     ],
 )
 def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_its_go(shell, config, tmp_path, said):

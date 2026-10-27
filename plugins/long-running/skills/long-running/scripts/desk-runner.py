@@ -5499,8 +5499,8 @@ class Landing:
                 continue
             if settled:
                 continue
-            said = {seq for new, _, _, seq in moves if names_head(new, head)}
-            adds = [record for record in reviews if (record["seq"] in said or graded and record["seq"] == graded["seq"]) and ADDS_BEHAVIOR.search(full_text(record))]
+            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
+            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
             if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior; the board needs a new row for #{pr} at {head[:10]}", pr)
             elif not adds and graded and graded["text"].startswith(FIDELITY_OK) and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
