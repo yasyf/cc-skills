@@ -179,7 +179,10 @@ class Drive:
     def review_url(self, number):
         cwd = self.reviews / str(number)
         cwd.mkdir(parents=True, exist_ok=True)
-        return TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--cwd", str(cwd)]))[1]
+        url = TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--cwd", str(cwd)]))[1]
+        if self.model["prs"].get(str(number), {}).get("state") == "landed":
+            run(["cc-review", "close", url.rsplit("/s/", 1)[1]])
+        return url
 
     def decide(self, block, number, verdict, head, note):
         origin, _, subject = self.config["board_url"].partition("/p/")

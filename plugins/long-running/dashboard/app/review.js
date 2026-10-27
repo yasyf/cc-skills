@@ -3,7 +3,23 @@ const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held'
 const embed = { number: null, head: null, row: false };
 const pending = { number: null, holding: false, error: '', note: '' };
 
-function reviewList() {
+const REVIEW_LISTS = [['', 'Needs you'], ['flight', 'In flight'], ['landed', 'Landed']];
+function reviewList(list = '') {
+  const prs = Object.entries(state.model.prs).map(([n, pr]) => ({ n: Number(n), ...pr }));
+  const flight = prs.filter((pr) => pr.state === 'open' && !boardRow(pr.n));
+  const landed = prs.filter((pr) => pr.state === 'landed').sort((a, b) => String(b.landed_at).localeCompare(String(a.landed_at)));
+  const counts = { '': state.model.board.rows.filter((r) => verdictState(r) === 'you').length, flight: flight.length, landed: landed.length };
+  const chips = `<div class="filters review-lists">${REVIEW_LISTS.map(([id, label]) => `<a href="#/review${id ? `/${id}` : ''}" class="${id === list ? 'on' : ''}">${label} <b>${counts[id]}</b></a>`).join('')}</div>`;
+  if (list === 'landed') return `${chips}<div class="rows">${landed.map((pr) => {
+    const go = approvedAt(pr.n);
+    return `<a class="row approved" href="#/review/${pr.n}"><span class="title">${esc(plainTitle(pr.n))}</span>
+      <span class="chips"><span class="pill ok">Landed ${clock(pr.landed_at)}</span>${go ? `<span class="pill">Approved ${clock(go)}</span>` : ''}<span class="pill">#${pr.n}</span></span></a>`;
+  }).join('') || '<p class="dim">Nothing from this drive has landed yet.</p>'}</div>`;
+  if (list === 'flight') return `${chips}<div class="rows">${flight.map((pr) => {
+    const s = prState(pr.n);
+    return `<a class="row" href="#/review/${pr.n}"><span class="title">${esc(plainTitle(pr.n))}</span>
+      <span class="chips"><span class="pill ${STATE_TONE[s]}">${STATE_WORD[s]}</span>${testPill(pr)}<span class="pill">#${pr.n}</span></span></a>`;
+  }).join('') || '<p class="dim">No other pull request is open.</p>'}</div>`;
   const groups = new Map();
   for (const row of state.model.board.rows) {
     if (!groups.has(row.group)) groups.set(row.group, []);
@@ -17,7 +33,10 @@ function reviewList() {
       return `<a class="row ${v}" href="#/review/${r.number}"><span class="title">${esc(r.title)}</span>
         <span class="chips"><span class="pill ${VERDICT_TONE[v]}">${VERDICT_WORD[v]}</span>${testPill(state.model.prs[r.number] ?? {})}<span class="pill">#${r.number}</span></span></a>`;
     }).join('')}</div>`).join('');
-  return `<h2 class="sec">Pull requests for your review <span class="pill bad">${state.model.board.rows.filter((r) => verdictState(r) === 'you').length} waiting on you</span></h2>${html || '<p class="dim">Nothing is waiting for review.</p>'}`;
+  return `${chips}${html || '<p class="dim">Nothing is waiting for you.</p>'}`;
+}
+function approvedAt(n) {
+  return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
 }
 function testPill(pr) {
   if (pr.test_state === 'success') return '<span class="pill ok">Tests pass</span>';
@@ -26,13 +45,17 @@ function testPill(pr) {
   return '';
 }
 function reviewPR(n, tab) {
+  if (n === 'landed' || n === 'flight') return reviewList(n);
   const row = boardRow(n);
   const gh = `https://github.com/${state.model.repo}/pull/${n}`;
   if (!row) {
     if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
     const s = prState(n);
-    return `<div class="pr-head"><div class="kick muted">Nothing for you to tap</div><h1>${esc(plainTitle(n))}</h1>
-      <span class="pill ${STATE_TONE[s]}">${STATE_WORD[s]}</span><a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${testPill(state.model.prs[n])}</div>`;
+    const pr = state.model.prs[n];
+    const go = approvedAt(Number(n));
+    const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
+    return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
+      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
