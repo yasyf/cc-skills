@@ -5625,7 +5625,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
@@ -5638,7 +5638,13 @@ class Landing:
             if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE:
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
-            why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}" if tried else "no enqueue was accepted for it since the go"
+            reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
+            if reserved:
+                why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
+            elif tried:
+                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
+            else:
+                why = "no enqueue was accepted for it since the go"
             self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}")
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
