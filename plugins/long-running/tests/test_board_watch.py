@@ -133,3 +133,11 @@ def test_each_note_on_a_triage_row_is_captured_with_its_row_and_verdict(tmp_path
         ("merge-triage", "merge-row-102", "rejected", "group these three", "2026-01-02T03:04:05Z"),
     ]
     assert captured[0]["digest"] == hashlib.sha256(f"{SESSION}\0group these three\0merge-row-101".encode()).hexdigest()[:16]
+
+
+def test_a_credential_in_a_board_note_is_redacted_in_its_capture() -> None:
+    event = {"type": "triage.decided", "blockId": "notes", "verdicts": {"r1": {"verdict": "ok", "note": "token api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f works"}}}
+
+    [capture] = board_watch.captures(event, SESSION, RecordedShell(), ARRIVED)
+
+    assert capture["text"] == "token [credential redacted] works"

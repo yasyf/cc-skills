@@ -34,6 +34,16 @@ PRONOUNS = frozenset({"this", "that", "it", "these", "those", "all", "everything
 TERM_WORDS = 6
 QUOTED = re.compile(r'^>\s?(?P<line>.+)$|["“](?P<inner>[^"”\n]{12,})["”]', re.MULTILINE)
 SENTENCE = re.compile(r"(?<=[.?!])\s+|\n+")
+CREDENTIAL = re.compile(
+    r"\b(?:sk|pk|rk)-[\w-]{16,}"
+    r"|\b(?:gh[pousr]|github_pat)_\w{20,}"
+    r"|\bxox[abprs]-[\w-]{10,}"
+    r"|\bAKIA[0-9A-Z]{16}\b"
+    r"|\b(?:api|sdk|mob)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b"
+    r"|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}"
+    r"|\b(?=[\w-]*[a-z])(?=[\w-]*[A-Z])(?=[\w-]*\d)[\w-]{32,}"
+)
+REDACTED = "[credential redacted]"
 NO_BOARD = "no cc-present artifact"
 MARKED = (
     'The owner asked "{text}". Blocks marked revising: {blocks}. Until its reply is posted, a reply or writer brief quotes'
@@ -80,7 +90,7 @@ def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
 
 
 def capture(prompt: dict) -> dict:
-    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": prompt["text"]}
+    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])}
 
 
 @on(

@@ -124,6 +124,16 @@ def test_an_owner_prompt_lands_with_its_transcript_stamp_at_the_next_hook(root):
     ]
 
 
+@pytest.mark.parametrize("token", ["api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f", "ghp_aB3dE6gH9jK2mN5pQ8sT1vW4yZ7", "sk-ant-api03-Zx9Yw8Vu7Ts6Rq5Po4Nm", "Xq7Lp2Rz9Tk4Wm8Nc3Vb6Hj1Gf5Dd0Ss2"])
+def test_a_credential_typed_in_a_prompt_is_redacted_in_its_capture(root, token):
+    text = f"use {token} for the flags api, and keep 6e74115 as the head"
+    root.prompt(text)
+    root.typed(text, "2026-10-23T11:20:00.000Z")
+    root.fire(StopEvent)
+
+    assert [capture["text"] for capture in root.captures()] == ["use [credential redacted] for the flags api, and keep 6e74115 as the head"]
+
+
 def test_a_prompt_whose_line_has_not_landed_waits_for_a_later_hook(root):
     root.prompt("ship the register gates")
     root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
