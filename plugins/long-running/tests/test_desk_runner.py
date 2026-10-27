@@ -2741,6 +2741,26 @@ def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+def test_a_root_go_whatever_its_leading_words_answers_the_merge_ask_and_show_names_the_key_until_then(shell, config, tmp_path, capsys):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert "- #29020 waits on `merge:29020:cccc333`: a root go naming #29020 at cccc333\n" in capsys.readouterr().out
+    for text in ("withdrawn: merge #29020 at cccc333", "hold: do not go #29020 at cccc333", 'he said "go #29020 at cccc333" yesterday'):
+        merge_go(shell, "29020", text)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    merge_go(shell, "29020", "Owner tapped Merge on board row merge-prs: go #29020 at cccc333 (fidelity ok, finder ok).")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    cli(shell, config, "show")
+    assert "waits on `merge:29020" not in capsys.readouterr().out
+
+
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)

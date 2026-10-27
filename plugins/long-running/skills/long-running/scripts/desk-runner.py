@@ -413,7 +413,8 @@ re-read on every use. A repository the GitHub account the runner acts as owns, w
 under `every`, under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, and in
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, and enqueues once a root `go` record names each
-waiting PR and its head by a short sha. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
+starts; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
@@ -485,6 +486,7 @@ LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
+MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
@@ -3661,6 +3663,9 @@ class Runner:
             lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
             if clock := incident.facts.get(CLOCK):
                 lines.append(self.clock_line(clock))
+            for pr, wait in (incident.facts.get(MERGE_WAITS) or {}).items():
+                authorize = f", and the owner's tap authorizing {', '.join(wait['rows'])} through `rulings.py authorize`" if wait["rows"] else ""
+                lines.append(f"- #{pr} waits on `{wait['key']}`: a root go naming #{pr} at {wait['key'].rsplit(':', 1)[1]}{authorize}")
             for action in sorted(incident.actions.values(), key=lambda action: action.accepted_at):
                 if action.kind in ("send", "policy"):
                     continue
@@ -4634,9 +4639,22 @@ class Landing:
         if (asks := self.owner_asks(graded.heads)) is None:
             return {pr: merge_queue.State(merge_queue.PENDING, "merge mode high-risk reads the changed files first, and they did not read") for pr in graded.heads}
         waiting = self.unanswered(graded.heads, asks)
+        if graded.act:
+            self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting)
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
+
+    def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
+        """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""
+        fresh = {pr: {"key": f"merge:{pr}:{heads[pr][:7]}", "rows": [key for key, _ in self.reserved_touches(pr, heads[pr])]} for pr in waiting}
+
+        def merged(kept: dict) -> dict:
+            return {pr: wait for pr, wait in kept.items() if pr not in heads} | fresh
+
+        kept = self.book.load(LANDING).facts.get(MERGE_WAITS) or {}
+        if merged(kept) != kept:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({MERGE_WAITS: merged(incident.facts.get(MERGE_WAITS) or {})}))
 
     def check_precondition(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): a head whose PR body or one of whose cci records holds its landing on something outside the PR gets one `note` warning to the root per head, quoting each sentence and where it was said. The head stays landable; the root posts a `hold` record when a sentence is a real dependency."""
