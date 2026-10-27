@@ -418,7 +418,7 @@ class FakeShell(runner_module.Shell):
             build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
         if argv == ["cci", "who", "--drive", "d1", "--json"]:
-            return runner_module.Done(0, "".join(json.dumps({"lane": lane, "agent_name": name, "live": True, "seen_at": at} | ({"announced_at": self.announced[name]} if name in self.announced else {})) + "\n" for name, (lane, at) in self.seen_as.items()) + "".join(json.dumps({"lane": lane, "live": True, "seen_at": at}) + "\n" for lane, at in self.seen.items() if lane not in self.gone), "")
+            return runner_module.Done(0, "".join(json.dumps({"lane": lane, "agent_name": name, "live": True, "seen_at": at} | ({"announced_at": self.announced[name]} if name in self.announced else {})) + "\n" for name, (lane, at) in self.seen_as.items()) + "".join(json.dumps({"lane": lane, "live": True, "seen_at": at, "announced_at": at}) + "\n" for lane, at in self.seen.items() if lane not in self.gone), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
@@ -5138,6 +5138,17 @@ def test_an_old_app_warning_reaches_its_living_lane_and_the_fidelity_lanes_and_n
     landing_pass(shell, config)
     [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
     assert (pending["to"], post_body(pending).startswith("#29020 cccc333333: WARNING")) == (to, True)
+
+
+def test_an_old_app_warning_for_a_rotated_lane_reaches_its_live_successor_and_the_fidelity_lanes(shell, config, tmp_path):
+    old_app_checked(config)
+    lone_green_pr(shell)
+    shell.gone = {LANE}
+    shell.seen[f"{LANE}-2"] = actions.stamp(shell.clock)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+    assert pending["to"] == f"{LANE}-2,fidelity-desk"
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
