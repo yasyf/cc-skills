@@ -63,6 +63,10 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
+``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line per added line, in code and tests alike, that starts
+a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine, naming the shape,
+the line and the rule. It is a warning like every other cause, and a ``# owner: <answer id>`` line under ``## Rulings``
+citing an owner answer whose words name the shape clears it.
 ``grade`` writes a fidelity desk's head grade to ``--out``. It lists every mechanism the head adds, one per
 added line that matches a shape in ``MECHANISM_SHAPES`` or opens a migration file, as ``<file>:<line>``, and
 needs each one grounded by ``--ground`` or set aside by ``--not-a-mechanism``; an ``ID`` may be an fnmatch glob.
@@ -198,6 +202,26 @@ MECHANISM_SHAPES = (
     ("flag", re.compile(r"\bflag\.\w+\(|\.Flags?\(\)\.\w+\(|#\[(?:arg|clap)\b|\.option\(\s*[\"']--|add_argument\(\s*[\"']--")),
     ("field", re.compile(r"json:\"[^\"]+\"|#\[serde\b|^\s*pub\s+\w+\s*:\s*\S|^\s*(?:readonly\s+)?\w+\??:(?!:)\s*[^=;,]+;\s*$|^\s*(?:optional\s+|repeated\s+)?\w+\s+\w+\s*=\s*\d+\s*;")),
 )
+LOOP_HEAD = re.compile(r"^\s*(?:for\b|while\b|loop\s*\{|do\s*\{)")
+FUNCTION_HEAD = re.compile(
+    r"^\s*(?:export\s+)?(?:pub(?:\([\w:]+\))?\s+)?(?:async\s+)?"
+    r"(?:function\s*\*?\s*(?P<js>\w+)?|(?:const|let|var)\s+(?P<bound>\w+)\s*=\s*(?:async\s*)?(?:\(|function)|fn\s+(?P<rs>\w+)|func\b\s*(?:\([^)]*\)\s*)?(?P<go>\w+)?|def\s+(?P<py>\w+))"
+)
+TICKER = re.compile(r"\btime::interval(?:_at)?\(|(?<![\w.:])interval(?:_at)?\(\s*(?:Duration|std::time|tokio::time)|\bIntervalStream::new\(|\btime\.(?:NewTicker|Tick)\(|\bsetInterval\(")
+WAIT = re.compile(r"\b(?:thread::sleep|time::sleep|sleep_until|time\.Sleep|time\.sleep|asyncio\.sleep|Bun\.sleep)\(|\bawait\s+(?:sleep|delay)\(|<-\s*time\.After\(|\bsetTimeout\(")
+RESCHEDULED = re.compile(r"\bsetTimeout\(\s*(?P<name>\w+)\s*,")
+FILE_WRITE = re.compile(r"\b(?:fs::write|File::create|OpenOptions::new|WriteFile|writeFile(?:Sync)?|createWriteStream|Bun\.write|os\.Create|os\.OpenFile|write_text|write_bytes)\s*\(|\bopen\([^)]*[\"'][wa]b?\+?[\"']")
+SECRET_PARTS = frozenset({"secret", "secrets", "token", "tokens", "grant", "grants", "pass", "passes", "password", "passwords", "passwd", "credential", "credentials", "creds", "apikey"})
+KEY_QUALIFIERS = frozenset({"api", "private", "secret", "signing", "access", "auth", "session", "master", "encryption", "hmac"})
+IDENTIFIER_PART = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
+STATEMENT_LINES = 4
+LOOKBACK = 15
+LOCAL_RUN = re.compile(r"\b(?:cargo\s+(?:build|test|nextest|run)|go\s+(?:test|run)|pytest|py\.test|jest|vitest|(?:yarn|npm|pnpm|bun)\s+(?:run\s+)?test|buck2\s+(?:build|test|run))\b")
+ARGUMENT_PUNCTUATION = re.compile(r"[\"'`,\[\]()]|\.args?\b")
+MAC_PATH = re.compile(r"/Users/|~/|\$HOME\b|\$\{HOME\}")
+LOCAL_TOOL = re.compile(r"(?:^|/)(?:scripts|tools|bin|hooks|\.claude|\.agents)/|\.(?:sh|bash|zsh|fish)$")
+CI_CONFIG = re.compile(r"(?:^|/)(?:\.buildkite|\.github|\.circleci|ci)/|(?:^|/)(?:Dockerfile[^/]*|package\.json|Cargo\.toml|Makefile|[Jj]ustfile|BUCK|pyproject\.toml|mise\.toml)$")
+OWNER_LINE = re.compile(r"#\s*owner:\s*(?P<answer>[0-9a-f]{7,40})\b")
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
@@ -216,7 +240,7 @@ TEST_DEFINITION = re.compile(
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
-CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
@@ -1433,7 +1457,8 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if args.artifact or args.paths or args.diff:
         hits = sweeper.files([Path(path) for path in args.artifact])
         hits += sweeper.files(globbed(args.root or args.repo, args.paths), args.root or args.repo)
-        hits += sweeper.diff(parse_diff(Path(args.diff).read_text())) if args.diff else []
+        diff = parse_diff(Path(args.diff).read_text()) if args.diff else None
+        hits += [*sweeper.diff(diff), *banned_mechanisms(diff)] if diff else []
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
     for hit in hits:
@@ -2036,6 +2061,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
+    findings.refusals += [str(hit) for hit in banned_mechanisms(head.diff) if not owner_cleared(hit, head, authorizers)]
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
@@ -2050,6 +2076,98 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, lane, reviews))
         if why:
             findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")
+
+
+@dataclass(frozen=True)
+class Banned:
+    shape: str
+    rows: tuple[str, ...]
+    said: re.Pattern[str]
+
+
+TIMER = Banned("timer", ("rule/949e6be",), re.compile(r"\btimers?\b|\btick|\binterval|\bevery \d|keep-alive", re.IGNORECASE))
+POLL = Banned("poll loop", ("rule/949e6be", "rule/f60345a"), re.compile(r"\bpoll|\bloop|\bbackoff|\bretr", re.IGNORECASE))
+CREDENTIAL_FILE = Banned("credential written to a file", ("prompt/1026-105052",), re.compile(r"\bfiles?\b|\bdisk\b", re.IGNORECASE))
+LOCAL_EXEC = Banned("local exec", ("rule/c9b7c87",), re.compile(r"\blocal(?:ly)?\b|\bthis mac\b|\blaptop\b", re.IGNORECASE))
+
+
+@dataclass(frozen=True)
+class BannedHit:
+    banned: Banned
+    file: str
+    line: int
+    text: str
+
+    def __str__(self) -> str:
+        return (
+            f"MECHANISM-BANNED {self.banned.shape} {self.file}:{self.line} {','.join(self.banned.rows)} `{self.text[:CCI_TEXT // 4]}`"
+            f"\tfix it, or cite his answer naming the {self.banned.shape} as a `# owner: <answer id>` line under ## Rulings"
+        )
+
+
+def indent(text: str) -> int:
+    return len(text) - len(text.lstrip())
+
+
+def in_loop(lines: dict[int, str], number: int, text: str) -> bool:
+    """Whether the nearest enclosing header above an added wait line, within LOOKBACK lines of the diff's new side, is a loop, or a function the wait reschedules by name."""
+    rescheduled = found["name"] if (found := RESCHEDULED.search(text)) else None
+    depth = indent(text)
+    for above in range(number - 1, max(number - LOOKBACK, 0) - 1, -1):
+        line = lines.get(above)
+        if line is None or not line.strip() or indent(line) >= depth:
+            continue
+        depth = indent(line)
+        if LOOP_HEAD.match(line):
+            return True
+        if head := FUNCTION_HEAD.match(line):
+            return rescheduled is not None and rescheduled in head.groupdict().values()
+    return False
+
+
+def statement(lines: dict[int, str], number: int) -> str:
+    joined, balance = [], 0
+    for at in range(number, number + STATEMENT_LINES):
+        if (line := lines.get(at)) is None:
+            break
+        joined.append(line)
+        balance += line.count("(") - line.count(")")
+        if balance <= 0:
+            break
+    return " ".join(joined)
+
+
+def names_secret(text: str) -> bool:
+    for identifier in IDENTIFIER.findall(text):
+        parts = [part.lower() for part in IDENTIFIER_PART.findall(identifier)]
+        if SECRET_PARTS.intersection(parts) or any(part in ("key", "keys") and before in KEY_QUALIFIERS for before, part in zip(parts, parts[1:])):
+            return True
+    return False
+
+
+def banned_mechanisms(diff: Diff) -> list[BannedHit]:
+    """Each added line, in code and tests alike, that starts a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine."""
+    sides: dict[str, dict[int, str]] = {}
+    for file, number, text in [*diff.kept_after, *diff.added]:
+        sides.setdefault(file, {})[number] = text
+    hits = []
+    for file, number, text in diff.added:
+        if Path(file).suffix in PROSE_SUFFIXES or commented(text):
+            continue
+        lines = sides[file]
+        if TICKER.search(text):
+            hits.append(BannedHit(TIMER, file, number, text.strip()))
+        elif WAIT.search(text) and in_loop(lines, number, text):
+            hits.append(BannedHit(POLL, file, number, text.strip()))
+        if FILE_WRITE.search(text) and names_secret(statement(lines, number)):
+            hits.append(BannedHit(CREDENTIAL_FILE, file, number, text.strip()))
+        if not CI_CONFIG.search(file) and LOCAL_RUN.search(ARGUMENT_PUNCTUATION.sub(" ", text)) and (LOCAL_TOOL.search(file) or MAC_PATH.search(text)):
+            hits.append(BannedHit(LOCAL_EXEC, file, number, text.strip()))
+    return hits
+
+
+def owner_cleared(hit: BannedHit, head: Head, authorizers: dict[str, list[tuple[str, frozenset[str]]]]) -> bool:
+    return any(hit.banned.said.search(words) for found in OWNER_LINE.finditer(head.rulings) for words, _ in authorizers.get(found["answer"][:SHORT], []))
 
 
 def drive_checkout(args: argparse.Namespace) -> str:

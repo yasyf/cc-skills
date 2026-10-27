@@ -1508,6 +1508,12 @@ A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row b
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
+A `MECHANISM-BANNED` line names an added line, in code or a test, that starts a timer
+(rule/949e6be), waits inside a loop (rule/f60345a), writes a credential, token, grant or
+pass to a file (prompt/1026-105052), or runs a build or test on this machine
+(rule/c9b7c87). Its lane fixes it before the owner's tap, or cites his answer naming the
+shape as a `# owner: <answer id>` line under `## Rulings`. Lanes see the same lines
+before a push from `rulings.py sweep --diff <file>` over their own diff.
 A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head with nothing
 posted, and so does each `BLOCKER` line it prints: the check fails open (0afd2f6, 4236611).
 `reference/fidelity-desk-brief.md` is the fidelity desks' brief, ready to paste, and
@@ -2688,6 +2694,12 @@ Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
+Mechanisms the plan bans: <every implementation brief pastes the drive's list, each
+  shape with its rule id: timers and polls, credentials in files, local exec, and any
+  the drive adds; or "none">. Before each push, run `rulings.py sweep --diff <file>` over
+  your own diff, and fix each `MECHANISM-BANNED` line it prints or cite the owner's
+  answer naming that shape. A root answer that names a mechanism names its banned
+  shapes too, so "re-request before expiry" never reads as a timer.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
