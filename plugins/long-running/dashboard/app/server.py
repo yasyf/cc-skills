@@ -221,6 +221,10 @@ def release_path(releases):
     return [{**release, "word": word(i, release)} for i, release in enumerate(releases)]
 
 
+def paths_current(cached, pr):
+    return bool(cached) and (cached["head"] == pr["head"] or cached.get("files") == pr.get("changed_files"))
+
+
 def with_conflicts(rows, prs):
     def blocker(row):
         board = row.get("blocker") or ""
@@ -393,14 +397,14 @@ class Drive:
         while True:
             with self.lock:
                 prs = dict(self.slow.get("prs", {}))
-            stale = [(n, pr["head"]) for n, pr in prs.items() if pr.get("head") and pr.get("state") in ("open", "landed") and cache.get(n, {}).get("head") != pr["head"]]
-            for number, head in stale:
+            stale = [(n, pr["head"], pr.get("changed_files")) for n, pr in prs.items() if pr.get("head") and pr.get("state") in ("open", "landed") and not paths_current(cache.get(n), pr)]
+            for number, head, files in stale:
                 try:
                     paths = run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}/files", "--paginate", "--jq", ".[].filename"]).split()
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                     self.errors["paths"] = f"#{number}: {str(error)[:200]}"
                     continue
-                cache[number] = {"head": head, "trees": trees(paths, self.config["trees"])}
+                cache[number] = {"head": head, "files": files, "trees": trees(paths, self.config["trees"])}
                 cache_file.write_text(json.dumps(cache))
                 with self.lock:
                     self.paths = dict(cache)

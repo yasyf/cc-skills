@@ -3,7 +3,7 @@ import queue
 
 import pytest
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, verdict_state, with_conflicts
+from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -313,6 +313,19 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
+
+
+@pytest.mark.parametrize(
+    ("cached", "pr", "current"),
+    [
+        (None, {"head": "b", "changed_files": "9"}, False),
+        ({"head": "a", "files": "9"}, {"head": "b", "changed_files": "9"}, True),
+        ({"head": "a", "files": "9"}, {"head": "b", "changed_files": "10"}, False),
+        ({"head": "b"}, {"head": "b", "changed_files": "10"}, True),
+    ],
+)
+def test_a_restack_that_keeps_the_file_count_reuses_the_cached_paths(cached, pr, current):
+    assert paths_current(cached, pr) is current
 
 
 def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked():
