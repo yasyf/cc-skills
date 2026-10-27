@@ -585,4 +585,4 @@ body:has(.ck.ov) .top .tabs { display: none; }
   .ck .minirail .mr { width: calc((100vw - 60px) / 8); }
   .ck .minirail .mr + .mr::before { width: calc((100vw - 60px) / 8); }
 }
-.ck .tn-facts { gap: 14px; } .ck .tn-facts .warn { color: var(--you); font-size: 11px; }
+.ck .tn-facts { gap: 2px 14px; flex-wrap: wrap; white-space: normal; min-width: 0; } .ck .tn-facts > * { white-space: nowrap; } .ck .tn-facts .warn { color: var(--you); font-size: 11px; }
