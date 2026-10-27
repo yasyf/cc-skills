@@ -4017,6 +4017,18 @@ class Landing:
         numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
+    def hold_sources(self, prs: list[str], rows: dict[str, dict]) -> str:
+        """Each of `prs` with where its hold stands: the holds file, an open cci `hold` record by seq, a rules-review block, or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
+        filed = holds.held(holds.read(self.holds), rows)
+        posted = cci.held_prs(self.runner.cci_tail, self.runner.config.drive)
+
+        def where(pr: str) -> str:
+            row = rows.get(pr, {})
+            found = ["the holds file" if pr in filed else "", f"cci hold #{posted[pr]}" if pr in posted else "", "rules-review" if row.get("rules_blocked") else "", "the hold label" if HOLD_LABEL in row.get("labels", "").split(",") else ""]
+            return "; ".join(filter(None, found))
+
+        return " ".join(f"#{pr} ({where(pr)})" for pr in prs)
+
     def card(self, rows: dict[str, dict]) -> dict:
         """The drive root card's rollup, refs, progress, and facts from the ledger and the lane registry, for `cc-slack dm-status --root-only`."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -4591,7 +4603,7 @@ class Landing:
             prefix = [pr for pr in prefix if pr not in out]
             if named := [pr for pr in out if pr in held and pr not in self.no_go]:
                 left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
-                self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {numbered(named)}, so {numbered(out)} stay out of the batch and {left}")
+                self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {self.hold_sources(named, rows)}, so {numbered(out)} stay out of the batch and {left}")
         batched = self.whole_batches(prefix, tips, rows, open_rows)
         if not batched or self.whole() and batched != prefix:
             return
@@ -5130,7 +5142,7 @@ class Landing:
             found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
-        if not (posted := about_pr("hold")):
+        if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
             return ""
         newest = posted[-1]
         if opened := [record for record in posted if record["status"] == "open"]:

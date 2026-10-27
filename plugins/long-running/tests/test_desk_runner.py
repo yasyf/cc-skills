@@ -1899,8 +1899,20 @@ def test_a_held_pr_is_never_named_in_a_stack_enqueue_call_or_routed(shell, confi
     assert shell.sends() == [] and escalations(shell) == []
 
 
-def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is_named(shell, config, tmp_path):
+def held_in_the_file(shell: FakeShell, tmp_path: Path) -> str:
     (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\n")
+    return "the holds file"
+
+
+def held_on_the_bus(shell: FakeShell, tmp_path: Path) -> str:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "hold #29020 until the parity waves land"})
+    return f"cci hold #{seq}"
+
+
+@pytest.mark.parametrize("hold", [held_in_the_file, held_on_the_bus])
+def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is_named_with_where_its_hold_stands(shell, config, tmp_path, hold):
+    where = hold(shell, tmp_path)
     shell.rows = stack_rows()
     shell.gates["29016"] = [
         gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020"),
@@ -1912,7 +1924,16 @@ def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is
     assert [call[1:] for call in shell.enqueues()] == [["29016", "--partial"]]
     assert not [call for call in stack_enqueue_calls(shell) if "29020" in call]
     [line] = [line for line in escalations(shell) if line.startswith("HELD-OUT ")]
-    assert line.endswith("#29016: a hold covers #29020, so #29020 stay out of the batch and the enqueue names only #28997 #29016, with `--partial`")
+    assert line.endswith(f"#29016: a hold covers #29020 ({where}), so #29020 stay out of the batch and the enqueue names only #28997 #29016, with `--partial`")
+
+
+def test_a_hold_record_holds_the_pr_it_leads_with_and_not_the_prs_it_waits_on(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [28349, 29020]}, "text": "hold #28349 until #29020 is on dev"})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [line for line in escalations(shell) if line.startswith("REFUSED ")]
 
 
 def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
