@@ -22,7 +22,7 @@ FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", r
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
-GO_CLAUSE = re.compile(rf"(?:^\s*|[.:;!?]\s+)(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
+GO_CLAUSE = re.compile(rf"(?:^\s*|[.:;!?]\s+)(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -89,6 +89,12 @@ def go_heads(record: dict) -> dict[str, str]:
         return {}
     clause = GO_CLAUSE.search(record["text"])
     return {pr: sha.lower() for pr, sha in GO_HEAD.findall(clause[1])} if clause else {}
+
+
+def go_batch(record: dict) -> set[str]:
+    """The PRs a root `go` binds into one enqueue: every PR of its clause and each `#<n>` of the `with` list that follows the clause, or none when it has no `with` list."""
+    clause = None if WITHDRAWN.match(record["text"]) else GO_CLAUSE.search(record["text"])
+    return set(go_heads(record)) | set(re.findall(r"#(\d+)", clause[2])) if clause and clause[2] else set()
 
 
 def goes(record: dict, pr: str) -> bool:

@@ -414,7 +414,7 @@ under `every`, under `high-risk` for a PR whose changed files a `landing.high_ri
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
-starts; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+starts; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
@@ -475,7 +475,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -4480,14 +4480,28 @@ class Landing:
             if named := [pr for pr in out if pr in held and pr not in self.no_go]:
                 left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
                 self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {numbered(named)}, so {numbered(out)} stay out of the batch and {left}")
-        if not prefix:
+        batched = self.whole_batches(prefix, tips, rows, open_rows)
+        if not batched or self.whole() and batched != prefix:
             return
+        prefix = batched
         if fork := unlanded_fork(prefix, open_rows):
             self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
             return
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             out = cut_out(prefix, refused, open_rows)
-            prefix = [pr for pr in prefix if pr not in out]
+            prefix = self.whole_batches([pr for pr in prefix if pr not in out], tips, rows, open_rows)
+
+    def whole_batches(self, prefix: list[str], tips: list[str], rows: dict[str, dict], open_rows: dict[str, dict]) -> list[str]:
+        """`prefix` without each PR of a root `go` batch that `prefix` does not hold whole, and the PRs stacked above them, until every batch left is whole: the PRs a `go ... with #a #b` binds enqueue in one call or not at all, so a hold, a red check, a PR with no ledger row, or a batch spread over two chains of a fork keeps them all out. A PR the ledger reads landed or closed leaves its batch."""
+        closed = {pr for pr, row in rows.items() if row.get("state", "open") != "open"}
+        batches = [go_batch(go) - closed for go in self.root_gos() if any(pr in open_rows and names_head(sha, open_rows[pr].get("head", "")) for pr, sha in go_heads(go).items())]
+        split = {pr for batch in batches if not any(batch <= downstack(open_rows, top) for top in batch & open_rows.keys()) for pr in batch}
+        kept = prefix
+        while out := cut_out(kept, split | {pr for batch in batches if batch & set(kept) and not batch <= set(kept) for pr in batch}, open_rows):
+            kept = [pr for pr in kept if pr not in out]
+        if waiting := [pr for pr in prefix if pr not in kept]:
+            self.runner.escalate(f"batch-waits:{','.join(waiting)}", "BATCH-WAITS", numbered(tips), f"a root go binds {numbered(waiting)} into a batch the queue cannot take whole in one call yet, so they stay out of this enqueue")
+        return kept
 
     def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
         """Accept one enqueue of `prefix` at its heads unless an earlier attempt, ejection, pull, or awaited `go` already decides it; a fresh attempt only after every earlier one enqueued nothing. Returns the PRs the first refusing accept check holds, empty when nothing refused."""
