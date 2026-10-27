@@ -158,6 +158,9 @@ class FakeShell(runner_module.Shell):
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
         self.commit_statuses: dict[str, list[dict]] = {}
+        self.grade_refs: dict[str, str] = {}
+        self.grade_starts: list[dict] = []
+        self.grade_error = ""
         self.ledger_outs: dict[str, tuple[int, str]] = {"show": (0, json.dumps({"rows": []}))}
         self.viewer = "desk-owner"
         self.cards: list[dict] = []
@@ -277,6 +280,15 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "api", "graphql"]:
             assert argv[3] == "-f" and len(argv) == 5
             return self.graphql(argv[4].removeprefix("query="))
+        if argv[:4] == ["gh", "api", "-X", "PATCH"] and argv[4].startswith("repos/Forge-AI/monorepo/git/refs/heads/"):
+            branch = argv[4].removeprefix("repos/Forge-AI/monorepo/git/refs/heads/")
+            if branch not in self.grade_refs:
+                return runner_module.Done(1, "", "gh: Reference does not exist (HTTP 422)")
+            self.grade_refs[branch] = argv[6].removeprefix("sha=")
+            return runner_module.Done(0, "{}", "")
+        if argv[:5] == ["gh", "api", "-X", "POST", "repos/Forge-AI/monorepo/git/refs"]:
+            self.grade_refs[argv[6].removeprefix("ref=refs/heads/")] = argv[8].removeprefix("sha=")
+            return runner_module.Done(0, "{}", "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status"):
             return runner_module.Done(0, json.dumps({"statuses": self.commit_statuses.get(argv[2].split("/")[4], [])}), "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
@@ -352,6 +364,13 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "recorded\n", "")
         if argv == ["cci", "who", "--role", "root", "--json"]:
             return runner_module.Done(0, "".join(json.dumps({"lane": "root", "drive": drive}) + "\n" for drive in self.root_drives), "")
+        if argv[:5] == [str(self.root / "checkout/tools/ci"), "bk", "api", "-X", "POST"]:
+            body, number = json.loads(argv[6]), str(78400 + len(self.grade_starts))
+            self.grade_starts.append(body | {"path": argv[7]})
+            if self.grade_error:
+                return runner_module.Done(1, "", self.grade_error)
+            self.builds[number] = {"state": "running", "commit": body["commit"], "jobs": []}
+            return runner_module.Done(0, json.dumps({"web_url": f"https://buildkite.com/forge/{argv[7].split('/')[2]}/builds/{number}"}), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
             build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
@@ -3244,10 +3263,19 @@ def built(shell: FakeShell, sha: str, number: str, build: dict) -> None:
     shell.commit_statuses[sha] = [{"context": "buildkite/test", "state": "success", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
 
 
-def with_ci_build(config: Path) -> None:
+GRADE = """tools/ci bk api -X POST -d '{"commit":"{commit}","branch":"{branch}","ignore_pipeline_branch_filters":true}' /pipelines/{pipeline}/builds"""
+
+
+def with_ci_build(config: Path, grade: str = "") -> None:
     raw = json.loads(config.read_text())
     raw["landing"]["ci_build"] = "tools/ci bk api /pipelines/{pipeline}/builds/{number}"
+    if grade:
+        raw["landing"]["ci_grade"] = grade
     config.write_text(json.dumps(raw))
+
+
+def blocker_bodies(shell: FakeShell) -> list[str]:
+    return [call[call.index("--body") + 1] for call in shell.sends()] + [post_body(post) for post in blockers(shell)]
 
 
 def test_a_green_head_whose_build_is_a_redundant_skip_is_unproven_until_a_full_build_on_the_stacks_tip_contains_it(shell, config, tmp_path):
@@ -3323,6 +3351,59 @@ def test_a_redundant_skip_head_is_proven_by_a_full_run_its_lane_reports_green_on
     shell.builds["78301"] = FULL_BUILD | {"state": "passed", "commit": "ffff666666", "finished_at": "2026-10-01T18:00:00Z"}
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_redundant_skip_head_no_tip_build_covers_gets_one_full_build_on_a_grade_branch_and_is_green_once_it_passes(shell, config, tmp_path):
+    with_ci_build(config, GRADE)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert shell.grade_refs == {"ci-grade/29020": "cccc333333"}
+    assert shell.grade_starts == [{"commit": "cccc333333", "branch": "ci-grade/29020", "ignore_pipeline_branch_filters": True, "path": "/pipelines/test/builds"}]
+    assert any("#29020 cccc333333: unproven: redundant skip, no child in the ledger, so full build https://buildkite.com/forge/test/builds/78400 grades cccc333333" in body for body in blocker_bodies(shell))
+    shell.builds["78400"] = finished(FULL_BUILD, "cccc333333", "failed")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.builds["78400"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_no_full_build_starts_below_a_tip_whose_own_build_is_still_running(shell, config, tmp_path):
+    with_ci_build(config, GRADE)
+    shell.launch(LANE, "ctx_a")
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    grade_gated_heads_ok(shell)
+    for sha, number in (("aaaa111111", "78197"), ("bbbb222222", "78200")):
+        built(shell, sha, number, SKIP_BUILD)
+    shell.commit_statuses["cccc333333"] = [status("test", "78214", "pending")]
+    shell.builds["78214"] = {"state": "running", "commit": "cccc333333", "jobs": FULL_BUILD["jobs"]}
+    landing_pass(shell, config)
+    assert shell.grade_starts == [] and shell.enqueues() == []
+    assert any("#28997 aaaa111111: unproven: redundant skip, child #29020 open, so no full test build proves aaaa111111" in body for body in blocker_bodies(shell))
+
+
+def test_a_full_build_that_does_not_start_escalates_once_per_head_and_is_tried_again(shell, config, tmp_path):
+    with_ci_build(config, GRADE)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    shell.grade_error = "buildkite: 403 Forbidden"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [failed] = [line for line in escalations(shell) if line.startswith("CI-GRADE-FAILED ci-grade:29020@cccc333333")]
+    assert "could not start a full test build at cccc333333 on ci-grade/29020: buildkite: 403 Forbidden" in failed
+    assert len(shell.grade_starts) == 2
+    shell.grade_error = ""
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.grade_starts) == 3
 
 
 def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):
@@ -4519,19 +4600,20 @@ def test_only_an_open_root_hold_record_holds_a_landed_incident_fix(shell, config
     assert len([line for line in escalations(shell) if line.startswith("RELEASE-HELD-AFTER-LANDING")]) == held
 
 
-def test_a_released_build_posts_one_released_line_to_the_root_alone_once_every_component_is_live(shell, config, tmp_path):
+@pytest.mark.parametrize(("text", "release"), [("CUT build 8743 (releases/2026-10-20/31)", "2026-10-20/31"), ("CUT build 8743", "8743")], ids=["named-release", "build-number-only"])
+def test_a_released_build_posts_one_released_line_to_the_root_alone_once_every_component_is_live(shell, config, tmp_path, text, release):
     raw = json.loads(config.read_text())
     raw["landing"]["comms_lane"] = "comms-desk"
     config.write_text(json.dumps(raw))
     land_incident(shell, config, FAST_BODY)
     landing_pass(shell, config)
     build = "https://buildkite.com/forge/release/builds/8743"
-    cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"], "builds": [build]}, at=actions.stamp(shell.now()), text="CUT build 8743 (releases/2026-10-20/31)")
-    shell.live["2026-10-20/31"] = {"sand": {"live": "not live"}}
+    cci_record(shell, lane=WALKER, kind="release", refs={"targets": ["sand"], "builds": [build]}, at=actions.stamp(shell.now()), text=text)
+    shell.live[release] = {"sand": {"live": "not live"}}
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [post for post in shell.posts if post["kind"] == "fix-live"] == []
-    shell.live["2026-10-20/31"] = {"sand": {"live": "0.162.1437", "since": "2026-10-20T18:02:18Z"}}
+    shell.live[release] = {"sand": {"live": "0.162.1437", "since": "2026-10-20T18:02:18Z"}}
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = [post for post in shell.posts if post["kind"] == "fix-live"]
