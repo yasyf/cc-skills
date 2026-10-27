@@ -4532,6 +4532,23 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
+def test_mq_gos_lists_each_standing_go_the_queue_does_not_hold_from_one_status_read(shell, config, capsys):
+    two_pr_stack(shell)
+    shell.rows.append({"pr": "29042", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "labels": "hold"})
+    shell.rows.append({"pr": "29050", "lane": LANE, "branch": "c/1", "base": "dev", "head": "ffff666666", "state": "open"})
+    root_go(shell, "go #29020 at cccc333, #29031 at dddd444 and #29042 at abcd1234", shell.now())
+    seq = shell.records[-1]["seq"]
+    shell.queue = {"29020": "queued", "29031": "not queued", "29042": "evicted", "29050": "not queued"}
+    shell.pr_status = {"29031": {"verdict": "landable"}, "29042": {"verdict": "blocked:ci-red"}}
+    assert mq(shell, config, "gos") == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"#29031 go #{seq} at its head dddd444444; not queued, landable",
+        f"#29042 go #{seq} at abcd1234, but its head is eeee555555; evicted, blocked:ci-red; held",
+    ]
+    assert len([call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]) == 1
+    assert not [call for call in shell.calls if call[:3] == ["gh", "pr", "view"]]
+
+
 def pushed_while_enqueued(shell: FakeShell, monkeypatch: pytest.MonkeyPatch, pr: str, head: str) -> None:
     run = shell.run
 

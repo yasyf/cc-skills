@@ -5789,6 +5789,26 @@ class Landing:
             lines.append(f"tree {numbered(tree)} priority {min(self.priority(open_rows, pr) for pr in members)}: {numbered(members)}")
         return lines or ["the queue holds nothing this drive enqueued, and no open tree waits"]
 
+    def standing_go_lines(self) -> list[str]:
+        """Each open ledger PR a standing root `go` names that the queue does not hold: the newest go at its ledger head, else the newest at an older head, with the PR's queue state and verdict from the runner's one batched status read and any hold on it, so a desk reads what waits on a go without a GitHub read per PR."""
+        if (rows := self.rows()) is None:
+            return ["the ledger could not be listed"]
+        if (statuses := self.pr_statuses()) is None:
+            return ["the status read failed; see the STATUS-READ-FAILED escalation"]
+        held = set(self.held(rows) or [])
+        gos = self.root_gos()
+        lines = []
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            head, entry = row.get("head", ""), statuses.get(pr, {})
+            named = sorted((go for go in gos if goes(go, pr)), key=lambda go: go["seq"])
+            if row.get("state", "open") != "open" or not named or entry.get("queue") not in OUT_OF_QUEUE:
+                continue
+            current = gone_at(named, pr, head)
+            go = (current or named)[-1]
+            at = f"at its head {head[:10]}" if current else f"at {go_heads(go)[pr][:10]}, but its head is {head[:10]}"
+            lines.append(f"#{pr} go #{go['seq']} {at}; {entry['queue']}, {entry.get('verdict', '')}" + ("; held" if pr in held else ""))
+        return lines or ["every open PR a standing go names is in the queue"]
+
     def restack(self, landed_pr: str, rows: dict[str, dict]) -> None:
         landed = rows.get(landed_pr, {})
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
