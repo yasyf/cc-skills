@@ -3,7 +3,7 @@ import queue
 
 import pytest
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, verdict_state
+from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -150,10 +150,10 @@ def test_each_pull_request_takes_the_first_state_in_precedence(fields, row_state
 
 
 @pytest.mark.parametrize(
-    ("base_tests", "state"),
-    [("failure", "waiting"), ("success", "failing")],
+    ("base_tests", "state", "base_failing"),
+    [("failure", "waiting", True), ("success", "failing", False)],
 )
-def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_tests, state):
+def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_tests, state, base_failing):
     prs = ledger(
         pr42001={"state": "open", "branch": "base", "test_state": base_tests},
         pr42002={"state": "open", "branch": "child", "base": "base", "test_state": "failure"},
@@ -161,7 +161,7 @@ def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_t
 
     light = listed(prs)[42002]
 
-    assert (light["state"], light["base"]) == (state, 42001)
+    assert (light["state"], light["base"], light["base_failing"]) == (state, 42001, base_failing)
 
 
 def test_a_pending_pull_request_on_a_failing_base_keeps_moving():
@@ -180,6 +180,24 @@ def test_an_approved_pull_request_on_a_failing_base_reads_approved_not_waiting()
     )
 
     assert listed(prs, gos={42002: "hhhhhhh"})[42002]["state"] == "queued"
+
+
+def test_a_release_held_for_the_morning_stops_every_release_after_it():
+    releases = [
+        {"id": "R1", "state": "First part complete: live everywhere"},
+        {"id": "R2", "state": "Waits on #43196"},
+        {"id": "R3", "state": "Holds for your morning: the signed build exists only inside the real release"},
+        {"id": "R4", "state": "Waits for release 3"},
+        {"id": "R5", "state": "Waits for release 4"},
+    ]
+
+    assert [release["word"] for release in release_path(releases)] == ["now", "after", "held", "unreachable", "unreachable"]
+
+
+def test_a_release_path_with_nothing_held_marks_the_first_unreleased_release():
+    releases = [{"id": "R1", "state": "Released 4:33 AM"}, {"id": "R2", "state": "Waits on #43196"}, {"id": "R3", "state": "Waits for release 2"}]
+
+    assert [release["word"] for release in release_path(releases)] == ["out", "blocked", "after"]
 
 
 def step(prs, lanes=(), tone="later", step_id="s"):
@@ -222,13 +240,13 @@ def record(lane, minutes_ago, kind="state", text="", topic=""):
 
 def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
     records = [
-        record("p8e-desktop-ship-5", 1, text="pushed #42900"),
+        record("p8e-desktop-ship-5", 1, kind="head", text="pushed #42900"),
         record("p8e-desktop-ship-5", 2, kind="blocker"),
         record("p8e-desktop-ship-5", 33, kind="go"),
         record("landing-desk", 1),
     ]
 
-    workers = drive_workers(records, [step([42900], step_id="journal")], NOW)
+    workers = drive_workers(records, {}, [step([42900], step_id="journal")], NOW)
 
     assert [w["lane"] for w in workers] == ["p8e-desktop-ship-5"]
     assert workers[0]["boxes"][-1] == "bad"
@@ -240,12 +258,27 @@ def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
 def test_coordinator_desks_get_their_own_boxes_apart_from_workers():
     records = [record("landing-desk", 1, kind="blocker"), record("root", 7), record("board-refresher", 9), record("p8e-desktop-ship-5", 1), record("dashboard-v3-4", 2)]
 
-    desks = drive_workers(records, [], NOW, desks=True)
+    desks = drive_workers(records, {}, [], NOW, desks=True)
 
     assert [d["lane"] for d in desks] == ["landing-desk", "root", "board-refresher"]
-    assert [w["lane"] for w in drive_workers(records, [], NOW)] == ["p8e-desktop-ship-5", "dashboard-v3-4"]
+    assert [w["lane"] for w in drive_workers(records, {}, [], NOW)] == ["p8e-desktop-ship-5", "dashboard-v3-4"]
     assert desks[0]["boxes"][-1] == "bad"
     assert desks[1]["boxes"][-2] == "info"
+
+
+def test_a_lane_that_only_mentions_a_pull_request_is_not_the_one_working_on_it():
+    prs = ledger(pr43203={"state": "open", "lane": "p8a-step6b-creds-5"}, pr42900={"state": "open", "lane": "p8f-replica"})
+    records = [
+        record("p8a-step6b-creds-5", 9, kind="answer", text="#43203 gets restacked onto current dev"),
+        record("dashboard-user-test", 2, kind="report", text="round 9: conflicted #43203 shown ready to tap"),
+        record("dashboard-v3-5", 3, kind="defect", text="Journal's blocker names #42900"),
+        record("p8f-replica-3", 5, kind="head", text="HEAD #42900 abc1234"),
+    ]
+
+    lights = listed(prs, records=records)
+
+    assert (lights[43203]["worker"]["lane"], lights[42900]["worker"]["lane"]) == ("p8a-step6b-creds-5", "p8f-replica-3")
+    assert {w["lane"]: w["prs"] for w in drive_workers(records, prs, [], NOW)}["dashboard-user-test"] == []
 
 
 def merge_board(*groups):
@@ -268,10 +301,19 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     out = needs(rows, [], [], "http://board/p/x", set())
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
-    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "block": "merge-prs", "state": "you"}]
+    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you"}]
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
+
+
+def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked():
+    rows = [board_row(43203, "you") | {"blocker": "Nothing; lands on your tap."}, board_row(43204, "you")]
+
+    out = with_conflicts(rows, {"43203": {"mergeable_state": "dirty"}, "43204": {"mergeable_state": "clean"}})
+
+    assert out[0]["blocker"] == "Conflicts with its base, so it cannot land until its worker rebases it. The merge board says: Nothing; lands on your tap."
+    assert out[1]["blocker"] == "B43204"
 
 
 def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():

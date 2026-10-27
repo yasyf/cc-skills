@@ -60,10 +60,13 @@ function brokeTonight() {
   const name = last.text.match(/^FIX-LIVE\s+([^:]+):/)?.[1] ?? firstSentences(last.text, 50);
   return `${esc(name)}, fixed ${clock(last.at)}`;
 }
-function releaseWord(rels, i, next) {
-  if (next < 0 || i < next) return ['out', 'Out'];
-  if (i === next) return /^(waits? on|blocked)/i.test(rels[i].state) ? ['blocked', 'Blocked'] : ['next', 'Now'];
-  return ['', `After ${rels[i - 1].id}`];
+function releaseWord(rels, i) {
+  const r = rels[i];
+  const held = rels.find((x) => x.word === 'held');
+  return {
+    out: ['out', 'Out'], held: ['held', 'Held'], blocked: ['blocked', 'Blocked'], now: ['next', 'Now'],
+    after: ['', `After ${rels[i - 1]?.id}`], unreachable: ['unreach', `Waits on ${held?.id}`],
+  }[r.word];
 }
 function clause(text) {
   const t = String(text ?? '');
@@ -94,8 +97,9 @@ function tonight() {
   const out = tonightRels.filter((r) => RELEASED.test(r.state)).length;
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const next = rels[at];
-  const word = next ? releaseWord(rels, at, at) : ['out', 'Out'];
-  const verdict = !next ? ['ok', 'All released'] : word[0] === 'blocked' ? ['bad', `Blocked at ${next.id}`] : ['', `${next.id} now`];
+  const word = next ? releaseWord(rels, at) : ['out', 'Out'];
+  const stop = rels.find((r) => r.word === 'held');
+  const verdict = !next ? ['ok', 'All released'] : stop ? ['bad', `Tonight stops at ${stop.id}`] : word[0] === 'blocked' ? ['bad', `Blocked at ${next.id}`] : ['', `${next.id} now`];
   const g = m.now.goal ?? {};
   const fact = (f, okWord) => {
     if (!f) return '<span class="warn">not checked yet</span>';
@@ -105,11 +109,9 @@ function tonight() {
     return `<em class="${okWord.test(head) && !/not/i.test(head) ? 'ok' : 'warn'}">${esc(head)}</em> <small title="${esc(why)}">${esc(firstSentences(why, 90))}</small>`;
   };
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
-  const red = tally(m.drive.prs).failing;
-  return `<section class="tonight"><span class="verdict ${verdict[0]}">${esc(verdict[1])}</span>
-    ${next ? `<button class="tn-now" data-release="${esc(next.id)}"><b>${esc(next.id)} ${esc(next.name)}:</b> ${esc(next.state)}</button>` : '<span class="tn-now">Every release is out</span>'}
-    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span></span>
-    <div class="tn-old"><span>Everyone else keeps today's app: ${fact(g.old_app, /unchanged|kept|proven/i)}</span><span>Broke tonight: ${brokeTonight()}${red ? ` · <b class="bad">${plural(red, 'pull request')}</b> fail their own tests` : ''}</span></div></section>`;
+  const target = stop ?? next;
+  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button>
+    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span><span class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}">Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</span></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
   const c = Math.min(13, Math.max(2, Math.ceil(Math.sqrt(list.length * 2.4))));
@@ -194,9 +196,9 @@ function gateTone(r) {
 function gate() {
   const rels = state.model.now.releases ?? [];
   const r = rels.find((x) => !RELEASED.test(x.state));
-  const [tone, word] = gateTone(r);
   const open = r ? [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))].filter((n) => prState(n) !== 'landed') : [];
-  return `<div class="gate g-${tone}"><button class="gb"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></button>${open.length ? `<span class="gw"><small>then waits on</small>${open.map(dot).join('')}</span>` : ''}<i class="trunk"></i></div>`;
+  const [tone, word] = open.length && gateTone(r)[0] === 'ok' ? ['stop', 'part out'] : gateTone(r);
+  return `<div class="gate g-${tone}"><button class="gb"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></button>${open.length ? `<span class="gw"><i class="bar"></i><small>stopped: waits on</small>${open.map(dot).join('')}</span>` : ''}<i class="trunk"></i></div>`;
 }
 function dock() {
   const need = state.model.needs.length;
@@ -213,7 +215,8 @@ function cta(item) {
     const acts = ov.noting === `${r.number}@${r.head}`
       ? `<form class="note" data-note="${r.number}" data-head="${esc(r.head)}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn">✓ Approve</button><button type="button" class="btn ghost" data-note-hold="${r.number}">‖ Hold</button></form>`
       : `<button class="btn" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending…' : `✓ Approve ${esc(r.head.slice(0, 7))}`}</button><button class="btn ghost" data-noting="${r.number}@${esc(r.head)}">✎ Note</button><a class="btn ghost" href="#/review/${r.number}">Open ›</a>${failed}`;
-    return shell('★', 'Tap to merge', `#${r.number} ${esc(shortName(r.number) ?? r.title)}`, meta, acts);
+    const stuck = r.blocker && !/^nothing/i.test(r.blocker) ? `<span class="stuck">⚠ ${esc(firstSentences(r.blocker, 80))}</span>` : '';
+    return shell('★', stuck ? 'Your tap, then it still waits' : 'Tap to merge', `#${r.number} ${esc(shortName(r.number) ?? r.title)}`, `${stuck}${meta}`, acts);
   }
   if (item.kind === 'prs') return shell('★', `${item.prs.length} pull requests need your approval`, esc(item.group ?? 'Review them together'), meta, `<a class="btn" href="#/review">Review ${item.prs.length} ›</a>`);
   if (item.kind === 'card') {
@@ -241,11 +244,11 @@ function routeStrip() {
   const rels = m.now.releases ?? [];
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
-  const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i, at)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i, at)[1])}</span></span>`;
+  const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span></span>`;
   const rows = planRows();
   return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(cur.state)}` : 'Every release is out'}</div>
-    <button class="thumb" data-plan aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
+    <button class="thumb" data-plan="releases" aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
 }
 function workerTile(w) {
   const m = state.model;
@@ -266,7 +269,8 @@ function desksTile() {
   return `<a class="wt desks" href="#/workers" data-desks><span class="wt-h"><i class="lt"></i><b>Coordinators</b><time>${agoWords(ds[0].at)}</time></span><span class="wt-on">${ds.map((d) => `<i${d.live ? ' class="on"' : ''} title="${esc(deskName(d.lane))}"></i>`).join('')}</span><span class="wt-for">${ds.filter((d) => d.live).length} of ${plural(ds.length, 'desk')} active</span></a>`;
 }
 function crew() {
-  const live = state.model.workers.filter((w) => w.live && w.prs.length);
+  const order = (w) => state.model.steps.findIndex((s) => s.id === w.step) >>> 0;
+  const live = state.model.workers.filter((w) => w.live && w.prs.length).sort((a, b) => order(a) - order(b) || a.lane.localeCompare(b.lane));
   if (!live.length && !state.model.desks.length) return '';
   return `<section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} active</span><a href="#/workers">all workers ›</a></div><div class="strip">${desksTile()}${live.map(workerTile).join('')}</div></section>`;
 }
@@ -280,9 +284,9 @@ function desksSheet() {
     }).join('')}</ul>`);
 }
 function waitingOn() {
-  const items = (state.model.now.waiting ?? []).filter((w) => w.unblocks);
+  const items = state.model.now.waiting ?? [];
   if (!items.length) return '';
-  return `<section class="waiting"><h4>Waiting on</h4><ul>${items.map((w) => `<li><b>${esc(w.what)}</b><span>${[w.owed_by && `owed by ${esc(w.owed_by)}`, w.since && `since ${esc(w.since)}`, w.expected && (overdue(w.expected) ? `<strong>overdue, expected ${esc(w.expected)}</strong>` : `expected ${esc(w.expected)}`)].filter(Boolean).join(' · ')}</span><em>unblocks ${esc(w.unblocks)}</em></li>`).join('')}</ul></section>`;
+  return `<section class="waiting"><h4>Waiting on</h4><ul>${items.map((w) => `<li><b>${esc(w.what)}</b><span>${[w.owed_by && `owed by ${esc(w.owed_by)}`, w.since && `since ${esc(w.since)}`, w.expected && (overdue(w.expected) ? `<strong>overdue, expected ${esc(w.expected)}</strong>` : `expected ${esc(w.expected)}`)].filter(Boolean).join(' · ')}</span>${w.unblocks ? `<em>unblocks ${esc(w.unblocks)}</em>` : ''}</li>`).join('')}</ul></section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -327,14 +331,18 @@ function prSheet() {
   const lane = e.worker?.lane ?? m.workers.find((w) => w.prs.includes(Number(n)))?.lane;
   const w = m.workers.find((x) => x.lane === lane);
   const row = boardRow(n);
-  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${prState(e.base) === 'failing' ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
-  const approve = e.state === 'you' && row ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
+  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
+  const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
+  const said = m.records.filter((r) => r.topic === String(n) || ([lane, pr.lane].includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
   return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
     <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
-    <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd></dl>
+    ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
+    ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
+    <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
+    ${said ? `<dt>Latest word on it</dt><dd>${inline(firstSentences(said.text, 260))} <small class="dim">${esc(said.lane)}, ${clock(said.at)} · <a href="/record/${said.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
     <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
 }
 function partSheet() {
@@ -359,9 +367,10 @@ function workerSheet() {
   const where = m.steps.find((s) => s.id === w.step)?.label;
   return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
     ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
+    ${events[0] ? `<div class="lastsaid"><small>Its last word, ${clock(events[0].at)}</small><p><b>${SAID[events[0].kind] ?? KIND_WORD[events[0].kind] ?? ''}</b> ${inline(firstSentences(events[0].text.replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1'), 240))}</p>${/^r\d/.test(events[0].id) ? `<a href="/record/${events[0].id.slice(1)}" target="_blank" rel="noopener">the record ↗</a>` : ''}</div>` : ''}
     <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
-    ${w.prs.length ? `<h4 class="sc-h">Its pull requests <span>${w.prs.length}</span></h4><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul>` : ''}
-    <h4 class="sc-h">What it said <span>newest first</span></h4><ul class="tl">${events.length ? timelineRows(events, false) : '<li class="dim">Nothing in the last day.</li>'}</ul>`);
+    <h4 class="sc-h">Before that <span>newest first</span></h4><ul class="tl">${events.length > 1 ? timelineRows(events.slice(1), false) : '<li class="dim">Nothing else in the last day.</li>'}</ul>
+    ${w.prs.length ? `<details data-id="worker-prs-${esc(w.lane)}"${state.open.has(`worker-prs-${w.lane}`) ? ' open' : ''}><summary class="sc-h">Pull requests it named <span>${w.prs.length}</span></summary><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul></details>` : ''}`);
 }
 function planSheet() {
   const m = state.model;
@@ -370,7 +379,7 @@ function planSheet() {
   const share = (s) => { const t = tally(s.prs); return t.total ? Math.round((100 * t.landed) / t.total) : s.tone === 'done' ? 100 : 0; };
   const route = [
     ...m.steps.map((s) => `<div class="bw step tn-${s.tone}${s.tone === 'done' ? ' past' : ''}" data-track="${esc(s.id)}" style="--p:${share(s)}"><span class="bn"></span><span class="bl">${esc(s.label)}</span></div>`),
-    ...rels.map((r, i) => `<div class="bw rel ${releaseWord(rels, i, at)[0]}${i === at ? ' here' : ''}${i < at ? ' past' : ''}" data-release="${esc(r.id)}"><span class="bn">${i === at ? '✈' : esc(r.id.slice(1))}</span><span class="bl">${esc(r.name.split(',')[0])}</span></div>`),
+    ...rels.map((r, i) => `<div class="bw rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}${i < at ? ' past' : ''}" data-release="${esc(r.id)}"><span class="bn">${i === at ? '✈' : esc(r.id.slice(1))}</span><span class="bl">${esc(r.name.split(',')[0])}</span></div>`),
   ].join('');
   const stepCards = m.steps.map((s, i) => {
     const t = tally(s.prs);
@@ -381,7 +390,7 @@ function planSheet() {
   const relCards = planRows().map(([n, name, reach, targets, who]) => {
     const r = rels.find((x) => x.id === `R${n}`);
     const i = rels.indexOf(r);
-    return `<article class="rc ${r ? releaseWord(rels, i, at)[0] : ''}"${r ? ` data-release="${esc(r.id)}"` : ''}><span class="rn">${esc(n)}</span><div><b>${esc(name)}</b><p>${inline(reach)}</p><small>${r ? `<b>${esc(releaseWord(rels, i, at)[1])}:</b> ${inline(r.state)}` : ''}</small><small>${esc(who)} · ${esc(targets)}</small></div></article>`;
+    return `<article class="rc ${r ? releaseWord(rels, i)[0] : ''}"${r ? ` data-release="${esc(r.id)}"` : ''}><span class="rn">${esc(n)}</span><div><b>${esc(name)}</b><p>${inline(reach)}</p><small>${r ? `<b>${esc(releaseWord(rels, i)[1])}:</b> ${inline(r.state)}` : ''}</small><small>${esc(who)} · ${esc(targets)}</small></div></article>`;
   }).join('');
   const doc = (m.releases.markdown ?? '').split('\n## ').slice(1).map((sec, i) => {
     const [h, ...body] = sec.split('\n');
@@ -422,16 +431,21 @@ const SAID = { head: 'Pushed a new version', report: 'Reported', state: 'Posted 
 function lastWord(w) {
   const r = state.model.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || new Date(b.at) > new Date(a.at) ? b : a), null);
   const prs = w.prs.slice(0, 2).map((n) => `<a href="${prHref(n)}">#${n} ${esc(shortName(n) ?? plainTitle(n))}</a>`).join(', ');
-  return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>worker ${esc(w.lane)}${r ? ` · <a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
+  return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button> <b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>${r ? `<a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
 }
 function stepCard(s) {
   const t = tally(s.prs);
   const ws = state.model.workers.filter((w) => w.step === s.id).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 5);
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
-    <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
+    <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${blockerNow(s.blocker)}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.filter((w) => w.live).length, 'worker')} active in the last 20 minutes</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker has reported on this step.</p>'}
     ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
+}
+function blockerNow(text) {
+  if (!text) return 'Nothing';
+  const named = [...new Set([...text.matchAll(/#(\d{5})\b/g)].map((x) => x[1]))];
+  return named.length && named.every((n) => prState(n) === 'landed') ? `Nothing open: ${named.map(prLink).join(', ')} landed. <small class="dim">The step note still says ${inline(text)}</small>` : inline(text);
 }
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);
@@ -460,7 +474,7 @@ function releaseSheet() {
   const blocking = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))];
   const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0] && !blocking.includes(e.number));
   const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) });
-  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i, next)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
+  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
     <p class="relnow">${inline(r.state)}</p>
     ${blocking.length ? `<h4 class="sc-h">What it waits on</h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
     <dl class="facts"><dt>What reaches people</dt><dd>${esc(planRows().find(([n]) => `R${n}` === r.id)?.[2] ?? '')}</dd><dt>Parts it ships</dt><dd>${parts.map((p) => esc(p.name)).join(' · ')}</dd></dl>
@@ -572,7 +586,8 @@ document.addEventListener('click', (e) => {
   if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
-  if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }
+  const planEl = e.target.closest('[data-plan]');
+  if (planEl) { state.overlay = 'plan'; ov.planTab = planEl.dataset.plan || 'steps'; return render(); }
   if (e.target.closest('[data-desks]')) { e.preventDefault(); state.overlay = 'desks'; return render(); }
   if (e.target.closest('[data-back]')) {
     ov.only = ov.only?.key === 'back' ? null : { key: 'back', label: 'landed since you last looked', numbers: new Set(landedSinceLook().map((x) => x.number)) };

@@ -45,7 +45,9 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .as-tile.on { border-color: var(--ink-3); }
 .as-since-list { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; }
 .as-since-list li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
-.as-since .aibox { grid-column: 1 / -1; margin: 0; }
+.as-since .aibox { margin: 8px 0 0; }
+.as-short { grid-column: 1 / -1; }
+.as-short summary { cursor: pointer; font: 650 12.5px var(--sans); color: var(--ink-2); list-style: none; }
 .as-now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
 .as-now-h h1 { margin: 0; font-size: 26px; }
 .as-batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
@@ -73,7 +75,8 @@ html:not(.ai-on) .ai-only { display: none !important; }
   #pal .list { order: 1; flex: 1; }
   #pal input { order: 2; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
-  .as-since { grid-template-columns: 1fr; }
+  .as-since { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-bottom: 10px; }
+  .as-since .as-tiles { grid-column: 1 / -1; order: 3; }
   .as-nl li { grid-template-columns: 1fr; }
   .as-nl .rank { display: none; }
   .as-nl .acts .btn { flex: 1; }
@@ -226,7 +229,7 @@ function sinceBanner(){
  if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
  return `<div class="card as-since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
   <div class="as-tiles">${tiles.map(([id,tone,label,n])=>`<div class="as-tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")}</div>
-  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?aiBox(key,"In short"):""}</div>`;
+  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
 }
 
 function narration(){

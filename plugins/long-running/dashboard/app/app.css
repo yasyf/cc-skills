@@ -229,7 +229,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   .nrow dl { grid-template-columns: 1fr; gap: 0; }
   .nrow dt { padding-top: 6px; }
   .nother { grid-template-columns: 22px minmax(0, 1fr); }
-  .nother .nsrc { grid-column: 2; }
+  .nother .nsrc { grid-column: 2; white-space: normal; overflow-wrap: anywhere; }
 }
 .prose td.num, .prose th.num { text-align: right; }
 .rellist { list-style: none; margin: 0; padding: 4px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }

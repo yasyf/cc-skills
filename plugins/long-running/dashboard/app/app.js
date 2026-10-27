@@ -224,11 +224,13 @@ function hourDigest() {
   const recent = timeline().filter((e) => new Date(e.at) > from);
   const landed = Object.entries(m.prs).filter(([, pr]) => pr.state === 'landed' && pr.landed_at && new Date(pr.landed_at) > from).sort((a, b) => new Date(b[1].landed_at) - new Date(a[1].landed_at));
   const said = (kinds) => recent.filter((e) => kinds.includes(e.kind));
+  const settled = (e) => { const named = [...String(e.text).matchAll(/#(\d{5})\b/g)].map((x) => x[1]); return named.length && named.every((n) => prState(n) === 'landed'); };
+  const broke = said(['incident', 'blocker']).filter((e) => !settled(e));
   const line = (e) => `<li><span class="time">${clock(e.at)}</span><span>${inline(firstSentences(e.text, 140))}</span></li>`;
   const rows = [
     ['Landed', landed.length, landed.slice(0, 5).map(([n, pr]) => `<li><span class="time">${clock(pr.landed_at)}</span><span>${prLink(n)} ${esc(plainTitle(n))} <em class="dim">${{ 'New tree': 'new app', 'Old tree': 'old app' }[driveEntry(n)?.tree] ?? 'shared'}</em></span></li>`)],
     ['Unblocked or fixed', said(['fix-live', 'lift', 'go']).length, said(['fix-live', 'lift', 'go']).slice(0, 4).map(line)],
-    ['Newly broke or blocked', said(['incident', 'blocker']).length, said(['incident', 'blocker']).slice(0, 4).map(line)],
+    ['Newly broke or blocked', broke.length, broke.slice(0, 4).map(line)],
     ['You said', said(['owner']).length, said(['owner']).slice(0, 3).map(line)],
   ];
   return `<div class="card digest"><div class="kick muted">Since ${clock(new Date(from).toISOString())}</div>${rows.map(([label, n, items]) => `<section class="dg${n ? '' : ' none'}"><h4><b>${n}</b> ${label}</h4>${items.length ? `<ul>${items.join('')}</ul>` : ''}</section>`).join('')}</div>`;
@@ -256,7 +258,8 @@ function needRow(r) {
     ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>‖ Hold</button>`
     : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
-    <dl>${FACTS.map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl>
+    <dl>${FACTS.map(([key, label]) => `<dt>${label}</dt><dd${key === 'blocker' && r.blocker && !/^nothing/i.test(r.blocker) ? ' class="bad"' : ''}>${inline(r[key])}</dd>`).join('')}</dl>
+    ${r.md ? `<details class="nmd" data-id="note-${r.number}"${state.open.has(`note-${r.number}`) ? ' open' : ''}><summary>The board's note</summary><div class="md">${markdown(r.md)}</div></details>` : ''}
     ${row?.failed ? `<div class="nerr">${esc(row.failed)}</div>` : ''}<div class="acts">${acts}</div></li>`;
 }
 function needGroup(item) {
@@ -292,7 +295,7 @@ function releases() {
   const rels = m.now.releases ?? [];
   const next = rels.findIndex((x) => !RELEASED.test(x.state));
   const row = (x, i) => {
-    const [cls, word] = releaseWord(rels, i, next);
+    const [cls, word] = releaseWord(rels, i);
     const open = m.drive.prs.filter((e) => x.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]).length;
     return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><b>${esc(x.id)}</b><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${esc(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
   };

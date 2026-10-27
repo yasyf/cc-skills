@@ -34,7 +34,11 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
-ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "block", "state")
+ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state")
+CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
+RELEASED = re.compile(r"^(released|done|live)", re.I)
+HELD = re.compile(r"^hold", re.I)
+WAITS = re.compile(r"^(waits? on|blocked)", re.I)
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
@@ -89,13 +93,18 @@ def verdict_state(row):
     return "approved" if (row.get("go_head") or "")[:7] in heads else "you"
 
 
-def activity(records, now):
+def worked_on(record, prs):
+    topic = record.get("topic") or ""
+    pushed = record["kind"] in ("head", "opened")
+    return {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *(n for n in PR_MENTION.findall(record["text"]) if pushed or prs.get(n, {}).get("lane") == record["lane"])}
+
+
+def activity(records, now, prs):
     seen = {}
     for record in records:
         if COORDINATORS.search(record["lane"]) or now - at(record["at"]) > ACTIVE:
             continue
-        topic = record.get("topic") or ""
-        for number in {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *PR_MENTION.findall(record["text"])}:
+        for number in worked_on(record, prs):
             if number not in seen or seen[number]["at"] < record["at"]:
                 seen[number] = {"lane": record["lane"], "at": record["at"]}
     return seen
@@ -124,7 +133,7 @@ def part_of(title, parts):
 
 def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     by_number = {str(row["number"]): row for row in rows}
-    active = activity(records, now)
+    active = activity(records, now, prs)
     by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
     listed = []
     for number, pr in sorted(prs.items()):
@@ -138,6 +147,7 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
             "number": int(number),
             "state": state,
             "base": int(base) if base else None,
+            "base_failing": bool(base) and prs[base].get("test_state") == "failure",
             "tree": next((name for name in tree_names if name in found), tree_names[-1]),
             "part": part_of(pr.get("title"), parts),
             "step": next((step["id"] for step in steps if int(number) in step["prs"]), None),
@@ -146,7 +156,7 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed}
 
 
-def drive_workers(records, steps, now, desks=False):
+def drive_workers(records, prs, steps, now, desks=False):
     live = {}
     for record in records:
         age = now - at(record["at"])
@@ -155,8 +165,7 @@ def drive_workers(records, steps, now, desks=False):
         worker = live.setdefault(record["lane"], {"lane": record["lane"], "at": record["at"], "prs": set(), "boxes": ["" for _ in range(BOXES)]})
         worker["at"] = max(worker["at"], record["at"])
         if age <= WORKING:
-            topic = record.get("topic") or ""
-            worker["prs"].update(int(n) for n in {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *PR_MENTION.findall(record["text"])})
+            worker["prs"].update(int(n) for n in worked_on(record, prs))
         slot = BOXES - 1 - int(age / BOX)
         tone = SEVERITY.get(record["kind"], "info")
         if TONE_RANK[tone] >= TONE_RANK.get(worker["boxes"][slot], -1):
@@ -192,6 +201,26 @@ def step_rows(steps, drive, workers):
         on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
         rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on), "workers": on})
     return rows
+
+
+def release_path(releases):
+    upcoming = next((i for i, release in enumerate(releases) if not RELEASED.match(release["state"])), len(releases))
+    stop = next((i for i, release in enumerate(releases) if HELD.match(release["state"])), len(releases))
+    def word(i, release):
+        if i < upcoming:
+            return "out"
+        if i == stop:
+            return "held"
+        if i > stop:
+            return "unreachable"
+        if i == upcoming:
+            return "blocked" if WAITS.match(release["state"]) else "now"
+        return "after"
+    return [{**release, "word": word(i, release)} for i, release in enumerate(releases)]
+
+
+def with_conflicts(rows, prs):
+    return [{**row, "blocker": f"{CONFLICT} The merge board says: {row.get('blocker') or 'nothing'}"} if prs.get(str(row["number"]), {}).get("mergeable_state") == "dirty" else row for row in rows]
 
 
 def merge_needs(rows, board_url):
@@ -440,20 +469,21 @@ class Drive:
     def live(self, model):
         board = self.board()
         self.check_gos(board["rows"])
+        board["rows"] = with_conflicts(board["rows"], model["prs"])
         now = dt.datetime.now(dt.timezone.utc)
         progress = json.loads(Path(self.config["steps"]).read_text())
         activity_records = [*model["records"], *model["lanes"]]
         drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], now)
-        workers = drive_workers(activity_records, progress["steps"], now)
+        workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
         return {
             **model,
             "board": board,
             "drive": drive,
             "workers": workers,
-            "desks": drive_workers(activity_records, progress["steps"], now, desks=True),
+            "desks": drive_workers(activity_records, model["prs"], progress["steps"], now, desks=True),
             "steps": step_rows(progress["steps"], drive, workers),
             "parts": self.config["parts"],
-            "now": progress.get("now", {}),
+            "now": {**progress.get("now", {}), "releases": release_path(progress.get("now", {}).get("releases", []))},
             "steps_at": progress["updated"],
             "live": LIVE_SOURCES,
             "needs": needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"}),
