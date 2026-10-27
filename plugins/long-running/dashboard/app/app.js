@@ -73,7 +73,7 @@ function settle(model) {
       if (part) part.answer = t.answer;
       if (card.choice !== t.block) continue;
       const next = card.parts.find((p) => p.kind === 'choice' && !p.answer);
-      Object.assign(card, { choice: next?.id ?? null, options: next?.options ?? [] });
+      Object.assign(card, { choice: next?.id ?? null, options: next?.options ?? [], recommended: next?.options.find((o) => o.recommended)?.label ?? null });
     }
   }
   const live = (r) => model.board.rows.find((b) => b.block === r.block && b.number === r.number)?.state ?? r.state;
@@ -81,6 +81,7 @@ function settle(model) {
     const asks = card.parts.filter((p) => ASK_PARTS.has(p.kind));
     return asks.length ? asks.some((p) => !p.answer) : card.embed || !card.noted;
   };
+  model.board.cards = model.board.cards.filter(open);
   model.needs = model.needs.flatMap((item) => {
     if (item.kind === 'card') return open(item.card) ? [item] : [];
     if (item.kind !== 'prs') return [item];
@@ -534,6 +535,7 @@ async function load() {
   const res = await fetch('/api/model', { cache: 'no-store' });
   const model = await res.json();
   if (!model.prs) return setTimeout(load, 1000);
+  if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
   settle(model);
   state.model = model;
   state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
