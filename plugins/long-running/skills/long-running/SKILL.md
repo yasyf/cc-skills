@@ -3175,7 +3175,10 @@ board in its place. `dashboard-keeper`, briefed from `reference/dashboard-keeper
 is the config's keeper lane: it keeps the story file's sentences true, answers each build
 `defect` the app posts, and takes the place of `/live-dashboard`'s `dashboard-curator`.
 
-The owner set the app's bar, and every revision is graded against it:
+`reference/drive-dashboard.md` is the Overview's contract: one model, one counting
+function, seven PR states, the `parts` and `steps.json` a drive supplies, and the
+40-word budget at rest. The owner set the app's bar, and every revision is graded
+against it:
 
 - A five-second glance tells him how far along the drive is, with nothing to read.
 - The first screen is the plan's steps as a visual, interactive table: each step's
