@@ -2761,6 +2761,19 @@ def test_a_root_go_whatever_its_leading_words_answers_the_merge_ask_and_show_nam
     assert "waits on `merge:29020" not in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(("graded", "warns"), [("ok F307 at cccc333. title: matches", False), ("ok F307 at cccc333. title: stale, it names the old fix", True)])
+def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_asks(shell, config, tmp_path, graded, warns):
+    merge_mode(config, "every")
+    batch_posts(shell, POSTED)
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", graded)
+    landing_pass(shell, config)
+    [line] = escalations(shell)
+    stale = f"#29020 cccc333333 is ready, but its newest grade, cci #{seq}, says `title: stale, it names the old fix`, so no go until the lane's title fix posts, and merge mode every"
+    assert line.startswith("MERGE-ASK ") and (stale in line) == warns and len(shell.pr_cards) == 1 and shell.enqueues() == []
+    assert [LANE in post["to"].split(",") for post in blockers(shell) if "title: stale" in post_body(post)] == ([True] if warns else [])
+
+
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, POSTED)
