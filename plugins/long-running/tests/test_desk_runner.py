@@ -9432,4 +9432,4 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
     landing.watch_trunk(OPEN_ROWS)
 
     [(kind, _, text)] = trunk_posts(shell)
-    assert (kind, text.split(":")[0]) == ("incident", "DEV-RED since 10:50 AM")
+    assert kind == "incident" and text.startswith("DEV-RED since 10:50 AM: dev's buildkite/test fails sanddb-http")
