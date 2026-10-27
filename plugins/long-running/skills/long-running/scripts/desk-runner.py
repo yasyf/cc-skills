@@ -3318,7 +3318,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose dispatch the runner did not withdraw, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3343,7 +3343,7 @@ class Runner:
                 retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
                 last = max((record for record in records if record["lane"] in family), key=lambda record: record["seq"], default=None)
                 unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
-                if not unanswered or now - actions.parse_stamp(unanswered[0]["at"]) < LANE_SILENT or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane):
+                if not unanswered or now - actions.parse_stamp(unanswered[0]["at"]) < LANE_SILENT or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane) or self.dispatch_active(lane):
                     continue
                 found = [entry for entry in sessions if {entry.get("lane"), entry.get("agent_name")} & family]
                 if any(entry.get("announced_at") and now - actions.parse_stamp(entry["announced_at"]) < LANE_SPAWN_GRACE for entry in found):
@@ -3358,6 +3358,9 @@ class Runner:
                 self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes")
         except CciTailFailed as failure:
             self.tail_failed(failure)
+
+    def dispatch_active(self, lane: str) -> bool:
+        return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
 
     def class_unowned(self) -> None:
         """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""

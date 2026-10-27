@@ -7114,7 +7114,7 @@ def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, con
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
 
-@pytest.mark.parametrize("why", ["fresh order", "fresh spawn", "resolved report", "answered report"])
+@pytest.mark.parametrize("why", ["fresh order", "fresh spawn", "resolved report", "answered report", "live dispatch"])
 def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_gone(shell, config, tmp_path, why):
     cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=50)))
     if why.endswith("report"):
@@ -7124,6 +7124,8 @@ def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_g
     if why == "fresh spawn":
         shell.seen_as["p8-lane"] = ("root", actions.stamp(shell.clock - timedelta(minutes=40)))
         shell.announced["p8-lane"] = actions.stamp(shell.clock - timedelta(minutes=4))
+    if why == "live dispatch":
+        shell.launch("p8-lane", "ctx_p8")
     orca_pass(shell, config)
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
