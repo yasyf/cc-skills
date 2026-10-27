@@ -682,6 +682,7 @@ DEAD_LANE = timedelta(minutes=60)
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
 LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
+LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -3315,7 +3316,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), and that no later root `stand-down` or `stopped` retired, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), and whose dispatch the runner did not withdraw, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3323,14 +3324,14 @@ class Runner:
             for record in records:
                 if record["lane"] == ROOT and record["kind"] in LANE_ORDER_KINDS:
                     for lane in record.get("to") or []:
-                        if lane not in (ROOT, "main", "all", RUNNER) and not lane.startswith("peer:"):
+                        if lane not in (ROOT, "main", "all", RUNNER, ORCA_DESK) and not lane.startswith("peer:"):
                             orders.setdefault(lane, []).append(record)
             for lane, addressed in orders.items():
                 family = {lane} | {record["lane"] for record in records if succeeds(record["lane"], lane)}
                 retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
                 last = max((record for record in records if record["lane"] in family), key=lambda record: record["seq"], default=None)
                 unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
-                if not unanswered or last and now - actions.parse_stamp(last["at"]) < LANE_SILENT:
+                if not unanswered or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane):
                     continue
                 sightings: list[datetime] = []
                 for name in sorted(family):

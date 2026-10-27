@@ -7107,6 +7107,15 @@ def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, con
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
 
+@pytest.mark.parametrize(("lane", "kind"), [("p8-lane", "done"), ("p8-lane", "handoff"), ("orca-desk", "head")])
+def test_a_lane_that_ended_its_work_or_the_orca_desk_never_reads_as_gone(shell, config, tmp_path, lane, kind):
+    cci_record(shell, lane=lane, kind=kind, text="delivered", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="decide", to=[lane], text=f"{lane}: one more edit", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    shell.gone.add(lane)
+    orca_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+
+
 @pytest.mark.parametrize(("name", "lane", "expected"), [("p8-lane-2", "p8-lane", True), ("p8-lane-3", "p8-lane-2", True), ("p8-lane-2", "p8-lane-2", False), ("p8-lane-2", "p8-lane-3", False), ("p8-lane-x", "p8-lane", False), ("p8-lanes-2", "p8-lane", False)])
 def test_succeeds_reads_a_numbered_successor_only(name, lane, expected):
     assert runner_module.succeeds(name, lane) is expected
