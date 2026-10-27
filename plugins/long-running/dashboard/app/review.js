@@ -1,6 +1,6 @@
 const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
-const embed = { number: null, head: null };
+const embed = { number: null, head: null, row: false };
 const pending = { number: null, holding: false, error: '', note: '' };
 
 function reviewList() {
@@ -27,17 +27,39 @@ function testPill(pr) {
 }
 function reviewPR(n, tab) {
   const row = boardRow(n);
-  if (!row) return `<p>#${n} is not on the merge board. <a href="https://github.com/${state.model.repo}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
+  const gh = `https://github.com/${state.model.repo}/pull/${n}`;
+  if (!row) {
+    if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
+    const s = prState(n);
+    return `<div class="pr-head"><div class="kick muted">Nothing for you to tap</div><h1>${esc(plainTitle(n))}</h1>
+      <span class="pill ${STATE_TONE[s]}">${STATE_WORD[s]}</span><a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${testPill(state.model.prs[n])}</div>`;
+  }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
   return `<div class="pr-head"><div class="kick">${esc(row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(row.title)}</h1>
-    <a class="pill" href="https://github.com/${state.model.repo}/pull/${n}" target="_blank" rel="noopener">#${n} at ${esc(row.head.slice(0, 7))}</a>${testPill(state.model.prs[n] ?? {})}
+    <a class="pill" href="${gh}" target="_blank" rel="noopener">#${n} at ${esc(row.head.slice(0, 7))}</a>${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    <nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">Verdict</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
+    <div class="tiles">${factTiles(row).map(([key, label, short, tone, full]) => `<details class="tile ${tone}" data-id="fact-${n}-${key}"${state.open.has(`fact-${n}-${key}`) ? ' open' : ''}><summary><span class="tile-k">${label}</span><b>${esc(short)}</b></summary><p>${inline(full)}</p></details>`).join('')}</div>
+    <nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'notes' ? '' : 'on'}">Code and review</a><a href="#/review/${n}/notes" class="${tab === 'notes' ? 'on' : ''}">Full text and notes</a></nav>`;
+}
+function clip(text) {
+  const first = String(text ?? '').split(/(?<=[.:;])\s|,\s/)[0].replace(/[.:;]$/, '');
+  return first.length > 48 ? `${first.slice(0, first.lastIndexOf(' ', 46))}…` : first;
+}
+function factTiles(row) {
+  const tests = state.model.prs[row.number]?.test_state;
+  const tiles = [
+    ['plan', 'Plan', /^matches/i.test(row.plan) ? 'Matches' : clip(row.plan), /^matches/i.test(row.plan) ? 'ok' : 'warn', row.plan],
+    ['risk', 'Risk', clip(row.risk), /^low/i.test(row.risk) ? 'ok' : /^high/i.test(row.risk) ? 'bad' : 'warn', row.risk],
+    ['review', 'Review and CI', tests === 'success' ? 'Tests pass' : tests === 'failure' ? 'Tests failing' : tests === 'pending' ? 'Tests running' : clip(row.review), tests === 'failure' || /fail|red/i.test(row.review) ? 'bad' : tests === 'pending' ? 'warn' : 'ok', row.review],
+    ['blocker', 'Blocks landing', /^nothing/i.test(row.blocker) ? 'Nothing' : clip(row.blocker), /^nothing/i.test(row.blocker) ? 'ok' : 'bad', row.blocker],
+  ];
+  if (row.carried?.length) tiles.push(['carried', 'Earlier tap', `Carries from ${row.carried[0].slice(0, 7)}`, 'ok', `Your verdict at ${row.carried.map((h) => h.slice(0, 7)).join(', ')} still stands for this commit.`]);
+  return tiles;
 }
 function decideBar(row, v) {
   const head = esc(row.head.slice(0, 7));
@@ -52,10 +74,12 @@ function decideBar(row, v) {
   return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
 }
 async function decide(row, verdict, note) {
+  clearTimeout(pending.advance);
   Object.assign(pending, { number: row.number, holding: false, error: '', note: '' });
   render();
-  const res = await fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ block: row.block, number: row.number, verdict, head: row.head, ...(note ? { note } : {}) }) });
-  const { error } = await res.json();
+  const error = await fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ block: row.block, number: row.number, verdict, head: row.head, ...(note ? { note } : {}) }) })
+    .then((res) => res.json())
+    .then((body) => body.error, (failure) => `could not reach the dashboard server: ${failure.message}`);
   if (error) {
     pending.error = error;
     return render();
@@ -63,7 +87,8 @@ async function decide(row, verdict, note) {
   row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note };
   pending.number = null;
   const next = verdict === 'cleared' ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
-  if (next) setTimeout(() => { location.hash = `#/review/${next.number}`; }, 700);
+  const from = location.hash;
+  if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 700);
   render();
 }
 document.addEventListener('click', (e) => {
@@ -100,7 +125,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'c') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
+  else if (key === 'f') location.hash = `#/review/${row.number}${r.tab === 'notes' ? '' : '/notes'}`;
   else return;
   e.preventDefault();
 });
@@ -111,31 +136,32 @@ function syncReviewEmbed(r) {
     note.setSelectionRange(note.value.length, note.value.length);
   }
   const el = $('#embed');
-  const row = r.screen === 'review' && r.id ? boardRow(r.id) : null;
-  el.hidden = !row;
-  if (!row) {
+  const number = r.screen === 'review' && r.id ? Number(r.id) : null;
+  const row = number && boardRow(number);
+  const head = row ? row.head : state.model.prs[number]?.head ?? '';
+  el.hidden = !row && !state.model.prs[number];
+  if (el.hidden) {
     embed.number = null;
     el.replaceChildren();
     return;
   }
-  el.dataset.tab = r.tab === 'code' ? 'code' : 'verdict';
-  if (embed.number === row.number && embed.head === row.head) return;
-  const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  const verdict = `${state.model.board.url}?block=${encodeURIComponent(row.block)}&row=${row.number}&theme=${theme}`;
-  if (embed.number !== row.number) {
-    el.innerHTML = `<div class="pane verdict"><iframe title="Verdict on #${row.number}" src="${esc(verdict)}"></iframe></div><div class="pane code"></div>`;
+  el.dataset.tab = row && r.tab === 'notes' ? 'notes' : 'code';
+  if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
+  if (embed.number !== number || embed.row !== Boolean(row)) {
+    const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const verdict = row && `${state.model.board.url}?block=${encodeURIComponent(row.block)}&row=${number}&theme=${theme}`;
+    el.innerHTML = `${row ? `<div class="pane verdict"><iframe title="Verdict on #${number}" src="${esc(verdict)}"></iframe></div>` : ''}<div class="pane code"></div>`;
   }
-  embed.number = row.number;
-  embed.head = row.head;
+  Object.assign(embed, { number, head, row: Boolean(row) });
   const code = el.querySelector('.pane.code');
-  code.innerHTML = `<p class="dim pane-wait">Opening the review of #${row.number} at ${esc(row.head.slice(0, 7))}…</p>`;
-  fetch(`/api/review/${row.number}`, { cache: 'no-store' })
+  code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
+  fetch(`/api/review/${number}`, { cache: 'no-store' })
     .then((res) => res.json())
     .then(({ url, error }) => {
-      if (embed.number !== row.number) return;
+      if (embed.number !== number) return;
       code.innerHTML = url
-        ? `<iframe title="Code and review of #${row.number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
-        : `<p class="pane-wait bad">cc-review could not open #${row.number}: ${esc(error)}</p>`;
+        ? `<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
+        : `<p class="pane-wait bad">cc-review could not open #${number}: ${esc(error)}</p>`;
     });
 }
 window.addEventListener('message', (e) => {

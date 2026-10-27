@@ -337,6 +337,8 @@ def handler(drive):
         def do_POST(self):
             if self.path not in ("/api/ask", "/api/verdict"):
                 return self.send(404, "text/plain", b"not found")
+            if self.headers.get_content_type() != "application/json":
+                return self.send(415, "text/plain", b"Content-Type must be application/json")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path == "/api/verdict":
                 status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
