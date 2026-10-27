@@ -641,7 +641,8 @@ HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
 TRUNK_REREAD = timedelta(minutes=5)
-QUEUED = "queued"
+STATUS_SETTLED = frozenset({"queued", "landed"})
+STATUS_WAITS = frozenset({"ci-pending", "conflict", "changes-requested", "unapproved"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
@@ -4253,14 +4254,17 @@ class Landing:
                 self.enqueue()
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
-        """The trees of `trees` holding a PR the pass's one status read calls landable on PRs below it that it calls landable or queued: a `--check` of any other tree enqueues nothing and costs GitHub reads, so its PRs join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane instead (root #146561). None are kept when the status read failed."""
+        """The trees of `trees` a `--check` could enqueue from, by the pass's one status read: those holding a PR that is neither queued, landed, nor waiting on GitHub alone, on no PR that waits on GitHub alone. A PR waits on GitHub alone when every cause its verdict names is pending CI, a conflict, requested changes, a missing approval, or a parent it waits on; any other verdict, and a PR the read has no entry for, keeps its tree checked, so the adapter still routes what only it reads. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane (root #146561). None are kept when the status read failed."""
         if (statuses := self.pr_statuses()) is None:
             return []
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        verdicts = {pr: entry["verdict"] for pr, entry in statuses.items()}
+
+        def waits(pr: str) -> bool:
+            verdict = statuses.get(pr, {}).get("verdict", "")
+            return verdict.startswith("blocked:") and all(cause in STATUS_WAITS or cause.startswith("waiting-on-downstack") for cause in verdict.removeprefix("blocked:").split(","))
 
         def ready(pr: str) -> bool:
-            return verdicts.get(pr) == LANDABLE and all(verdicts.get(below) in (LANDABLE, QUEUED) for below in downstack(open_rows, pr) - {pr})
+            return statuses.get(pr, {}).get("verdict") not in STATUS_SETTLED and not waits(pr) and not any(waits(below) for below in downstack(open_rows, pr) - {pr})
 
         kept = []
         for tree in trees:
@@ -4308,10 +4312,10 @@ class Landing:
                 self.designed_red[pr] = (body := self.body(pr)) is not None and RED_BY_DESIGN.match(body) is not None
         return self.designed_red[pr]
 
-    def body(self, pr: str) -> str | None:
-        """`pr`'s body, read once per `BODY_MAX_AGE` across passes; None when GitHub refuses it, and the next caller reads again (root #146561)."""
+    def body(self, pr: str, max_age: timedelta = BODY_MAX_AGE) -> str | None:
+        """`pr`'s body, read again once the copy kept across passes is `max_age` old; None when GitHub refuses it, and the next caller reads again (root #146561)."""
         now = self.runner.now()
-        if (kept := self.bodies.get(pr)) and now - kept[0] < BODY_MAX_AGE:
+        if (kept := self.bodies.get(pr)) and now - kept[0] < max_age:
             return kept[1]
         done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
         if done.code != 0:
@@ -4477,7 +4481,7 @@ class Landing:
         self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
 
     def trunk_target(self, check: str) -> tuple[dict | None, str]:
-        """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not finished at that read and `TRUNK_REREAD` has passed, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
+        """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
         listed = self.shell.run(["git", "-C", str(self.checkout), "ls-remote", "origin", f"refs/heads/{TRUNK}"])
         head = listed.out.split()[0] if listed.code == 0 and listed.out.strip() else ""
         now = self.runner.now()
@@ -4488,7 +4492,7 @@ class Landing:
         if not target:
             return None, (((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"])[0] if done.code else f"GitHub knows no {TRUNK} branch in {self.repo}")
         newest = (target["history"]["nodes"] or [{}])[0]
-        settled = any(context["context"] == check and context["state"] in FINISHED_STATES for context in (newest.get("status") or {"contexts": []})["contexts"])
+        settled = any(context["context"] == check and context["state"] == "SUCCESS" for context in (newest.get("status") or {"contexts": []})["contexts"])
         self.trunk_read = (head, now, settled, target)
         return target, ""
 
@@ -4960,7 +4964,7 @@ class Landing:
 
     def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]]:
         """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass."""
-        if (pr, sha) not in self.body_preconditions and (body := self.body(pr)) is not None:
+        if (pr, sha) not in self.body_preconditions and (body := self.body(pr, timedelta(0))) is not None:
             self.body_preconditions[(pr, sha)] = precondition_sentences(body)
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
@@ -5467,7 +5471,7 @@ class Landing:
 
     def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
         """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `<landing.release_cli> live --json` shows its squash or a later commit running, and closes without a record."""
-        if (body := self.body(pr)) is None:
+        if (body := self.body(pr, timedelta(0))) is None:
             return False
         components = list(dict.fromkeys(name for line in RELEASE_WITH.findall(body) for name in line.split()))
         key = f"release:{pr}"
@@ -5874,7 +5878,7 @@ class Landing:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
-        if self.routed(key, owner) or self.has_landed(pr):
+        if self.routed(key, owner) or self.has_landed(pr) or blocker.conflict and self.routed(f"conflict:{pr}:{row.get('base', '')}", owner):
             return
         red = self.red_cause(pr, sha) if failing and not blocker.conflict else ""
         cause = hashlib.sha1(f"{blocker.text}\n{red}".encode()).hexdigest()[:12] if red else ""

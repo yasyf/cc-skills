@@ -278,7 +278,7 @@ class FakeShell(runner_module.Shell):
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landed" if self.queue.get(pr) == "landed" else "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -9428,16 +9428,41 @@ def test_a_pr_body_is_read_once_per_five_minutes_across_passes(shell, config, tm
     assert len([call for call in shell.calls if call[:3] == ["gh", "pr", "view"] and call[-1] == "body"]) == 2
 
 
-def test_a_tree_the_status_read_calls_unlandable_is_not_checked_and_its_lane_hears_the_status_blocker(shell, config, tmp_path):
+def test_a_tree_waiting_on_github_alone_is_not_checked_and_its_lane_hears_what_its_status_asks(shell, config, tmp_path):
     shell.rows = single_row()
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
-    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite CONFLICTING")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-pending"}
+    landing_pass(shell, config)
+    assert checks(shell) == [] and blockers(shell) == []
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:conflict,ci-pending"}
     landing_pass(shell, config)
     assert checks(shell) == []
-    assert [(post["to"], post_body(post)) for post in blockers(shell) if post["to"] != "root"] == [(LANE, "#29020 cccc333333: CI is red: buildkite/test")]
+    assert [(post["to"], post_body(post)) for post in blockers(shell) if post["to"] != "root"] == [(LANE, f"#29020 cccc333333: {runner_module.CONFLICT_BLOCKER}")]
     shell.pr_status["29020"] = {"queue": "not queued", "verdict": "landable"}
     landing_pass(shell, config)
     assert len(checks(shell)) == 1
+
+
+@pytest.mark.parametrize(
+    ("parent", "child", "checked"),
+    [
+        ("queued", "landable", True),
+        ("landed", "landable", True),
+        ("blocked:ci-pending", "landable", False),
+        ("queued", "queued", False),
+        ("landable", "blocked:waiting-on-downstack #29020,ci-pending", True),
+        ("queued", "blocked:needs-restack (parent landed)", True),
+        ("queued", "blocked:queue-unknown", True),
+        ("queued", "blocked:ci-red", True),
+    ],
+)
+def test_a_tree_is_checked_unless_every_pr_is_settled_or_waits_on_github_alone(shell, config, tmp_path, parent, child, checked):
+    two_pr_stack(shell)
+    shell.pr_status = {"29020": {"verdict": parent}, "29031": {"verdict": child}}
+    landing = landing_of(shell, config, tmp_path)
+    rows = {pr: dict(row, ours=True) for pr, row in landing.rows().items()}
+    assert landing.landable_trees(rows, [["29031"]]) == ([["29031"]] if checked else [])
+    assert landing.unchecked == (set() if checked else {"29020", "29031"})
 
 
 def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
