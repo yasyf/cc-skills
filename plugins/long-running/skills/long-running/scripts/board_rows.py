@@ -35,10 +35,16 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
 
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
-list the owner reads in the same push.
+list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
+PR also fails, with `unapproved`, when neither a standing root go, his board approval, nor a carry
+record names its GitHub head, or when no fidelity grade or carry names that head.
 
-A row with no fidelity grade or no finder review at its head gets a `WARN` line and fails
-nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
+A row asks a tap only once a fidelity lane graded its head and its own words settle it: a row
+with no fidelity grade at its head fails with `ungraded`, and one whose words say `pending` or
+`being reworked` in a sentence that names no commit, or names the row's head, fails with
+`unsettled` (root #138512, #138550): a sentence naming an older commit describes that commit, so a
+newer graded head clears it. A row with no finder review at its head
+gets a `WARN` line and fails nothing. Grades and finder reviews are read from one
 scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
 finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
 review too. `--finders` names that directory, `finders/` beside the config by default. A carry
@@ -83,6 +89,8 @@ PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
+APPROVED_LIST = "approved"
+UNSETTLED = re.compile(r"\bpending\b|\bbeing reworked\b", re.IGNORECASE)
 LISTED = re.compile(r"^\s*[-*] #(\d+):", re.MULTILINE)
 MERGED = "MERGED"
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
@@ -496,7 +504,11 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if verdicts is not None:
             row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [])
         if reviews is not None:
-            row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
+            gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
+            row.reasons += [gap for gap in gaps if "fidelity" in gap]
+            row.warnings += [gap for gap in gaps if "fidelity" not in gap]
+        if unsettled := sorted({found.lower() for sentence in SENTENCE.split(row.words) for found in UNSETTLED.findall(sentence) if not any(not grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(sentence))}):
+            row.reasons.append(f"unsettled: its words say {' and '.join(unsettled)}, so it asks no tap yet")
     for row in rows:
         if landed := sorted((pr for pr in blockers[row.id] if (pull := pulls.get(pr)) and pull.state == MERGED), key=int):
             row.reasons.append(f"landed: its blocker names {' '.join(f'#{pr}' for pr in landed)}, merged on GitHub")
@@ -506,10 +518,22 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
                 owner.reasons.append(reason)
     found = flags(rows)
+    newest = newest_by_pr(verdicts) if verdicts is not None else {}
     for block_id, pr in listed:
-        if pr in pulls and (pull := pulls[pr]) is not None and pull.state != OPEN:
+        if pr not in pulls or (pull := pulls[pr]) is None:
+            continue
+        if pull.state != OPEN:
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
+        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, reviews, drive, lanes, repo)):
+            rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"unapproved: listed under {block_id} with {' and '.join(missing)} at GitHub's head {pull.head[:7]}"]))
     return rows, found, warnings
+
+
+def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], withdrawn: set[int], reviews: list[dict], drive: str, lanes: list[str], repo: str) -> list[str]:
+    carried = any(record["drive"] == drive and carries(record, repo, pr, head) for record in reviews + rulings)
+    approved = carried or standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
+    graded = carried or grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
+    return (["no go, approval or carry"] if not approved else []) + (["no fidelity ok"] if not graded else [])
 
 
 def stripped(block: object) -> object:

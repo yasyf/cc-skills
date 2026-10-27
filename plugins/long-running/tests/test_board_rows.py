@@ -144,14 +144,15 @@ def test_a_row_with_no_grade_or_no_finder_at_its_head_warns_and_still_pushes(tmp
     shell.post("review", "fidelity-desk-2", f"fidelity: missing {HEAD[:7]} rule/2 one added line", "42592")
     rows = card(row("42590"), row("42591", md="Keeps a copy of each release's Rust-built files."), row("42592", md="Ports the journal reader tests to the new tree."))
 
-    assert gate(tmp_path, shell, rows, "--", "cc-present", "update-block") == 0
+    assert gate(tmp_path, shell, rows, "--", "cc-present", "update-block") == 1
 
     assert lines(capsys) == [
-        f"WARN merge-row-42591 42591 {HEAD[:7]} ungraded: no fidelity grade from fidelity-desk or fidelity-desk-2 names {HEAD[:7]}; ungraded: no finder review names {HEAD[:7]}",
+        f"merge-row-42591 42591 {HEAD[:7]} ungraded: no fidelity grade from fidelity-desk or fidelity-desk-2 names {HEAD[:7]}",
+        f"WARN merge-row-42591 42591 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
         f"WARN merge-row-42592 42592 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
-        "rows 3 failing 0 ungraded 2 flags 0",
+        "rows 3 failing 1 ungraded 2 flags 0",
     ]
-    assert len(shell.pushed) == 1
+    assert shell.pushed == []
 
 
 @pytest.mark.parametrize(
@@ -410,8 +411,8 @@ def test_a_record_that_does_not_carry_the_head_for_the_pr_leaves_it_ungraded(tmp
     fake.pull("42590")
     fake.post("head", "p8e", text)
 
-    assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
-    assert lines(capsys)[-1] == "rows 1 failing 0 ungraded 1 flags 0"
+    assert gate(tmp_path, fake, card(row("42590")), "--check") == 1
+    assert lines(capsys)[-1] == "rows 1 failing 1 ungraded 1 flags 0"
 
 
 def approved(pr: str, head: str = HEAD, at: str = WRITTEN) -> dict:
@@ -485,3 +486,20 @@ def test_a_pr_listed_in_a_markdown_block_after_it_merged_or_closed_fails(tmp_pat
     assert gate(tmp_path, shell, block, "--check") == failing
     if failing:
         assert lines(capsys)[0] == f"merge-approved-landing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-approved-landing"
+
+
+@pytest.mark.parametrize(("md", "failing"), [("Old-path check: pending.", 1), ("Being reworked on your 11:17 PM note.", 1), (f"Being reworked at {HEAD[:7]}.", 1), (f"Was being reworked at {NEW_HEAD[:7]}.", 0), ("Old-path check: clean.", 0)])
+def test_a_row_whose_own_words_say_pending_or_being_reworked_asks_no_tap(tmp_path: Path, shell: FakeShell, md: str, failing: int) -> None:
+    assert gate(tmp_path, shell, groups(pr_row("42590", md=md)), "--check") == failing
+
+
+@pytest.mark.parametrize(("graded", "failing"), [(True, 0), (False, 1)])
+def test_an_open_pr_in_the_approved_list_needs_a_go_and_a_fidelity_ok_at_its_head(tmp_path: Path, shell: FakeShell, graded: bool, failing: int) -> None:
+    shell.pull("42740")
+    shell.post("go", "root", f"go #42740 at {HEAD[:7]} (owner tap 9:12 PM)", "42740")
+    if graded:
+        shell.graded("42740")
+    block = groups(pr_row("42590"))
+    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "- #42740: One writer per run."})
+
+    assert gate(tmp_path, shell, block, "--check") == failing
