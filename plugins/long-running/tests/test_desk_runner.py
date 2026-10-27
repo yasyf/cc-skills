@@ -2154,6 +2154,19 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
+def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
+    assert runner_module.GATE_CHECK_SECONDS == 60
+    shell.rows = single_row()
+    killed = f"stack-enqueue 29020 --check timed out after {runner_module.GATE_CHECK_SECONDS}s and was killed"
+    shell.gates["29020"] = [(runner_module.TIMED_OUT, "", killed), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    assert escalations(shell) == [] and shell.enqueues() == []
+    landing_pass(shell, config)
+    assert escalations(shell) == [] and len(shell.enqueues()) == 1
+
+
 def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
     shell.rows = single_row()
     shell.gates["29020"] = [(5, HANDSHAKE, "")]
@@ -4346,6 +4359,17 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
     name = line.split(" ", 1)[0]
     assert capsys.readouterr().out.splitlines() == ["#29020 cccc333333 graphite-stack-enqueue: GREEN graphite READY", *(line if quiet.startswith(f"{name} ") else quiet for quiet in QUIET_WHY)]
     assert len(shell.posts) == posts
+
+
+def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full_or_short_sha(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.check_pr["29020"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    for head in ("cccc333333" + "d" * 30, "cccc333333"):
+        landing.check_rulings(runner_module.Graded({"29020": head}, rows, shell.now(), act=True))
+    assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == 1
 
 
 def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
