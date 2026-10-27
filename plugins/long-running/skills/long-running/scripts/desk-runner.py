@@ -459,7 +459,7 @@ carries the owner's board taps: an approval on a `pr-groups` row of the root's b
 its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
 names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to
-the same lanes says the board needs a new row. A board that does not read, or a carry cc-present refuses, logs `TAP-CARRY-FAILED` once per
+the same lanes says the board needs a new row, unless a root `go` or a patch-identical fidelity carry grade names that head. A board that does not read, or a carry cc-present refuses, logs `TAP-CARRY-FAILED` once per
 cause and tries again next pass. Under `every` the runner
 then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
@@ -709,6 +709,7 @@ ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
+UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
@@ -5460,7 +5461,7 @@ class Landing:
         return [configured] if isinstance(configured, str) else list(configured)
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row. A head a root `go` or a patch-identical fidelity carry grade already names is settled: it gets no such note, and a carry onto a merge block the board no longer holds is skipped without `TAP-CARRY-FAILED` (root #151003)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         if not (session := self.root_session()):
@@ -5483,17 +5484,21 @@ class Landing:
         to = ",".join([ROOT, *self.board_lanes])
         for block, pr, entry in moved:
             head, tapped = heads[pr], entry.get("carriedFrom") or entry["head"]
+            graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
+            settled = bool(self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves))
             if chain := patch_chain(moves, head, entry["head"]):
-                self.carry_tap(session, block, pr, tapped, head, chain, to)
-            elif (any(names_head(new, head) for new, *_ in moves) or newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
+                self.carry_tap(session, block, pr, tapped, head, chain, to, settled)
+            elif not settled and (any(names_head(new, head) for new, *_ in moves) or graded) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #{pr} at {head[:10]}", pr)
 
-    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, chain: list[int], to: str) -> None:
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, chain: list[int], to: str, settled: bool) -> None:
         cited = ", ".join(f"cci #{seq}" for seq in chain)
         done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", f"patch-identical restack, per {cited}"])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+            if settled and UNKNOWN_BLOCK.search(why):
+                return
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
             return
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):

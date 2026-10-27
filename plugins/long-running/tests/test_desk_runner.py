@@ -192,6 +192,7 @@ class FakeShell(runner_module.Shell):
         self.slack_ts: dict[str, str] = {}
         self.stall_pass = Running()
         self.board: dict[str, dict[str, dict]] = {}
+        self.unknown_blocks: set[str] = set()
         self.carries: list[dict[str, str]] = []
 
     def env(self, name):
@@ -271,6 +272,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
         if argv[:3] == ["cc-present", "verdict", "carry"]:
             carry = dict(zip(argv[3::2], argv[4::2], strict=True))
+            if carry["--block"] in self.unknown_blocks:
+                return runner_module.Done(1, "", f'cc-present: unknown block "{carry["--block"]}"')
             self.carries.append(carry)
             entry = self.board[carry["--block"]][carry["--row"]]
             self.board[carry["--block"]][carry["--row"]] = entry | {"head": carry["--head"], "carriedFrom": entry.get("carriedFrom") or entry["head"], "carryNote": carry["--note"]}
@@ -3252,6 +3255,36 @@ def test_a_board_tap_never_carries_to_a_fixed_head_and_root_and_the_board_lane_h
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
     assert note["text"] == "TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows does not carry to cccc333333, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #29020 at cccc333333"
+
+
+def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
+    root_go(shell, "go #29020 at cccc333 (fixed version of aaaa111, his tap)", shell.now())
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == [] and tap_notes(shell) == []
+
+
+@pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])
+def test_a_carry_onto_a_merge_block_the_board_dropped_is_quiet_only_for_a_settled_head(shell, config, tmp_path, settled):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    shell.unknown_blocks = {"merge-rows"}
+    head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
+    if settled == "go":
+        root_go(shell, "go #29020 at cccc333 (patch-identical restack of his tap)", shell.now())
+    elif settled == "fidelity carry":
+        grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay onto dev.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    failed = [line for line in escalations(shell) if line.startswith("TAP-CARRY-FAILED")]
+    assert (len(failed), tap_notes(shell)) == (0 if settled != "none" else 1, [])
 
 
 def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config, tmp_path, monkeypatch):
