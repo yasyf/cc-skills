@@ -54,7 +54,7 @@ FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
-LISTED = re.compile(r"(rows met|n/a|pending|tests):[^;.\n]*;?")
+LISTS = re.compile(r"\b(rows met|n/a|pending|tests):")
 REASON_WORDS = 12
 REASONLESS = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 CCI_TEXT = 400
@@ -118,7 +118,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, new: lis
         base=view["baseRefName"],
         base_oid=base,
         checkout=job["checkout"],
-        fetch=" ".join(filter(None, [job["head"], base, last])),
+        fetch=f"{job['head']} {base}",
         scope=scope(job, view, own, last, new),
         prior=prior_text(job),
         rows_step=ROWS_STEP.read_text().format(rows=rows).rstrip() if rows else SCOPED_STEP,
@@ -150,7 +150,8 @@ def unanswered(keys: list[str], reply: str) -> list[str]:
 
 
 def reasoned(reply: str) -> bool:
-    return len(LISTED.sub(" ", json.loads(reply)["swept"]).split()) >= REASON_WORDS
+    swept = json.loads(reply)["swept"]
+    return len(swept[: (lists.start() if (lists := LISTS.search(swept)) else len(swept))].split()) >= REASON_WORDS
 
 
 def shortfalls(keys: list[str], reply: str) -> list[str]:
@@ -176,14 +177,24 @@ def beyond(shell: Shell, job: dict, other: str, head: str) -> list[str]:
     return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split()
 
 
-def graded(shell: Shell, job: dict) -> str:
-    """The full head the PR's last finder record graded, resolved in the checkout when the record spelled it short, empty when it cannot be."""
-    if job["since"] or not job["prior"]:
-        return job["since"]
+def resolve(shell: Shell, job: dict, named: str) -> str:
     try:
-        return git(shell, job, "rev-parse", "--verify", "--quiet", f"{job['prior']['head']}^{{commit}}")
+        return git(shell, job, "rev-parse", "--verify", "--quiet", f"{named}^{{commit}}")
     except subprocess.CalledProcessError:
         return ""
+
+
+def graded(shell: Shell, job: dict) -> str:
+    """The full head the PR's last finder record graded, from the checkout or fetched when spelled whole, empty when neither has it."""
+    if not (named := job["since"] or (job["prior"] or {}).get("head", "")):
+        return ""
+    if (full := resolve(shell, job, named)) or not FULL_SHA.fullmatch(named):
+        return full
+    try:
+        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", named)
+    except subprocess.CalledProcessError:
+        return ""
+    return resolve(shell, job, named)
 
 
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
@@ -202,8 +213,8 @@ def run(directory: Path, shell: Shell) -> dict:
     if view["headRefOid"] != head:
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
+    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base)
     last = graded(shell, job)
-    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, *filter(None, [last]))
     if not (own := beyond(shell, job, base, head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     new = [sha for sha in own if sha in set(beyond(shell, job, last, head))] if last else []
