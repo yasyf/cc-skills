@@ -16,7 +16,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, overlay: null, stepOpen: 0 };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, overlay: null, stepOpen: null };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -207,7 +207,7 @@ function stepRow(s, i) {
   const boxes = onPrs.slice(0, 3).map((w) => `<span class="wbox" title="${esc(plainTitle(w.pr))}: ${esc(w.lane)} wrote ${agoWords(w.at)}"><i class="pulse"></i>#${w.pr}</span>`).join('')
     + (s.workers.length > onPrs.length && !onPrs.length ? `<span class="wbox" title="${esc(s.workers.map((w) => w.lane).join(', '))}"><i class="pulse"></i>at work</span>` : '');
   const blocker = s.blocker && !/^(none|nothing)$/i.test(s.blocker) ? `<em class="sblock">${esc(s.blocker)}</em>` : '';
-  return `<li class="step t-${s.tone}" data-step="${i}" tabindex="0">
+  return `<li class="step t-${esc(s.tone)}" data-step="${esc(s.id)}" tabindex="0">
     <span class="sn">${s.tone === 'done' ? '✓' : i + 1}</span>
     <div class="sbody"><b class="st">${esc(s.title)}</b><span class="snext">${esc(s.next)}</span></div>
     <div class="sbar">${total ? `<span class="segs">${segs}</span><span class="frac">${s.landed}/${total}</span>` : ''}</div>
@@ -225,7 +225,9 @@ function strip() {
   else if ('blocker' in now) chips.push('<span class="chip-r ok"><i>✓</i><span><b>Nothing is stopping the drive</b></span></span>');
   if (asks.length === 1) {
     const r = asks[0];
-    chips.push(`<div class="chip-r you"><i>★</i><span><b>Your tap</b><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a></span><button class="btn pri" data-strip-approve="${r.number}">✓ Approve ${esc(r.head.slice(0, 7))}</button></div>`);
+    const busy = pending.number === r.number && !pending.error;
+    const failed = pending.number === r.number && pending.error ? `<em class="sblock">${esc(pending.error)}</em>` : '';
+    chips.push(`<div class="chip-r you"><i>★</i><span><b>Your tap</b><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a>${failed}</span><button class="btn pri" data-strip-approve="${r.number}"${busy ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button></div>`);
   } else if (asks.length) {
     chips.push(`<a class="chip-r you" href="#/now"><i>★</i><span><b>${asks.length} pull requests</b>need your approval</span></a>`);
   } else if (m.board.cards.length) {
@@ -253,6 +255,7 @@ function overview() {
   const m = state.model;
   const { landed, total, moving } = m.drive;
   const pct = total ? Math.round((100 * landed) / total) : 0;
+  const openStep = m.steps.find((s) => s.id === state.stepOpen);
   return `<div class="ov3">
   ${strip()}
   <div class="ov3-grid">
@@ -264,7 +267,7 @@ function overview() {
     </aside>
   </div></div>
   ${state.overlay === 'tile' ? tileSheet() : ''}
-  ${state.overlay === 'step' ? stepSheet(m.steps[state.stepOpen]) : ''}
+  ${state.overlay === 'step' && openStep ? stepSheet(openStep) : ''}
   ${state.overlay === 'plan' ? `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>The plan of action, in order</h2><ol class="psteps">${planSteps(true)}</ol><h2>The release plan</h2><div class="prose">${markdown(m.releases.markdown)}</div></div></div>` : ''}`;
 }
 
@@ -403,7 +406,7 @@ document.addEventListener('click', (e) => {
   const tileEl = e.target.closest('[data-tile]');
   if (tileEl && !e.target.closest('a')) { state.tileOpen = { name: tileEl.dataset.tile, nums: tileEl.dataset.nums.split(',') }; state.overlay = 'tile'; render(); return; }
   const stepEl = e.target.closest('[data-step]');
-  if (stepEl && !e.target.closest('a')) { state.stepOpen = Number(stepEl.dataset.step); state.overlay = 'step'; render(); return; }
+  if (stepEl && !e.target.closest('a')) { state.stepOpen = stepEl.dataset.step; state.overlay = 'step'; render(); return; }
   const approve = e.target.closest('[data-strip-approve]');
   if (approve) { decide(boardRow(approve.dataset.stripApprove), 'approved', '', false); return; }
   const close = e.target.closest('[data-close]');
