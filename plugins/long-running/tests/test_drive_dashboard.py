@@ -51,3 +51,62 @@ def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     rows = Drive({"board_url": "http://board/p/x"}, None).read_board(board)["rows"]
     assert rows[0]["block"] == "merge-prs"
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
+
+
+def card(card_id, *children):
+    return {"id": card_id, "type": "card", "title": card_id, "children": list(children)}
+
+
+def board(blocks, **interactions):
+    return {"doc": {"blocks": blocks}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, **interactions}}
+
+
+def test_read_board_counts_only_unanswered_questions():
+    blocks = [
+        card("answered-approval", {"id": "a1", "type": "approval"}),
+        card("open-choice", {"id": "c1", "type": "choice", "options": [{"label": "Yes", "recommended": True}]}),
+        card("screenshots-only", {"id": "i1", "type": "image"}),
+    ]
+    cards = read_board(board(blocks, decisions={"a1": {"verdict": "approved"}}), "url", {})["cards"]
+    assert [(c["id"], c["recommended"]) for c in cards] == [("open-choice", "Yes")]
+
+
+def test_read_board_reads_verdicts_by_number_and_root_gos():
+    groups = {"id": "merge-prs", "type": "pr-groups", "groups": [{"title": "G", "prs": [{"number": 41, "head": "abc1234"}, {"number": 42, "head": "def5678"}]}]}
+    rows = read_board(board([card("merge", groups)], triage={"merge-prs": {"41": {"verdict": "approved", "head": "abc1234"}}}), "url", {42: "def5678"})["rows"]
+    assert [(r["number"], (r["verdict"] or {}).get("verdict"), r["go_head"]) for r in rows] == [(41, "approved", None), (42, None, "def5678")]
+
+
+OVERVIEW = """
+const vm = require('vm');
+const fs = require('fs');
+const noop = () => {};
+const ctx = { console, Intl, Date, Math, JSON, Set, Map, Object, Array, String, Number, RegExp, Boolean, Promise, setInterval: noop,
+  document: { addEventListener: noop, querySelector: () => ({}) }, window: { addEventListener: noop, scrollY: 0, scrollTo: noop }, location: { hash: '' } };
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.state = state; globalThis.overview = overview;', ctx);
+ctx.state.model = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+ctx.state.version = 1;
+const html = ctx.overview();
+const landed = Number(/data-landed="(\\d+)"/.exec(html)[1]);
+const total = Number(/data-total="(\\d+)"/.exec(html)[1]);
+console.log(JSON.stringify({ landed, total, green: (html.match(/<a class="sq landed"/g) || []).length, squares: (html.match(/<a class="sq /g) || []).length }));
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_overview_ring_counts_the_green_squares(tmp_path):
+    prs = {
+        "1": {"title": "sand: a", "state": "landed", "head": "a"},
+        "2": {"title": "sand: b", "state": "landed", "head": "b"},
+        "3": {"title": "api: c", "state": "open", "head": "c"},
+        "4": {"title": "api: d", "state": "landed", "head": "d"},
+        "5": {"title": "ci: tooling", "state": "landed", "head": "e"},
+    }
+    trees = {"1": ["New tree", "Old tree"], "2": ["Old tree"], "3": ["Shared"], "4": ["Shared"], "5": ["Shared"]}
+    model = {"prs": prs, "trees": trees, "tree_names": ["New tree", "Old tree", "Shared"], "plan": [], "records": [], "lanes": [], "repo": "o/r",
+             "board": {"rows": [], "cards": [], "url": "u"}, "releases": {"markdown": ""}, "story": {}}
+    (tmp_path / "model.json").write_text(json.dumps(model))
+    (tmp_path / "run.js").write_text(OVERVIEW)
+    out = json.loads(subprocess.run(["node", str(tmp_path / "run.js"), str(APP / "app.js"), str(tmp_path / "model.json")], capture_output=True, text=True, check=True).stdout)
+    assert out == {"landed": 3, "total": 4, "green": 3, "squares": 4}

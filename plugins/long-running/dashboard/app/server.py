@@ -51,6 +51,30 @@ def plan_prs(text):
     return list(dict.fromkeys(numbers))
 
 
+QUESTIONS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
+
+
+def read_board(board, url, gos):
+    interactions = board["interactions"]
+    rows, cards = [], []
+    for block in board["doc"]["blocks"]:
+        if block["type"] != "card":
+            continue
+        children = block.get("children", [])
+        for child in children:
+            if child["type"] != "pr-groups":
+                continue
+            verdicts = interactions["triage"].get(child["id"], {})
+            for group in child["groups"]:
+                for row in group["prs"]:
+                    rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(str(row["number"])), "go_head": gos.get(row["number"])})
+        questions = [child for child in children if child["type"] in QUESTIONS]
+        if questions and not all(interactions[QUESTIONS[child["type"]]].get(child["id"]) for child in questions):
+            recommended = next((option["label"] for child in questions for option in child.get("options", []) if option.get("recommended")), None)
+            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "answered": False})
+    return {"rows": rows, "cards": cards, "url": url}
+
+
 def trees(paths, config):
     found = []
     for path in paths:
@@ -88,6 +112,7 @@ class Drive:
         self.errors = {}
         self.paths = {}
         self.reported = set()
+        self.gos = {}
         self.pr_facts = {}
 
     def review_url(self, number):
@@ -202,19 +227,20 @@ class Drive:
                 self.version += 1
                 self.changed.notify_all()
 
+    def live_board(self):
+        return read_board(json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]])), self.config["board_url"], self.gos)
+
     def check_gos(self, records):
-        gos = {}
-        for record in records:
-            if record["kind"] == "go" and (found := GO.match(record["text"])):
-                gos[int(found[1])] = found[2]
-        for row in self.slow["board"]["rows"]:
-            row["go_head"] = gos.get(row["number"])
+        self.gos = {int(found[1]): found[2] for record in records if record["kind"] == "go" and (found := GO.match(record["text"]))}
+        board = self.live_board()
+        for row in board["rows"]:
             verdict = row["verdict"] or {}
             stored = verdict.get("verdict") == "approved" and row["head"].startswith(verdict.get("head", "")[:7] or "-")
             key = (row["number"], row["head"])
             if row["go_head"] and row["head"].startswith(row["go_head"][:7]) and not stored and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+        return board
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", "root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
@@ -226,11 +252,12 @@ class Drive:
         with self.lock:
             records = list(self.records)
         lanes = cci("lanes", drive=self.config["drive"])
-        self.check_gos(records)
+        board = self.check_gos(records)
         return {
             **self.slow,
             "title": self.config["title"],
             "repo": self.config["repo"],
+            "board": board,
             "records": records[-1500:],
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
@@ -242,13 +269,11 @@ class Drive:
     def read_slow(self):
         ledger = json.loads(self.ccn("ledger", "show", self.config["ledger"], "--json"))
         prs = {row["key"]: {k: v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
-        board = json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]]))
         plan_at, plan = self.read_plan()
         return {
             "prs": prs,
             "plan": plan,
             "plan_at": plan_at,
-            "board": self.read_board(board),
             "story": json.loads(Path(self.config["story"]).read_text()),
             "releases": self.read_doc(self.config["release_doc"]),
             "words": [{"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for a in json.loads(self.ccn("answer", "list", "--label", f"program:{self.config['drive']}", "--json"))],
@@ -273,24 +298,6 @@ class Drive:
         meta, _, markdown = body.partition("\n\n")
         return {"markdown": markdown, "updated": next((row.split(": ", 1)[1] for row in meta.splitlines() if row.startswith("updated: ")), None)}
 
-    def read_board(self, board):
-        verdicts = board["interactions"]["triage"]
-        rows, cards = [], []
-        for block in board["doc"]["blocks"]:
-            if block["type"] != "card":
-                continue
-            groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
-            for child in groups:
-                for group in child["groups"]:
-                    for row in group["prs"]:
-                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
-            if not groups and block.get("status") == "open":
-                choice = next((child for child in block.get("children", []) if child["type"] == "choice"), None)
-                recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
-                answered = bool(choice and board["interactions"]["choices"].get(choice["id"]))
-                cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "answered": answered})
-        return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
-
 
 def handler(drive):
     class Handler(BaseHTTPRequestHandler):
@@ -309,7 +316,10 @@ def handler(drive):
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 with drive.lock:
-                    body = json.dumps({"version": drive.version, **drive.model}).encode()
+                    model = {"version": drive.version, **drive.model}
+                if model.get("prs"):
+                    model["board"] = drive.live_board()
+                body = json.dumps(model).encode()
                 return self.send(200, "application/json", body)
             if path == "/api/stream":
                 return self.stream()

@@ -147,9 +147,6 @@ function timelineRows(events, gaps) {
   return out.join('');
 }
 
-function planNumbers() {
-  return [...new Set(state.model.plan.flatMap((s) => s.prs))].filter((n) => prState(n) !== 'closed');
-}
 function dots(numbers) {
   return `<span class="dots">${numbers.map((n) => `<a class="d ${prState(n)}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}"></a>`).join('')}</span>`;
 }
@@ -207,16 +204,22 @@ function tile(name, numbers) {
     <div class="mosaic">${sorted.map(square).join('')}</div>
     <div class="bots">${workersOn(sorted)}</div></div>`;
 }
+function primaryTree(n) {
+  const touched = state.model.trees[n] ?? [];
+  return state.model.tree_names.find((tree) => touched.includes(tree));
+}
+function scopeNumbers() {
+  return liveNumbers().filter((n) => partOf(n) && primaryTree(n));
+}
 function stage() {
-  const numbers = liveNumbers();
+  const numbers = scopeNumbers();
   const [target, ...rest] = state.model.tree_names;
   const trees = [...rest, target];
   const lanes = trees.map((tree) => {
     const parts = new Map();
     for (const n of numbers) {
-      if (!(state.model.trees[n] ?? []).includes(tree)) continue;
-      const part = partOf(n)?.[1];
-      if (!part) continue;
+      if (primaryTree(n) !== tree) continue;
+      const part = partOf(n)[1];
       if (!parts.has(part)) parts.set(part, []);
       parts.get(part).push(n);
     }
@@ -259,14 +262,14 @@ function tileSheet() {
 }
 function overview() {
   const m = state.model;
-  const all = planNumbers();
-  const landed = all.filter((n) => prState(n) === 'landed').length;
-  const doing = liveNumbers().filter((n) => heat(n) === 'doing').length;
+  const all = scopeNumbers();
+  const landed = all.filter((n) => heat(n) === 'landed').length;
+  const doing = all.filter((n) => heat(n) === 'doing').length;
   const needs = m.board.rows.filter((r) => verdictState(r) === 'you').length + m.board.cards.filter((c) => !c.answered).length;
   const pct = all.length ? Math.round((100 * landed) / all.length) : 0;
   return `<div class="ov">
   <section class="hero">
-    <div class="big" title="${landed} of ${all.length} pull requests in the plan have landed"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab">landed<br><b>${doing}</b> moving now</span></div>
+    <div class="big" data-landed="${landed}" data-total="${all.length}" title="${landed} of ${all.length} pull requests have landed"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab">landed<br><b>${doing}</b> moving now</span></div>
     ${journey()}
     ${needs ? `<a class="needs" href="#/now"><b>${needs}</b><span>need you</span></a>` : '<span class="needs calm"><b>✓</b><span>nothing needs you</span></span>'}
   </section>
