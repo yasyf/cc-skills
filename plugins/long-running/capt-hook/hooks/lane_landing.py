@@ -19,6 +19,7 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
+NOT_AN_ENQUEUE = frozenset({"--dequeue"})
 QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
 MQ_VALUE_OPTIONS = frozenset({"--config"})
 GH_REPO_FLAGS = frozenset({"-R", "--repo"})
@@ -60,6 +61,10 @@ GREEN_EXCEPT_REFUSAL = (
     "Report READY only once every required job on the head passes; a job that fails because dev is red waits for dev's fix."
 )
 TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix}. "
+HAND_ENQUEUE_WARNING = (
+    "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them: {lines}. "
+    "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
+)
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
@@ -285,6 +290,34 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+
+
+def gate_args(call: Call) -> list[str]:
+    """The `mq.py gate` operands for a `stack-enqueue` call: its PRs and its `--partial`, or none for a call that enqueues nothing."""
+    args = program((call.name, *call.args))[1:]
+    prs = [arg for arg in args if arg.isdigit()]
+    return [*prs, *(["--partial"] if "--partial" in args else [])] if prs and not NOT_AN_ENQUEUE & set(args) else []
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command=ENQUEUE, agent_id=DESK, env=DRIVE_ENV, state=ACTIVE): Allow(),
+        Input(command="stack-enqueue 36023 --check", env=DRIVE_ENV): Allow(),
+        Input(command="stack-enqueue 36023 --dequeue", env=DRIVE_ENV): Allow(),
+        Input(command=ENQUEUE): Allow(),
+    },
+)
+def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
+    if (entry := drive_entry(evt)) is None:
+        return None
+    gates = [args for call in evt.cmd.calls() if landing_verb(call) == "stack-enqueue" and not outside_drive_repo(evt, call, entry) and (args := gate_args(call))]
+    if not gates or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
+        return None
+    runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
+    lines = "; ".join(line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip())
+    return evt.context(HAND_ENQUEUE_WARNING.format(lines=lines)) if lines else None
 
 
 def merge_target(call: Call) -> tuple[str, str]:

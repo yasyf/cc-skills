@@ -3941,6 +3941,7 @@ class Landing:
         self.patch_ids: dict[tuple[int, str], str] = {}
         self.commit_counts: dict[tuple[str, str], int] = {}
         self.risky: dict[tuple[str, str], list[str]] = {}
+        self.read_only = False
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], list[str]] = {}
         self.sessions: dict[str, bool] = {}
@@ -4474,7 +4475,7 @@ class Landing:
         span = f"{sha}~{commits}...{sha}"
         diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{span}", "-H", DIFF_MEDIA, ALLOW_ESCAPES])
         if diff.code != 0:
-            if escalate:
+            if escalate and not self.read_only:
                 last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
                 self.runner.escalate(f"patch:{pr}:{sha}", "PATCH-READ-FAILED", f"#{pr}", f"GitHub refused the diff of {span}: {last[0]}; no fidelity ok carries to this head until it reads, and the runner reads it again on the next pass")
             return ""
@@ -4848,7 +4849,8 @@ class Landing:
             done = self.shell.run(["gh", "api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"])
             if done.code:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                self.runner.escalate(f"files:{pr}:{sha}", "FILES-READ-FAILED", f"#{pr}", f"GitHub refused the changed files of #{pr}: {last[0]}; merge mode high-risk enqueues nothing in its prefix until they read")
+                if not self.read_only:
+                    self.runner.escalate(f"files:{pr}:{sha}", "FILES-READ-FAILED", f"#{pr}", f"GitHub refused the changed files of #{pr}: {last[0]}; merge mode high-risk enqueues nothing in its prefix until they read")
                 return None
             globs = self.landing_config["high_risk_paths"]
             self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
@@ -5592,6 +5594,7 @@ class Landing:
 
     def why(self, pr: str) -> list[str]:
         """One line per configured check of `pr` at its current head, read without posting anything, after the adapter's own verdict line."""
+        self.read_only = True
         rows = self.rows() or {}
         row = rows.get(pr)
         if row is None:
@@ -5608,6 +5611,27 @@ class Landing:
             state = adapter_states.get(name, merge_queue.State(merge_queue.PENDING, "no verdict")) if name in ("approvals", "required-ci") else self.check(name, graded).get(pr, merge_queue.State(merge_queue.PASS))
             lines.append(f"{name} {state.state} {state.reason}".rstrip())
         return lines
+
+    def hand_enqueue_gate(self, prs: list[str], partial: bool) -> list[str]:
+        """One line per hold or enqueue check that does not pass a head a hand `stack-enqueue` of `prs` puts in the queue, graded at GitHub's current head as this desk grades its own enqueue, posting and escalating nothing: each named PR and the open rows below it, and without `partial` every open row stacked beside or above them."""
+        self.read_only = True
+        rows = self.rows() or {}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        below = {pr for named in prs for pr in downstack(open_rows, named)}
+        taken = below if partial else {pr for pr in open_rows if downstack(open_rows, pr) & below}
+        heads = {pr: self.current_head(pr) or open_rows[pr].get("head", "") for pr in sorted(taken, key=int)}
+        graded = Graded(heads, rows, self.runner.now(), act=False)
+        return [
+            f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip()
+            for name in self.checks
+            if name in HOLD_CHECKS + ENQUEUE_CHECKS
+            for pr, state in self.check(name, graded).items()
+            if state.state != merge_queue.PASS
+        ]
+
+    def current_head(self, pr: str) -> str:
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid"])
+        return done.out.strip() if done.code == 0 else ""
 
     def status_lines(self) -> list[str]:
         """The queue as this drive's store records it: each believed-queued enqueue, then each open tree in the order the desk gates and enqueues it."""

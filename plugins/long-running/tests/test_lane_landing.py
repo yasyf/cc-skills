@@ -101,7 +101,10 @@ HEAD = "cccc333333dddd444444eeee555555ffff666666"
 def drive_registry(tmp_path: Path, monkeypatch) -> None:
     drives = tmp_path / "config" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "sessions": [SESSION], "repo": "Forge-AI/monorepo", "git_common_dir": "/repo/.git"}))
+    state = tmp_path / "drive-state"
+    state.mkdir()
+    (state / "runner.json").write_text("{}")
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "sessions": [SESSION], "repo": "Forge-AI/monorepo", "git_common_dir": "/repo/.git", "state_dir": str(state)}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
 
 
@@ -213,3 +216,31 @@ def test_a_merge_of_the_current_branch_asks_gh_for_its_pr_in_the_working_directo
     assert advice == lane_landing.RULINGS_ADVICE.format(causes="RULINGS-UNCITED rule/abc1234", pr="41711", head=HEAD[:10])
     [view] = [call for call in calls if call[:3] == ["gh", "pr", "view"]]
     assert view[3:5] == ["--json", "number,headRefOid"]
+
+
+FINDER_PENDING = "#43243 e949262e91 finder fail FINDER-PENDING #43243: no `finder:` review record names this head"
+
+
+def gate_stub(monkeypatch, code: int, out: str) -> list[list[str]]:
+    calls: list[list[str]] = []
+    real = subprocess.run
+
+    def run(argv, **kwargs):
+        if len(argv) > 1 and str(argv[1]).endswith("mq.py"):
+            calls.append(list(argv))
+            return subprocess.CompletedProcess(argv, code, out, "")
+        return real(argv, **kwargs)
+
+    monkeypatch.setattr(lane_landing.subprocess, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize(("code", "out", "warned"), [(1, f"{FINDER_PENDING}\n", True), (0, "", False), (2, "usage: mq.py: invalid choice: 'gate'\n", False)])
+def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_a_failing_head(tmp_path, monkeypatch, code, out, warned):
+    drive_registry(tmp_path, monkeypatch)
+    subagent(tmp_path, "alanding-desk-1a2b", name="landing-desk", agentType="long-running:lane")
+    calls = gate_stub(monkeypatch, code, out)
+
+    assert advise(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b") == ([lane_landing.HAND_ENQUEUE_WARNING.format(lines=FINDER_PENDING)] if warned else [])
+    [call] = calls
+    assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243", "--partial"]
