@@ -5492,15 +5492,16 @@ class Landing:
         return None
 
     def release_started(self, landed: dict) -> dict | None:
-        """The drive's first cci `release` or `fix-live` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a `fix-live` record, or a build on the record and a target: one of its components, or any when it names none."""
+        """The drive's first cci `release` or `fix-live` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a `fix-live` record, a root `release` record naming its PR, which says the release that carries it (root #143767), or a build on the record and a target: one of its components, or any when it names none."""
         drive, since, names = self.runner.config.drive, actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
         releases = cci.records(self.runner.cci_tail, drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
 
-        def names_landing(kind: str, refs: dict) -> bool:
-            targets = set(refs.get("targets", []))
-            if landed.get("incident") and kind == "release":
-                return bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
-            return bool(targets & set(landed["components"]) or any(named in names for named in refs.get("prs", [])))
+        def names_landing(record: dict) -> bool:
+            refs = record["refs"]
+            targets, named = set(refs.get("targets", [])), any(pr in names for pr in refs.get("prs", []))
+            if landed.get("incident") and record["kind"] == "release":
+                return (record["lane"] == ROOT and named) or bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
+            return bool(targets & set(landed["components"])) or named
 
         return next(
             (
@@ -5510,7 +5511,7 @@ class Landing:
                 and record["drive"] == drive
                 and record["lane"] != RUNNER
                 and actions.parse_stamp(record["at"]) >= since
-                and names_landing(record["kind"], record["refs"])
+                and names_landing(record)
             ),
             None,
         )
