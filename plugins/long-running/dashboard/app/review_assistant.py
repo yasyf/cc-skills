@@ -14,6 +14,7 @@ WATCH_BACKOFF = 30
 ATTACH_FOR = 20 * 60
 SERVED = {"ai.request.created", "comment.created"}
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
+DAEMON_PORT = re.compile(r"^http:\s+\S+:(\d+)$", re.M)
 
 PROMPT = """You are the review assistant behind the drive dashboard's embedded cc-review of {repo}#{number}. This directory is that review's scope and your session owns it. Handle the one event below, then stop. Never edit a file.
 
@@ -65,15 +66,26 @@ class ReviewAssistant:
             if not ((url := self.urls.get((number, head))) and live(url)):
                 cwd = self.scope(number)
                 cwd.mkdir(exist_ok=True)
-                started = subprocess.run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.session(number), "--cwd", str(cwd)], capture_output=True, text=True, check=True, timeout=120)
-                url = TAILNET_LINE.search(started.stdout)[1]
-                self.urls[(number, head)] = url
+                try:
+                    started = subprocess.run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.session(number), "--cwd", str(cwd)], capture_output=True, text=True, check=True, timeout=120)
+                except subprocess.CalledProcessError:
+                    if not (viewing and (url := self.opened(cwd))):
+                        raise
+                else:
+                    url = TAILNET_LINE.search(started.stdout)[1]
+                    self.urls[(number, head)] = url
             if landed and url not in self.closed:
                 subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
                 self.closed.add(url)
             if viewing and not landed:
                 self.attach(number)
             return url
+
+    def opened(self, cwd):
+        listed = subprocess.run(["cc-review", "list"], capture_output=True, text=True, check=True, timeout=30).stdout.splitlines()[1:]
+        slug = next((f[0] for f in map(str.split, listed) if f[1] == "open" and f[-1] == str(cwd)), None)
+        port = DAEMON_PORT.search(subprocess.run(["cc-review", "status"], capture_output=True, text=True, check=True, timeout=30).stdout)
+        return slug and port and f"http://{self.config['host']}:{port[1]}/s/{slug}"
 
     def refresh(self, waiting):
         for number, head in waiting:
