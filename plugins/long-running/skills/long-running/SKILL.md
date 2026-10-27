@@ -1043,6 +1043,18 @@ nothing. The root posts
 then answers in plain words with `cc-present reply --block <card id> --body <answer>`,
 and the lane stays stopped until an answer is tapped.
 
+Every tap on the board reaches the bus the moment it happens, without the root. The
+board recorder (`board_watch.py`, launched detached per board by the
+`start_board_watch` hook) posts one `owner` record to all from lane `board-watch` for
+each decision, pick, written answer, note, merge-row verdict, and round close, carrying
+the card title, block id, his words verbatim, and a tapped merge row's head. It resolves
+every open ask, blocker, or hold whose text names the block, its card, or the merge row
+(`merge-row-<pr>`, `merge:<pr>`). A lane parked on a card names the card's block or card
+id in its ask, then unparks on the `owner` record or its own closed ask, never on a root
+relay. A recorder keeps running the version it started with, so after a release that
+changes `board_watch.py` the root ends the old recorder's `cc-present watch` child and
+relaunches it from the installed version.
+
 *Prevents the Oct 26 spam: status cards, ready-to-tap lists and lane prose filled the
 owner's DM thread and the team channel until he called all of it spam; only the merge
 buttons were wanted.*
