@@ -69,8 +69,9 @@ IDLE_CLAIM = re.compile(
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 LANE_NAME = re.compile(r"(?<![\w./-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\w/-])")
 NOT_LANES = frozenset({"lane-status", "stand-down"})
+LANE_STATUS = f"{Path(__file__).parents[2] / 'bin' / 'drive.py'} lane-status"
 UNREAD_LANE = (
-    "Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
+    f"Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `{LANE_STATUS} <lane>` in the same turn."
     " Run it, then report what it shows."
 )
 DEFECT_ADMITTED = re.compile(
