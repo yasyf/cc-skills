@@ -130,6 +130,7 @@ class FakeShell(runner_module.Shell):
         self.posts: list[dict] = []
         self.alive: list[str] = []
         self.records: list[dict] = []
+        self.trunk: list[dict] = []
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -407,6 +408,8 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
+        if 'ref(qualifiedName: "refs/heads/dev")' in query:
+            return runner_module.Done(0, json.dumps({"data": {"repository": {"ref": {"target": {"history": {"nodes": self.trunk}}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} \} \}', query)
         commits = {alias: {"status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
@@ -421,6 +424,7 @@ class FakeShell(runner_module.Shell):
         assert drive in self.drives and "--json" in argv and "--cursor" not in argv
         since = argv[argv.index("--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
+        topics = [arg.partition("=")[2] for arg in argv if arg.startswith("--topic=")]
         lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
         found = [
             record
@@ -430,6 +434,7 @@ class FakeShell(runner_module.Shell):
             and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
             and (not kinds or record.get("kind") in kinds)
+            and (not topics or record.get("topic") in topics)
             and (drive == "d1" or record.get("drive") == drive)
         ]
         if "--limit" in argv:
@@ -8903,3 +8908,70 @@ def test_a_lifted_freeze_is_asked_about_no_more(shell, config, tmp_path):
     orca_pass(shell, config)
     assert lift_asks(shell) == []
     assert runner_module.FREEZES not in incident(tmp_path, "desk-runner").facts or incident(tmp_path, "desk-runner").facts[runner_module.FREEZES] == {}
+
+
+TRUNK_CHECK = "buildkite/test"
+OPEN_ROWS = {"29020": {"state": "open", "head": "cccc333333"}, "29021": {"state": "open", "head": "dddd444444"}}
+
+
+def trunk_commit(sha: str, state: str | None, pr: str, landed: str) -> dict:
+    contexts = [{"context": TRUNK_CHECK, "state": state, "targetUrl": f"https://buildkite.com/forge/test/builds/{pr}"}] if state else []
+    return {"oid": sha * 10, "committedDate": landed, "message": f"api: 🐛 a change (#{pr})\n\nbody (#1)", "status": {"contexts": contexts}}
+
+
+def trunk_watch(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.Landing:
+    loaded = json.loads(config.read_text())
+    loaded["landing"]["trunk_check"] = TRUNK_CHECK
+    config.write_text(json.dumps(loaded))
+    return landing_of(shell, config, tmp_path)
+
+
+def trunk_posts(shell: FakeShell) -> list[tuple[str, str, str]]:
+    return [(post["kind"], post["to"], post["text"]) for post in shell.posts if post["topic"] == "dev-red"]
+
+
+def bus_trunk(shell: FakeShell, lane: str, kind: str, text: str, pr: str = "") -> None:
+    refs = {"prs": [f"Forge-AI/monorepo#{pr}"]} if pr else {}
+    shell.records.append({"seq": 9000 + len(shell.records), "drive": "d1", "lane": lane, "kind": kind, "topic": "dev-red", "to": ["root"], "refs": refs, "text": text, "at": actions.stamp(shell.clock)})
+
+
+@pytest.mark.parametrize(
+    ("history", "since", "pr"),
+    [
+        ([("b", "FAILURE", "29019"), ("a", "SUCCESS", "29018")], "b", "29019"),
+        ([("d", None, "29023"), ("c", "PENDING", "29022"), ("b", "ERROR", "29019"), ("e", "FAILURE", "29017"), ("a", "SUCCESS", "29016")], "e", "29017"),
+        ([("b", "PENDING", "29019"), ("a", "SUCCESS", "29018"), ("e", "FAILURE", "29017")], None, None),
+    ],
+)
+def test_the_trunk_red_run_starts_at_its_oldest_failed_commit_and_skips_unfinished_ones(history, since, pr):
+    red = runner_module.trunk_red([trunk_commit(sha, state, number, "2026-10-01T17:50:00Z") for sha, state, number in history], TRUNK_CHECK)
+    assert (red.since[0], red.pr) == (since, pr) if since else red is None
+
+
+def test_a_red_trunk_posts_dev_red_every_half_hour_and_bars_every_row_but_its_fix(shell, config, tmp_path):
+    landing = trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    assert landing.watch_trunk(OPEN_ROWS) == {"29020", "29021"}
+    landing.watch_trunk(OPEN_ROWS)
+    shell.clock += timedelta(minutes=30)
+    bus_trunk(shell, "fix-dev", "opened", "opened #29021", pr="29021")
+    assert landing.watch_trunk(OPEN_ROWS) == {"29020"}
+
+    red = "DEV-RED since 10:50 AM: dev's buildkite/test is red on https://buildkite.com/forge/test/builds/29019, first red at bbbbbbbbbb, landed by #29019. No PR can land until this is fixed; "
+    assert trunk_posts(shell) == [
+        ("incident", "root,drive-watchdog", red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
+        ("incident", "root,drive-watchdog", red + "nothing lands until #29021 fixes it."),
+    ]
+
+
+def test_a_trunk_green_again_posts_dev_green_once_and_bars_nothing(shell, config, tmp_path):
+    landing = trunk_watch(shell, config, tmp_path)
+    bus_trunk(shell, "desk-runner", "incident", "DEV-RED since 10:50 AM: dev's buildkite/test is red. No PR can land until this is fixed.")
+    shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z")]
+
+    assert landing.watch_trunk(OPEN_ROWS) == set()
+    bus_trunk(shell, "desk-runner", "report", trunk_posts(shell)[0][2])
+    assert landing.watch_trunk(OPEN_ROWS) == set()
+
+    assert trunk_posts(shell) == [("report", "root,drive-watchdog", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]

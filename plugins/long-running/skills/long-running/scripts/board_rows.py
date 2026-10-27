@@ -41,6 +41,12 @@ Two `pr-groups` rows in different groups whose titles share more than half the w
 title, counting words of four letters or more, both fail with `alike`: he reads them as duplicates
 (root #138624), so they belong in one group with titles that name each piece.
 
+While the landing runner's newest record on the `dev-red` cci topic reads DEV-RED, every tap row
+but the one for the PR a record there names as dev's fix is withheld, with one `WITHHELD` line and
+none of its reasons: the push form drops it from the copy it pushes, drops a group it empties, and
+opens each `pr-groups` block's prompt with one line, `dev's test build is red since <time>; nothing
+lands until #<fix> fixes it.` A topic that does not read prints a `WARN` line and withholds nothing.
+
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
 list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
@@ -161,6 +167,7 @@ class Row:
     required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    withheld: str = ""
 
 
 @dataclass(frozen=True)
@@ -560,7 +567,32 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
         elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, reviews, drive, lanes, repo)):
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"unapproved: listed under {block_id} with {' and '.join(missing)} at GitHub's head {pull.head[:7]}"]))
+    try:
+        trunk = cci.trunk(cci.records(tail(shell), drive, f"--topic={cci.TRUNK_TOPIC}"))
+    except ReadFailed as failed:
+        trunk = cci.Trunk(False, "", "")
+        warnings.append(f"WARN dev's state did not read ({failed}); no row is withheld for a red dev")
+    if trunk.blocked:
+        banner = f"dev's test build is red since {trunk.since}; nothing lands until {f'#{trunk.fix}' if trunk.fix else 'its fix'} fixes it."
+        taps = {row.id for row in rows_of(block)}
+        for row in rows:
+            if row.id in taps and row.pr != trunk.fix:
+                row.reasons, row.withheld = [], banner
     return rows, found, warnings
+
+
+def held_back(node: object, prs: set[str], banner: str) -> object:
+    """`node` without the tap rows of `prs`, or a group they empty, each `pr-groups` prompt opened with `banner`."""
+    if isinstance(node, dict):
+        if node.get("type") == PR_GROUPS:
+            groups = [dict(group, prs=[pr for pr in group.get("prs", []) if str(pr["number"]) not in prs]) for group in node.get("groups", [])]
+            return dict(node, prompt=f"{banner} {node.get('prompt', '')}".strip(), groups=[group for group in groups if group["prs"]])
+        if node.get("type") == "triage":
+            return dict(node, items=[item for item in node.get("items", []) if not ((named := ROW_ID.match(item.get("id", ""))) and named["pr"] in prs)])
+        return {key: held_back(value, prs, banner) for key, value in node.items()}
+    if isinstance(node, list):
+        return [held_back(value, prs, banner) for value in node]
+    return node
 
 
 def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], withdrawn: set[int], reviews: list[dict], drive: str, lanes: list[str], repo: str) -> list[str]:
@@ -590,6 +622,9 @@ def report(rows: list[Row], found: list[dict], warnings: list[str], as_json: boo
     for row in rows:
         if row.reasons:
             print(f"{row.id} {row.pr} {row.head or '-'} {'; '.join(row.reasons)}")
+    for row in rows:
+        if row.withheld:
+            print(f"WITHHELD {row.id} {row.pr} {row.head or '-'} {row.withheld}")
     for row in rows:
         if row.warnings:
             print(f"WARN {row.id} {row.pr} {row.head} {'; '.join(row.warnings)}")
@@ -628,8 +663,10 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
         return 1
     if args.check:
         return 0
+    withheld = {row.pr: row.withheld for row in rows if row.withheld}
+    shown = held_back(block, set(withheld), next(iter(withheld.values()))) if withheld else block
     with tempfile.NamedTemporaryFile("w", prefix=f"{args.block.stem}.", suffix=".json") as copy:
-        json.dump(stripped(block), copy, indent=1)
+        json.dump(stripped(shown), copy, indent=1)
         copy.flush()
         return shell.push([*command, copy.name])
 

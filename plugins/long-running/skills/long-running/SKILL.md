@@ -1591,6 +1591,21 @@ lists it. Comms posts each batch, then records it with `ledger.py progress --led
 entry with an artifact lists logs one `BATCH-POST-OWED` report per set of PRs beside
 its `MERGE-ASK`, and a new head on one of them does not post it again.
 
+A red trunk is an incident from its first red build, never a label (owner, 12:06 AM Oct
+27: "this si the kiond of thing that should ahve been caight way earlier but fix it now").
+With `"trunk_check": "buildkite/test"` in `landing`, every landing pass reads that status
+over the trunk's last 50 commits. A red run whose failed jobs include one a PR build also
+runs posts a `DEV-RED since <time>` incident to root and drive-watchdog on the `dev-red`
+topic, naming the jobs, the first red commit and the PR that landed it, saying no PR can
+land until it is fixed, again every 30 minutes while red; the pass bars every row but the
+fix. A run whose failed jobs no PR build runs posts `POST-MERGE-RED`: landing continues
+and a fix is owed. `DEV-GREEN` posts once when it passes. The fix lane names its PR with
+`cci post --topic dev-red --pr <n>`. While DEV-RED stands, `board_rows.py` withholds every
+tap row but the fix and opens the merge card's prompt with `dev's test build is red since
+<time>; nothing lands until #<fix> fixes it.`, and the pack refuses a READY report or a
+root ruling that calls a head "green except" a job, a job "known red", or a trunk "red by
+design".
+
 A green head whose only passing build is Graphite's "Redundant within its stack" skip
 is not ready. With `landing.ci_build` set, as in
 `"ci_build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"`, the runner reads

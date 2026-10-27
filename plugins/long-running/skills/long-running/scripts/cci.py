@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 
 PAGE_BYTES = 16000
 CLAIM_KINDS = ("opened", "head")
@@ -20,6 +21,19 @@ SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\b")
 TEXT_KINDS = ("report", "incident", "state")
 REPORT_VERDICTS = ("clean", "red", "conflicting", "held")
 SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down", "done"})
+TRUNK_TOPIC = "dev-red"
+TRUNK_RUNNER = "desk-runner"
+TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b(?: since (?P<since>\d{1,2}:\d{2} [AP]M))?")
+NAMED_PR = re.compile(r"#(\d+)\b")
+
+
+@dataclass(frozen=True)
+class Trunk:
+    """The trunk's landing state the runner last posted on the `dev-red` topic: `blocked` while a required landing job is red, since the Pacific time its first red commit landed, and the PR named as its fix, or empty."""
+
+    blocked: bool
+    since: str
+    fix: str
 
 
 def lane_report(record: dict) -> bool:
@@ -74,3 +88,19 @@ def answers_mechanism(record: dict) -> set[str]:
         return set()
     addressed = {f"lane:{lane}" for lane in record.get("to") or []} if root and kind in ROOT_RULINGS else set()
     return incident_keys(record) | addressed | ({f"seq:{record['re']}"} if record.get("re") else set())
+
+
+def trunk(records: list[dict]) -> Trunk:
+    """The trunk's state from the records on the `dev-red` topic: the landing runner's newest DEV-RED, POST-MERGE-RED, or DEV-GREEN record sets it, and the fix is the PR that the newest record by any other lane names after the runner's last DEV-GREEN, an incident record excepted."""
+    states = [(record, found) for record in records if record["lane"] == TRUNK_RUNNER and (found := TRUNK_STATE.match(record.get("text") or ""))]
+    if not states or states[-1][1]["state"] == "DEV-GREEN":
+        return Trunk(False, "", "")
+    green = max((record["seq"] for record, found in states if found["state"] == "DEV-GREEN"), default=0)
+    fixes = [pr for record in records if record["seq"] > green and record["lane"] != TRUNK_RUNNER and record["kind"] != "incident" and (pr := named_pr(record))]
+    newest = states[-1][1]
+    return Trunk(newest["state"] == "DEV-RED", newest["since"] or "", fixes[-1] if fixes else "")
+
+
+def named_pr(record: dict) -> str:
+    refs = [str(ref).rsplit("#", 1)[-1] for ref in record["refs"].get("prs", [])]
+    return next(iter([*refs, *NAMED_PR.findall(record.get("text") or "")]), "")

@@ -9,7 +9,7 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, script, script_module
 from .register_injection import INCIDENT_NAME
 from .session_tree import nearest_name
 
@@ -30,6 +30,8 @@ PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?"
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 CHECK_PR_TIMEOUT_SECONDS = 60
+GREEN_EXCEPT = re.compile(r"\bgreen (?:except|apart from|other than|save for|but for)\b|\bknown[- ]red\b|\bred[- ]by[- ]design\b|\bdesign[- ]red\b", re.IGNORECASE)
+GRADED_KINDS = frozenset({"report", "ready", "head", "go", "decide", "decision"})
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 ACTIVE = [CompactionState(active=True)]
@@ -52,6 +54,11 @@ INCIDENT_RULINGS_REFUSAL = (
     "#{pr} {head}: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the incident fix, so lane `{lane}` may not merge it until they clear (45200f2): {causes}. "
     "Fix each one and push, then merge the new head."
 )
+GREEN_EXCEPT_REFUSAL = (
+    "`{phrase}` reads as red: a head with a failing required job is not green, however well known the job, and a red trunk is never red by design. {trunk}"
+    "Report READY only once every required job on the head passes; a job that fails because dev is red waits for dev's fix."
+)
+TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix} fixes it. "
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
@@ -385,3 +392,57 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
         return None
     verb = next((verb for call in evt.cmd.calls() if (verb := mq_verb(call))), None)
     return evt.block(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+
+
+def option(args: tuple[str, ...], name: str) -> list[str]:
+    return [value for flag, value in zip(args, args[1:], strict=False) if flag == name] + [arg.split("=", 1)[1] for arg in args if arg.startswith(f"{name}=")]
+
+
+def green_except(call: Call) -> str | None:
+    """The phrase in a lane's READY report or a root ruling that grades a red head green: `ledger.py report`'s text, or a `cci post` text of a kind that grades or rules on a head."""
+    run = program((call.name, *call.args))
+    if not run:
+        return None
+    name, args = Path(run[0]).name, run[1:]
+    if name == "ledger.py" and "report" in args:
+        texts = option(args, "--text")
+    elif name == "cci" and args[:1] == ("post",) and set(option(args, "--kind")) & GRADED_KINDS:
+        texts = option(args, "--text")
+    else:
+        return None
+    return next((found[0] for text in texts if (found := GREEN_EXCEPT.search(text))), None)
+
+
+def trunk_clause(entry: dict) -> str:
+    """The sentence naming dev's red build and its fix while the landing runner's newest `dev-red` record bars landing; empty when it does not, or the records do not read."""
+    cci = script_module("cci")
+
+    def tail(argv: list[str]) -> str:
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return done.stdout if done.returncode == 0 else ""
+
+    trunk = cci.trunk(cci.records(tail, bus_name(entry), f"--topic={cci.TRUNK_TOPIC}"))
+    return TRUNK_BLOCKED.format(since=trunk.since, fix=f"#{trunk.fix}" if trunk.fix else "its fix PR") if trunk.blocked else ""
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green except the known red'", env=DRIVE_ENV): Block(pattern=r"^`green except` reads as red"),
+        Input(command="python3 ledger.py -C ~/m report --pr 43163 --text 'READY: green apart from the known publish job'", env=DRIVE_ENV): Block(pattern=r"`green apart from`"),
+        Input(command="cci post --drive d --lane root --kind decide --text 'dev is design red; land on'", env=DRIVE_ENV): Block(pattern=r"`design red`"),
+        Input(command="cci post --drive d --lane x --kind=report --text='READY #43163: known-red test job only'", env=DRIVE_ENV): Block(pattern=r"`known-red`"),
+        Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green on build 82560'", env=DRIVE_ENV): Allow(),
+        Input(command="cci post --drive d --lane x --kind note --text 'retro: lanes graded green except the known red by hand'", env=DRIVE_ENV): Allow(),
+        Input(command="ledger.py report --pr 43163 --text 'READY CI green except the known red'"): Allow(),
+    },
+)
+def green_except_is_red(evt: BaseHookEvent) -> HookResult | None:
+    if (entry := drive_entry(evt)) is None:
+        return None
+    phrase = next((found for call in evt.cmd.calls() if (found := green_except(call))), None)
+    return evt.block(GREEN_EXCEPT_REFUSAL.format(phrase=phrase, trunk=trunk_clause(entry))) if phrase else None

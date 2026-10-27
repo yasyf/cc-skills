@@ -404,6 +404,17 @@ names over the last two days. With `landing.ci_grade` set to a command that star
 `{branch}` in `{pipeline}` and prints its JSON, a head no tip build covers or is still building gets that build on a
 `ci-grade/<pr>` branch, started once per head, and is GREEN once it passes; a failed start logs `CI-GRADE-FAILED` once
 per head. A `BATCH-POST-OWED` posts once per set of PRs.
+With `landing.trunk_check` set to the trunk's required status context, such as `buildkite/test`, every landing pass reads
+that context over the trunk's last 50 commits in one GraphQL query and posts the trunk's state on the `dev-red` cci topic
+to root and drive-watchdog. A red run, skipping commits whose check has not finished, names its first red commit, the PR
+its squash subject names, the newest red build and, through `landing.ci_build`, its failed jobs. When a failed job is one
+a PR build of that pipeline also runs, read from the newest open row's finished build, or no PR build reads, the record is
+an `incident` reading `DEV-RED since <time>: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`, and
+the pass bars every open row but the fix from every check and enqueue. When every failed job is one no PR build runs, it is
+a `report` reading `POST-MERGE-RED since <time>: … Landing continues; a fix is owed`, and nothing is barred. Either posts
+the pass it is first read and again every 30 minutes while red; `DEV-GREEN` posts once when the check passes again. The
+fix is the PR the newest record on the topic by any other lane names, an incident excepted, since the last `DEV-GREEN`:
+`cci post --topic dev-red --pr <n>`. A trunk that does not read logs `TRUNK-READ-FAILED` once an hour and gates as green.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
 checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
 among every missing member.
@@ -584,6 +595,11 @@ DEFERRED = "deferred-escalations"
 POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
+TRUNK_DEPTH = 50
+TRUNK_RED_EVERY = timedelta(minutes=30)
+TRUNK_TO = f"{ROOT},{WATCHDOG}"
+FINISHED_STATES = frozenset({"SUCCESS", "FAILURE", "ERROR"})
+SQUASHED_PR = re.compile(r"\(#(\d+)\)$")
 CARD_ROLLUP = 50
 CARD_REFS = 10
 CARD_DETAIL = 200
@@ -3841,6 +3857,34 @@ def heads_query(repo: str, shas: list[str]) -> str:
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
+def trunk_query(repo: str) -> str:
+    owner, name = repo.split("/")
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ ref(qualifiedName: "refs/heads/{TRUNK}") {{ target {{ ... on Commit {{ history(first: {TRUNK_DEPTH}) {{ nodes {{ oid committedDate message status {{ contexts {{ context state targetUrl }} }} }} }} }} }} }} }} }}'
+
+
+@dataclass(frozen=True)
+class TrunkRed:
+    since: str
+    at: datetime
+    pr: str
+    build: str
+
+
+def trunk_red(history: list[dict], check: str) -> TrunkRed | None:
+    """The trunk's newest unbroken run of failed `check` statuses, newest first, skipping commits whose `check` has not finished: its oldest commit, when that commit landed, the PR its squash subject names, and the newest red build; None when the newest finished `check` passed."""
+    finished = [(commit, context) for commit in history for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES]
+    run = list(itertools.takewhile(lambda pair: pair[1]["state"] != "SUCCESS", finished))
+    if not run:
+        return None
+    first = run[-1][0]
+    landed = SQUASHED_PR.search(first["message"].splitlines()[0])
+    return TrunkRed(first["oid"], datetime.fromisoformat(first["committedDate"]), landed[1] if landed else "", run[0][1]["targetUrl"])
+
+
+def failed_steps(build: dict) -> list[str]:
+    return sorted({job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")})
+
+
 def same_head(one: str, other: str) -> bool:
     return one.startswith(other) or other.startswith(one)
 
@@ -4273,6 +4317,47 @@ class Landing:
             statuses = json.loads(done.out)["statuses"]
             self.builds_read[sha] = [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
         return self.builds_read[sha]
+
+    def watch_trunk(self, rows: dict[str, dict]) -> set[str]:
+        """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. Returns the open rows DEV-RED bars from every check and enqueue: all but the PR a record on the topic names as its fix."""
+        if not (check := self.landing_config.get("trunk_check")):
+            return set()
+        done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
+        if done.code != 0:
+            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+            self.runner.escalate(f"trunk-read:{self.runner.now():%Y%m%d%H}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {last[0]}; this pass gates as though {TRUNK} were green")
+            return set()
+        posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
+        red = trunk_red(json.loads(done.out)["data"]["repository"]["ref"]["target"]["history"]["nodes"], check)
+        if red is None:
+            if posted.since:
+                self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", TRUNK_TO, cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
+            return set()
+        build = self.build(red.build) if self.landing_config.get("ci_build") else None
+        jobs = failed_steps(build) if build else []
+        landing = self.landing_steps(BUILD_URL.search(red.build)["pipeline"], rows) if jobs else None
+        blocking = landing is None or bool(set(jobs) & landing)
+        since = red.at.astimezone(PACIFIC).strftime("%-I:%M %p")
+        failing = f"fails {', '.join(jobs)} on {red.build}" if jobs else f"is red on {red.build}"
+        origin = f"first red at {red.since[:10]}, landed by #{red.pr}" if red.pr else f"first red at {red.since[:10]}"
+        bucket = int((self.runner.now() - red.at) / TRUNK_RED_EVERY)
+        if blocking:
+            fix = f"nothing lands until #{posted.fix} fixes it" if posted.fix else "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
+            text = f"DEV-RED since {since}: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
+            self.runner.cci_post("incident", text, TRUNK_TO, cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
+            return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and pr != posted.fix}
+        owed = f"#{posted.fix} fixes it" if posted.fix else "name the fix with `cci post --topic dev-red --pr <n>`"
+        text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
+        self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
+        return set()
+
+    def landing_steps(self, pipeline: str, rows: dict[str, dict]) -> set[str] | None:
+        """The jobs a PR build of `pipeline` runs, from the newest open row whose head has a finished full build of it; None when no such build reads."""
+        for pr in sorted((pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")), key=int, reverse=True):
+            for url, state, skip in self.ci_builds(rows[pr]["head"]) or []:
+                if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline and (build := self.build(url)):
+                    return {job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script"}
+        return None
 
     def build(self, url: str) -> dict | None:
         """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
@@ -5749,6 +5834,7 @@ class Landing:
         rows = self.rows()
         if rows is None:
             return
+        trunk_barred = self.watch_trunk(rows)
         if self.status_card:
             self.draw_card(rows)
         entries = holds.read(self.holds)
@@ -5759,7 +5845,7 @@ class Landing:
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows)
-        barred = sorted({*(held or []), *self.no_go}, key=int)
+        barred = sorted({*(held or []), *self.no_go, *trunk_barred}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()

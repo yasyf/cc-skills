@@ -47,10 +47,15 @@ class FakeShell(board_rows.Shell):
         kinds = [arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")]
         lanes = [argv[at + 1] for at, arg in enumerate(argv) if arg == "--lane"]
         pr = argv[argv.index("--pr") + 1] if "--pr" in argv else None
+        topics = [arg.split("=", 1)[1] for arg in argv if arg.startswith("--topic=")]
         return [
             record
             for record in self.records
-            if record["seq"] > since and (not kinds or record["kind"] in kinds) and (not lanes or record["lane"] in lanes) and (pr is None or pr in record["refs"].get("prs", []))
+            if record["seq"] > since
+            and (not kinds or record["kind"] in kinds)
+            and (not lanes or record["lane"] in lanes)
+            and (pr is None or pr in record["refs"].get("prs", []))
+            and (not topics or record.get("topic") in topics)
         ]
 
     def push(self, argv: list[str]) -> int:
@@ -67,11 +72,15 @@ class FakeShell(board_rows.Shell):
     def pull(self, pr: str, head: str = HEAD, state: str = "OPEN", committed: str = COMMITTED) -> None:
         self.pulls[pr] = {"state": state, "headRefOid": head, "commits": {"nodes": [{"commit": {"committedDate": committed}}]}}
 
-    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE) -> int:
+    def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE, topic: str = "") -> int:
         seq = len(self.records) + 1
         refs = {"prs": [f"{REPO}#{pr}"]} if pr else {}
-        self.records.append({"seq": seq, "drive": drive, "kind": kind, "lane": lane, "text": text, "refs": refs | ({"path": path} if path else {})})
+        self.records.append({"seq": seq, "drive": drive, "kind": kind, "lane": lane, "text": text, "topic": topic, "refs": refs | ({"path": path} if path else {})})
         return seq
+
+    def trunk(self, *texts: str) -> None:
+        for text in texts:
+            self.post("incident" if text.startswith("DEV-RED") else "report", "desk-runner", text, topic="dev-red")
 
     def graded(self, pr: str, head: str = HEAD) -> None:
         self.post("review", "fidelity-desk", f"fidelity: ok {head[:7]} checked rule/1", pr)
@@ -536,3 +545,30 @@ def test_a_row_root_go_d_at_its_head_passes_when_its_carried_list_names_his_appr
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"carried": carried}), "--check") == failing
+
+
+RED = "DEV-RED since 12:03 AM: dev's buildkite/test fails lint on build 1. No PR can land until this is fixed."
+
+
+def test_a_red_dev_withholds_every_tap_row_but_its_fix_and_banners_the_card(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("42591")
+    shell.graded("42591")
+    shell.trunk(RED)
+    shell.post("opened", "fix-dev", "opened #42591", pr="42591", topic="dev-red")
+
+    assert gate(tmp_path, shell, groups(pr_row("42590", review=""), pr_row("42591")), "--", "cc-present", "update-block") == 0
+
+    banner = "dev's test build is red since 12:03 AM; nothing lands until #42591 fixes it."
+    assert f"WITHHELD 42590 42590 {HEAD[:7]} {banner}" in lines(capsys)
+    pushed = shell.pushed[0][1]["children"][0]
+    assert pushed["prompt"] == banner
+    assert [row["number"] for group in pushed["groups"] for row in group["prs"]] == [42591]
+
+
+@pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 12:03 AM."], ["POST-MERGE-RED since 12:03 AM: dev's buildkite/test fails publish on build 1. Landing continues."]])
+def test_a_green_or_post_merge_red_dev_withholds_nothing(tmp_path: Path, shell: FakeShell, posted: list[str]) -> None:
+    shell.trunk(*posted)
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
+
+    assert [row["number"] for group in shell.pushed[0][1]["children"][0]["groups"] for row in group["prs"]] == [42590]

@@ -40,7 +40,7 @@ Loop, forever, in the foreground:
   printed, then rerun. Run it as the Bash call itself and never filter or discard
   its output: the `MAILBOX` text is your only copy of that mail.
 
-For every record, judge six things:
+For every record, judge seven things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
@@ -54,6 +54,11 @@ For every record, judge six things:
       shows each desk runner's newest `<desk> alive <time> pass <n>` record. One
       older than 10 minutes, or a `blocker` from desk-runner saying a pass raised,
       goes to root at once with the desk's heartbeat restart line.
+  (g) RED TRUNK: the landing runner's newest `dev-red` record (`cci tail --drive
+      <drive> --topic dev-red -n 5`) reads DEV-RED and no record there names a
+      fix PR within 15 minutes, or any record calls a red trunk or a failing job
+      "known", "red by design", or "green except" it: that red blocks landing and
+      is an incident until its fix lands, never a label.
 
 For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \
