@@ -709,6 +709,7 @@ ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
+SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
 LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
@@ -1031,6 +1032,11 @@ def lane_aliases(lane: str) -> tuple[str, str]:
     """The names one incident lane posts under: the desk launches `<name>-fix`, and its lane may post as `<name>`."""
     base = lane.removesuffix(FIX_ALIAS)
     return base, f"{base}{FIX_ALIAS}"
+
+
+def successors(lane: str) -> re.Pattern[str]:
+    """The names a lane and its numbered successors take after rotations: `fidelity-desk`, `fidelity-desk-3`, `register-seed-5-5`."""
+    return re.compile(rf"{re.escape(SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
 
 
 def pr_family(lane: str) -> str:
@@ -4270,6 +4276,7 @@ class Landing:
         self.unchecked: set[str] = set()
         self.unproven_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
+        self.live: list[dict] | None = None
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
@@ -4896,6 +4903,10 @@ class Landing:
         return [configured] if isinstance(configured, str) else list(configured)
 
     @property
+    def fidelity_to(self) -> list[str]:
+        return list(dict.fromkeys(map(self.successor, self.fidelity_lanes)))
+
+    @property
     def fidelity_names(self) -> str:
         return " or ".join(self.fidelity_lanes)
 
@@ -5034,9 +5045,9 @@ class Landing:
             owner = self.owner(pr, rows[pr])
             if grade.record and grade.record["text"].startswith(FIDELITY_MISSING) and not owner_grounded(grade.record["text"]):
                 grounds = missing_grounds(grade.record["text"]) or "nothing"
-                self.post_blocker(key, ",".join([ROOT, *self.fidelity_lanes]), f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why} | it rests on `{grounds}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board", pr)
+                self.post_blocker(key, ",".join([ROOT, *self.fidelity_to]), f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why} | it rests on `{grounds}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board", pr)
                 continue
-            to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_lanes])
+            to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_to])
             self.post_blocker(key, to, f"{self.dead_note(owner)}#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
@@ -5265,7 +5276,7 @@ class Landing:
                 continue
             why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
             text = f"OLD-APP-PENDING #{pr}, and the head is not held for it: {why}"
-            self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_lanes)
+            self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_to)
         return {}
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
@@ -5638,7 +5649,7 @@ class Landing:
         for pr, sha in heads.items():
             if (now := self.current_head(pr)) and not now.startswith(sha):
                 text = f"QUEUED-AT-NEW-HEAD #{pr}: the gate graded {sha[:10]} and the queue took {now[:10]}, pushed while the enqueue ran; grade {now[:10]}"
-                self.post_record("note", f"queued-head:{pr}:{now[:10]}", ",".join([ROOT, *self.fidelity_lanes]), text, pr)
+                self.post_record("note", f"queued-head:{pr}:{now[:10]}", ",".join([ROOT, *self.fidelity_to]), text, pr)
                 moved.append(text)
         return moved
 
@@ -6334,7 +6345,7 @@ class Landing:
         return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
 
     def owner(self, pr: str, row: dict) -> str:
-        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's claims left out, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
+        """The lane that owns `pr` now, read as its live `successor`: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's claims left out, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
         posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
         claims = [
@@ -6344,7 +6355,8 @@ class Landing:
         ]
         claims += [record for record in self.claims() if record["drive"] == drive and record["kind"] == "claim" and not root_claim(record) and pr in claimed_prs(record, self.repo)]
         newest = max(claims, key=lambda record: record["seq"], default=None)
-        return newest["lane"] if newest else row.get("lane", "")
+        lane = newest["lane"] if newest else row.get("lane", "")
+        return self.successor(lane) if lane else lane
 
     def claims(self) -> list[dict]:
         """The drive's `claim` records, from one scan a pass, so a claim that names its PRs only in its text still moves them."""
@@ -6354,7 +6366,8 @@ class Landing:
         return self.claims_read
 
     def reach(self, lane: str) -> list[str]:
-        """Who a blocker for `lane` goes to: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
+        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
+        lane = self.successor(lane)
         if self.session_live(lane):
             return [lane]
         return [ROOT] if self.lane_dead(lane) else [lane, ROOT]
@@ -6382,6 +6395,19 @@ class Landing:
                 raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
             self.sessions[lane] = done.code == 0 and bool(done.out.strip())
         return self.sessions[lane]
+
+    def successor(self, lane: str) -> str:
+        """`lane` while `cci who` lists a live session for it, else the newest live lane of its `successors`, so mail for a rotated lane reaches the one holding its work; `lane` when none is live."""
+        if self.session_live(lane):
+            return lane
+        if self.live is None:
+            done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--json"])
+            if done.code not in (0, TIMED_OUT):
+                raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            self.live = [entry for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("live")] if done.code == 0 else []
+        family = successors(lane)
+        found = [entry for entry in self.live if family.fullmatch(entry.get("lane") or "")]
+        return max(found, key=lambda entry: entry["announced_at"])["lane"] if found else lane
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
@@ -6511,7 +6537,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.sessions, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}
+        self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why = None, False, None, None, None, set(), {}
         if self.quota_low():

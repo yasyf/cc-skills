@@ -46,8 +46,7 @@ class Root:
         argv = tuple(str(arg) for arg in args)
         self.calls.append(argv)
         if argv[:2] == ("cci", "who"):
-            lane = option(argv, "--lane")
-            outcome = json.dumps({"lane": lane, "live": True}) if lane in self.live else ""
+            outcome = "".join(json.dumps({"lane": lane, "live": True, "announced_at": f"2026-10-27T{hour:02d}:00:00Z"}) + "\n" for hour, lane in enumerate(sorted(self.live)))
         else:
             outcome = self.rows if argv[: len(ROWS.split())] == tuple(ROWS.split()) else "#1"
         code, out, err = (0, outcome, "") if isinstance(outcome, str) else (outcome[0], "", outcome[1])
@@ -100,13 +99,15 @@ def option(call: tuple[str, ...], name: str) -> str:
     [
         ({}, set(), "root", ""),
         ({"register_lane": "register-desk"}, {"register-desk"}, "register-desk", ""),
+        ({"register_lane": "register-desk-5"}, {"register-desk-5-5", "register-desk-6", "register-desks"}, "register-desk-6", ""),
+        ({"register_lane": "register-desk"}, {"register-desk", "register-desk-2"}, "register-desk", ""),
         (
             {"register_lane": "register-desk"},
             set(),
             "root",
             (
-                " `cci who` does not list the register lane `register-desk`, so this blocker goes to the root:"
-                " resume the register lane register-desk by SendMessage with this capture."
+                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the root:"
+                " relaunch the register lane as its next numbered successor from its brief to classify this capture."
             ),
         ),
     ],
@@ -140,8 +141,8 @@ def test_an_unclassified_owner_capture_posts_one_blocker_to_a_running_register_l
             set(),
             "root",
             (
-                " `cci who` does not list the register lane `register-desk`, so this blocker goes to the root:"
-                " resume the register lane register-desk by SendMessage with these captures."
+                " `cci who` lists no live register lane `register-desk` nor a numbered successor of it, so this blocker goes to the root:"
+                " relaunch the register lane as its next numbered successor from its brief to classify these captures."
             ),
         ),
     ],

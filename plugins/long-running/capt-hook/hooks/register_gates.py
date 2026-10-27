@@ -80,7 +80,8 @@ UNCLASSIFIED_BATCH = (
 )
 BATCH_ENTRY = '{digest} ({at}) "{excerpt}"'
 BATCH_EXCERPT = 80
-REGISTER_LANE_GONE = " `cci who` does not list the register lane `{lane}`, so this blocker goes to the root: resume the register lane {lane} by SendMessage with {these}."
+REGISTER_LANE_GONE = " `cci who` lists no live register lane `{lane}` nor a numbered successor of it, so this blocker goes to the root: relaunch the register lane as its next numbered successor from its brief to classify {these}."
+SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 READ_FAILED = "{hook} could not read the register ({cause}) and passed the call; it passes every call it gates until the read works."
 UNQUOTED = (
     "An owner question is open and this reply or brief touches it without quoting it. Quote its words, sentence and rows below,"
@@ -172,22 +173,30 @@ def register_lane(evt: BaseHookEvent) -> str | None:
     return entry.get("register_lane") if entry else None
 
 
-def lane_live(evt: BaseHookEvent, lane: str) -> bool:
+def live_successor(evt: BaseHookEvent, lane: str) -> str | None:
+    """`lane` while `cci who` lists it live, else its newest live numbered successor (`register-seed-5` to `register-seed-6`), else None."""
     if not (entry := drive_entry(evt)):
-        return False
-    argv = ["cci", "who", "--drive", bus_name(entry), "--lane", lane, "--json"]
+        return None
+    argv = ["cci", "who", "--drive", bus_name(entry), "--json"]
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
     except (OSError, subprocess.TimeoutExpired):
-        return False
-    return done.returncode == 0 and bool(done.stdout.strip())
+        return None
+    if done.returncode:
+        return None
+    live = [entry for line in done.stdout.splitlines() if line.strip() and (entry := json.loads(line)).get("live")]
+    if any(entry.get("lane") == lane for entry in live):
+        return lane
+    family = re.compile(rf"{re.escape(SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
+    found = [entry for entry in live if family.fullmatch(entry.get("lane") or "")]
+    return max(found, key=lambda entry: entry["announced_at"])["lane"] if found else None
 
 
 def unclassified_route(evt: BaseHookEvent, count: int) -> tuple[str, str]:
     if not (lane := register_lane(evt)):
         return ROOT_LANE, ""
-    if lane_live(evt, lane):
-        return lane, ""
+    if live := live_successor(evt, lane):
+        return live, ""
     return ROOT_LANE, REGISTER_LANE_GONE.format(lane=lane, these="these captures" if count > 1 else "this capture")
 
 
