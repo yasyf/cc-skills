@@ -68,6 +68,7 @@ class CheckShell(RegisterShell):
         self,
         rows: dict[str, dict[str, str]],
         body: str = CLEAN,
+        comments: tuple[str, ...] = (),
         diff: str = DIFF,
         records: list[dict] | None = None,
         reviews: list[dict] | None = None,
@@ -79,6 +80,7 @@ class CheckShell(RegisterShell):
         stamp = stamp or current_stamp(rows, plan)
         super().__init__(rows, answers=answers, diff=diff, records=[read_back(stamp)])
         self.body = body
+        self.comments = comments
         self.pr_records = [LANE_HEAD, FINDER_OK] if records is None else records
         self.reviews = [graded(stamp)] if reviews is None else reviews
         self.failing = failing
@@ -87,8 +89,8 @@ class CheckShell(RegisterShell):
         if any(" ".join(argv).startswith(prefix) for prefix in self.failing):
             raise subprocess.CalledProcessError(1, argv)
         match argv:
-            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName"]:
-                return json.dumps({"body": self.body, "baseRefName": "main"})
+            case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName,comments"]:
+                return json.dumps({"body": self.body, "baseRefName": "main", "comments": [{"body": comment} for comment in self.comments]})
             case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
             case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--kind", "review"]:
@@ -133,6 +135,9 @@ def check(capsys: pytest.CaptureFixture[str], shell: ledger.Shell, *extra: str) 
     return code, out.splitlines()
 
 
+UNCITED = "RULINGS-UNCITED rule/bbbbbbb\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)"
+
+
 def test_a_head_that_breaks_nothing_prints_nothing_and_exits_zero(package: Path, state: Path, registered: Path, capsys) -> None:
     assert check(capsys, CheckShell(pinned(package))) == (0, [])
 
@@ -140,8 +145,14 @@ def test_a_head_that_breaks_nothing_prints_nothing_and_exits_zero(package: Path,
 def test_an_anchored_row_the_diff_touches_needs_a_rulings_line(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CheckShell(pinned(package), body=uncited)) == (1, ["RULINGS-UNCITED rule/bbbbbbb"])
+    assert check(capsys, CheckShell(pinned(package), body=uncited)) == (1, [UNCITED])
     assert check(capsys, CheckShell(pinned(package), body=uncited.replace("- ccccccc:", "- rule/bbbbbbb:"))) == (0, [])
+
+
+def test_a_rulings_line_in_a_pr_comment_cites_the_row(package: Path, state: Path, registered: Path, capsys) -> None:
+    uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
+
+    assert check(capsys, CheckShell(pinned(package), body=uncited, comments=("Second-model review: ok.", "## Rulings\n\n- bbbbbbb: Drain the pool when a run closes."))) == (0, [])
 
 
 def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -285,7 +296,7 @@ def test_an_unreadable_plan_file_is_a_blocker_beside_every_other_finding(package
     code, lines = check(capsys, CheckShell(pinned(package), body=uncited, diff=DIFF + TEST_DIFF, stamp="0" * 12), "--plan", str(plan))
 
     assert code == 1
-    assert lines[0] == "RULINGS-UNCITED rule/bbbbbbb"
+    assert lines[0] == UNCITED
     assert any(line.startswith("BLOCKER the removed tests: ") for line in lines[1:])
 
 
@@ -452,7 +463,7 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
 def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CheckShell(pinned(package), body=uncited), "--repo", "/second-repo") == (1, ["RULINGS-UNCITED rule/bbbbbbb"])
+    assert check(capsys, CheckShell(pinned(package), body=uncited), "--repo", "/second-repo") == (1, [UNCITED])
 
 
 def test_no_drive_running_the_program_passes_with_one_blocker(package: Path, state: Path, capsys) -> None:
@@ -471,7 +482,7 @@ def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_th
     assert check(capsys, shell) == (
         1,
         [
-            "RULINGS-UNCITED rule/bbbbbbb",
+            UNCITED,
             "RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word.",
             f"FINDER-MAJOR {HEAD[:7]}",
             "NAME-HIT rule/aaaaaaa src/relay/pool.rs:2 parked worker",
@@ -482,7 +493,7 @@ def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_th
     )
     assert check(capsys, shell, "--incident") == (
         1,
-        ["RULINGS-UNCITED rule/bbbbbbb", "RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."],
+        [UNCITED, "RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."],
     )
 
 

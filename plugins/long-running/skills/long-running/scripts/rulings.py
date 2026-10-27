@@ -1829,14 +1829,15 @@ class Head:
     sha: str
     body: str
     diff: Diff
+    comments: tuple[str, ...] = ()
 
     @cached_property
     def rulings(self) -> str:
-        return found[0] if (found := RULINGS_SECTION.search(self.body)) else ""
+        return "\n".join(found[0] for text in (self.body, *self.comments) if (found := RULINGS_SECTION.search(text)))
 
     @cached_property
     def in_your_words(self) -> str | None:
-        return found[0] if (found := IN_YOUR_WORDS.search(self.body)) else None
+        return next((found[0] for text in (self.body, *self.comments) if (found := IN_YOUR_WORDS.search(text))), None)
 
     @cached_property
     def cited(self) -> set[str]:
@@ -2017,7 +2018,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
     uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
     if uncited:
-        findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}")
+        findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
     touches = {found[1] for record in records or [] if record.get("kind") == "review" for found in TOUCHES.finditer(record.get("text") or "")}
     for key, fields in rulings.items():
         if fields.get("kind") == "reserved" and (key in touches or key in facts["reserved"]):
@@ -2058,10 +2059,11 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     findings = Findings([], [])
     repo, number = pull(args, shell)
     loaded = findings.read("the register", lambda: Register.load(args, shell, drive_checkout(args)))
-    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName"])))
+    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName,comments"])))
     diff = findings.read(f"the diff of {repo}#{number}", lambda: pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)) if view else None
     if loaded and view and diff:
-        check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff), findings, args.base or view["baseRefName"])
+        comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])
+        check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff, comments), findings, args.base or view["baseRefName"])
     for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:
         print(line)
     return 1 if findings.refusals else 0
