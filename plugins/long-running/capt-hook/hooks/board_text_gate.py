@@ -61,7 +61,7 @@ SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
-SKIPPED = "Warning, nothing was blocked: board_text_gate skipped a reply whose body it could not read."
+SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
@@ -144,8 +144,11 @@ def published(evt: BaseHookEvent, reads: Reads, skipped: list[str]) -> list[Publ
             elif body is not None:
                 found.append(as_text("reply", body.encode(), session, None, where))
             continue
+        path = None if source in (None, STDIN) else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
+        if path and not path.exists():
+            skipped.append(f"the board {source}: {path} does not exist when the hook runs, so its text went unchecked; write the file in an earlier call or pass its absolute path")
+            continue
         if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call, source, piped)))):
-            path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
             found.append(Published(first(values, "verb"), *loaded, session, path, source))
     return found
 
@@ -404,7 +407,8 @@ def exits(name: str, **extra: object) -> Input:
             pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
         ),
         reply("reply-4ae100d5.redraft.md"): Allow(),
-        posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped a reply[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
+        posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped text[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
+        posting("cc-present push /nonexistent/preview-doc2.json"): Warn(pattern=r"skipped text[\s\S]*the board /nonexistent/preview-doc2.json: /nonexistent/preview-doc2.json does not exist when the hook runs"),
         posting(f"cc-present push {board('r3-titles.redraft.json')}"): Warn(pattern=r"no fidelity desk review names"),
         update("clean-card.json", minutes=90): Warn(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
         update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Warn(pattern=r"no hourly sweep pass is logged for brook"),
