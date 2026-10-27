@@ -9340,5 +9340,6 @@ def test_a_pass_cost_groups_each_command_by_its_program_and_verbs(argv, family):
 def test_a_pass_cost_lists_the_costliest_families_and_starts_over():
     shell = runner_module.Shell()
     shell.spent = runner_module.Counter({"ledger.py refresh": 55.2, "stack-enqueue --check": 120.4, "cci tail": 1.0})
-    assert shell.pass_cost() == "stack-enqueue --check 120s, ledger.py refresh 55s, cci tail 1s"
+    shell.called = runner_module.Counter({"ledger.py refresh": 1, "stack-enqueue --check": 14, "cci tail": 3})
+    assert shell.pass_cost() == "stack-enqueue --check 120s in 14, ledger.py refresh 55s in 1, cci tail 1s in 3"
     assert shell.pass_cost() == ""
