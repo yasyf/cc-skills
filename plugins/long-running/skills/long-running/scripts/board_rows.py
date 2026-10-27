@@ -493,6 +493,8 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
             row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [])
+        if reviews is not None:
+            row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
     for row in rows:
         if landed := sorted((pr for pr in blockers[row.id] if (pull := pulls.get(pr)) and pull.state == MERGED), key=int):
             row.reasons.append(f"landed: its blocker names {' '.join(f'#{pr}' for pr in landed)}, merged on GitHub")
@@ -501,12 +503,10 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         for block_id, anchor, _, members in claims:
             if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
                 owner.reasons.append(reason)
-        if reviews is not None:
-            row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
     found = flags(rows)
     for block_id, pr in listed:
         if pr in pulls and (pull := pulls[pr]) is not None and pull.state != OPEN:
-            rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head, "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
+            rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
     return rows, found, warnings
 
 
