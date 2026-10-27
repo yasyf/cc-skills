@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:2e00d02977ed — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:6b5c0c50d042 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -599,7 +599,7 @@ function shortName(n){
  const key=shortKey(n);
  const hit=localStorage.getItem(key);
  if(hit)return hit;
- if(AI.key&&!shortAsked.has(key)){shortWanted.add(Number(n));if(shortWanted.size===1)setTimeout(nameBatch,0)}
+ if(AI.key&&!shortAsked.has(key)){shortWanted.add(Number(n));if(shortWanted.size===1)queueMicrotask(nameBatch)}
  return null;
 }
 function nameBatch(){
@@ -609,7 +609,7 @@ function nameBatch(){
  aiOnce(compose(`Give each pull request a short name of at most six plain words that says what it changes for a person using the product. No pull request numbers, no jargon, no trailing period.\n\n${batch.map(n=>{const r=boardRow(n);return `#${n} ${plainTitle(n)}${r?`. ${short(r.change,240)}`:""}`}).join("\n")}`),{schema:SHORT}).then(out=>{
   out.names.filter(x=>batch.includes(x.pr)).forEach(x=>localStorage.setItem(shortKey(x.pr),x.name.split(/\s+/).slice(0,6).join(" ").replace(/\.$/,"")));
   render();
- }).catch(()=>{}).finally(()=>{if(shortWanted.size)setTimeout(nameBatch,0)});
+ }).catch(()=>{}).finally(nameBatch);
 }
 const PLAIN={name:"plain",schema:{type:"object",additionalProperties:false,required:["lines"],properties:{lines:{type:"array",items:{type:"object",additionalProperties:false,required:["seq","line"],properties:{seq:{type:"integer"},line:{type:"string"}}}}}}};
 const plainKey=seq=>`drive-assist:plain:${seq}`;
