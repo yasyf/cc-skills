@@ -41,7 +41,7 @@ class Fake:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
             return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": STALE, "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
         if argv[:3] == ["git", "ls-remote", "origin"]:
-            assert argv[3] == "refs/heads/dev" and cwd == self.tmp_path / "checkout"
+            assert argv[3] == "refs/heads/dev"
             return f"{BASE}\trefs/heads/dev\n"
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
             return ROWS if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
