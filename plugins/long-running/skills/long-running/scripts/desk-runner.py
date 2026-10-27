@@ -4021,6 +4021,7 @@ class Landing:
         self.grade_tried: set[str] = set()
         self.stacks: dict[str, set[str]] = {}
         self.no_go: set[str] = set()
+        self.below_blocking: set[str] = set()
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
         self.book.ensure(LANDING, LANDING)
@@ -4190,24 +4191,33 @@ class Landing:
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def refuse_ungone_parents(self, rows: dict[str, dict]) -> None:
-        """Post one note to the root per stack holding rows a root `go` names at their heads above rows `unpassed` keeps out, again only when that stack's set of parents without a go changes, never for a head that moves: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
+        """Post one note to the root per stack holding rows a root `go` names at their heads above a parent nothing can land past: one `unpassed` keeps out, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap and which need their lane (root #142036, #142931)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
+        self.below_blocking = self.no_go | red
+        gos = self.root_gos()
         stacks: dict[str, tuple[list[str], set[str]]] = {}
         for pr in sorted(open_rows, key=int):
-            if pr in self.no_go or not (parents := downstack(open_rows, pr) & self.no_go):
+            if pr in self.below_blocking or not gone_at(gos, pr, open_rows[pr]["head"]) or not (parents := downstack(open_rows, pr) & self.below_blocking):
                 continue
             bottom = min(downstack(open_rows, pr), key=lambda below: (len(downstack(open_rows, below)), int(below)))
             gone, waiting = stacks.setdefault(bottom, ([], set()))
             gone.append(pr)
             waiting.update(parents)
+
+        def named(prs: list[str]) -> str:
+            return " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in prs)
+
         for bottom, (gone, waiting) in stacks.items():
             parents = sorted(waiting, key=int)
             key = f"go-parents:{bottom}:" + ",".join(parents)
             if self.book.known(LANDING, key):
                 continue
-            named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
-            heads = " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in gone)
-            self.post_record("note", key, ROOT, f"BELOW-BLOCKED stack of #{bottom}: root gos name {heads}, stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", bottom)
+            untapped = [parent for parent in parents if parent in self.no_go]
+            broken = [parent for parent in parents if parent not in self.no_go]
+            on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
+            asks = ["the owner taps each parent's merge row and root posts `go #<parent> at <head>`"] * bool(untapped) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
+            self.post_record("note", key, ROOT, f"BELOW-BLOCKED stack of #{bottom}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so nothing in the stack is enqueued; {'; '.join(asks)}", bottom)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -5322,13 +5332,13 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` note per stack (root #142036)."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, or on one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` note per stack (root #142036, #142931)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
         for pr, row in rows.items():
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or downstack(open_rows, pr) - {pr} & self.no_go:
+            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or downstack(open_rows, pr) - {pr} & self.below_blocking:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
                 continue

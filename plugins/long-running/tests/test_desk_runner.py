@@ -4940,6 +4940,24 @@ def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocke
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
 
 
+@pytest.mark.parametrize("broken", [{"test_state": "failure"}, {"test_state": "success", "mergeable_state": "dirty"}])
+def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path, broken):
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[0] = dict(shell.rows[0], **broken)
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.queue["29031"] = "not queued"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
+        "BELOW-BLOCKED stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so nothing in the stack is enqueued; each red or conflicting parent's lane makes it green and mergeable"
+    ]
+
+
 def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
     merge_mode(config, "every")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
