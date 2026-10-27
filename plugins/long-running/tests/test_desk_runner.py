@@ -9415,3 +9415,21 @@ def test_a_pass_cost_lists_the_costliest_families_and_starts_over():
     shell.called = runner_module.Counter({"ledger.py refresh": 1, "stack-enqueue --check": 14, "cci tail": 3})
     assert shell.pass_cost() == "stack-enqueue --check 120s in 14, ledger.py refresh 55s in 1, cci tail 1s in 3"
     assert shell.pass_cost() == ""
+
+
+def script_build(*steps: str, failed: str = "") -> dict:
+    return {"jobs": [{"type": "script", "step_key": step, "name": step, "state": "failed" if step == failed else "passed"} for step in steps]}
+
+
+def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_newest_build_left_it_out(shell, config, tmp_path):
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "cccc333333", "78214", script_build("sanddb-http", "sand-tests"))
+    built(shell, "dddd444444", "78286", script_build("sand-tests"))
+    built(shell, "bbbb", "29019", script_build("sanddb-http", "sand-tests", failed="sanddb-http"))
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    landing.watch_trunk(OPEN_ROWS)
+
+    [(kind, _, text)] = trunk_posts(shell)
+    assert (kind, text.split(":")[0]) == ("incident", "DEV-RED since 10:50 AM")
