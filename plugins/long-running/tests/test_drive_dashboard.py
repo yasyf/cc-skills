@@ -2,8 +2,9 @@ import datetime as dt
 import queue
 
 import pytest
+from holds import Entry
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, read_holds, verdict_state, with_conflicts
+from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -235,10 +236,18 @@ def test_every_pull_request_carries_one_next_action_from_its_own_state(fields, r
 
 
 def test_a_root_hold_is_the_next_action_even_on_a_red_conflicted_pull_request():
-    holds = read_holds("#42780 readers-first: after #42745 lands\n#42900 held for cutover (root #142864): lands with the P8f reader cutover, not before\n")
-    prs = ledger(pr42900={"state": "open", "lane": "p8f-replica", "test_state": "failure", "mergeable_state": "dirty"})
+    prs = ledger(
+        pr42900={"state": "open", "lane": "p8f-replica", "test_state": "failure", "mergeable_state": "dirty"},
+        pr42901={"state": "open", "lane": "p8e-desktop-ship-5"},
+        pr42902={"state": "open", "lane": "p8a-step7"},
+    )
+    lines = ["#42780 readers-first: after #42745 lands", "#42900 held for cutover: lands with the reader cutover, not before", "lane:p8e-desktop-ship-5 desktop waits for the morning"]
 
-    assert listed(prs, holds=holds)[42900]["next"] == "Held: held for cutover (root #142864): lands with the P8f reader cutover, not before."
+    lights = listed(prs, holds=hold_reasons([Entry(line) for line in lines], prs))
+
+    assert lights[42900]["next"] == "Held: held for cutover: lands with the reader cutover, not before."
+    assert lights[42901]["next"] == "Held: lane:p8e-desktop-ship-5 desktop waits for the morning."
+    assert lights[42902]["next"] == "Waits its turn in its stack."
 
 
 def step(prs, lanes=(), tone="later", step_id="s"):

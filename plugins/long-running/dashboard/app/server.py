@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -15,6 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from review_assistant import ReviewAssistant
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
+import holds
 
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
@@ -156,8 +160,8 @@ def next_action(state, pr, row, owner, base, base_landed, hold):
     return "Waits its turn in its stack."
 
 
-def read_holds(text):
-    return {found[1]: found[2].strip() for found in re.finditer(r"^#(\d{5})\s+(.+)$", text, re.M)}
+def hold_reasons(entries, prs):
+    return {pr: re.sub(r"^#\d+\s+", "", next(entry.line for entry in entries if pr in holds.held([entry], prs))) for pr in holds.held(entries, prs)}
 
 
 def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, now):
@@ -530,7 +534,7 @@ class Drive:
         now = dt.datetime.now(dt.timezone.utc)
         progress = json.loads(Path(self.config["steps"]).read_text())
         activity_records = [*model["records"], *model["lanes"]]
-        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], read_holds(Path(self.config["holds"]).read_text()), now)
+        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
         return {
             **model,

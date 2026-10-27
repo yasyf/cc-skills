@@ -16,7 +16,7 @@
 .lt.you { background: var(--c-you); box-shadow: 0 0 0 3px var(--c-glow); }
 .lt.failing { border: 2px solid var(--c-bad); }
 .lt.held { background: repeating-linear-gradient(45deg, var(--c-ink3) 0 1.5px, transparent 1.5px 3px); }
-.lt.waiting { border: 1.5px dotted var(--c-ink3); }
+.lt.waiting, .lt.untracked { border: 1.5px dotted var(--c-ink3); }
 .cp.focus .lt:not(.lit) { opacity: .18; }
 .lt.out { opacity: .12; }
 .lt.flash { animation: flash 1.6s ease-out 2; }
