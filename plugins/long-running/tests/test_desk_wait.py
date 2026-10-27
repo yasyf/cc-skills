@@ -243,7 +243,7 @@ def test_cci_source_prints_addressed_records_through_cci_tail(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "#12 9:01 PM GO root -> landing-desk land #30001\n"
-    assert calls.read_text() == "tail --drive release-v3 --cursor landing-desk --to landing-desk\n"
+    assert calls.read_text() == "tail --drive release-v3 --cursor landing-desk-wake --to landing-desk\n"
 
 
 def test_quiet_cci_source_waits_for_the_deadline(tmp_path):
