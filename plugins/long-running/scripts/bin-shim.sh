@@ -37,6 +37,11 @@ fi
 
 SCRIPT="$ROOT/skills/long-running/scripts/$TOOL"
 case "$TOOL" in
-  *.py) exec python3 "$SCRIPT" "$@" ;;
+  *.py)
+    for python in python3.15 python3.14 python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 python3; do
+      command -v "$python" >/dev/null 2>&1 && break
+    done
+    exec "$python" "$SCRIPT" "$@"
+    ;;
   *) exec "$SCRIPT" "$@" ;;
 esac

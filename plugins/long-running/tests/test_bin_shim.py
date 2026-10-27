@@ -77,3 +77,15 @@ def test_never_hops_down(tmp_path: Path):
 def test_stays_put_in_an_unversioned_dir(tmp_path: Path):
     cache = plugin_cache(tmp_path, {"long-running": False, "0.7.57": False})
     assert run(cache, "long-running") == "long-running py a b c"
+
+
+def test_prefers_a_versioned_python_over_an_older_bare_python3(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": False})
+    pythons = tmp_path / "pythons"
+    pythons.mkdir()
+    for name in ("python3", "python3.13"):
+        fake = pythons / name
+        fake.write_text(f'#!/bin/sh\necho "{name}"\n')
+        fake.chmod(0o755)
+    out = subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py")], capture_output=True, text=True, check=True, env={"PATH": str(pythons)})
+    assert out.stdout.strip() == "python3.13"
