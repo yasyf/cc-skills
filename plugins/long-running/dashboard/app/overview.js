@@ -1,7 +1,7 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, unfold: false, noting: false, note: '', planTab: 'steps', only: null, was: new Map() };
+const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map() };
 
 function tally(list) {
   const out = { total: list.length };
@@ -63,8 +63,8 @@ function needItem(item) {
     const busy = pending.number === r.number && !pending.error;
     const failed = pending.number === r.number && pending.error ? `<em class="err">${esc(pending.error)}</em>` : '';
     return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(r.title)}</a>
-      ${ov.noting ? `<form class="note" data-note="${r.number}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn pri">✓ Approve</button><button type="button" class="btn hold" data-note-hold="${r.number}">‖ Hold</button></form>`
-        : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn" data-noting>✎ Note</button>${failed}</div>`}</div>`;
+      ${ov.noting === `${r.number}@${r.head}` ? `<form class="note" data-note="${r.number}" data-head="${esc(r.head)}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn pri">✓ Approve</button><button type="button" class="btn hold" data-note-hold="${r.number}">‖ Hold</button></form>`
+        : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
   }
   if (item.kind === 'prs') return `<div class="act"><a class="what" href="#/now"><span class="star">★</span><b>${item.prs.length}</b> pull requests need your approval</a><div class="acts"><a class="btn pri" href="#/now">Review ${item.prs.length}</a></div></div>`;
   if (item.kind === 'card') return `<div class="act"><a class="what" href="#/now"><span class="star">?</span>${esc(item.card.title)}</a><div class="acts"><a class="btn pri" href="#/now">${item.card.recommended ? esc(item.card.recommended) : 'Answer'}</a></div></div>`;
@@ -124,7 +124,7 @@ function overview() {
     <div id="tip" class="tip" hidden></div>
   </div>
   ${state.overlay === 'track' ? trackSheet() : ''}
-  ${state.overlay === 'stop' ? stopSheet() : ''}
+  ${state.overlay === 'stop' && stop ? stopSheet() : ''}
   ${state.overlay === 'key' ? keySheet() : ''}
   ${state.overlay === 'plan' ? planSheet() : ''}`;
 }
@@ -138,6 +138,12 @@ function planSheet() {
   }[ov.planTab]();
   return `<div class="overlay" data-close="1"><div class="sheet plan"><button class="btn close" data-close="1">Close</button>
     <nav class="ptabs">${tabs.map(([k, l]) => `<button class="${ov.planTab === k ? 'on' : ''}" data-ptab="${k}">${l}</button>`).join('')}</nav>${body}</div></div>`;
+}
+function noteDecide(form, verdict) {
+  const row = boardRow(form.dataset.note);
+  ov.noting = null;
+  if (row?.head !== form.dataset.head) return render();
+  decide(row, verdict, form.note.value.trim(), false);
 }
 function showOnly(label, numbers) {
   ov.only = numbers ? { label, numbers: new Set(numbers.map(Number)) } : null;
@@ -218,6 +224,8 @@ function numbersFor(el) {
   return null;
 }
 function mountOverview() {
+  const input = $('.note input');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
   ov.was = new Map(state.model.drive.prs.map((e) => [e.number, e.state]));
   for (const fig of document.querySelectorAll('.mach')) {
     const svg = fig.querySelector('svg');
@@ -237,9 +245,9 @@ function mountOverview() {
   }
 }
 document.addEventListener('mouseover', (e) => {
-  const cp = e.target.closest('.cp');
-  if (!cp) return;
   const tip = $('#tip');
+  if (!tip) return;
+  if (!e.target.closest('.cp')) { tip.hidden = true; return highlight(null); }
   const el = e.target.closest('[data-n], [data-part], [data-lane], [data-release]');
   if (el) {
     tip.innerHTML = tipFor(el);
@@ -264,19 +272,19 @@ document.addEventListener('click', (e) => {
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
   const page = e.target.closest('[data-page]');
-  if (page) { ov.page = Number(page.dataset.page); ov.noting = false; return render(); }
-  if (e.target.closest('[data-noting]')) { ov.noting = true; return render(); }
+  if (page) { ov.page = Number(page.dataset.page); ov.noting = null; return render(); }
+  const noting = e.target.closest('[data-noting]');
+  if (noting) { ov.noting = noting.dataset.noting; ov.note = ''; return render(); }
   const approve = e.target.closest('[data-approve]');
   if (approve) return decide(boardRow(approve.dataset.approve), 'approved', '', false);
   const hold = e.target.closest('[data-note-hold]');
-  if (hold) { ov.noting = false; return decide(boardRow(hold.dataset.noteHold), 'rejected', ov.note.trim(), false); }
+  if (hold) return noteDecide(hold.closest('[data-note]'), 'rejected');
 });
 document.addEventListener('submit', (e) => {
   const form = e.target.closest('[data-note]');
   if (!form) return;
   e.preventDefault();
-  ov.noting = false;
-  decide(boardRow(form.dataset.note), 'approved', form.note.value.trim(), false);
+  noteDecide(form, 'approved');
 });
 document.addEventListener('input', (e) => {
   if (e.target.closest('[data-note]')) ov.note = e.target.value;
