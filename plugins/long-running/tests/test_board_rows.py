@@ -124,6 +124,11 @@ def shell() -> FakeShell:
     return fake
 
 
+def pushed_rows(shell: FakeShell) -> list[str]:
+    [(_, pushed)] = shell.pushed
+    return [item["id"] for _, item in board_rows.triage_items(pushed)] + [str(row["number"]) for *_, row in board_rows.pr_group_rows(pushed)]
+
+
 def lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().out.splitlines()
 
@@ -143,7 +148,7 @@ def test_a_row_behind_its_prs_head_fails_naming_the_new_head_and_pushes_nothing(
     assert gate(tmp_path, shell, card(row("42590")), "--", "cc-present", "update-block") == 1
 
     assert lines(capsys)[0] == f"merge-row-42590 42590 {HEAD[:7]} stale: GitHub's head is {NEW_HEAD[:7]}"
-    assert shell.pushed == []
+    assert pushed_rows(shell) == []
 
 
 def test_a_row_with_no_grade_or_no_finder_at_its_head_warns_and_still_pushes(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
@@ -161,7 +166,8 @@ def test_a_row_with_no_grade_or_no_finder_at_its_head_warns_and_still_pushes(tmp
         f"WARN merge-row-42592 42592 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
         "rows 3 failing 1 ungraded 2 flags 0",
     ]
-    assert shell.pushed == []
+    [(_, pushed)] = shell.pushed
+    assert pushed == card(row("42590", text_at=None), row("42592", md="Ports the journal reader tests to the new tree.", text_at=None))
 
 
 @pytest.mark.parametrize(
@@ -231,7 +237,7 @@ def test_a_decided_row_pushed_under_another_block_fails_before_anything_is_sent(
     assert gate(tmp_path, shell, card(row("42590"), block="merge-triage-new-copy"), "--", "cc-present", "update-block") == 1
 
     assert lines(capsys)[0] == f"merge-row-42590 42590 {HEAD[:7]} moved: decided under block merge-triage, pushed under merge-triage-new-copy"
-    assert shell.pushed == []
+    assert pushed_rows(shell) == []
 
 
 def test_a_decided_row_kept_in_its_block_or_dropped_from_the_push_passes(tmp_path: Path, shell: FakeShell) -> None:
@@ -366,7 +372,7 @@ def test_a_pr_groups_row_behind_its_prs_head_or_missing_a_field_fails(tmp_path: 
     assert gate(tmp_path, shell, groups(pr_row("42590", review="")), "--", "cc-present", "update-block") == 1
 
     assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} missing: review; stale: GitHub's head is {NEW_HEAD[:7]}"
-    assert shell.pushed == []
+    assert pushed_rows(shell) == []
 
 
 def test_a_triage_verdict_moved_onto_its_pr_groups_row_passes(tmp_path: Path, shell: FakeShell) -> None:
@@ -570,7 +576,7 @@ def test_a_red_dev_still_fails_a_row_missing_a_field(tmp_path: Path, shell: Fake
 
     assert gate(tmp_path, shell, groups(pr_row("42590", review="")), "--", "cc-present", "update-block") == 1
 
-    assert shell.pushed == []
+    assert pushed_rows(shell) == []
 
 
 @pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 12:03 AM."], ["POST-MERGE-RED since 12:03 AM: dev's buildkite/test fails publish on build 1. Landing continues."]])
@@ -580,3 +586,18 @@ def test_a_green_or_post_merge_red_dev_carries_no_banner(tmp_path: Path, shell: 
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
 
     assert "prompt" not in shell.pushed[0][1]["children"][0]
+
+
+def test_one_refused_row_is_left_out_and_every_other_row_and_list_line_still_pushes(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("42591", head=NEW_HEAD)
+    shell.graded("42591")
+    shell.pull("42593", state="MERGED")
+    landing = {"id": "landing-list", "type": "markdown", "md": "- #42590: lands next\n- #42593: landed already\n"}
+    board = card(row("42590"), row("42591", md="Keeps a copy of each release's Rust-built files."))
+    board["children"].append(landing)
+
+    assert gate(tmp_path, shell, board, "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[:2] == [f"merge-row-42591 42591 {HEAD[:7]} stale: GitHub's head is {NEW_HEAD[:7]}", f"landing-list#42593 42593 {HEAD[:7]} listed: the PR is merged on GitHub and still listed under landing-list"]
+    [(_, pushed)] = shell.pushed
+    assert pushed_rows(shell) == ["merge-row-42590"] and pushed["children"][1]["md"] == "- #42590: lands next\n"
