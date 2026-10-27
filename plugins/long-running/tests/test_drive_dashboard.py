@@ -201,3 +201,21 @@ def test_his_taps_are_one_need_then_questions_then_required_asks():
 
     assert [item["kind"] for item in out] == ["prs", "card", "ask"]
     assert [pr["number"] for pr in out[0]["prs"]] == [42001, 42003]
+
+
+@pytest.mark.parametrize(
+    ("body", "interaction"),
+    [
+        ({"kind": "choice", "block": "pick", "options": ["cockpit"]}, {"type": "choice.selected", "blockId": "pick", "optionIds": ["cockpit"]}),
+        ({"kind": "choice", "block": "pick", "other": "both"}, {"type": "choice.selected", "blockId": "pick", "optionIds": [], "other": "both"}),
+        ({"kind": "note", "block": "card-a", "text": "looks good"}, {"type": "feedback.created", "blockId": "card-a", "text": "looks good"}),
+    ],
+)
+def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interaction):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    sent = []
+    drive.interact = lambda posted: sent.append(posted) or (200, "")
+
+    drive.answer(body)
+
+    assert {k: v for k, v in sent[0].items() if k != "id"} == interaction

@@ -124,7 +124,14 @@ function needItem(item) {
         : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
   }
   if (item.kind === 'prs') return `<div class="act"><a class="what" href="#/now"><span class="star">★</span><b>${item.prs.length}</b> pull requests need your approval</a><div class="acts"><a class="btn pri" href="#/now">Review ${item.prs.length}</a></div></div>`;
-  if (item.kind === 'card') return `<div class="act"><a class="what" href="#/now"><span class="star">?</span>${esc(item.card.title)}</a><div class="acts"><a class="btn pri" href="#/now">${item.card.recommended ? esc(item.card.recommended) : 'Answer'}</a></div></div>`;
+  if (item.kind === 'card') {
+    const c = item.card;
+    const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
+    const failed = ov.answerError ? `<em class="err">${esc(ov.answerError)}</em>` : '';
+    return `<div class="act"><span class="what"><span class="star">?</span>${esc(c.title)}</span>
+      <div class="acts">${options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${ov.answering ? ' disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
+      <form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn">${c.choice ? 'Send' : 'Send note'}</button></form>${failed}</div>`;
+  }
   return `<div class="act"><span class="what"><span class="star">!</span>${esc(item.ask.what)}</span><div class="acts">${item.ask.link ? `<a class="btn pri" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : ''}</div></div>`;
 }
 function actionCard() {
@@ -196,6 +203,16 @@ function planSheet() {
   }[ov.planTab]();
   return `<div class="overlay" data-close="1"><div class="sheet plan"><button class="btn close" data-close="1">Close</button>
     <nav class="ptabs">${tabs.map(([k, l]) => `<button class="${ov.planTab === k ? 'on' : ''}" data-ptab="${k}">${l}</button>`).join('')}</nav>${body}</div></div>`;
+}
+async function answer(body) {
+  ov.answering = true;
+  ov.answerError = '';
+  render();
+  ov.answerError = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((res) => res.json())
+    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server: ${failure.message}`);
+  ov.answering = false;
+  render();
 }
 function noteDecide(form, verdict) {
   const row = boardRow(form.dataset.note);
@@ -339,12 +356,21 @@ document.addEventListener('click', (e) => {
   if (page) { ov.page = Number(page.dataset.page); ov.noting = null; return render(); }
   const noting = e.target.closest('[data-noting]');
   if (noting) { ov.noting = noting.dataset.noting; ov.note = ''; return render(); }
+  const choose = e.target.closest('[data-choose]');
+  if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose] });
   const approve = e.target.closest('[data-approve]');
   if (approve) return decide(boardRow(approve.dataset.approve), 'approved', '', false);
   const hold = e.target.closest('[data-note-hold]');
   if (hold) return noteDecide(hold.closest('[data-note]'), 'rejected');
 });
 document.addEventListener('submit', (e) => {
+  const reply = e.target.closest('[data-answer]');
+  if (reply) {
+    e.preventDefault();
+    const text = reply.text.value.trim();
+    if (!text) return;
+    return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text });
+  }
   const form = e.target.closest('[data-note]');
   if (!form) return;
   e.preventDefault();

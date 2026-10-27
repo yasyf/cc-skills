@@ -230,9 +230,16 @@ class Drive:
         return url
 
     def decide(self, block, number, verdict, head, note):
-        origin, _, subject = self.config["board_url"].partition("/p/")
         entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
-        interaction = {"type": "triage.decided", "blockId": block, "verdicts": {str(number): entry}}
+        return self.interact({"type": "triage.decided", "blockId": block, "verdicts": {str(number): entry}})
+
+    def answer(self, body):
+        if body["kind"] == "choice":
+            return self.interact({"type": "choice.selected", "blockId": body["block"], "optionIds": body.get("options", []), **({"other": body["other"]} if body.get("other") else {})})
+        return self.interact({"type": "feedback.created", "id": str(uuid.uuid4()), "blockId": body["block"], "text": body["text"]})
+
+    def interact(self, interaction):
+        origin, _, subject = self.config["board_url"].partition("/p/")
         request = urllib.request.Request(f"{origin}/api/interactions", method="POST", headers={"Content-Type": "application/json"}, data=json.dumps({"subject": subject, "nonce": str(uuid.uuid4()), "interaction": interaction}).encode())
         try:
             with urllib.request.urlopen(request, timeout=15):
@@ -475,8 +482,9 @@ class Drive:
             if answered or not (asks or block.get("status") == "open"):
                 continue
             choice = next((child for child in asks if child["type"] == "choice"), None)
-            recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
-            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended})
+            options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", [])]
+            recommended = next((option["label"] for option in options if option["recommended"]), None)
+            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "choice": choice and choice["id"], "options": options})
         return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
 
 
@@ -518,12 +526,15 @@ def handler(drive):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path != "/api/verdict":
+            if self.path not in ("/api/verdict", "/api/answer"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
+            if self.path == "/api/answer":
+                status, error = drive.answer(body)
+            else:
+                status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
 
         def send(self, status, kind, body):
