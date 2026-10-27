@@ -5794,7 +5794,8 @@ class Landing:
 
     def standing_go_lines(self) -> list[str]:
         """Each open ledger PR a standing root `go` names that the queue does not hold: the newest go at its ledger head, else the newest at an older head, with the PR's queue state and verdict from the runner's one batched status read and any hold on it, so a desk reads what waits on a go without a GitHub read per PR."""
-        rows = self.rows() or {}
+        if (rows := self.rows()) is None:
+            return ["the ledger could not be listed"]
         if (statuses := self.pr_statuses()) is None:
             return ["the status read failed; see the STATUS-READ-FAILED escalation"]
         held = set(self.held(rows) or [])
