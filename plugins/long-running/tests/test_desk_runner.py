@@ -1624,6 +1624,30 @@ def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_
     assert [post["to"] for post in shell.posts if post["kind"] == "blocker"] == [to]
 
 
+@pytest.mark.parametrize(
+    ("claimer", "refs", "text", "to"),
+    [
+        ("p8a-step6b-creds-3", [], "takes #29016 #29020 and the forest input", "p8a-step6b-creds-3"),
+        ("p8a-step6b-creds-3", [], "takes Forge-AI/monorepo#29020 and yasyf/cc-skills#704", "p8a-step6b-creds-3"),
+        ("p8a-step6b-creds-3", [], "takes #29016; it waits on #29020", "p8a-step6b-creds-2"),
+        ("p8a-step6b-creds-3", [], "takes yasyf/cc-skills#29020", "p8a-step6b-creds-2"),
+        ("p8a-step6b-creds-3", ["yasyf/cc-skills#29020"], "takes its tooling PR", "p8a-step6b-creds-2"),
+        ("root", [], "p8a-step6b-creds-3 owns #29020", "p8a-step6b-creds-2"),
+        ("root", ["Forge-AI/monorepo#29020"], "p8a-step6b-creds-3 owns #29020", "p8a-step6b-creds-2"),
+    ],
+    ids=["text-only", "repo-qualified", "mentioned-after-the-clause", "another-repo-in-text", "another-repo-in-refs", "root-text", "root-refs"],
+)
+def test_a_lanes_claim_takes_the_blocker_for_the_prs_it_lists_and_roots_does_not(shell, config, claimer, refs, text, to):
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [
+        {"seq": 34766, "drive": "d1", "lane": "p8a-step6b-creds-2", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock)},
+        {"seq": 34767, "drive": "d1", "lane": claimer, "kind": "claim", "to": ["root"], "refs": {"prs": refs}, "text": text, "source": "post", "at": actions.stamp(shell.clock)},
+    ]
+    landing_pass(shell, config)
+    assert [post["to"] for post in blockers(shell)] == [to]
+
+
 def post_body(post: dict) -> str:
     return Path(post["path"]).read_text() if "path" in post else post["text"]
 
@@ -2842,6 +2866,15 @@ def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell
     reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
     assert [call[7:] for call in reads] == [["29020", "29100"]]
     assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
+
+
+def test_a_pass_reads_pr_status_in_pages_of_twenty_five(shell, config, tmp_path):
+    board_surface(config)
+    shell.rows = [{"pr": str(pr), "lane": LANE, "branch": f"b/{pr}", "base": "dev", "head": f"{pr:x}aaaaaa", "state": "open", "reported_head": f"{pr:x}aaaaaa"} for pr in range(30000, 30030)]
+    shell.queue |= {row["pr"]: "not queued" for row in shell.rows}
+    landing_pass(shell, config)
+    reads = [call[7:] for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+    assert reads == [[str(pr) for pr in range(30000, 30025)], [str(pr) for pr in range(30025, 30030)]]
 
 
 def test_a_status_read_that_fails_is_one_visible_escalation_per_cause_and_hour(shell, config, tmp_path):
