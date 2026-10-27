@@ -257,7 +257,7 @@ with.
 
 After assembling the record, run `retro.py prose <dir>`. It sends the authored
 fields listed in [reference/schema.md](schema.md#prose-authored-fields-and-provenance)
-through `gemini -m gemini-4-argon -p`, writes accepted wording directly, and records
+through `gemini -m gemini-4-argon --skip-trust -p`, writes accepted wording directly, and records
 its hashes in `prose.lock.json`. `retro.py prose <dir> --record` stamps a hand
 edit instead: it lints the fields with `slop-cop check --llm-effort=off`,
 records their hashes and the writer's model, and calls no model. These fields include the headline and

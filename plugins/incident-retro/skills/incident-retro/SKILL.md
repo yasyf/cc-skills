@@ -11,7 +11,7 @@ incident state without producing LLM-authored prose. After `live finalize`,
 gemini-4-argon writes and revises all new prose, including headlines,
 subtitles, summaries, plain twins, handles, revision notes, and publication
 text. `retro.py prose --detach` sends the enumerated fields in `retro.json`
-and `summary.html` to `gemini -m gemini-4-argon -p` in read-only plan mode,
+and `summary.html` to `gemini -m gemini-4-argon --skip-trust -p` in read-only plan mode,
 lands the reply verbatim, and stamps each field's digest and the model in
 `prose.lock.json`. `retro.py prose --record` lints a hand edit with
 slop-cop and stamps it the same way without calling a model. `check` accepts every writer model a lock records, so a
@@ -21,7 +21,7 @@ prose.
 
 For prose outside that field list, the lane hands the facts and the rules
 (the writing contract, the slop-cop rules, the length caps) to `gemini -m
-gemini-4-argon -p` and lands the reply verbatim; it collects evidence and
+gemini-4-argon --skip-trust -p` and lands the reply verbatim; it collects evidence and
 publishes the result itself. Tags remain operator-chosen data: they are a
 controlled vocabulary for filtering, not writing. `meta.tags` is outside
 the prose field list.

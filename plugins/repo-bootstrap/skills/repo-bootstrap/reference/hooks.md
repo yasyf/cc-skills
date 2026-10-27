@@ -127,7 +127,7 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   `sonnet` — dropping `model` runs opus, not the session model.
 - **Prose nudge (LLM, warn).** An `Agent`/`Task` spawn whose deliverable is long-form
   copy gets a reminder that gemini-4-argon writes it: the lane hands the facts and
-  rules to `gemini -m gemini-4-argon -p` and lands the reply verbatim. PR titles and
+  rules to `gemini -m gemini-4-argon --skip-trust -p` and lands the reply verbatim. PR titles and
   bodies and commit messages stay with the shipping lane.
 - **Explore auto-upgrade (rewrite).** An `Explore` or `claude-code-guide` subagent
   spawned without a `model` param silently runs haiku; this rewrite fills in
@@ -159,7 +159,7 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   model, so judgment-bearing stages need an explicit pin or route up.
 - **Workflow prose nudge (warn).** A `Workflow` whose script runs a stage that
   writes long-form copy gets the matching reminder: the stage hands the facts and
-  rules to `gemini -m gemini-4-argon -p` and lands the reply verbatim.
+  rules to `gemini -m gemini-4-argon --skip-trust -p` and lands the reply verbatim.
 
 Remove or tailor by overriding with a local `models` hook. If a repo legitimately
 runs haiku fleets (bulk single-fact classification), the gate already allows

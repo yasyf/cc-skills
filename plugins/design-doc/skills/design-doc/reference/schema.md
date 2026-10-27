@@ -312,7 +312,7 @@ A cap is what the section shows cold, not what the design is allowed to be: the 
 
 ## What `design.py plainify` writes
 
-`design.py plainify <dir> [--only DQ3,A2] [--dry-run]` drafts a `p` for every rendered entry that has none, and an `h` for every `decisions`, `assumptions`, `open`, `arch`, or `numbers` entry that has none. The default `--provider gemini` runs `gemini -m gemini-4-argon -p` in read-only plan mode per entry, with no fallback model; if a call fails, the command exits nonzero without writing the registers. The two prompts are [plain.md](plain.md) and [handle.md](handle.md). Review each draft before keeping it.
+`design.py plainify <dir> [--only DQ3,A2] [--dry-run]` drafts a `p` for every rendered entry that has none, and an `h` for every `decisions`, `assumptions`, `open`, `arch`, or `numbers` entry that has none. The default `--provider gemini` runs `gemini -m gemini-4-argon --skip-trust -p` in read-only plan mode per entry, with no fallback model; if a call fails, the command exits nonzero without writing the registers. The two prompts are [plain.md](plain.md) and [handle.md](handle.md). Review each draft before keeping it.
 
 `--only` rewrites selected twins and narrows the missing-handle pass. `--dry-run` generates drafts without writing; `--provider none` lists gaps without calling a model. An existing handle is left alone. The explicit `--provider slop-cop` route remains available. It sends a batch to `slop-cop plainify`, with word budgets of 30 for twins and five for handles, register IDs forbidden, and a glossary so a draft names another entry by its title. `SLOP_COP` selects another binary; install it with `brew install yasyf/tap/slop-cop`.
 

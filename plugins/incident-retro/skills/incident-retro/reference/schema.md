@@ -427,7 +427,7 @@ an action's link.
 
 ## `prose`: authored fields and provenance
 
-`retro.py prose <dir>` routes the fields below through `gemini -m gemini-4-argon -p`; `retro.py prose <dir> --record` stamps a hand edit of them without calling a model.
+`retro.py prose <dir>` routes the fields below through `gemini -m gemini-4-argon --skip-trust -p`; `retro.py prose <dir> --record` stamps a hand edit of them without calling a model.
 `targets()` enumerates `meta.title` as `headline` and `meta.subtitle` as
 `subtitle`; both are addressable with `--field`. `meta.tags` stays
 operator-chosen data: tags are a controlled vocabulary for filtering, not
@@ -475,7 +475,7 @@ The command reuses that file when it exists.
 
 The linter's full catalog contains 226 rules, each with a `description`, a
 `tip`, and an `llmDirective`. The model must write to those rules in its first
-draft. The command calls `gemini -m gemini-4-argon -p --output-format json --approval-mode plan` as a subprocess,
+draft. The command calls `gemini -m gemini-4-argon --skip-trust -p --output-format json --approval-mode plan` as a subprocess,
 with the work order on stdin and, in `-p`, the JSON reply schema of
 `{"fields": [{"id": "<address>", "text": "<wording>"}]}` and an instruction to reply with that object alone.
 The CLI has no schema flag, so the command parses the envelope's `response` as JSON and fails the run on a
@@ -584,7 +584,7 @@ Each write to `retro.json` or `prose.lock.json` in this pipeline writes a
 Successful replacement leaves no scratch file.
 
 `prose.lock.json` sits beside `retro.json`. Its top level records
-`model: "gemini-4-argon"`, `command: "gemini -m gemini-4-argon -p
+`model: "gemini-4-argon"`, `command: "gemini -m gemini-4-argon --skip-trust -p
 --output-format json --approval-mode plan"`, and the total `slop` count. Each field the model writes
 records `sha256`, the round directory in `run`, its `log` path, a UTC `at` timestamp, and a `slop` count
 of findings left after revision. `check --strict` sums the per-field counts and fails above

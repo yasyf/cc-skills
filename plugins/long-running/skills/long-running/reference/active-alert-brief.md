@@ -193,7 +193,7 @@ The executor posts each event as a cci `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
-the copy through gemini-4-argon (`gemini -m gemini-4-argon -p` with the facts and the voice rules) and posts its reply verbatim with
+the copy through gemini-4-argon (`gemini -m gemini-4-argon --skip-trust -p` with the facts and the voice rules) and posts its reply verbatim with
 `cc-slack reply --url <thread> --text <copy>`. For the `channel`
 surface it posts with `cc-slack send --channel <channel id> --text <copy>`. Consecutive replies under one thread grant need no human message between
 them. It then answers the entry:

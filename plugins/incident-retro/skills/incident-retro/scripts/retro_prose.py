@@ -8,7 +8,7 @@
 
 The command enumerates the prose a writer authors, builds one work order
 pointing the model at the writing contract rather than restating it, calls
-`gemini -m gemini-4-argon -p --output-format json` as a subprocess, refuses a reply that moved a fact, writes
+`gemini -m gemini-4-argon --skip-trust -p --output-format json` as a subprocess, refuses a reply that moved a fact, writes
 the returned text straight into retro.json and summary.html, and records the
 model, run directory, log and per-field digest in prose.lock.json. `check
 --strict` reads that lock, so a hand edit or another model's rewrite fails the
@@ -843,7 +843,7 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
     written |= write_summary(root, {a: t for a, t in landed.items() if a.startswith("summary.html#")})
     retro.write_retro(root, R)
     lock["model"] = PROSE_MODEL
-    lock["command"] = f"gemini -m {PROSE_MODEL} -p --output-format json --approval-mode plan"
+    lock["command"] = f"gemini -m {PROSE_MODEL} --skip-trust -p --output-format json --approval-mode plan"
     lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
     write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
 

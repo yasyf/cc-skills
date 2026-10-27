@@ -86,7 +86,7 @@ open-ended design essay does not.
 Model variants: `-m sol` (gpt-6.1-sol) is the default; pass `-m luna` for the
 rote/bulk and recon lanes. `-m astra` (gpt-6-astra) stays selectable for
 exceptional cases only; no route defaults to it. Codex writes no long-form prose: docs
-and release notes go to gemini-4-argon (`gemini -m gemini-4-argon -p`); PR
+and release notes go to gemini-4-argon (`gemini -m gemini-4-argon --skip-trust -p`); PR
 titles and bodies and commit messages are written by the lane that ships them. Routing, escalation, and when each variant applies live in the fleet
 Models table (CLAUDE.md `## Model Routing`) — the script pins effort regardless
 of variant, and the tier is standard unless `--incident` asks for fast.
