@@ -1540,8 +1540,8 @@ With `landing.merge_ask_surface` set to `board`, the root asks every merge quest
 on its own board, and under `every` the runner checks only heads a root `go` names.
 It bars every other open PR like a held one: no `stack-enqueue` call, `--check`
 included, names it as a top or sweeps it in, and a go'd PR stacked on it waits
-(root #131119, #131287), with one blocker to the root per head naming each parent
-that still needs its go. After the go'd trees enqueue, the pass's one
+(root #131119, #131287), with one note to the root per stack naming each parent
+that still needs its go, posted again only when that set of parents changes. After the go'd trees enqueue, the pass's one
 `ccx vcs pr status` read routes those PRs instead: a conflict, red CI, or requested
 changes goes to the lane as that head's blocker, and a landable head runs the
 accept checks, so its `MERGE-ASK` still reaches the root's board. Each tree the pass gates
