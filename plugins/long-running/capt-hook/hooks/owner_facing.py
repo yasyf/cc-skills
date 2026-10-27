@@ -709,10 +709,28 @@ def piped_boards(evt: BaseHookEvent) -> list[str]:
     return [body.text if body.text.endswith("\n") else f"{body.text}\n" for body in bodies]
 
 
-def board_bytes(evt: BaseHookEvent, cwd: Path | None, source: str, piped: int) -> bytes:
+def board_bytes(evt: BaseHookEvent, call: Call, source: str, piped: int) -> bytes:
     if source != STDIN:
-        return Path(str(cwd or evt.cwd), Path(source).expanduser()).read_bytes()
+        return Path(str(call.cwd or evt.cwd), Path(source).expanduser()).read_bytes()
+    if feeder := pipe_feeder(evt, call):
+        return fed_board(evt, feeder)
     return piped_boards(evt)[piped].encode()
+
+
+def pipe_feeder(evt: BaseHookEvent, call: Call) -> Call | None:
+    return next((each for each in evt.command.calls() if each.occurrence.index == call.occurrence.index - 1 and each.occurrence.next_op == "|"), None)
+
+
+def fed_board(evt: BaseHookEvent, feeder: Call) -> bytes:
+    """The board an `echo '<json>' |` or `cat <file> |` feeds to cc-present, as the shell would; any other producer runs only after the hook, so its board cannot be read."""
+    match [word.value for word in feeder.source.words]:
+        case ["echo", str(text)]:
+            return f"{text}\n".encode()
+        case ["cat", str(path)]:
+            return Path(str(feeder.cwd or evt.cwd), Path(path).expanduser()).read_bytes()
+        case [name, *_]:
+            raise ValueError(f"a board piped from {name} exists only once the command runs")
+    raise ValueError("a board piped from an empty command")
 
 
 def board_sources(evt: BaseHookEvent) -> Iterator[tuple[Call, dict[str, tuple], str | None, int]]:
@@ -722,7 +740,7 @@ def board_sources(evt: BaseHookEvent) -> Iterator[tuple[Call, dict[str, tuple], 
         verb = next(iter(values.get("verb", ())), None)
         source = next(iter(values.get("doc" if verb == "start" else "words", ())), None) if verb in BOARD_DOCS else None
         yield call, values, source, piped
-        piped += source == STDIN
+        piped += source == STDIN and pipe_feeder(evt, call) is None
 
 
 def slack_card(evt: BaseHookEvent) -> dict | None:
@@ -738,7 +756,7 @@ def slack_card(evt: BaseHookEvent) -> dict | None:
 
 def started_boards(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
     docs = [
-        reads.read(f"the started board {source} {piped}", lambda: json.loads(board_bytes(evt, call.cwd, source, piped)))
+        reads.read(f"the started board {source} {piped}", lambda call=call, source=source, piped=piped: json.loads(board_bytes(evt, call, source, piped)))
         for call, values, source, piped in board_sources(evt)
         if values.get("verb", ())[:1] == ("start",) and not values.get("dry-run") and source
     ]

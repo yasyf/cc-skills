@@ -61,6 +61,8 @@ SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
+UNGRADED = "Warning, nothing was blocked: board_text_gate could not grade this command and let it through"
+PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
 class BoardWatches(WorkflowState):
@@ -138,7 +140,7 @@ def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
             if (body := reads.read(f"the body of {where}, command {index}", lambda call=call, values=values: reply_body(evt, call, values))) is not None:
                 found.append(as_text("reply", body.encode(), session, None, where))
             continue
-        if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call.cwd, source, piped)))):
+        if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call, source, piped)))):
             path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
             found.append(Published(first(values, "verb"), *loaded, session, path, source))
     return found
@@ -428,6 +430,12 @@ def exits(name: str, **extra: object) -> Input:
             pattern=r"share-open: the title does not end"
         ),
         posting("ls -la"): Allow(),
+        posting(f"echo '{PIPED_SECTION}' | cc-present update-block -", reviewed=(hashlib.sha256(f"{PIPED_SECTION}\n".encode()).hexdigest()[:12],)): Allow(),
+        posting(f"echo '{PIPED_SECTION}' | cc-present update-block -"): Warn(pattern=r"no fidelity desk review names -"),
+        posting("python3 gen.py | cc-present update-block -"): Allow(),
+        posting("""echo '{"id":"c1","type":"choice","prompt":"Pick one?","options":5}' | cc-present update-block -"""): Warn(
+            pattern=r"could not grade this command and let it through: TypeError: 'int' object is not iterable"
+        ),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
         exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Warn(pattern=r'the owner would need "Notes R3b" defined'),
         exits("plan-title.redraft.md", reviewed=(sha12("plan-title.redraft.md"),)): Allow(),
@@ -443,9 +451,12 @@ def exits(name: str, **extra: object) -> Input:
 def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
-    reads = Reads(evt, which)
-    items = published(evt, reads)
-    problems = [problem for item in items for problem in graded(evt, reads, item)]
+    try:
+        reads = Reads(evt, which)
+        items = published(evt, reads)
+        problems = [problem for item in items for problem in graded(evt, reads, item)]
+    except Exception as crash:
+        return evt.context(f"{UNGRADED}: {type(crash).__name__}: {crash}")
     reads.report("board_text_gate")
     return evt.context(fenced(REFUSAL, problems)) if problems and not reads.failures else None
 
