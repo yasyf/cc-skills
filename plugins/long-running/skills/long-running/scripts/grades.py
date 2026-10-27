@@ -13,8 +13,9 @@ FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
-FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|major|issues)\b", re.IGNORECASE)
+FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b", re.IGNORECASE)
 FINDER_ISSUES = "issues"
+FINDER_LGTM = "lgtm"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -47,7 +48,7 @@ def graded_head(text: str) -> str:
 
 def finder_grade(text: str) -> str:
     if said := FINDER_SAYS.search(text):
-        return FINDER_FAIL if said[1].lower() == FINDER_ISSUES else said[1].lower()
+        return {FINDER_ISSUES: FINDER_FAIL, FINDER_LGTM: FINDER_PASS}.get(said[1].lower(), said[1].lower())
     if FINDER_MAJOR.search(text):
         return FINDER_FAIL
     return FINDER_PASS if FINDER_CLEAN.search(text) else ""

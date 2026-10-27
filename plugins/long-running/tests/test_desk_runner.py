@@ -1347,6 +1347,14 @@ def test_a_finder_review_that_names_the_pr_only_in_its_text_lets_the_head_enqueu
     assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=head" in call and "--pr" in call]
 
 
+def test_a_finder_lgtm_reads_as_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.", finder=False)
+    finder_verdict(shell, "29020", "lgtm cccc333 (findings schema verdict)")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 def grade_gated_heads_ok(shell: FakeShell) -> None:
     for outs in shell.gates.values():
         for out in outs:
@@ -2980,6 +2988,20 @@ def test_on_a_board_surface_a_pr_without_a_go_gets_its_blockers_from_the_status_
         (LANE, "#29020 cccc333333: GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"),
         (LANE, "#29100 dddd444444: CI is red: buildkite/test; changes requested by poetic-svc"),
     ]
+
+
+def test_on_a_board_surface_a_conflict_alone_is_one_blocker_per_base_whatever_the_head(shell, config, tmp_path):
+    board_surface(config)
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "blocked:conflict,ci-pending"}
+    landing_pass(shell, config)
+    shell.rows[0] = dict(shell.rows[0], head="dddd444444", reported_head="dddd444444")
+    landing_pass(shell, config)
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == [f"#29020 cccc333333: {runner_module.CONFLICT_BLOCKER}"]
+    shell.rows[0] = dict(shell.rows[0], base="a/0")
+    landing_pass(shell, config)
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"][1:] == [f"#29020 dddd444444: {runner_module.CONFLICT_BLOCKER}"]
 
 
 def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_its_head(shell, config, tmp_path):
