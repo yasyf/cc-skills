@@ -16,9 +16,9 @@ with no API key; only short names and Command-K answers call Cerebras.
 | `drive.prs[]` | `{number, state, tree, part, step, worker}` | ledger rows, board verdicts, `go` records, `steps.json`, the config's parts |
 | `steps[]` | `{id, label, title, state, blocker, next, prs[{number, state}], tone, workers[]}` | the progress desk's `steps.json` |
 | `workers[]` | `{lane, step, prs[], at, boxes[12]}` | cci lanes and records, coordinators left out |
-| `needs[]` | ordered `{kind: prs\|card\|ask, ...}` | the cc-present store and the story's asks |
+| `needs[]` | ordered `{kind: prs\|card\|ask, why, source{label, href}, ...}` | the cc-present store and the story's asks |
 | `parts[]` | `{key, name, home, becomes, scopes[]}` | `dashboard.json` |
-| `now` | `{release, releases[], blocker\|null}` | `steps.json` |
+| `now` | `{release, releases[], goal, waiting[], blocker\|null}` | `steps.json` |
 
 The client has one counting function, `tally(list)`, returning the seven state counts
 and the total for any list of `{state}`. The progress ring is `tally(drive.prs)`, a
@@ -41,6 +41,14 @@ one.
 | `doing` | a worker wrote about it in the last 20 minutes, or checks are running |
 | `waiting` | open, unapproved, nothing running |
 
+Every need says why it is his, in one line, and links its source: a board card, the
+board, or the bus record that asked (`GET /record/<seq>` serves its text). A `prs` need is
+one merge group with any row waiting on him: the group's title and how its PRs relate,
+its rows (number, head, title, change, plan, risk, review, blocker, block, state), and
+the group's other rows. A question typed into Ask goes to the bus through
+`POST /api/asked` as an `owner` record; one starting `[user-test]` posts as a `note` from
+lane `dashboard-ask-test`, so a user-test round never reads as his words.
+
 A PR is `you` when the board holds no approval at its current or carried head and no root
 `go` names that head; either one makes it `queued`. Verdicts are read live from the
 cc-present store on every rebuild, and Approve or Note on the dashboard writes the
@@ -48,7 +56,8 @@ board's own `triage.decided` event, so no board page opens.
 
 A step's tone takes the first match over its PRs: done when all landed, then any `you`,
 any `failing`, any `held`, moving for any `doing` or a live worker, queued when every PR
-is landed or queued, otherwise waiting. A worker's
+is landed or queued, otherwise waiting; a step with no PRs keeps the tone `steps.json`
+gives it, such as `later`. A worker's
 five-minute box takes the most severe record kind it posted in that window: red for
 `blocker`, `defect`, `incident`; amber for `ask`, `owner`; green for `landed`, `go`,
 `fix-live`; blue for any other; empty when silent.
@@ -66,11 +75,21 @@ The progress desk rewrites `steps.json` atomically on every pass:
   title with no PR numbers, its `state`, `blocker` (null when nothing blocks it),
   `next`, every PR of the step landed ones included, and the lanes working on it.
 - `now.release` and `now.releases[]`: the next release and every release with the parts
-  it ships, in plain words.
+  it ships, in plain words; `tonight` marks the releases the release track shows.
+- `now.goal`: the end state's checks, each (such as `enabled` and `old_app`) with a
+  `state`, when it was read (`at`), its `source`, and the `check` that proves it.
+- `now.waiting[]`: what the drive waits on outside any step: `what`, `owed_by`, `since`,
+  `expected`, and what it `unblocks`.
 - `now.blocker`: a drive-wide stop only, such as a red trunk or a dead merge queue,
   with its start time; null otherwise. A step's own blocker stays on the step.
 
 It writes no counts; the dashboard counts.
+
+## Layout
+
+Top to bottom: the totals row; the release track with the exact plan one click away;
+the step table with landed, approved, and your-tap counts beside the machines it builds;
+the working-now boxes; and the waiting-on list.
 
 ## Words at rest
 
