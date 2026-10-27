@@ -185,7 +185,7 @@ def rows_of(block: dict) -> list[Row]:
         head = ROW_HEAD.search(item.get("hint", ""))
         facts = {fact["label"]: str(fact.get("value", "")).strip() for fact in item.get("facts", [])}
         label = item.get("label", "")
-        words = "\n".join([label, item.get("md", ""), *facts.values()])
+        words = "\n".join([label, item.get("hint", ""), item.get("md", ""), *facts.values()])
         rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts, words))
     for block_id, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
@@ -373,6 +373,8 @@ def newest_by_pr(verdicts: dict[str, dict[str, dict]]) -> dict[str, dict]:
 
 
 def claim_reason(members: set[str], newest: dict[str, dict], pulls: dict[str, Pull | None]) -> str | None:
+    if len(members) < 2:
+        return None
     rejected = sorted((pr for pr in members if newest.get(pr, {}).get("verdict") == "rejected"), key=int)
     closed = sorted((pr for pr in members if pr in pulls and (pulls[pr] is None or pulls[pr].state != OPEN)), key=int)
     if not rejected and not closed:
