@@ -1,7 +1,7 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null };
+const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {} };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 
 function scrubAt() {
@@ -12,7 +12,7 @@ function seen(e) {
     const landed = state.model.prs[e.number]?.landed_at;
     return e.state === 'landed' && landed && new Date(landed) > scrubAt() ? 'waiting' : e.state;
   }
-  if (ov.scrub > 0 && state.model.steps.slice(0, ov.scrub).some((s) => s.id === e.step)) return 'landed';
+  if (ov.scrub > 0 && state.model.steps.slice(0, ov.scrub).some((s) => s.id === driveEntry(e.number)?.step)) return 'landed';
   return e.state;
 }
 function tally(list) {
@@ -52,13 +52,16 @@ function liveWorkers(stepId) {
   return state.model.workers.filter((w) => w.live && w.step === stepId);
 }
 const TONE_WORD = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, landing', waiting: 'Waiting', done: 'Done', later: 'Later' };
+function bar(t) {
+  return `<span class="sbar">${LIGHT_ORDER.filter((k) => t[k]).map((k) => `<i class="sw ${k}" style="flex:${t[k]}"></i>`).join('')}</span>`;
+}
 function stepRow(s) {
   const t = tally(s.prs);
   const ws = liveWorkers(s.id);
   const blocker = s.blocker && !/^(none|nothing)$/i.test(s.blocker) ? s.blocker : '';
   return `<li class="srow tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0">
     <span class="r-step">${esc(s.label ?? s.title)}${ws.length ? `<i class="pulse" title="${ws.length} at work"></i>` : ''}</span>
-    <span class="r-prog"><span class="tls">${lights(s.prs)}</span>${s.prs.length ? `<em>${t.landed}/${t.total}</em>` : ''}</span>
+    <span class="r-prog">${s.prs.length ? `<b>${t.landed}<small>/${t.total}</small></b>${bar(t)}` : ''}</span>
     <span class="r-state">${TONE_WORD[s.tone] ?? esc(s.tone)}</span>
     <span class="r-block">${esc(blocker)}</span>
     <span class="r-next">${esc(s.next)}</span></li>`;
@@ -68,17 +71,17 @@ function unplanned() {
   if (!list.length) return '';
   const t = tally(list);
   return `<li class="srow tn-waiting unplanned" data-track="" tabindex="0"><span class="r-step">Not in a step</span>
-    <span class="r-prog"><span class="tls">${lights(list)}</span><em>${list.length}</em></span>
+    <span class="r-prog"><b>${list.length}<small> open</small></b>${bar(t)}</span>
     <span class="r-state">${t.you ? 'Needs you' : t.failing ? `${t.failing} failing` : 'Open'}</span><span class="r-block"></span><span class="r-next">Fixes and tooling outside the plan steps</span></li>`;
 }
 function steps() {
   const all = state.model.steps;
   const shown = all.filter((s) => ov.unfold || !['done', 'later'].includes(s.tone));
   const folded = all.length - shown.length;
-  return `<section class="steps2"><header class="srow head"><span>Step</span><span>Landed</span><span>State</span><span>What blocks it</span><span>Next</span></header>
+  return `<section class="steps2"><header class="srow head"><span>Step</span><span>Pull requests landed</span><span>State</span><span>What blocks it</span><span>Next</span></header>
     <ol>${shown.map(stepRow).join('')}${unplanned()}</ol>
     <footer>${folded || ov.unfold ? `<button class="linkish" data-unfold>${ov.unfold ? 'Hide done and later steps' : `${plural(folded, 'more step')}: ${all.filter((s) => !shown.includes(s)).map((s) => `${esc(s.label)} ${TONE_WORD[s.tone].toLowerCase()}`).join(', ')}`}</button>` : ''}
-    <span class="legend">${['landed', 'queued', 'doing', 'you', 'failing', 'waiting'].map((k) => `<span><i class="lt ${k}"></i>${{ landed: 'landed', queued: 'approved', doing: 'being worked on', you: 'needs you', failing: 'tests failing', waiting: 'waiting' }[k]}</span>`).join('')}</span></footer></section>`;
+    <span class="legend">${['landed', 'queued', 'doing', 'you', 'failing', 'waiting'].map((k) => `<span><i class="sw ${k}"></i>${{ landed: 'landed', queued: 'approved', doing: 'being worked on', you: 'needs you', failing: 'tests failing', waiting: 'waiting' }[k]}</span>`).join('')}</span></footer></section>`;
 }
 function cell(label, value, sub, tone, fill) {
   return `<div class="cell ${tone}"><small>${label}</small><b>${value}</b>${fill === undefined ? '' : `<span class="tbar"><i style="width:${fill}%"></i></span>`}<span class="sub">${sub}</span></div>`;
@@ -130,7 +133,7 @@ function needItem(item) {
     const failed = ov.answerError ? `<em class="err">${esc(ov.answerError)}</em>` : '';
     return `<div class="act"><span class="what"><span class="star">?</span>${esc(c.title)}</span>
       <div class="acts">${options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${ov.answering ? ' disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
-      <form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn">${c.choice ? 'Send' : 'Send note'}</button></form>${failed}</div>`;
+      <form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn">${c.choice ? 'Send' : 'Send note'}</button></form>${failed}</div>`;
   }
   return `<div class="act"><span class="what"><span class="star">!</span>${esc(item.ask.what)}</span><div class="acts">${item.ask.link ? `<a class="btn pri" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : ''}</div></div>`;
 }
@@ -138,7 +141,7 @@ function actionCard() {
   const needs = state.model.needs;
   ov.page = Math.min(ov.page, Math.max(0, needs.length - 1));
   const pager = needs.length > 1 ? `<span class="pager">${needs.map((_, i) => `<i class="${i === ov.page ? 'on' : ''}" data-page="${i}"></i>`).join('')}<span>${ov.page + 1}/${needs.length}</span></span>` : '';
-  return `<section class="actcard${needs.length ? '' : ' empty'}">${needItem(needs[ov.page])}${pager}</section>`;
+  return `<section class="actcard${needs.length ? '' : ' empty'}" tabindex="-1">${needItem(needs[ov.page])}${pager}</section>`;
 }
 function machine(home, title) {
   const parts = state.model.parts.filter((p) => p.home === home);
@@ -377,6 +380,7 @@ document.addEventListener('submit', (e) => {
   noteDecide(form, 'approved');
 });
 document.addEventListener('input', (e) => {
+  if (e.target.dataset.draft) ov.drafts[e.target.dataset.draft] = e.target.value;
   if (e.target.closest('[data-note]')) ov.note = e.target.value;
 });
 document.addEventListener('keydown', (e) => {
@@ -384,8 +388,11 @@ document.addEventListener('keydown', (e) => {
   const needs = state.model?.needs ?? [];
   if (e.key === 'Escape' && ov.only && !state.overlay) { showOnly(null); return; }
   const paging = e.target.closest('.actcard') && needs.length > 1;
-  if (e.key === 'ArrowRight' && paging) { ov.page = (ov.page + 1) % needs.length; render(); }
-  else if (e.key === 'ArrowLeft' && paging) { ov.page = (ov.page + needs.length - 1) % needs.length; render(); }
+  if (paging && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+    ov.page = (ov.page + (e.key === 'ArrowRight' ? 1 : needs.length - 1)) % needs.length;
+    render();
+    $('.actcard')?.focus();
+  }
   else if (e.key === 'ArrowRight' && !state.overlay) setScrub(ov.scrub + 1);
   else if (e.key === 'ArrowLeft' && !state.overlay) setScrub(ov.scrub - 1);
   else if (e.key === 'n' && ov.scrub) setScrub(0);
@@ -404,5 +411,6 @@ document.addEventListener('pointermove', (e) => {
   setScrub(ov.dragFrom + Math.round((e.clientX - ov.dragX) / 48));
 });
 document.addEventListener('pointerup', () => { ov.dragX = null; });
+document.addEventListener('pointercancel', () => { ov.dragX = null; });
 document.addEventListener('visibilitychange', () => { if (document.hidden) localStorage.setItem('drive-last-look', String(Date.now())); });
 window.addEventListener('pagehide', () => localStorage.setItem('drive-last-look', String(Date.now())));

@@ -111,6 +111,7 @@ function markdown(md) {
     }
   }
   flushTable();
+  if (code !== null) out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
   if (list) out.push(`</${list}>`);
   return out.join('');
 }
