@@ -22,6 +22,7 @@ body:has(#embed:not([hidden])) .foot { display: none; }
 .decide .decided { font-weight: 700; }
 .decide .decided.approved { color: var(--ok); }
 .decide .decided.held { color: var(--warn); }
+.decide .decided.sending { color: var(--ink-3); }
 .hold-form { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
 .hold-form input { flex: 1 1 240px; min-height: 40px; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 14.5px var(--sans); }
 .bar-bottom.decide { display: none; margin: 0; }
