@@ -363,13 +363,14 @@ function workerSheet() {
   const m = state.model;
   const w = m.workers.find((x) => x.lane === ov.lane) ?? m.desks.find((x) => x.lane === ov.lane);
   if (!w) return sheet(`<div class="kick">Worker</div><h3>${esc(ov.lane)}</h3><p class="relnow">No word from this worker in the last hour.</p>`, ' small');
-  const events = timeline().filter((e) => e.who === w.lane).slice(0, 14);
+  const last = m.records.filter((r) => r.lane === w.lane).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
+  const events = timeline().filter((e) => e.who === w.lane && e.id !== `r${last?.seq}`).slice(0, 13);
   const where = m.steps.find((s) => s.id === w.step)?.label;
   return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
     ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
-    ${events[0] ? `<div class="lastsaid"><small>Its last word, ${clock(events[0].at)}</small><p><b>${SAID[events[0].kind] ?? KIND_WORD[events[0].kind] ?? ''}</b> ${inline(firstSentences(events[0].text.replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1'), 240))}</p>${/^r\d/.test(events[0].id) ? `<a href="/record/${events[0].id.slice(1)}" target="_blank" rel="noopener">the record ↗</a>` : ''}</div>` : ''}
+    ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${inline(firstSentences(last.text.replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1'), 240))}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
     <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
-    <h4 class="sc-h">Before that <span>newest first</span></h4><ul class="tl">${events.length > 1 ? timelineRows(events.slice(1), false) : '<li class="dim">Nothing else in the last day.</li>'}</ul>
+    <h4 class="sc-h">Before that <span>newest first</span></h4><ul class="tl">${events.length ? timelineRows(events, false) : '<li class="dim">Nothing else in the last day.</li>'}</ul>
     ${w.prs.length ? `<details data-id="worker-prs-${esc(w.lane)}"${state.open.has(`worker-prs-${w.lane}`) ? ' open' : ''}><summary class="sc-h">Pull requests it named <span>${w.prs.length}</span></summary><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul></details>` : ''}`);
 }
 function planSheet() {
@@ -445,7 +446,8 @@ function stepCard(s) {
 function blockerNow(text) {
   if (!text) return 'Nothing';
   const named = [...new Set([...text.matchAll(/#(\d{5})\b/g)].map((x) => x[1]))];
-  return named.length && named.every((n) => prState(n) === 'landed') ? `Nothing open: ${named.map(prLink).join(', ')} landed. <small class="dim">The step note still says ${inline(text)}</small>` : inline(text);
+  const landedSince = (n) => new Date(state.model.prs[n]?.landed_at ?? 0) > new Date(state.model.steps_at);
+  return named.length && named.every((n) => prState(n) === 'landed' && landedSince(n)) ? `Nothing open: ${named.map(prLink).join(', ')} landed after this note. <small class="dim">The step note says ${inline(text)}</small>` : inline(text);
 }
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);

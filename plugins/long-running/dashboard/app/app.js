@@ -224,7 +224,7 @@ function hourDigest() {
   const recent = timeline().filter((e) => new Date(e.at) > from);
   const landed = Object.entries(m.prs).filter(([, pr]) => pr.state === 'landed' && pr.landed_at && new Date(pr.landed_at) > from).sort((a, b) => new Date(b[1].landed_at) - new Date(a[1].landed_at));
   const said = (kinds) => recent.filter((e) => kinds.includes(e.kind));
-  const settled = (e) => { const named = [...String(e.text).matchAll(/#(\d{5})\b/g)].map((x) => x[1]); return named.length && named.every((n) => prState(n) === 'landed'); };
+  const settled = (e) => { const named = [...String(e.text).matchAll(/#(\d{5})\b/g)].map((x) => x[1]); return named.length && named.every((n) => new Date(m.prs[n]?.landed_at ?? 0) > new Date(e.at)); };
   const broke = said(['incident', 'blocker']).filter((e) => !settled(e));
   const line = (e) => `<li><span class="time">${clock(e.at)}</span><span>${inline(firstSentences(e.text, 140))}</span></li>`;
   const rows = [

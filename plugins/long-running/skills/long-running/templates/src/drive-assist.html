@@ -229,7 +229,7 @@ function sinceBanner(){
  if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
  return `<div class="card as-since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
   <div class="as-tiles">${tiles.map(([id,tone,label,n])=>`<div class="as-tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")}</div>
-  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
+  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short ai-only" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
 }
 
 function narration(){

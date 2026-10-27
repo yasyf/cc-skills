@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:352b14bc96bc — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:bbaef1103988 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -459,7 +459,7 @@ function sinceBanner(){
  if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
  return `<div class="card as-since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
   <div class="as-tiles">${tiles.map(([id,tone,label,n])=>`<div class="as-tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")}</div>
-  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
+  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short ai-only" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
 }
 
 function narration(){
