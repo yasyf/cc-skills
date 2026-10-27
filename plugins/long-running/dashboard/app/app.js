@@ -184,7 +184,7 @@ function prRank(n) {
 function liveBox(l) {
   const n = /^\d{5}$/.test(l.topic ?? '') ? l.topic : /#(4\d{4})\b/.exec(l.text)?.[1];
   const what = n ? `<a href="${prHref(n)}"><span class="d ${prState(n)}"></span> #${n} ${esc(plainTitle(n))}</a>` : esc(firstSentences(l.text, 70));
-  return `<div class="live${l.stall ? ' stall' : ''}"><div class="live-h"><i class="${l.stall ? 'still' : 'pulse'}"></i><b>${esc(l.lane)}</b><span class="dim">${agoWords(l.at)}</span></div><div class="live-t">${what}</div></div>`;
+  return `<div class="live${l.stall ? ' stall' : ''}"><div class="live-h"><i class="${l.stall ? 'still' : 'pulse'}"></i><b title="${esc(l.lane)}">${esc(workerName(l.lane))}</b><span class="dim">${agoWords(l.at)}</span></div><div class="live-t">${what}</div></div>`;
 }
 function workingNow() {
   const since = Date.now() - 20 * 60 * 1000;
@@ -216,7 +216,7 @@ function workers() {
   const fold = (id, label, list) => list.length ? `<details class="wfold" data-id="${id}"${state.open.has(id) ? ' open' : ''}><summary>${label}</summary><div class="lives">${list.map(liveBox).join('')}</div></details>` : '';
   const onStep = [...state.model.steps, { id: null, label: 'Other work', prs: [] }].map((st) => [st, live.filter((w) => w.step === st.id)]).filter(([, ws]) => ws.length);
   return `<div class="ck"><section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} wrote in the last 20 minutes, on the step they serve</span></div>
-    ${onStep.map(([st, ws]) => `<div class="wstep"${st.id ? ` data-track="${esc(st.id)}"` : ''}><div class="wstep-h"><b>${esc(st.label)}</b><span class="tdots">${byLight(st.prs).map((e) => dot(e.number)).join('')}</span></div><div class="wgrid">${ws.map((w) => workerTile(w, w.lane)).join('')}</div></div>`).join('') || '<span class="dim">Nobody wrote in the last 20 minutes.</span>'}</section>
+    ${onStep.map(([st, ws]) => `<div class="wstep"${st.id ? ` data-track="${esc(st.id)}"` : ''}><div class="wstep-h"><b>${esc(st.label)}</b><span class="tdots">${byLight(st.prs).map((e) => dot(e.number)).join('')}</span></div><div class="wgrid">${ws.map((w) => workerTile(w, workerName(w.lane))).join('')}</div></div>`).join('') || '<span class="dim">Nobody wrote in the last 20 minutes.</span>'}</section>
     ${fold('w-quiet', `${plural(quiet.length, 'worker')} quiet for ${STALL_MIN}+ minutes while holding a pull request`, quiet)}
     ${fold('w-rest', `${plural(rest.length, 'worker')} finished or idle in the last 3 hours`, rest)}</div>`;
 }
