@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, ast_grep, on
+from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
@@ -107,14 +108,13 @@ def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str 
     if redirect := next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_redirect"})), None):
         text = next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_body"}))).text
         return ("\n".join(line.lstrip("\t") for line in text.split("\n")) if redirect.text.startswith("<<-") else text).rstrip("\n")
-    match shlex.split(inner):
-        case ["cat", path] | ["<", path]:
-            pass
-        case [single] if single.startswith("<"):
-            path = single[1:]
+    read = inner.strip()
+    command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
+    match [[word.value for word in found.source.words] for found in command.calls()] if command else []:
+        case [["cat", str(path)]]:
+            return Path(str(call.cwd or evt.cwd), Path(path).expanduser()).read_text().rstrip("\n")
         case _:
             return None
-    return Path(str(call.cwd or evt.cwd), Path(path).expanduser()).read_text().rstrip("\n")
 
 
 def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:
