@@ -1,6 +1,7 @@
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import threading
@@ -20,6 +21,14 @@ PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
+ASK_URL = "https://api.cerebras.ai/v1/chat/completions"
+ASK_MODEL = "gpt-oss-120b"
+ASK_RECORDS = 250
+ASK_CLIP = 300
+ASK_RULES = """You answer the owner's questions about a long-running software drive, using only the drive state below.
+Lead with the answer in one or two plain sentences, then at most five short bullets of evidence.
+Name pull requests as #12345 with what each does in plain words. Times are Pacific, written like 11:42 PM.
+Say "not in the records" when the state does not answer it. Never invent a time, owner, result or plan."""
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript")}
 
 
@@ -112,9 +121,13 @@ class Drive:
             try:
                 model = self.build(refresh_slow=stale)
             except Exception as error:
-                self.errors["build"] = f"{type(error).__name__}: {error}"
-                self.report_defect(self.errors["build"])
+                failure = f"{type(error).__name__}: {error}"
+                if self.errors.get("build") != failure:
+                    self.report_defect(failure)
+                self.errors["build"] = failure
+                self.slow_at = time.monotonic()
                 continue
+            self.errors.pop("build", None)
             with self.changed:
                 self.model = model
                 self.version += 1
@@ -194,6 +207,26 @@ class Drive:
         return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
 
 
+def ask_context(model):
+    rows = [{k: row.get(k) for k in ("number", "title", "group", "change", "plan", "risk", "review", "blocker", "head", "verdict")} for row in model["board"]["rows"]]
+    prs = {n: {k: pr.get(k) for k in ("title", "state", "test_state", "landed_at", "hold_reason", "base", "lane")} for n, pr in model["prs"].items() if pr.get("state")}
+    records = [f'{r["at"]} {r["kind"]} {r["lane"]}: {r["text"][:ASK_CLIP]}' for r in model["records"][-ASK_RECORDS:]]
+    state = {"now": model["story"], "plan_of_action": model["plan"], "merge_board_rows": rows, "open_owner_cards": model["board"]["cards"], "pull_requests": prs}
+    return f"Drive state as JSON:\n{json.dumps(state, default=str)}\n\nRecent drive records, oldest first (UTC times):\n" + "\n".join(records)
+
+
+def ask(model, question, history):
+    messages = [{"role": "system", "content": ASK_RULES}, {"role": "user", "content": ask_context(model)}, *history[-6:], {"role": "user", "content": question}]
+    request = urllib.request.Request(ASK_URL, data=json.dumps({"model": ASK_MODEL, "messages": messages, "stream": True}).encode(), headers={"Authorization": f"Bearer {os.environ['CEREBRAS_API_KEY']}", "Content-Type": "application/json", "User-Agent": "drive-dashboard"})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        for line in response:
+            if not line.startswith(b"data: ") or line.strip() == b"data: [DONE]":
+                continue
+            delta = json.loads(line[6:])["choices"][0]["delta"].get("content")
+            if delta:
+                yield delta
+
+
 def handler(drive):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -215,6 +248,24 @@ def handler(drive):
             if path == "/api/stream":
                 return self.stream()
             self.send(404, "text/plain", b"not found")
+
+        def do_POST(self):
+            if self.path != "/api/ask":
+                return self.send(404, "text/plain", b"not found")
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            with drive.lock:
+                model = drive.model
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                for delta in ask(model, body["question"], body.get("history", [])):
+                    self.wfile.write(f"event: token\ndata: {json.dumps(delta)}\n\n".encode())
+                    self.wfile.flush()
+                self.wfile.write(b"event: done\ndata: {}\n\n")
+            except OSError as error:
+                self.wfile.write(f"event: failed\ndata: {json.dumps(str(error))}\n\n".encode())
 
         def send(self, status, kind, body):
             self.send_response(status)

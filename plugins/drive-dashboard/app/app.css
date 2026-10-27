@@ -162,6 +162,13 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .prose { max-width: 820px; }
 .prose h1 { font-size: 24px; } .prose h2 { font-size: 18px; margin-top: 26px; } .prose li { margin: 6px 0; }
 .bar-bottom { display: none; }
+.chat { display: grid; gap: 12px; max-width: 860px; }
+.turn { padding: 12px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.turn.user { justify-self: end; background: var(--accent-soft); border-color: transparent; font-weight: 600; max-width: 80%; }
+.turn p { margin: 0 0 8px; } .turn ul { margin: 4px 0; padding-left: 20px; }
+.suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+.ask { display: flex; gap: 10px; max-width: 860px; margin-top: 14px; position: sticky; bottom: 12px; }
+.ask textarea { flex: 1; resize: vertical; min-height: 48px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 15px/1.4 var(--sans); }
 .sk { height: 120px; margin: 0 0 14px; border-radius: 14px; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .foot { margin-top: 28px; font-size: 12px; color: var(--ink-3); }

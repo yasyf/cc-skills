@@ -16,7 +16,8 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), loadedAt: 0 };
+const state = { model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false };
+const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
 function esc(s) {
@@ -289,6 +290,44 @@ function releases() {
   return `<div class="prose">${r.updated ? `<p class="dim">Last revised ${clock(r.updated)}</p>` : ''}${markdown(r.markdown)}</div>`;
 }
 
+function chatTurns() {
+  return state.chat.map((t) => `<div class="turn ${t.role}">${t.role === 'user' ? esc(t.content) : markdown(t.content) || '<span class="dim">Reading the drive…</span>'}</div>`).join('');
+}
+function askScreen() {
+  const turns = chatTurns();
+  return `<h2 class="sec">Ask about the drive <span class="dim">answers come only from the drive's records, the plan and the merge board</span></h2>
+    <div class="chat">${turns || `<div class="suggest">${SUGGESTED.map((q) => `<button class="btn" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`}</div>
+    <form class="ask" id="ask"><textarea name="q" rows="2" placeholder="Ask anything about the drive…"${state.asking ? ' disabled' : ''}></textarea><button class="btn pri"${state.asking ? ' disabled' : ''}>Ask</button></form>`;
+}
+async function ask(question) {
+  if (!question.trim() || state.asking) return;
+  const history = state.chat.map(({ role, content }) => ({ role, content }));
+  state.chat.push({ role: 'user', content: question }, { role: 'assistant', content: '' });
+  state.asking = true;
+  render();
+  const answer = state.chat[state.chat.length - 1];
+  const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }) });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop();
+    for (const event of events) {
+      const kind = /^event: (\w+)/m.exec(event)?.[1];
+      const data = /^data: (.*)$/m.exec(event)?.[1];
+      if (kind === 'token') answer.content += JSON.parse(data);
+      if (kind === 'failed') answer.content += `\n\nThe answer stopped: ${JSON.parse(data)}`;
+    }
+    if (route().screen === 'ask') $('#main .chat').innerHTML = chatTurns();
+  }
+  state.asking = false;
+  render();
+}
+
 function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
@@ -300,9 +339,9 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline']];
+  const tabs = [['overview', 'Overview'], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen };
+  const screens = { overview, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
   const y = window.scrollY;
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   window.scrollTo(0, y);
@@ -344,8 +383,18 @@ document.addEventListener('click', (e) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     render();
   }
+  const suggestion = e.target.closest('[data-ask]');
+  if (suggestion) ask(suggestion.dataset.ask);
   const filter = e.target.closest('[data-filter]');
   if (filter) { state.filter = filter.dataset.filter; render(); }
+});
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'ask') return;
+  e.preventDefault();
+  ask(e.target.q.value);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
 setInterval(tickFresh, 1000);
