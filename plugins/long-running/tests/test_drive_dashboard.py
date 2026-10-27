@@ -634,6 +634,27 @@ def test_a_build_failure_is_reported_once_and_only_when_the_next_build_fails_the
     assert reported == ["URLError: <urlopen error [Errno 61] Connection refused>"]
 
 
+def test_the_record_stream_clears_its_failure_once_it_reconnects(monkeypatch):
+    drive = Drive({"drive": "d"}, None)
+    drive.errors["records"] = "URLError: <urlopen error [Errno 61] Connection refused>"
+
+    class Stop(Exception):
+        pass
+
+    streams = iter([contextlib.nullcontext(iter([]))])
+
+    def urlopen(*args, **kwargs):
+        stream = next(streams, None)
+        if stream is None:
+            raise Stop
+        return stream
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(Stop):
+        drive.follow_records(0)
+    assert "records" not in drive.errors
+
+
 def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments(tmp_path):
     assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")
     assistant.queues[7] = queue.Queue()

@@ -556,6 +556,7 @@ class Drive:
             try:
                 url = f"{CCI}/stream?drive={self.config['drive']}&since={after}&" + "&".join(f"kind={k}" for k in TIMELINE_KINDS)
                 with urllib.request.urlopen(url, timeout=None) as stream:
+                    self.errors.pop("records", None)
                     for line in stream:
                         if line.startswith(b"data: "):
                             record = json.loads(line[6:])
