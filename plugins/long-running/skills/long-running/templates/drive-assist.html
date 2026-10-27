@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:f70ca022d36d — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:1efb539198c8 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -699,7 +699,7 @@ document.addEventListener("keydown",e=>{
  const palOpen=!document.getElementById("pal").hidden;
  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
- if(!palOpen){if(e.key==="Escape"){if(sheet){sheet=null;paintSheet()}else showOnly(null)}return}
+ if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
  e.stopImmediatePropagation();
  if(e.key==="Escape"){e.preventDefault();closePal()}
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
