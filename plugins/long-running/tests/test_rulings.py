@@ -205,6 +205,36 @@ def test_a_registry_entry_without_a_program_resolves_it_from_its_state_dir(
     assert shell.queries == [("brief", str(state / "rulings"))]
 
 
+def test_a_verb_without_program_or_drive_uses_the_sessions_drive_and_refuses_with_none(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    drives = home / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    named, claimed = home / "state" / "named", home / "state" / "claimed"
+    (drives / "d1.json").write_text(json.dumps({"drive": "d1", "program": "brook", "sessions": [], "state_dir": str(named)}))
+    (drives / "d2.json").write_text(json.dumps({"drive": "d2", "program": "brook", "sessions": ["s-root"], "state_dir": str(claimed)}))
+
+    def queried(env: dict[str, str], *flags: str) -> list[tuple[str, str]]:
+        for key in ("CLAUDE_LONG_RUNNING_DRIVE", "CLAUDE_CODE_SESSION_ID"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
+        shell = FakeShell(["1984bf6"], [])
+        assert rulings.main(["match", "--repo", REPO, *flags], shell) == 0
+        return shell.queries
+
+    assert queried({"CLAUDE_LONG_RUNNING_DRIVE": "d1", "CLAUDE_CODE_SESSION_ID": "s-root"}) == [("brief", str(named / "rulings"))]
+    assert queried({"CLAUDE_CODE_SESSION_ID": "s-root"}) == [("brief", str(claimed / "rulings"))]
+    assert queried({"CLAUDE_LONG_RUNNING_DRIVE": "d1"}, "--drive", "d2") == [("brief", str(claimed / "rulings"))]
+    assert queried({"CLAUDE_LONG_RUNNING_DRIVE": "d1"}, "--program", "brook") == [("brief", str(home / ".claude" / "scratch" / "brook" / "rulings"))]
+
+    with pytest.raises(SystemExit) as refused:
+        queried({"CLAUDE_CODE_SESSION_ID": "s-other"})
+    assert refused.value.code == 2
+    assert "rulings.py match: error: one of the arguments --program --drive is required" in capsys.readouterr().err
+
+
 def test_match_reads_only_the_drives_program_and_branch_answers(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -3754,8 +3754,9 @@ current branch. Another drive's answers never enter the corpus.
 Each matched answer absent from the register's citations appears as `- <id7> <title>`
 over its quoted body. `--budget` defaults to 8,000 bytes.
 
-`--drive <id>` replaces `--program` for workers carrying `CLAUDE_LONG_RUNNING_DRIVE`.
-It resolves the program and state directory from the drive registry.
+`--drive <id>` replaces `--program` and resolves the program and state directory from the drive registry.
+With neither flag, every `rulings.py` verb uses the session's drive: the one `CLAUDE_LONG_RUNNING_DRIVE`
+names, else the one whose root sessions hold this session.
 
 Claude lane subagents receive the register once at `SubagentStart`.
 This includes `long-running:lane`, `long-running:lane-ship`, `general-purpose`,
