@@ -4690,18 +4690,18 @@ def old_app_checked(config: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("lane", "text", "enqueued"),
+    ("lane", "text", "warned"),
     [
-        (None, None, False),
-        ("fidelity-desk", "old-app: unchanged cccc333 (touches only the new tree)", True),
-        ("fidelity-desk", "old-app: bug fix cccc333", True),
-        ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", False),
-        ("fidelity-desk", "old-app: unchanged bbbb222", False),
-        (LANE, "old-app: unchanged cccc333", False),
-        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", False),
+        (None, None, True),
+        ("fidelity-desk", "old-app: unchanged cccc333 (touches only the new tree)", False),
+        ("fidelity-desk", "old-app: bug fix cccc333", False),
+        ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", True),
+        ("fidelity-desk", "old-app: unchanged bbbb222", True),
+        (LANE, "old-app: unchanged cccc333", True),
+        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", True),
     ],
 )
-def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, enqueued):
+def test_a_drive_naming_the_old_app_check_enqueues_every_head_and_warns_once_on_one_no_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, warned):
     old_app_checked(config)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -4709,10 +4709,10 @@ def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_g
         shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert bool(shell.enqueues()) is enqueued
-    if not enqueued:
-        [blocker] = blockers(shell)
-        assert blocker["to"] == f"{LANE},fidelity-desk" and "OLD-APP-PENDING #29020: " in blocker["text"]
+    assert shell.enqueues() and not blockers(shell)
+    pending = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in note["text"]]
+    assert len(pending) == int(warned)
+    assert all(note["to"] == f"{LANE},fidelity-desk" for note in pending)
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:

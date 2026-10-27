@@ -318,7 +318,7 @@ sha, or else the head the PR's newest `head` record named before it. The newest 
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
-neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` blocker to its lane and the fidelity lanes. A finder ok of an older head
+neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it. A finder ok of an older head
 carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
@@ -4736,12 +4736,12 @@ class Landing:
         owner = self.owner(pr, graded.rows.get(pr, {}))
         self.post_blocker(key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
-    def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
-        """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
+    def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
+        """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+        self.post_record("note", key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
@@ -4827,8 +4827,9 @@ class Landing:
         self.post_record("note", key, record["lane"], text, pr)
 
     def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` fails `OLD-APP-PENDING`, with one blocker per head to its lane and the fidelity lanes (root #140437)."""
-        states = {}
+        """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437)."""
+        if not graded.act:
+            return {}
         for pr, sha in graded.heads.items():
             grades = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
             if (newest := newest_finder(grades, sha)) and newest["grade"] in OLD_APP_PASSES:
@@ -4836,11 +4837,9 @@ class Landing:
             if not newest and self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES):
                 continue
             why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
-            states[pr] = merge_queue.State(merge_queue.FAIL, f"OLD-APP-PENDING #{pr}: {why}")
-        if graded.act:
-            for pr, state in states.items():
-                self.refuse_head(f"old-app:{pr}:{graded.heads[pr]}", pr, graded, state.reason, states, also=self.fidelity_lanes)
-        return states
+            text = f"OLD-APP-PENDING #{pr}, and the head is not held for it: {why}"
+            self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_lanes)
+        return {}
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
         ungraded = self.ungraded(graded.heads)
