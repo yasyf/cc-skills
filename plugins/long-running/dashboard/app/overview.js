@@ -390,9 +390,8 @@ function mountOverview() {
     const svg = fig.querySelector('svg');
     const W = fig.offsetWidth, H = fig.offsetHeight, r = 16, e = 1;
     const b = fig.classList.contains('cloud') ? 22 : 0;
-    const top = fig.classList.contains('cloud')
-      ? `L${W * 0.46} ${b} A${W * 0.07} ${b * 0.8} 0 0 1 ${W * 0.6} ${b} A${W * 0.11} ${b} 0 0 1 ${W * 0.82} ${b} A${W * 0.05} ${b * 0.7} 0 0 1 ${W * 0.92} ${b}`
-      : '';
+    const dome = (x1, x2, h) => `L${W * x1} ${b + e} A${(W * (x2 - x1)) / 2} ${b * h} 0 0 1 ${W * x2} ${b + e}`;
+    const top = fig.classList.contains('cloud') ? dome(0.5, 0.63, 0.65) + dome(0.63, 0.83, 0.95) + dome(0.83, 0.92, 0.55) : '';
     const d = `M${e} ${H - e - r} L${e} ${b + r} Q${e} ${b + e} ${r} ${b + e} ${top} L${W - r} ${b + e} Q${W - e} ${b + e} ${W - e} ${b + r} L${W - e} ${H - e - r} Q${W - e} ${H - e} ${W - r} ${H - e} L${r} ${H - e} Q${e} ${H - e} ${e} ${H - e - r} Z`;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = `<path class="base" d="${d}"/><path class="prog" d="${d}" pathLength="100" stroke-dasharray="${fig.dataset.pct} 100"/>`;
