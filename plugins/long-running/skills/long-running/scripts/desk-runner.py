@@ -4079,7 +4079,7 @@ class Landing:
         for pr in sorted(open_rows, key=int):
             if pr in self.no_go or not (parents := downstack(open_rows, pr) & self.no_go):
                 continue
-            bottom = next(below for below in downstack(open_rows, pr) if downstack(open_rows, below) == {below})
+            bottom = min(downstack(open_rows, pr), key=lambda below: (len(downstack(open_rows, below)), int(below)))
             gone, waiting = stacks.setdefault(bottom, ([], set()))
             gone.append(pr)
             waiting.update(parents)
