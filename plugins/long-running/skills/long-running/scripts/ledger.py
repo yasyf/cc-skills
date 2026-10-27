@@ -734,6 +734,22 @@ def failing_checks(contexts: list[dict], repo: str) -> str:
     ])
 
 
+def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
+    """Each failing check with `error`, the first error line of its Buildkite job, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails, carries no `error` and is read again on the next refresh (root #148571)."""
+    known = {check["url"]: check["error"] for check in json.loads(stored or "[]") if "error" in check}
+    enriched = []
+    for check in json.loads(checks):
+        if check["url"] in known:
+            check["error"] = known[check["url"]]
+        elif target := BUILDKITE_URL.match(check["url"]):
+            try:
+                check["error"] = resolve_error(shell, target)
+            except subprocess.CalledProcessError:
+                pass
+        enriched.append(check)
+    return json.dumps(enriched)
+
+
 def grade(record: dict, repo: str) -> dict[str, str]:
     """A row's graded fields, off one record whose head and verdicts a single poll read together."""
     rollup = record.get("rollup") or {}
@@ -1579,6 +1595,7 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
         if key in reopenable and state["prs"][key]["state"] != "OPEN":
             continue
         fields = grade(state["prs"][key], scope.repo)
+        fields["failing_checks"] = with_errors(shell, fields["failing_checks"], every.get(key, {}).get("failing_checks"))
         fields["last_refresh"] = moment
         if key not in known:
             fields["first_seen"] = moment
