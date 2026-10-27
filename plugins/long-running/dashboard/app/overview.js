@@ -230,14 +230,36 @@ function overview() {
 }
 function planSheet() {
   const m = state.model;
-  const tabs = [['steps', 'Steps'], ['releases', 'Releases'], ['text', 'Plan text']];
-  const body = {
-    steps: () => m.steps.map((s) => stepCard(s)).join(''),
-    releases: () => `${releaseTrunk()}<div class="prose">${markdown(m.releases.markdown)}</div>`,
-    text: () => `<p class="dim">The progress doc's ordered plan, written ${m.plan_at ? agoWords(m.plan_at) : ''}. Where it and the release plan differ, the release plan is newer.</p><ol class="psteps">${planSteps(true)}</ol>`,
-  }[ov.planTab]();
-  return `<div class="overlay" data-close="1"><div class="sheet plan"><button class="btn close" data-close="1">Close</button>
-    <nav class="ptabs">${tabs.map(([k, l]) => `<button class="${ov.planTab === k ? 'on' : ''}" data-ptab="${k}">${l}</button>`).join('')}</nav>${body}</div></div>`;
+  const rels = m.now.releases ?? [];
+  const at = rels.findIndex((r) => !RELEASED.test(r.state));
+  const share = (s) => { const t = tally(s.prs); return t.total ? Math.round((100 * t.landed) / t.total) : s.tone === 'done' ? 100 : 0; };
+  const route = [
+    ...m.steps.map((s) => `<div class="bw step tn-${s.tone}${s.tone === 'done' ? ' past' : ''}" data-track="${esc(s.id)}" style="--p:${share(s)}"><span class="bn"></span><span class="bl">${esc(s.label)}</span></div>`),
+    ...rels.map((r, i) => `<div class="bw rel ${releaseWord(rels, i, at)[0]}${i === at ? ' here' : ''}${i < at ? ' past' : ''}" data-release="${esc(r.id)}"><span class="bn">${i === at ? '✈' : esc(r.id.slice(1))}</span><span class="bl">${esc(r.name.split(',')[0])}</span></div>`),
+  ].join('');
+  const stepCards = m.steps.map((s, i) => {
+    const t = tally(s.prs);
+    return `<article class="stc tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${share(s)}"><header><span class="si">${i + 1}</span><b>${esc(s.title)}</b><em>${t.total ? `${t.landed}/${t.total} landed` : ''}</em></header>
+      ${s.prs.length ? `<div class="sd">${byLight(s.prs).map((e) => dot(e.number)).join('')}</div>` : ''}
+      <p><em class="tone">${esc(TONE_SAY[s.tone] ?? s.tone)}.</em> ${inline(s.state)}</p>${s.blocker || s.next ? `<p class="dim">${s.blocker ? `Waits on: ${inline(s.blocker)}. ` : ''}${s.next ? `Next: ${inline(s.next)}` : ''}</p>` : ''}</article>`;
+  }).join('');
+  const relCards = planRows().map(([n, name, reach, targets, who]) => {
+    const r = rels.find((x) => x.id === `R${n}`);
+    const i = rels.indexOf(r);
+    return `<article class="rc ${r ? releaseWord(rels, i, at)[0] : ''}"${r ? ` data-release="${esc(r.id)}"` : ''}><span class="rn">${esc(n)}</span><div><b>${esc(name)}</b><p>${inline(reach)}</p><small>${r ? `<b>${esc(releaseWord(rels, i, at)[1])}:</b> ${esc(r.state)}` : ''}</small><small>${esc(who)} · ${esc(targets)}</small></div></article>`;
+  }).join('');
+  const doc = (m.releases.markdown ?? '').split('\n## ').slice(1).map((sec, i) => {
+    const [h, ...body] = sec.split('\n');
+    return `<details data-id="plan-doc-${i}"${state.open.has(`plan-doc-${i}`) ? ' open' : ''}><summary>${esc(h)}</summary><div class="md">${markdown(body.join('\n'))}</div></details>`;
+  }).join('');
+  return `<div class="overlay" data-close="1"><div class="sheet plan ck"><button class="btn close" data-close="1">Close</button><div class="pv">
+    <div class="ph"><h2>The plan</h2><span>release plan revised ${m.releases.updated ? clock(m.releases.updated) : ''} · steps as of ${clock(m.steps_at)}</span></div>
+    <div class="bigroute">${route}</div>
+    <h3>Releases to cutover</h3><div class="rels">${relCards}</div>
+    <h3>Plan steps</h3><div class="steps">${stepCards}</div>
+    <h3>The full release plan</h3><div class="doc">${doc}</div>
+    <h3>The progress doc's ordered plan</h3><div class="doc"><details data-id="plan-progress"${state.open.has('plan-progress') ? ' open' : ''}><summary>Written ${m.plan_at ? agoWords(m.plan_at) : ''}</summary><ol class="psteps">${planSteps(true)}</ol></details></div>
+  </div></div></div>`;
 }
 async function answer(body) {
   ov.answering = true;

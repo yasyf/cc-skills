@@ -313,3 +313,59 @@ body:has(.ck) { background: #080a0d; }
 .wrap:has(> .ck) > .as-since { margin-bottom: 10px; padding: 8px 14px; gap: 12px; border-radius: 14px; }
 .wrap:has(> .ck) > .as-since .when { font-size: 13px; } .wrap:has(> .ck) > .as-since .as-tiles { gap: 6px; }
 .wrap:has(> .ck) > .as-since .as-tile { min-width: 0; padding: 3px 10px; } .wrap:has(> .ck) > .as-since .as-tile b { display: inline; font-size: 17px; margin-right: 5px; }
+.ck .plan-wrap { position: relative; width: 100%; max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; }
+.ck .pv h2 { font-size: 24px; letter-spacing: -.02em; }
+.ck .pv .ph { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.ck .pv .ph span { color: var(--ink3); font-size: 12.5px; }
+.ck .pv h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink3); margin: 24px 0 10px; }
+.ck .bigroute { display: flex; align-items: flex-start; gap: 0; overflow-x: auto; padding: 8px 2px 4px; }
+.ck .bigroute .bw { flex: 1 0 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; cursor: pointer; }
+.ck .bigroute .bw::before { content: ""; position: absolute; top: 11px; left: -50%; right: 50%; height: 2px; background: #2f3640; }
+.ck .bigroute .bw:first-child::before { display: none; }
+.ck .bigroute .bw.past::before, .ck .bigroute .bw.here::before { background: var(--done); }
+.ck .bigroute .bn { position: relative; z-index: 1; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: conic-gradient(var(--done) calc(var(--p) * 1%), #262d36 0); color: var(--ink); box-shadow: 0 0 0 3px var(--bg); }
+.ck .bigroute .bw.rel .bn { border-radius: 6px; background: #1b2129; box-shadow: inset 0 0 0 1.5px #3a4350, 0 0 0 3px var(--bg); color: var(--ink2); }
+.ck .bigroute .bw.here .bn { background: var(--doing); color: #04121f; box-shadow: 0 0 0 3px var(--bg), 0 0 16px rgba(90,169,255,.7); }
+.ck .bigroute .bl { font-size: 11px; color: var(--ink2); text-align: center; line-height: 1.25; max-width: 84px; }
+.ck .bigroute .bw.here .bl { color: var(--doing); font-weight: 700; }
+.ck .steps { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.ck .stc { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.ck .stc.here { border-color: rgba(90,169,255,.55); box-shadow: 0 0 0 3px rgba(90,169,255,.08); }
+.ck .stc header { display: flex; align-items: center; gap: 10px; }
+.ck .stc header .si { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: conic-gradient(var(--done) calc(var(--p) * 1%), #262d36 0); }
+.ck .stc header b { flex: 1; font-size: 14.5px; }
+.ck .stc header em { font-style: normal; font-size: 12px; color: var(--ink3); }
+.ck .stc .sd { display: flex; flex-wrap: wrap; gap: 4px; margin: 9px 0 6px 32px; }
+.ck .stc .sd .dot { --d: 11px; animation: none; cursor: pointer; }
+.ck .stc p { margin-left: 32px; font-size: 13px; line-height: 1.6; color: var(--ink2); }
+.ck .rels { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.ck .rc { display: grid; grid-template-columns: 34px 1fr; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 11px 13px; }
+.ck .rc .rn { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: #1b2129; box-shadow: inset 0 0 0 1.5px #3a4350; font-weight: 750; font-size: 13px; }
+.ck .rc b { font-size: 14px; }
+.ck .rc p { font-size: 12.5px; color: var(--ink2); line-height: 1.45; margin-top: 2px; }
+.ck .rc small { display: block; font-size: 11.5px; color: var(--ink3); margin-top: 4px; }
+.ck .doc details { border-top: 1px solid var(--line); }
+.ck .doc summary { cursor: pointer; padding: 11px 2px; font-size: 14px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; }
+.ck .doc summary::after { content: "+"; color: var(--ink3); }
+.ck .doc details[open] summary::after { content: "–"; }
+.ck .md { padding: 0 2px 14px; font-size: 13px; line-height: 1.6; color: var(--ink2); }
+.ck .md p, .ck .md ul, .ck .md ol { margin: 0 0 9px; }
+.ck .md ul, .ck .md ol { padding-left: 20px; }
+.ck .md h4 { color: var(--ink); font-size: 13.5px; margin: 14px 0 6px; }
+.ck .md code { font: 12px ui-monospace, monospace; background: var(--panel2); padding: 0 4px; border-radius: 4px; color: var(--ink); }
+.ck .md strong { color: var(--ink); }
+.ck .md table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0 12px; display: block; overflow-x: auto; }
+.ck .md th, .ck .md td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ck .md th { color: var(--ink3); font-weight: 600; }
+.ck .pv h2 { font-size: 24px; letter-spacing: -.02em; }
+.ck .pv .ph { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.ck .pv .ph span { color: var(--ink3); font-size: 12.5px; }
+.ck .pv h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink3); margin: 24px 0 10px; }
+.sheet.ck { display: block; background: var(--panel); color: var(--ink); max-width: 1100px; }
+.ck .bw.tn-failing .bn { box-shadow: 0 0 0 3px var(--bg), 0 0 0 4.5px var(--bad); } .ck .bw.tn-you .bn { box-shadow: 0 0 0 3px var(--bg), 0 0 0 4.5px var(--you); } .ck .bw.tn-moving .bn { box-shadow: 0 0 0 3px var(--bg), 0 0 0 4.5px var(--doing); }
+.ck .bw.rel.out .bn { background: var(--done); color: #04121f; } .ck .bw.rel.blocked .bn { background: var(--bad); color: #1a0505; }
+.ck .stc { cursor: pointer; } .ck .stc:hover { border-color: var(--line2); } .ck .stc p.dim { color: var(--ink3); font-size: 12.5px; margin-top: 4px; }
+.ck .stc .tone { font-style: normal; font-weight: 700; } .ck .stc.tn-failing .tone { color: var(--bad); } .ck .stc.tn-you .tone { color: var(--you); } .ck .stc.tn-moving .tone { color: var(--doing); } .ck .stc.tn-done .tone, .ck .stc.tn-queued .tone { color: var(--done); }
+.ck .rc { cursor: pointer; } .ck .rc.blocked { border-color: rgba(255,107,107,.45); } .ck .rc.next { border-color: rgba(255,178,36,.5); } .ck .rc.out .rn { background: var(--done); color: #04121f; }
+.ck .md a { color: var(--doing); }
+@media (min-width: 760px) { .ck .rels, .ck .steps { grid-template-columns: 1fr 1fr; } .sheet.ck { padding: 22px 26px 28px; } }
