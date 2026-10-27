@@ -275,8 +275,8 @@ class FakeShell(runner_module.Shell):
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
-            assert argv[7:9] == ["--max-age", "5m"]
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[9:]]), "")
+            prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in prs]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -2957,7 +2957,7 @@ def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell
     shell.gates["29100"] = [gate(f"#29100 BLOCKED eeee555555 {CONFLICT}")]
     landing_pass(shell, config)
     reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
-    assert [call[7:] for call in reads] == [["--max-age", "5m", "29020", "29100"]]
+    assert [call[7:] for call in reads] == [["--max-age", "300s", "29020", "29100"]]
     assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
 
 
@@ -4228,6 +4228,12 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     assert shell.enqueues() == []
 
 
+def out_of_queue(shell: FakeShell, *prs: str, state: str = "not queued") -> None:
+    shell.sleep(runner_module.STATUS_MAX_AGE.total_seconds() + 1)
+    for pr in prs:
+        shell.queue[pr] = state
+
+
 def enqueues_of(tmp_path: Path) -> dict[str, actions.Action]:
     return {key: action for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "enqueue"}
 
@@ -4240,7 +4246,7 @@ def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
     shell.queue["29020"] = "queued"
@@ -4258,7 +4264,7 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
-    shell.queue["29020"] = "evicted"
+    out_of_queue(shell, "29020", state="evicted")
     shell.gates["29020"] = [gate(CONFLICT_DROP)]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4280,6 +4286,20 @@ OWN_RED = (
 )
 
 
+def test_an_enqueue_a_root_go_makes_is_judged_against_the_queue_only_once_a_status_read_postdates_it(shell, config, tmp_path):
+    board_surface(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["enqueued"]
+    out_of_queue(shell, "29020", "29031")
+    landing_pass(shell, config)
+    assert sorted(enqueues_of(tmp_path).items())[0][1].response["outcome"] == "dropped"
+
+
 def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tmp_path):
     shell.launch("artifact-retry", "ctx_a")
     shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
@@ -4287,7 +4307,7 @@ def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tm
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
-    shell.queue["29016"] = "not queued"
+    out_of_queue(shell, "29016")
     shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", OWN_RED)]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4318,7 +4338,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     root_go(shell, "GO #29020 at cccc3333 standard", shell.now() - timedelta(minutes=5))
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FOREIGN_RETRY, would="#29020")]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4357,7 +4377,7 @@ def test_a_drop_blaming_a_pr_inside_the_stack_is_gated_again_and_re_enqueues_the
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
-    shell.queue["28997"] = shell.queue["29016"] = "not queued"
+    out_of_queue(shell, "28997", "29016")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
     assert sorted(action.response["outcome"] for action in enqueues_of(tmp_path).values()) == ["dropped", "enqueued"]
@@ -4374,7 +4394,7 @@ def test_a_red_check_drop_its_gate_reads_as_a_batch_mates_failure_re_enqueues_th
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(retry, would="#29020")]
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
@@ -4521,7 +4541,7 @@ def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_fo
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     landing_pass(shell, config)
     assert flakes(shell) == [["29020", "--flake"]] and len(shell.enqueues()) == 1
@@ -4529,7 +4549,7 @@ def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_fo
     shell.queue["29020"] = "queued"
     landing_pass(shell, config)
     assert len(flakes(shell)) == 1 and blockers(shell) == []
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(flakes(shell)) == 1
@@ -4550,7 +4570,7 @@ def test_a_flaky_retry_the_queue_refuses_is_a_defect(shell, config, tmp_path):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     shell.flake_code = 1
     landing_pass(shell, config)
@@ -4563,7 +4583,7 @@ def test_a_flaky_retry_the_queue_strands_escalates_like_any_enqueue_and_asks_the
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     shell.flake_code = 3
     landing_pass(shell, config)

@@ -591,7 +591,7 @@ GRADE_KEY = "ci-grade:"
 CLAIM_CLAUSE = re.compile(r";|\.\s")
 CLAIMED_PR = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+))?#(?P<pr>\d+)\b")
 STATUS_PAGE = 25
-STATUS_MAX_AGE = "5m"
+STATUS_MAX_AGE = timedelta(minutes=5)
 FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
 FULL_RUN_WINDOW = timedelta(days=2)
 RELEASE_POLL = timedelta(seconds=15)
@@ -3999,6 +3999,7 @@ class Landing:
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
+        self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
         self.reviews: list[dict] | None = None
         self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
@@ -5520,10 +5521,12 @@ class Landing:
         }
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR."""
+        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR. An enqueue is judged only once its whole-second completion stamp is before `statuses_floor`, since the status read may answer from a poll made before it."""
         believed = self.believed_queued(rows)
         if not any(believed.values()) or (queue := self.queue_states()) is None:
             return
+        polled = {action.action_id for action in self.book.actions(LANDING, kind="enqueue", status="completed") if actions.parse_stamp(action.response["at"]) < self.statuses_floor}
+        believed = {key: prs for key, prs in believed.items() if key in polled}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         for key, prs in believed.items():
             dropped = [pr for pr in prs if queue[pr] in OUT_OF_QUEUE]
@@ -5834,12 +5837,13 @@ class Landing:
         return pr in self.landed
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, so no entry is older than `statuses_floor`, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
+            self.statuses_floor = actions.parse_stamp(actions.stamp(self.runner.now() - STATUS_MAX_AGE))
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
-                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", STATUS_MAX_AGE, *page]), pages))
+                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
             self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
