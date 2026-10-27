@@ -640,6 +640,8 @@ document.addEventListener('click', (e) => {
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
   if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
+  const strip = e.target.closest('.ck .route');
+  if (strip && !e.target.closest('.planlink, a')) return (location.hash = `#/status/${e.target.closest('[data-release]')?.dataset.release ?? ''}`);
   const onlyEl = e.target.closest('[data-only]');
   if (onlyEl?.dataset.only === 'you') return (location.hash = '#/now');
   if (onlyEl) return onlyBy(onlyEl.dataset.only);

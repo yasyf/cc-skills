@@ -278,3 +278,14 @@ details.brec[open] > summary { margin-bottom: 6px; }
 .note input:focus, .note textarea:focus, #ask textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
 #cardembed { bottom: auto; max-height: calc(100vh - 84px); }
 @media (max-width: 760px) { .bpick .btn, .bpick .note input, .bpick .note textarea { min-height: 44px; } .bopt summary { padding: 8px 0; } }
+.stgroup { padding: 14px 16px; margin-bottom: 14px; } .stgroup h3 { margin: 0 0 8px; font-size: 15px; }
+.sthead, .strow > summary { display: grid; grid-template-columns: 1.3fr 1.3fr 1.4fr 1.2fr 1.2fr 1.2fr; gap: 12px; align-items: start; }
+.sthead { padding: 0 8px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.strow { border-bottom: 1px solid var(--line); } .strow > summary { list-style: none; cursor: pointer; padding: 10px 8px; font-size: 13px; color: var(--ink-2); }
+.strow > summary::-webkit-details-marker { display: none; } .strow > summary:hover { background: var(--surface-2); }
+.strow > summary > b { color: var(--ink); font-weight: 650; }
+.strow:not([open]) > summary > * { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.strow .ststate .pill { font-style: normal; margin-right: 4px; }
+.strow[open] { background: var(--surface-2); } .stdetail { padding: 4px 8px 14px; font-size: 13px; color: var(--ink-2); } .stdetail p { margin: 0 0 8px; }
+.strow.tn-failing > summary > b, .strow.tn-blocked > summary > b { color: var(--bad); }
+@media (max-width: 900px) { .sthead { display: none; } .strow > summary { grid-template-columns: 1fr; gap: 4px; } }

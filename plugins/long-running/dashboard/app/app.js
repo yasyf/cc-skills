@@ -258,6 +258,26 @@ function timelineScreen() {
 }
 
 const FACTS = [['change', 'What changes for a user'], ['plan', 'Against the plan'], ['risk', 'Risk'], ['review', 'Review'], ['blocker', 'What blocks it']];
+function statusScreen() {
+  const m = state.model;
+  const focus = route().id;
+  const rels = m.now.releases ?? [];
+  const reach = new Map(planRows().map(([n, , what]) => [`R${n}`, what]));
+  const cell = (text, empty = '') => text ? `<span>${inline(text)}</span>` : `<span class="dim">${empty}</span>`;
+  const row = (r) => `<details class="strow tn-${r.tone}" id="st-${esc(r.id)}" data-id="st-${esc(r.id)}"${state.open.has(`st-${r.id}`) || focus === r.id ? ' open' : ''}>
+    <summary><b>${esc(r.name)}</b>${cell(r.delivers, 'Not written yet')}<span class="ststate"><i class="pill ${r.pill}">${esc(r.word)}</i> ${r.state ? inline(firstSentences(r.state, 140)) : ''}</span>${cell(r.blocker, r.tone === 'done' || r.tone === 'out' ? 'Nothing' : 'Not recorded yet')}${cell(r.doing, r.tone === 'done' || r.tone === 'out' ? 'Nothing needed' : 'Not recorded yet')}${cell(r.wrong, 'Not recorded yet')}</summary>
+    <div class="stdetail">${r.state ? `<p>${inline(r.state)}</p>` : ''}${r.prs.length ? `<p>${dots(r.prs)} ${r.prs.length} pull request${r.prs.length === 1 ? '' : 's'}</p>` : ''}${r.open}</div></details>`;
+  const pill = { done: 'ok', out: 'ok', failing: 'bad', held: 'warn', blocked: 'bad', you: 'warn' };
+  const relRows = rels.map((r, i) => {
+    const [tone, word] = releaseWord(rels, i);
+    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: `${r.id} ${r.name}`, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
+  });
+  const stepRows = m.steps.map((s) => row({ id: s.id, tone: s.tone, pill: pill[s.tone] ?? '', word: TONE_SAY[s.tone] ?? s.tone, name: s.title, delivers: s.delivers, state: s.state, blocker: s.blocker, doing: s.unblocking ?? s.next, wrong: s.went_wrong, prs: s.prs.map((p) => p.number ?? p), open: `<button class="btn" data-track="${esc(s.id)}">Open the step ›</button>` }));
+  const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
+  return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
+    <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
+    <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
+}
 function needsTotal() {
   return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : 1), 0);
 }
@@ -414,7 +434,7 @@ function route() {
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function overRoute(r) {
-  return ['now', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !/^\d+$/.test(r.id ?? ''));
+  return ['now', 'status', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !/^\d+$/.test(r.id ?? ''));
 }
 function render() {
   const m = state.model;
@@ -424,10 +444,10 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
+  const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
   const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
@@ -442,6 +462,10 @@ function render() {
   if ($('.overlay.route')) [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] = sheetY;
   syncReviewEmbed(r);
   syncCardEmbed(r);
+  if (r.screen === 'status' && r.id && state.statusFocus !== location.hash) {
+    state.statusFocus = location.hash;
+    document.getElementById(`st-${r.id}`)?.scrollIntoView({ block: 'center' });
+  }
   if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();

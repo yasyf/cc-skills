@@ -243,7 +243,7 @@ body:has(.ck) { background: #080a0d; }
 .ck .wp.rel.out .n { background: var(--done); box-shadow: none; } .ck .wp.rel.blocked .n { background: var(--bad); box-shadow: none; } .ck .wp.rel.next .n { background: var(--you); box-shadow: 0 0 10px rgba(255,178,36,.7); }
 .ck .wp.rel.blocked .lb, .ck .wp.rel.next .lb { color: var(--ink); font-weight: 700; }
 .ck .wp.gap { flex: 0 0 18px; cursor: default; } .ck .wp.gap .n { display: none; }
-.ck .route { cursor: default; } .ck .route .track { margin-right: 4px; }
+.ck .route { cursor: pointer; } .ck .route .track { margin-right: 4px; }
 .ck .route-now { grid-column: 1; margin-top: 8px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ck .route-now b { color: var(--ink); font-weight: 650; }
 .ck .thumb { cursor: pointer; } .ck .thumb .ti { width: 820px; padding: 18px; background: var(--bg); color: var(--ink); font-size: 26px; line-height: 1.5; }
 .ck .thumb .ti b { display: block; font-size: 34px; margin-bottom: 8px; } .ck .thumb .ti div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -614,3 +614,4 @@ body:has(.ck.ov) .top .tabs { display: none; }
 .ck .route .planlink small { font-size: 11px; font-weight: 500; color: var(--ink3); } .ck .route .planlink span { font-size: 11.5px; color: var(--doing); }
 .ck .route .planlink:hover { border-color: var(--ink3); }
 .ck .route { grid-template-columns: minmax(0, 1fr) auto; }
+.sheet.route:has(.stgroup) { max-width: 1280px; }
