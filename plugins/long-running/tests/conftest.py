@@ -28,7 +28,7 @@ GREEN_HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
 LEDGER = "1a2b3c4d"
 LEDGER_CREATED = "2026-01-01T00:00:00Z"
 DRIVE = "d1"
-FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left, resets 7:13 AM (2026-09-21T14:13:20Z); top callers: desk-runner 412"
+FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left, under the floor of 1000, until 7:13AM (2026-09-21T07:13:20-07:00); top callers: desk-runner.py 412"
 
 
 def gateway(argv: list[str]) -> list[str]:

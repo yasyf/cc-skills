@@ -655,6 +655,7 @@ QUEUED_STATE = "queued"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 1000
+QUOTA_RESOURCES = ("core", "graphql")
 QUOTA_URGENT = 1500
 TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
@@ -3991,11 +3992,12 @@ class Pool:
 
 
 def quota_pools(*identities: dict) -> list[Pool]:
-    """Each REST and GraphQL quota of `identities` once, named by the identity's kind and the resource, its callers heaviest first; the user's identity reads and writes alike when no app is installed."""
+    """Each REST and GraphQL quota of `identities` once, named by its identity and resource, its callers heaviest first; the user's identity reads and writes alike when no app is installed. The search quota, 30 calls a minute, is no budget the drive spends."""
     pools = {
-        f"{identity['kind']} {pool['resource']}": Pool(f"{identity['kind']} {pool['resource']}", pool["limit"], pool["remaining"], datetime.fromisoformat(pool["resetAt"]), sorted(pool.get("callers") or [], key=lambda caller: -caller["requests"]))
+        f"{pool['identity']} {pool['resource']}": Pool(f"{pool['identity']} {pool['resource']}", pool["limit"], pool["remaining"], datetime.fromisoformat(pool["resetAt"]), pool["callers"])
         for identity in identities
         for pool in identity["pools"]
+        if pool["resource"] in QUOTA_RESOURCES
     }
     return list(pools.values())
 

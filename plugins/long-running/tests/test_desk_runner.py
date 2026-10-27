@@ -68,7 +68,8 @@ def cci_names(record: dict, pr: str) -> bool:
 
 
 def identity(kind: str, **limits: int) -> dict:
-    return {"kind": kind, "name": kind, "pools": [{"resource": resource, "limit": limit, "remaining": limit, "resetAt": QUOTA_RESET, "callers": []} for resource, limit in limits.items()]}
+    pools = [{"identity": kind, "resource": resource, "limit": limit, "remaining": limit, "resetAt": QUOTA_RESET, "readAt": "2026-10-01T17:59:00Z", "callers": []} for resource, limit in limits.items()]
+    return {"kind": kind, "name": kind, "pools": [*pools, {"identity": kind, "resource": "search", "limit": 30, "remaining": 2, "resetAt": QUOTA_RESET, "readAt": "2026-10-01T17:59:00Z", "callers": []}]}
 
 
 def pool(shell: FakeShell, side: str, resource: str) -> dict:
@@ -3889,7 +3890,7 @@ def test_each_quota_under_1500_posts_one_urgent_alert_per_reset_naming_its_five_
     lone_green_pr(shell)
     graphql = pool(shell, "writes", "graphql")
     graphql["remaining"] = 1499
-    graphql["callers"] = [{"caller": name, "requests": requests} for name, requests in (("ledger", 40), ("cc-review", 900), ("desk-runner", 300), ("label-watch", 60), ("rulings", 20), ("board_rows", 120))]
+    graphql["callers"] = [{"caller": name, "requests": requests} for name, requests in (("cc-review", 900), ("desk-runner", 300), ("board_rows", 120), ("label-watch", 60), ("ledger", 40), ("rulings", 20))]
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert quota_alerts(shell) == [
