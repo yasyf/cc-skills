@@ -832,7 +832,7 @@ SPRITE_IDS = {"task": "taskId", "dispatch": "dispatchId"}
 SPRITE_PREPARED = "prepare.status"
 SPRITE_RECEIPT = "worker-start.json"
 SPRITE_MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "sol": "gpt-6.1-sol", "codex": "gpt-6.1-sol", "astra": "gpt-6-astra"}
-SPRITE_LOCAL_MODELS = frozenset({"fable", INCIDENT_MODEL})
+FABLE_MODEL = re.compile(r"(?:^|[-_.])fable(?:[-_.0-9]|$)", re.IGNORECASE)
 LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
@@ -1089,6 +1089,10 @@ def clock_phases(launched: datetime, reached: dict[str, str], now: datetime) -> 
 
 def mac_only(text: str) -> list[str]:
     return list(dict.fromkeys((found[1] or found[2]).rstrip(".,:;") for found in MAC_ONLY.finditer(REGISTER_SLICE.sub("", text))))
+
+
+def mac_model(model: str) -> bool:
+    return model == INCIDENT_MODEL or bool(FABLE_MODEL.search(model))
 
 
 def sprite_model(model: str) -> str:
@@ -2753,7 +2757,7 @@ class Runner:
         brief = Path(spec["brief"])
         text = brief.read_text(errors="replace") if brief.is_file() else ""
         placed = found[1] if (found := PLACE.search(text)) else REMOTE
-        if spec["model"] in SPRITE_LOCAL_MODELS or spec.get("fast") or STANDING_DESK.search(text) or placed == LOCAL:
+        if mac_model(spec["model"]) or spec.get("fast") or STANDING_DESK.search(text) or placed == LOCAL:
             return Placement(LOCAL)
         if placed != REMOTE:
             return Placement(REFUSED, f"`place={placed}` on its brief's `ccx:` line, which is neither `place=remote` nor `place=local`", f"the root writes `place=remote`, `place=local`, or no `place=` on that line of {brief} and submits it again under a new key")
