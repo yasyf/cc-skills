@@ -1,10 +1,11 @@
 import datetime as dt
 
 import pytest
-from server import Drive, drive_prs, parse_plan, plan_prs, step_rows, verdict_state
+from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, verdict_state
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
+PARTS = [{"key": "agent", "scopes": ["sand"]}, {"key": "api", "scopes": ["api"]}, {"key": "tools", "scopes": []}]
 
 DOC = """id: a5262e7
 updated: 2026-10-27T06:30:00Z
@@ -101,50 +102,102 @@ def test_a_tap_at_the_head_or_a_carried_head_is_not_waiting_on_him(row, state):
     assert verdict_state(row) == state
 
 
-def test_the_ring_counts_exactly_the_green_squares():
-    prs = {
-        "42001": {"state": "landed"},
-        "42002": {"state": "landed"},
-        "42003": {"state": "landed"},
-        "42004": {"state": "open", "test_state": "failure"},
-        "42005": {"state": "open"},
-        "42006": {"state": "closed-without-squash"},
-        "42007": {"state": None},
-    }
-    trees = {"42001": ["Old tree", "New tree"], "42002": ["Shared"], "42004": ["Old tree"]}
-    records = [{"lane": "p8a-step7", "at": "2026-10-27T07:50:00Z", "text": "pushed #42005", "topic": ""}]
-
-    drive = drive_prs(prs, [], records, trees, TREES, NOW)
-
-    squares = drive["prs"]
-    assert drive["landed"] == sum(1 for square in squares if square["state"] == "landed") == 3
-    assert drive["total"] == len(squares) == 5
-    assert [square["tree"] for square in squares] == ["New tree", "Shared", "Shared", "Old tree", "Shared"]
-    assert {square["number"]: square["state"] for square in squares}[42005] == "doing"
-    assert drive["moving"] == 1
+def ledger(**rows):
+    return {number.removeprefix("pr"): {"title": "ci: x", "head": "h" * 8, **fields} for number, fields in rows.items()}
 
 
-def step(prs, lanes=(), tone="later"):
-    return {"id": "s", "title": "T", "state": "S", "tone": tone, "blocker": None, "next": "N", "prs": list(prs), "lanes": list(lanes)}
+def listed(prs, rows=(), gos=None, records=(), trees=None, steps=()):
+    return {entry["number"]: entry for entry in drive_prs(prs, list(rows), gos or {}, list(records), trees or {}, TREES, list(steps), PARTS, NOW)["prs"]}
+
+
+def test_every_drive_pull_request_is_one_light_and_closed_ones_are_none():
+    prs = ledger(
+        pr42001={"state": "landed", "title": "sand: a"},
+        pr42002={"state": "landed"},
+        pr42003={"state": "open", "title": "api: b"},
+        pr42004={"state": "closed-without-squash"},
+        pr42005={},
+    )
+
+    lights = listed(prs, trees={"42001": ["Old tree", "New tree"]})
+
+    assert sorted(lights) == [42001, 42002, 42003, 42005]
+    assert sum(1 for light in lights.values() if light["state"] == "landed") == 2
+    assert [lights[n]["tree"] for n in (42001, 42002)] == ["New tree", "Shared"]
+    assert [lights[n]["part"] for n in (42001, 42003, 42005)] == ["agent", "api", "tools"]
 
 
 @pytest.mark.parametrize(
-    ("states", "lanes", "tone"),
+    ("fields", "row_state", "go", "state"),
     [
-        ({1: "landed", 2: "landed"}, [], "done"),
-        ({1: "landed", 2: "you"}, [], "you"),
-        ({1: "doing", 2: "failing"}, [], "failing"),
-        ({1: "work"}, ["p8a-step7"], "moving"),
-        ({1: "work"}, [], "queued"),
-        ({}, [], "later"),
+        ({"state": "landed"}, "you", None, "landed"),
+        ({"state": "open", "test_state": "failure"}, "you", None, "you"),
+        ({"state": "open", "test_state": "failure"}, None, None, "failing"),
+        ({"state": "open"}, "held", None, "held"),
+        ({"state": "open"}, "approved", None, "queued"),
+        ({"state": "open"}, None, "hhhhhhh", "queued"),
+        ({"state": "open"}, None, "aaaaaaa", "waiting"),
+        ({"state": "open", "test_state": "pending"}, None, None, "doing"),
     ],
 )
-def test_a_step_takes_its_tone_and_fill_from_the_drive_list(states, lanes, tone):
-    drive = {"prs": [{"number": n, "state": state, "tree": "Shared", "worker": None} for n, state in states.items()]}
-    workers = [{"lane": "p8a-step7", "at": "2026-10-27T07:55:00Z", "text": "pushed"}]
+def test_each_pull_request_takes_the_first_state_in_precedence(fields, row_state, go, state):
+    rows = [{"number": 42001, "state": row_state, "head": "h" * 8, "title": "T", "block": "b"}] if row_state else []
 
-    row = step_rows([step([*states, 99], lanes)], drive, workers, NOW)[0]
+    assert listed(ledger(pr42001=fields), rows, {42001: go} if go else {})[42001]["state"] == state
+
+
+def step(prs, lanes=(), tone="later", step_id="s"):
+    return {"id": step_id, "title": "T", "state": "S", "tone": tone, "blocker": None, "next": "N", "prs": list(prs), "lanes": list(lanes)}
+
+
+@pytest.mark.parametrize(
+    ("states", "live", "tone"),
+    [
+        ({1: "landed", 2: "landed"}, False, "done"),
+        ({1: "landed", 2: "you"}, False, "you"),
+        ({1: "doing", 2: "failing"}, False, "failing"),
+        ({1: "waiting"}, True, "moving"),
+        ({1: "landed", 2: "queued"}, False, "queued"),
+        ({1: "queued", 2: "waiting"}, False, "waiting"),
+        ({}, False, "later"),
+    ],
+)
+def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
+    drive = {"prs": [{"number": n, "state": state} for n, state in states.items()]}
+    workers = [{"lane": "p8a-step7", "at": "2026-10-27T07:55:00Z", "prs": [], "step": "s", "live": live}]
+
+    row = step_rows([step([*states, 99])], drive, workers)[0]
 
     assert row["tone"] == tone
     assert [entry["number"] for entry in row["prs"]] == list(states)
-    assert row["landed"] == sum(1 for state in states.values() if state == "landed")
+
+
+def record(lane, minutes_ago, kind="state", text="", topic=""):
+    return {"lane": lane, "kind": kind, "text": text, "topic": topic, "at": (NOW - dt.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")}
+
+
+def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
+    records = [
+        record("p8e-desktop-ship-5", 1, text="pushed #42900"),
+        record("p8e-desktop-ship-5", 2, kind="blocker"),
+        record("p8e-desktop-ship-5", 33, kind="go"),
+        record("landing-desk", 1),
+    ]
+
+    workers = drive_workers(records, [step([42900], step_id="journal")], NOW)
+
+    assert [w["lane"] for w in workers] == ["p8e-desktop-ship-5"]
+    assert workers[0]["boxes"][-1] == "bad"
+    assert workers[0]["boxes"][5] == "ok"
+    assert workers[0]["prs"] == [42900]
+    assert workers[0]["step"] == "journal"
+
+
+def test_his_taps_are_one_need_then_questions_then_required_asks():
+    drive = {"prs": [{"number": 42001, "state": "you"}, {"number": 42002, "state": "queued"}, {"number": 42003, "state": "you"}]}
+    rows = [{"number": n, "head": f"{n}aaaa", "title": f"T{n}", "block": "merge-prs"} for n in (42001, 42002, 42003)]
+
+    out = needs(drive, rows, [{"id": "card-a"}], [{"what": "Rotate a key"}, {"what": "Resume", "optional": True}])
+
+    assert [item["kind"] for item in out] == ["prs", "card", "ask"]
+    assert [pr["number"] for pr in out[0]["prs"]] == [42001, 42003]

@@ -37,9 +37,13 @@ STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
-COORDINATORS = re.compile(r"^(root|main)$|desk|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
+BOX = dt.timedelta(minutes=5)
+BOXES = 12
+SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
+TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
+COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css")}
 
 
 def run(argv, cwd=None):
@@ -93,30 +97,65 @@ def activity(records, now):
     return seen
 
 
-def pr_state(pr, row, active, now):
+def pr_state(pr, row, go_head, active, now):
     if pr.get("state") == "landed":
         return "landed"
     if row and row["state"] == "you":
         return "you"
     if pr.get("test_state") == "failure":
         return "failing"
-    if pr.get("hold_reason") and pr.get("hold_until") and at(pr["hold_until"]) > now:
+    if (row and row["state"] == "held") or (pr.get("hold_reason") and pr.get("hold_until") and at(pr["hold_until"]) > now):
         return "held"
-    return "doing" if active or pr.get("test_state") == "pending" else "work"
+    if (row and row["state"] == "approved") or (go_head and (pr.get("head") or "").startswith(go_head[:7])):
+        return "queued"
+    return "doing" if active or pr.get("test_state") == "pending" else "waiting"
 
 
-def drive_prs(prs, rows, records, trees, tree_names, now):
+def part_of(title, parts):
+    scope = (title or "").split(":", 1)[0].strip()
+    return next((part["key"] for part in parts if scope in part["scopes"]), parts[-1]["key"])
+
+
+def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     by_number = {str(row["number"]): row for row in rows}
     active = activity(records, now)
     listed = []
     for number, pr in sorted(prs.items()):
-        if pr.get("state") not in ("open", "landed"):
+        if pr.get("state") not in ("open", "landed", None):
             continue
         found = trees.get(number, [])
-        tree = next((name for name in tree_names if name in found), tree_names[-1])
-        listed.append({"number": int(number), "state": pr_state(pr, by_number.get(number), active.get(number), now), "tree": tree, "worker": active.get(number)})
-    landed = sum(1 for entry in listed if entry["state"] == "landed")
-    return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "landed": landed, "total": len(listed), "moving": sum(1 for entry in listed if entry["state"] == "doing")}
+        listed.append({
+            "number": int(number),
+            "state": pr_state(pr, by_number.get(number), gos.get(int(number)), active.get(number), now),
+            "tree": next((name for name in tree_names if name in found), tree_names[-1]),
+            "part": part_of(pr.get("title"), parts),
+            "step": next((step["id"] for step in steps if int(number) in step["prs"]), None),
+            "worker": active.get(number),
+        })
+    return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed}
+
+
+def drive_workers(records, steps, now):
+    live = {}
+    for record in records:
+        age = now - at(record["at"])
+        if COORDINATORS.search(record["lane"]) or age >= BOX * BOXES:
+            continue
+        worker = live.setdefault(record["lane"], {"lane": record["lane"], "at": record["at"], "prs": set(), "boxes": ["" for _ in range(BOXES)]})
+        worker["at"] = max(worker["at"], record["at"])
+        if age <= WORKING:
+            topic = record.get("topic") or ""
+            worker["prs"].update(int(n) for n in {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *PR_MENTION.findall(record["text"])})
+        slot = BOXES - 1 - int(age / BOX)
+        tone = SEVERITY.get(record["kind"], "info")
+        if TONE_RANK[tone] >= TONE_RANK.get(worker["boxes"][slot], -1):
+            worker["boxes"][slot] = tone
+    workers = []
+    for worker in sorted(live.values(), key=lambda w: w["at"], reverse=True):
+        prs = sorted(worker["prs"])
+        step = next((s["id"] for s in steps if worker["lane"] in s["lanes"] or set(prs) & set(s["prs"])), None)
+        workers.append({**worker, "prs": prs, "step": step, "live": now - at(worker["at"]) <= WORKING})
+    return workers
 
 
 def step_tone(step, prs, workers):
@@ -128,20 +167,25 @@ def step_tone(step, prs, workers):
             return tone
     if "doing" in states or workers:
         return "moving"
-    return "queued" if prs else step["tone"]
+    if prs and states <= {"landed", "queued"}:
+        return "queued"
+    return "waiting" if prs else step["tone"]
 
 
-def step_rows(steps, drive, lanes, now):
+def step_rows(steps, drive, workers):
     by_number = {entry["number"]: entry for entry in drive["prs"]}
-    recent = {lane["lane"]: lane for lane in lanes if now - at(lane["at"]) <= WORKING}
     rows = []
     for step in steps:
         prs = [by_number[n] for n in step["prs"] if n in by_number]
-        workers = [{"lane": entry["worker"]["lane"], "at": entry["worker"]["at"], "pr": entry["number"]} for entry in prs if entry["worker"] and now - at(entry["worker"]["at"]) <= WORKING]
-        busy = {worker["lane"] for worker in workers}
-        workers += [{"lane": lane, "at": recent[lane]["at"], "pr": None} for lane in step["lanes"] if lane in recent and lane not in busy]
-        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "landed": sum(1 for entry in prs if entry["state"] == "landed"), "tone": step_tone(step, prs, workers), "workers": workers})
+        on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
+        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on), "workers": on})
     return rows
+
+
+def needs(drive, rows, cards, asks):
+    by_number = {row["number"]: row for row in rows}
+    waiting = [{"number": e["number"], "head": by_number[e["number"]]["head"], "title": by_number[e["number"]]["title"], "block": by_number[e["number"]]["block"]} for e in drive["prs"] if e["state"] == "you" and e["number"] in by_number]
+    return ([{"kind": "prs", "prs": waiting}] if waiting else []) + [{"kind": "card", "card": card} for card in cards] + [{"kind": "ask", "ask": ask} for ask in asks if not ask.get("optional")]
 
 
 def parse_plan(body):
@@ -174,6 +218,7 @@ class Drive:
         self.reported = set()
         self.pr_facts = {}
         self.board_seq = None
+        self.gos = {}
         self.board_raw = None
 
     def review_url(self, number):
@@ -221,6 +266,7 @@ class Drive:
                         if line.startswith(b"data: "):
                             record = json.loads(line[6:])
                             after = record["seq"]
+                            self.note_go(record)
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
@@ -301,13 +347,23 @@ class Drive:
                 self.version += 1
                 self.changed.notify_all()
 
-    def check_gos(self, rows, records):
-        gos = {}
-        for record in records:
-            if record["kind"] == "go" and (found := GO.match(record["text"])):
-                gos[int(found[1])] = found[2]
+    def note_go(self, record):
+        if record["kind"] == "go" and (found := GO.match(record["text"])):
+            self.gos[int(found[1])] = found[2]
+
+    def load_gos(self):
+        after = 0
+        while True:
+            page = cci("records", drive=self.config["drive"], kind="go", limit=500, since=after)
+            for record in page:
+                self.note_go(record)
+            if len(page) < 500:
+                return
+            after = page[-1]["seq"]
+
+    def check_gos(self, rows):
         for row in rows:
-            row["go_head"] = gos.get(row["number"])
+            row["go_head"] = self.gos.get(row["number"])
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
             key = (row["number"], row["head"])
@@ -326,14 +382,24 @@ class Drive:
 
     def live(self, model):
         board = self.board()
-        records = model.get("records", [])
-        self.check_gos(board["rows"], records)
+        self.check_gos(board["rows"])
         now = dt.datetime.now(dt.timezone.utc)
-        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), now)
-        waiting = sum(1 for row in board["rows"] if row["state"] == "you")
         progress = json.loads(Path(self.config["steps"]).read_text())
-        steps = step_rows(progress["steps"], drive, model.get("lanes", []), now)
-        return {**model, "board": board, "drive": drive, "steps": steps, "now": progress.get("now", {}), "steps_at": progress["updated"], "live": LIVE_SOURCES, "needs": {"taps": waiting, "questions": len(board["cards"])}}
+        activity_records = [*model["records"], *model["lanes"]]
+        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], now)
+        workers = drive_workers(activity_records, progress["steps"], now)
+        return {
+            **model,
+            "board": board,
+            "drive": drive,
+            "workers": workers,
+            "steps": step_rows(progress["steps"], drive, workers),
+            "parts": self.config["parts"],
+            "now": progress.get("now", {}),
+            "steps_at": progress["updated"],
+            "live": LIVE_SOURCES,
+            "needs": needs(drive, board["rows"], board["cards"], model["story"].get("asks", [])),
+        }
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
@@ -425,7 +491,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js", "review.css"):
+                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())
@@ -498,6 +564,7 @@ def main():
     config = json.loads(args.config.read_text())
     drive = Drive(config, args.config.parent / "reviews")
     after = drive.load_records()
+    drive.load_gos()
     for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
