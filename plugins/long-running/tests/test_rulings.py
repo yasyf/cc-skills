@@ -1791,3 +1791,35 @@ def test_a_missing_row_must_be_a_plan_line_or_an_owner_row(home: Path, package: 
     code, _, grade = graded(capsys, RegisterShell(rows, diff=MIGRATION_DIFF), tmp_path / "head.grade", *argv)
     assert code == 1
     assert grade == f"fidelity: missing cafef00 {key} the head keeps a second database\n"
+
+
+SYMBOL_DIFF = """diff --git a/go/release/withhold.go b/go/release/withhold.go
+--- a/go/release/withhold.go
++++ b/go/release/withhold.go
+@@ -1,1 +1,2 @@
+ package release
++func (d *Driver) Retire(retired string) error { return nil }
+diff --git a/go/release/withhold_test.go b/go/release/withhold_test.go
+--- a/go/release/withhold_test.go
++++ b/go/release/withhold_test.go
+@@ -1,1 +1,2 @@
+ package release
++var _ = "retire"
+diff --git a/docs/lessons.md b/docs/lessons.md
+--- a/docs/lessons.md
++++ b/docs/lessons.md
+@@ -1,1 +1,2 @@
+ # Lessons
++Workers retire after the watch; retire them by hand otherwise.
+"""
+
+
+@pytest.mark.parametrize(("symbol", "hit"), [("retire", False), ("Driver.Retire", True), ("Retire", True), ("Retired", False)])
+def test_a_symbol_hits_only_its_exact_identifier_in_code_never_a_doc_or_test_word(symbol: str, hit: bool) -> None:
+    assert rulings.symbol_hit(symbol, rulings.parse_diff(SYMBOL_DIFF)) is hit
+
+
+def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
+    diff = rulings.parse_diff(SYMBOL_DIFF)
+    assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
+    assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
