@@ -284,15 +284,15 @@ function desksSheet() {
       return `<li><button class="linkish" data-worker="${esc(d.lane)}">${esc(deskName(d.lane))}</button><span class="bx">${d.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><span class="dsaid">${r ? `<b>${SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind}</b> ${inline(firstSentences(r.text, 110))}` : ''}</span><time>${agoWords(d.at)}</time></li>`;
     }).join('')}</ul>`);
 }
-function answer(key, keep = () => true) {
+function answerList(key, keep = () => true) {
   const j = state.model.journeys[key];
   const who = (w) => !w ? '' : w === 'you' ? '<b>You</b>' : `<button class="linkish" data-worker="${esc(w)}">${esc(w)}</button>`;
-  const src = (x) => x ? ` · <a href="${esc(x.href)}"${x.href.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${esc(x.label)}</a>` : '';
+  const src = (l) => l.source && !l.text.includes(l.source.label) ? `<a href="${esc(l.source.href)}"${l.source.href.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${esc(l.source.label)}</a>` : '';
   const lines = j.lines.filter(keep);
-  return `<ul class="answer">${lines.map((l) => `<li><span class="who">${who(l.who)}</span><span class="what">${inline(l.text)}${l.next ? `<small>${inline(l.next)}</small>` : ''}</span><em>${l.since ? `last word ${agoWords(l.since)}` : ''}${src(l.source)}</em></li>`).join('')}</ul>${lines.length ? '' : '<p class="dim">Nothing.</p>'}${j.missing.length ? `<p class="dim">Not known yet: ${j.missing.map(inline).join('; ')}</p>` : ''}`;
+  return `<ul class="answer">${lines.map((l) => `<li><span class="who">${who(l.who)}</span><span class="what">${inline(l.text)}${l.next ? `<small>${inline(l.next)}</small>` : ''}</span><em>${[l.since ? `last word ${agoWords(l.since)}` : '', src(l)].filter(Boolean).join(' · ')}</em></li>`).join('')}</ul>${lines.length ? '' : '<p class="dim">Nothing.</p>'}${j.missing.length ? `<p class="dim">Not known yet: ${j.missing.map(inline).join('; ')}</p>` : ''}`;
 }
 function waitingOn() {
-  return `<section class="waiting"><h4>Waiting on</h4>${answer('waiting')}</section>`;
+  return `<section class="waiting"><h4>Waiting on</h4>${answerList('waiting')}</section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -476,7 +476,7 @@ function blockerNow(text) {
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);
   const red = state.model.journeys.red;
-  if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}${red.question.includes(` ${s.label} `) ? `<h4 class="sc-h">${esc(red.question)}</h4>${answer('red')}` : ''}</div></div>`;
+  if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}${red.question.includes(` ${s.label} `) ? `<h4 class="sc-h">${esc(red.question)}</h4>${answerList('red')}` : ''}</div></div>`;
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Other work: ${list.length} open pull requests</h3>
     <ul class="prlist">${list.map((p) => prRow(p)).join('')}</ul></div></div>`;
@@ -516,7 +516,7 @@ function releaseSheet() {
   const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0] && !blocking.includes(e.number));
   const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) }, ownerLine(n));
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
-    ${m.journeys.release.question.includes(` ${r.id},`) ? `<h4 class="sc-h">What blocks it</h4>${answer('release', (l) => !l.text.startsWith(`${r.id} `))}` : blocking.length ? `<h4 class="sc-h">What it waits on <span>${blocking.length}</span></h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
+    ${m.journeys.release.question.includes(` ${r.id},`) ? `<h4 class="sc-h">What blocks it</h4>${answerList('release', (l) => !l.text.startsWith(`${r.id} `))}` : blocking.length ? `<h4 class="sc-h">What it waits on <span>${blocking.length}</span></h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
     ${cleared.length ? `<p class="dim">Already landed: ${cleared.map(prLink).join(', ')}</p>` : ''}
     <details class="relstate" data-id="rel-state-${esc(r.id)}"${state.open.has(`rel-state-${r.id}`) ? ' open' : ''}><summary>${inline(firstSentences(r.state, 140))}</summary><p class="relnow">${inline(r.state)}</p></details>
     <dl class="facts"><dt>What reaches people</dt><dd>${esc(planRows().find(([n]) => `R${n}` === r.id)?.[2] ?? '')}</dd><dt>Parts it ships</dt><dd>${parts.map((p) => esc(p.name)).join(' · ')}</dd></dl>
