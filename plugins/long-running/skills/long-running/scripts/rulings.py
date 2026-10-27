@@ -154,7 +154,7 @@ PLACEMENT = re.compile(
     r"(?=\W+(?:[\w.-]*/[\w./-]*\w|\w+(?:[-_]\w+)+|\w+\.(?:py|js|jsx|ts|tsx|go|rs|swift|md|toml|json|ya?ml|sh)\b"
     r"|(?:\w+\s+){0,2}(?:crates?|packages?|trees?|files?|modules?|repos?|director(?:y|ies)|folders?|apps?)\b))"
     r"|\b(?:not in|out of|in) scope\b|\bonly (?:in|on)\b|\bnever (?:in|on)\b"
-    r"|\bjargon\b|\bterms?\b|\bcall(?:ed|ing)? (?:it|them)\b|\bplain (?:words|english)\b",
+    r"|\bjargon\b|\bterms?\b(?!\s+of\b)|\bcall(?:ed|ing)? (?:it|them)\b|\bplain (?:words|english)\b",
     re.IGNORECASE,
 )
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
