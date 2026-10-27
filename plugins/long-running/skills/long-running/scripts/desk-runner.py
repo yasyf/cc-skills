@@ -4337,14 +4337,16 @@ class Landing:
                 self.enqueue()
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
-        """The trees of `trees` a `--check` could enqueue from, by the pass's one status read: those holding a PR that is neither queued, landed, nor waiting on GitHub alone, on no PR that waits on GitHub alone. A PR waits on GitHub alone when every cause its verdict names is pending CI, a conflict, requested changes, a missing approval, or a parent it waits on; any other verdict, and a PR the read has no entry for, keeps its tree checked, so the adapter still routes what only it reads. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane (root #146561). None are kept when the status read failed."""
+        """The trees of `trees` a `--check` could enqueue from, by the pass's one status read: those holding a PR that is neither queued, landed, nor waiting on GitHub alone, on no PR that waits on GitHub alone. A PR waits on GitHub alone when every cause its verdict names is pending CI, a conflict, requested changes, a missing approval, a parent it waits on, or red CI whose blocker this desk already routed for the PR's ledger head; any other verdict, and a PR the read has no entry for, keeps its tree checked, so the adapter still routes what only it reads. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane (root #146561). None are kept when the status read failed."""
         if (statuses := self.pr_statuses()) is None:
             return []
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
 
         def waits(pr: str) -> bool:
             verdict = statuses.get(pr, {}).get("verdict", "")
-            return verdict.startswith("blocked:") and all(cause in STATUS_WAITS or cause.startswith("waiting-on-downstack") for cause in verdict.removeprefix("blocked:").split(","))
+            causes = verdict.removeprefix("blocked:").split(",")
+            told = "ci-red" in causes and self.routed(blocker_key(pr, open_rows.get(pr, {}).get("head", "")), self.owner(pr, open_rows.get(pr, {})))
+            return verdict.startswith("blocked:") and all(cause in STATUS_WAITS or cause.startswith("waiting-on-downstack") or cause == "ci-red" and told for cause in causes)
 
         def ready(pr: str) -> bool:
             return statuses.get(pr, {}).get("verdict") not in STATUS_SETTLED and not waits(pr) and not any(waits(below) for below in downstack(open_rows, pr) - {pr})

@@ -9500,6 +9500,20 @@ def test_a_tree_waiting_on_github_alone_is_not_checked_and_its_lane_hears_what_i
     assert len(checks(shell)) == 1
 
 
+def test_a_red_tree_is_checked_until_its_lane_has_the_blocker_for_that_head(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    landing_pass(shell, config)
+    assert len(checks(shell)) == 1 and len([post for post in blockers(shell) if post["to"] != "root"]) == 1
+    landing_pass(shell, config)
+    assert len(checks(shell)) == 1
+    shell.rows[0] = dict(shell.rows[0], head="dddd444444", reported_head="dddd444444")
+    shell.gates["29020"] = [gate("#29020 BLOCKED dddd444444 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    assert len(checks(shell)) == 2
+
+
 @pytest.mark.parametrize(
     ("parent", "child", "checked"),
     [
