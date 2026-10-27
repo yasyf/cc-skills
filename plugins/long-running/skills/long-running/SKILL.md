@@ -1466,6 +1466,11 @@ names that drive's root. A dequeue posts a cci `stopped` record to every drive
 whose records name the PR, and the queue leaves that head out until `mq.py requeue <n>`,
 which first has the adapter release its own latch on the head: under `label`, `ledger.py requeue`
 clears the pulled or labelled mark that otherwise refuses the same head.
+The root can order the same dequeue on the bus: a root record that opens with
+`dequeue #<n>`, or says `landing-desk: dequeue #<n>` outside quotes and code, makes
+the landing runner take the PR out before any enqueue of its next pass. It says
+`DEQUEUED` only once a status read shows the queue let the PR go, and
+`DEQUEUE-FAILED` when the read still finds it queued or the dequeue is refused.
 `mq.py hold <n> --reason R` and `mq.py lift <n>` write the holds file through
 `holds.py`, and `mq.py status` prints what the queue holds and the order it gates.
 A PR's lane, for every blocker and restack the runner routes, is the poster
