@@ -565,9 +565,8 @@ MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
 DEQUEUE_READ = "dequeue-read"
-DEQUEUES = "dequeues"
-DEQUEUE_ORDER = re.compile(r"\bdequeue #(\d+)\b", re.IGNORECASE)
-DEQUEUE_FIRST_READ = "15m"
+DEQUEUE_ORDERS = "dequeue-orders"
+DEQUEUE_ORDER = re.compile(r"(?:^\s*|[.:;!?]\s+)dequeue\s+#(\d+)\b", re.IGNORECASE | re.MULTILINE)
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
@@ -4026,7 +4025,6 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.gos: list[dict] | None = None
-        self.withdrawn_gos: list[dict] = []
         self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
@@ -4203,63 +4201,57 @@ class Landing:
             self.gate_trees(rows, held, trees)
         return gone
 
-    def gos_authorize(self) -> bool:
-        """Whether a root `go` at a PR's head is what lets it land: merge mode `every` with its asks on the root's board."""
-        return self.merge_mode == "every" and self.landing_config.get("merge_ask_surface", "slack") == "board" and not self.lands_green
-
     def pull_ordered(self, rows: dict[str, dict]) -> None:
-        """Take out of the queue each PR a root record orders out with `dequeue #<n>`, read once per record, and each PR this runner enqueued at a head whose go root has since withdrawn while no other go names that head, through `dequeue_pr`, so no order waits on a lane reading the bus (root #146459). Each one posts `DEQUEUED` only once a later pass's status read shows the queue let it go, or `DEQUEUE-FAILED` when that read still finds it queued or the dequeue was refused."""
+        """Take out of the queue each PR a root record on this drive orders out with a `dequeue #<n>` clause, one that opens the text or a sentence or follows a colon, so no order waits on a lane reading the bus (root #146459). Orders are kept in the desk store until settled, and each says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds the PR already out, when its head is latched out until `mq.py requeue`. A read that still finds it queued, a refused dequeue, a landing, or no open ledger row says `DEQUEUE-FAILED`."""
         if (statuses := self.pr_statuses()) is None:
             return
         facts = self.book.load(LANDING).facts
-        pending = dict(facts.get(DEQUEUES, {}))
-        for pr, entry in list(pending.items()):
-            if actions.parse_stamp(entry["at"]) >= self.statuses_floor:
+        found, read = self.dequeue_orders(facts.get(DEQUEUE_READ))
+        orders = {pr: dict(order) for pr, order in facts.get(DEQUEUE_ORDERS, {}).items()} | {pr: {"why": why} for pr, why in found.items() if pr not in facts.get(DEQUEUE_ORDERS, {})}
+        for pr, order in list(orders.items()):
+            row, queue = rows.get(pr, {}), statuses.get(pr, {}).get("queue")
+            head, why = row.get("head", ""), order["why"]
+            if row.get("state") == "landed":
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr}, {why}: it landed as {row.get('landed_sha', '')[:10]} before the dequeue took")
+            elif "sent" in order:
+                if queue is None or actions.parse_stamp(order["sent"]) >= self.statuses_floor:
+                    continue
+                if queue == QUEUED_STATE:
+                    self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: the status read after the dequeue still finds it queued")
+                else:
+                    self.tell_stopped(pr, row, f"{why}: {order['line']}")
+                    self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: the status read after the dequeue finds it {queue}; its head stays out until mq.py requeue")
+            elif queue is None:
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr}, {why}: it has no open row in this drive's ledger, so its queue state was not read and nothing was taken out")
+            elif queue != QUEUED_STATE:
+                self.latch_pulled(pr, head, why)
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: the status read finds it {queue}, so nothing was taken out; its head stays out until mq.py requeue")
+            elif (released := self.release_pr(pr, why))[0]:
+                order |= {"sent": self.book.stamp(), "line": released[1]}
                 continue
-            queue = statuses.get(pr, {}).get("queue", "unread")
-            label = "DEQUEUE-FAILED" if queue == QUEUED_STATE else "DEQUEUED"
-            self.runner.escalate(f"dequeue:{pr}:{entry['at']}", label, f"#{pr}", f"#{pr} at {entry['head'][:10]}, {entry['why']}: the status read after the dequeue finds it {queue}")
-            del pending[pr]
-        orders = self.dequeue_orders(facts.get(DEQUEUE_READ))
-        for pr, why in (self.withdrawn_queued(rows) | orders).items():
-            if pr in pending:
-                continue
-            head = rows.get(pr, {}).get("head", "")
-            if statuses.get(pr, {}).get("queue") != QUEUED_STATE:
-                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: the status read finds it {statuses.get(pr, {}).get('queue', 'unread')}, so nothing was taken out")
-                continue
-            released, text = self.dequeue_pr(pr, why)
-            if released:
-                pending[pr] = {"head": head, "why": why, "at": self.book.stamp()}
             else:
-                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: {text}")
-        if pending != facts.get(DEQUEUES, {}):
-            self.book.edit(LANDING, lambda incident: incident.facts.update({DEQUEUES: pending}))
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: {released[1]}")
+            del orders[pr]
+        if (orders, read) != (facts.get(DEQUEUE_ORDERS, {}), facts.get(DEQUEUE_READ)):
+            self.book.edit(LANDING, lambda incident: incident.facts.update({DEQUEUE_ORDERS: orders, DEQUEUE_READ: read}))
 
-    def dequeue_orders(self, read: int | None) -> dict[str, str]:
-        """Each PR a root record on this drive posted after seq `read` orders out with `dequeue #<n>`, naming that record; the first read starts `DEQUEUE_FIRST_READ` back. Records the newest seq read."""
+    def dequeue_orders(self, read: int | str | None) -> tuple[dict[str, str], int | str]:
+        """Each PR a root record on this drive posted after `read` orders out, naming that record, and the read to start from next time: the newest seq read, else `read`. The first read starts when this runner did, so an order posted before the upgrade that added this never runs."""
         drive = self.runner.config.drive
-        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=read if read is not None else DEQUEUE_FIRST_READ) if record["lane"] == ROOT and record["drive"] == drive]
-        if records:
-            newest = max(record["seq"] for record in records)
-            self.book.edit(LANDING, lambda incident: incident.facts.update({DEQUEUE_READ: newest}))
-        return {pr: f"root #{record['seq']} ordered it out" for record in records for pr in DEQUEUE_ORDER.findall(full_text(record))}
+        since = self.started if read is None else read
+        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=since) if record["lane"] == ROOT and record["drive"] == drive]
+        orders = {pr: f"root #{record['seq']} ordered it out" for record in records for pr in DEQUEUE_ORDER.findall(full_text(record))}
+        return orders, max((record["seq"] for record in records), default=since)
 
-    def withdrawn_queued(self, rows: dict[str, dict]) -> dict[str, str]:
-        """Each PR this runner believes queued at a head that a root go it has since withdrawn names, with no standing go at that head, when gos are what let PRs land."""
-        if not self.gos_authorize():
-            return {}
-        gos = self.root_gos()
-        return {
-            pr: f"root withdrew go #{withdrawn[0]['seq']} at {rows[pr]['head'][:10]}"
-            for prs in self.believed_queued(rows).values()
-            for pr in prs
-            if not gone_at(gos, pr, rows[pr]["head"]) and (withdrawn := gone_at(self.withdrawn_gos, pr, rows[pr]["head"]))
-        }
+    def latch_pulled(self, pr: str, head: str, why: str) -> None:
+        """Mark each finished enqueue that admitted `pr` at `head` `pulled`, so the desk does not put that head back without `mq.py requeue`."""
+        for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
+            if (sha := enqueued_heads(action.action_id).get(pr)) and head.startswith(sha):
+                self.book.attempt(LANDING, lambda incident, key=action.action_id: setattr(incident.action(key), "response", {**incident.action(key).response, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": self.book.stamp()}}))
 
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
         """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
-        if not self.gos_authorize():
+        if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
             return set()
         gos = self.root_gos()
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
@@ -5095,9 +5087,7 @@ class Landing:
                 later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
-                voided = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos]
-                posted = [go for go in voided if go["seq"] not in closed]
-                self.withdrawn_gos = [go | {"voided": set()} for go in voided if go["seq"] in closed] + [go | {"voided": set()} for go in posted if go["voided"]]
+                posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
                 self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, self.old_app_lands())
@@ -5794,7 +5784,15 @@ class Landing:
             self.runner.cci_post("stopped", f"DEQUEUED #{pr} by {self.runner.config.drive}: {text}", to, f"#{pr}", f"stopped:{pr}:{drive}:{self.book.stamp()}", pr=f"{self.repo}#{pr}", drive=drive)
 
     def dequeue_pr(self, pr: str, why: str) -> tuple[bool, str]:
-        """Take `pr` out of the queue for `mq dequeue`: refused when this drive's queue does not answer for it, naming the drives whose records do; otherwise through the adapter, telling every drive that names it, and marking each enqueue that admitted it `pulled`, so the desk does not put the same head back without `mq requeue`."""
+        """Take `pr` out of the queue for `mq dequeue` through `release_pr`, telling every drive that names it."""
+        released, line = self.release_pr(pr, why)
+        if not released:
+            return False, line
+        self.tell_stopped(pr, self.ledger_rows.get(pr, {}), f"{why}: {line}")
+        return True, f"dequeued #{pr}: {line}"
+
+    def release_pr(self, pr: str, why: str) -> tuple[bool, str]:
+        """Take `pr` out of the queue through the adapter, refused when this drive's queue does not answer for it, naming the drives whose records do, and mark each enqueue that admitted it `pulled`, so the desk does not put the same head back without `mq requeue`. Returns the adapter's line, or the refusal."""
         rows = self.rows() or {}
         if not self.owned(pr, rows):
             others = self.naming_drives(pr)[1:]
@@ -5806,8 +5804,7 @@ class Landing:
         for key, prs in self.believed_queued(rows).items():
             if pr in prs:
                 self.book.attempt(LANDING, lambda incident, key=key: setattr(incident.action(key), "response", {**incident.action(key).response, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": self.book.stamp()}}))
-        self.tell_stopped(pr, rows.get(pr, {}), f"{why}: {line}")
-        return True, f"dequeued #{pr}: {line}"
+        return True, line
 
     def requeue_pr(self, pr: str) -> tuple[bool, str]:
         """Let `mq requeue` put `pr` back at its current head: a flaky head goes back in through the adapter at once, and a pulled, ejected, or go-awaiting head becomes retryable once the adapter releases whatever latch it keeps on that head, so the next pass enqueues it once every check passes."""
