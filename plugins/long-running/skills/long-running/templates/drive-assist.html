@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:bb6726b7359c — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c812a26c983f — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -621,7 +621,7 @@ function entries(){
  openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
  const said={};
  [...m.board.rows.map(r=>`#${r.number} ${r.title} ${r.change}`),...(m.board.merge?.pages??[]).flatMap(pg=>pg.split("\n"))].forEach(line=>{for(const [,n] of line.matchAll(/#(\d{5})\b/g))said[n]=`${said[n]??""} ${line.replace(/[|*`]/g," ")}`});
- Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
+ Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>m.prs[n]?onOverview(()=>{ov.pr=Number(n);state.overlay="pr";render()}):window.open(prHref(n),"_blank"),`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
  [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Stacks","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
  m.plan.forEach((s,i)=>add("Plan steps",String(i+1),s.title,`${s.prs.filter(n=>prState(n)==="landed").length} of ${s.prs.length} landed`,()=>{location.hash="#/";state.overlay="plan";render();setTimeout(()=>document.querySelectorAll(".sheet .pstep")[i]?.scrollIntoView({block:"center"}),50)},s.text));
  m.lanes.slice().sort((a,b)=>new Date(b.at)-new Date(a.at)).forEach(l=>add("Workers","●",l.lane,`${agoWords(l.at)} · ${short(l.text,80)}`,()=>openSheet({kind:"lane",id:l.lane})));

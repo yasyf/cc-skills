@@ -125,11 +125,16 @@ function machine(home, title) {
   return `<figure class="machine ${home}" data-zone="${home}" data-pct="${p}"><div class="shell"><svg class="ol" aria-hidden="true"></svg><span class="tag">${title} <em>${p}%</em></span>
     <div class="screen">${groups.map(([part, l]) => cluster(part.name, l, part.key)).join('')}${old.length ? cluster('Old, kept', old, '', ' kept') : ''}</div></div>${home === 'mac' ? '<div class="kb"></div>' : ''}</figure>`;
 }
+function landedSinceLook() {
+  const look = Number(localStorage.getItem('drive-last-look') ?? 0);
+  return look ? state.model.drive.prs.filter((e) => e.state === 'landed' && new Date(state.model.prs[e.number]?.landed_at ?? 0) > look) : [];
+}
 function destination() {
   const t = tally(state.model.drive.prs);
+  const back = landedSinceLook();
   const tools = state.model.drive.prs.filter((e) => e.part === 'tools');
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
-    <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button></div>
+    <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
     <div class="runway" data-part="tools"><span class="rl pl">Release and tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
     ${replay()}
@@ -566,6 +571,10 @@ document.addEventListener('click', (e) => {
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
   if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }
   if (e.target.closest('[data-desks]')) { e.preventDefault(); state.overlay = 'desks'; return render(); }
+  if (e.target.closest('[data-back]')) {
+    ov.only = ov.only?.key === 'back' ? null : { key: 'back', label: 'landed since you last looked', numbers: new Set(landedSinceLook().map((x) => x.number)) };
+    return render();
+  }
   if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
   if (e.target.closest('[data-jump]')) return $('#kbtn')?.click();
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
@@ -636,5 +645,14 @@ document.addEventListener('pointermove', (e) => {
 });
 document.addEventListener('pointerup', () => { ov.dragX = null; });
 document.addEventListener('pointercancel', () => { ov.dragX = null; });
-document.addEventListener('visibilitychange', () => { if (document.hidden) localStorage.setItem('drive-last-look', String(Date.now())); });
-window.addEventListener('pagehide', () => localStorage.setItem('drive-last-look', String(Date.now())));
+function settleLook() {
+  const hidden = Number(localStorage.getItem('drive-hidden-at') ?? 0);
+  if (hidden && Date.now() - hidden > 5 * 60 * 1000) localStorage.setItem('drive-last-look', String(hidden));
+}
+settleLook();
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return localStorage.setItem('drive-hidden-at', String(Date.now()));
+  settleLook();
+  if (state.model) render();
+});
+window.addEventListener('pagehide', () => localStorage.setItem('drive-hidden-at', String(Date.now())));

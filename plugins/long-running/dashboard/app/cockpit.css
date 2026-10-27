@@ -490,3 +490,6 @@ body:has(.ck) { background: #080a0d; }
   .ck .pv .steps, .ck .pv .rels { grid-template-columns: minmax(0, 1fr); }
   .ck .stc header b { min-width: 0; }
 }
+.ck .plusn { position: absolute; z-index: 3; top: calc(50% - 50px); left: calc(50% + 26px); padding: 2px 7px; border-radius: 999px; background: var(--done); color: #04150d; font-size: 11px; font-weight: 800; box-shadow: 0 0 12px rgba(61,220,151,.6); }
+@media (max-width: 759px) { .ck .plusn { top: 0; left: calc(50% + 18px); } }
+.ck .dot.out { opacity: .12; animation: none; transform: scale(.85); }
