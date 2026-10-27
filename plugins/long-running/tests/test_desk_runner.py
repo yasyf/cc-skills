@@ -8952,15 +8952,15 @@ def test_a_trunk_whose_check_never_finished_reads_as_unknown_not_green():
     assert runner_module.trunk_red([trunk_commit("b", "PENDING", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", None, "29018", "2026-10-01T17:40:00Z")], TRUNK_CHECK) is False
 
 
-def test_a_red_trunk_posts_dev_red_every_half_hour_and_bars_every_row_but_its_fix(shell, config, tmp_path):
+def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(shell, config, tmp_path):
     landing = trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
 
-    assert landing.watch_trunk(OPEN_ROWS) == {"29020", "29021"}
+    landing.watch_trunk(OPEN_ROWS)
     landing.watch_trunk(OPEN_ROWS)
     shell.clock += timedelta(minutes=30)
     bus_trunk(shell, "fix-dev", "opened", "opened #29021", pr="29021")
-    assert landing.watch_trunk(OPEN_ROWS) == {"29020"}
+    landing.watch_trunk(OPEN_ROWS)
 
     red = "DEV-RED since 10:50 AM: dev's buildkite/test is red on https://buildkite.com/forge/test/builds/29019, first red at bbbbbbbbbb, landed by #29019. No PR can land until this is fixed; "
     assert trunk_posts(shell) == [
@@ -8969,13 +8969,13 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_and_bars_every_row_but_its_fi
     ]
 
 
-def test_a_trunk_green_again_posts_dev_green_once_and_bars_nothing(shell, config, tmp_path):
+def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
     landing = trunk_watch(shell, config, tmp_path)
     bus_trunk(shell, "desk-runner", "incident", "DEV-RED since 10:50 AM: dev's buildkite/test is red. No PR can land until this is fixed.")
     shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z")]
 
-    assert landing.watch_trunk(OPEN_ROWS) == set()
+    landing.watch_trunk(OPEN_ROWS)
     bus_trunk(shell, "desk-runner", "report", trunk_posts(shell)[0][2])
-    assert landing.watch_trunk(OPEN_ROWS) == set()
+    landing.watch_trunk(OPEN_ROWS)
 
     assert trunk_posts(shell) == [("report", "root,drive-watchdog", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]

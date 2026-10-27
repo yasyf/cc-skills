@@ -1597,8 +1597,8 @@ With `"trunk_check": "buildkite/test"` in `landing`, every landing pass reads th
 over the trunk's last 50 commits. A red run whose failed jobs include one a PR build also
 runs posts a `DEV-RED since <time>` incident to root and drive-watchdog on the `dev-red`
 topic, naming the jobs, the first red commit and the PR that landed it, saying no PR can
-land until it is fixed, again every 30 minutes while red; the pass bars every row but the
-fix. A run whose failed jobs no PR build runs posts `POST-MERGE-RED`: landing continues
+land until it is fixed, again every 30 minutes while red. The runner holds no row and
+the queue keeps running: its required checks hold what cannot land. A run whose failed jobs no PR build runs posts `POST-MERGE-RED`: landing continues
 and a fix is owed. `DEV-GREEN` posts once when it passes. The fix lane names its PR with
 `cci post --topic dev-red --pr <n>`. While DEV-RED stands, `board_rows.py` withholds every
 tap row but the fix and opens the merge card's prompt with `dev's test build is red since

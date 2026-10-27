@@ -409,9 +409,9 @@ that context over the trunk's last 50 commits in one GraphQL query and posts the
 to root and drive-watchdog. A red run, skipping commits whose check has not finished, names its first red commit, the PR
 its squash subject names, the newest red build and, through `landing.ci_build`, its failed jobs. When a failed job is one
 a PR build of that pipeline also runs, read from the newest open row's finished build, or no PR build reads, the record is
-an `incident` reading `DEV-RED since <time>: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`, and
-the pass bars every open row but the fix from every check and enqueue. When every failed job is one no PR build runs, it is
-a `report` reading `POST-MERGE-RED since <time>: … Landing continues; a fix is owed`, and nothing is barred. Either posts
+an `incident` reading `DEV-RED since <time>: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`.
+When every failed job is one no PR build runs, it is a `report` reading `POST-MERGE-RED since <time>: … Landing continues;
+a fix is owed`. The runner holds no row for either: the queue's required checks hold what cannot land. Either posts
 the pass it is first read and again every 30 minutes while red; `DEV-GREEN` posts once when the check passes again. The
 fix is the PR the newest record on the topic by any other lane names, an incident excepted, since the last `DEV-GREEN`:
 `cci post --topic dev-red --pr <n>`. A trunk that does not read logs `TRUNK-READ-FAILED` once an hour and gates as green.
@@ -4320,24 +4320,24 @@ class Landing:
             self.builds_read[sha] = [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
         return self.builds_read[sha]
 
-    def watch_trunk(self, rows: dict[str, dict]) -> set[str]:
-        """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. Returns the open rows DEV-RED bars from every check and enqueue: all but the PR a record on the topic names as its fix."""
+    def watch_trunk(self, rows: dict[str, dict]) -> None:
+        """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. It bars nothing: the queue's own required checks hold what cannot land, and a hold here would freeze the queue."""
         if not (check := self.landing_config.get("trunk_check")):
-            return set()
+            return
         done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
         target = (json.loads(done.out)["data"]["repository"]["ref"] or {}).get("target") if done.code == 0 else None
         if not target:
             last = ((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]) if done.code else [f"GitHub knows no {TRUNK} branch in {self.repo}"]
             self.runner.escalate(f"trunk-read:{self.runner.now():%Y%m%d%H}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {last[0]}; this pass gates as though {TRUNK} were green")
-            return set()
+            return
         posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
         if red is False:
-            return set()
+            return
         if red is None:
             if posted.since:
                 self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", TRUNK_TO, cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
-            return set()
+            return
         built = BUILD_URL.search(red.build) if "buildkite.com/" in red.build else None
         build = self.build(red.build) if built and self.landing_config.get("ci_build") else None
         jobs = failed_steps(build) if build else []
@@ -4351,11 +4351,10 @@ class Landing:
             fix = f"nothing lands until #{posted.fix} fixes it" if posted.fix else "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
             text = f"DEV-RED since {since}: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
             self.runner.cci_post("incident", text, TRUNK_TO, cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
-            return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and pr != posted.fix}
+            return
         owed = f"#{posted.fix} fixes it" if posted.fix else "name the fix with `cci post --topic dev-red --pr <n>`"
         text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
         self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
-        return set()
 
     def landing_steps(self, pipeline: str, rows: dict[str, dict]) -> set[str] | None:
         """The jobs a PR build of `pipeline` runs, from the newest open row whose head has a finished full build of it; None when no such build reads."""
@@ -5838,7 +5837,7 @@ class Landing:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         rows = self.rows()
-        trunk_barred = self.watch_trunk(rows or {})
+        self.watch_trunk(rows or {})
         if rows is None:
             return
         if self.status_card:
@@ -5851,7 +5850,7 @@ class Landing:
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows)
-        barred = sorted({*(held or []), *self.no_go, *trunk_barred}, key=int)
+        barred = sorted({*(held or []), *self.no_go}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()
