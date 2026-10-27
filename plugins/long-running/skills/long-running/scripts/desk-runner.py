@@ -4703,15 +4703,15 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave, without any that a later root record resolves or answers with a `withdraw`. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
+        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
-                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if record["lane"] == ROOT and record["drive"] == drive]
-                later = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
+                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
+                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)}
                 withdrawals = [record for record in later if WITHDRAWN_OPENING.match(record["text"])]
-                self.gos = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and names_pr(record, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
+                self.gos = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
             return self.gos
 
     def head_gos(self, pr: str, head: str) -> list[dict]:
@@ -4847,12 +4847,12 @@ class Landing:
         accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
         if not accepted:
             return
-        self.gos = None
         rows = self.rows() or {}
         waves: dict[int, list[actions.Action]] = {}
         for action in accepted:
             waves.setdefault(min(self.priority(rows, pr) for pr in action.target.split(",")), []).append(action)
         for priority in sorted(waves):
+            self.gos = None
             with ThreadPoolExecutor(len(waves[priority])) as pool:
                 list(pool.map(self.enqueue_one, waves[priority]))
 
@@ -5337,6 +5337,7 @@ class Landing:
         waiting = [(action, pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") for pr, sha in action.response.get("flaky", {}).items() if rows.get(pr, {}).get("head", "").startswith(sha)]
         if not waiting:
             return
+        self.gos = None
         gos = self.root_gos()
         for action, pr, sha in waiting:
             at = actions.parse_stamp(action.response["dropped_at"])
