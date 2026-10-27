@@ -31,6 +31,7 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
 QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
+WITHDRAWN_WORD = re.compile(r"\bwithdrawn\b", re.IGNORECASE)
 CARRIED = re.compile(rf"^{FIDELITY_OK} ([0-9a-f]{{7,40}}) carried from ([0-9a-f]{{7,40}})\b", re.IGNORECASE)
 NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
 CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
@@ -212,3 +213,8 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
         for record in records
         if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads))
     ]
+
+
+def withdraws(record: dict, seq: int) -> bool:
+    """Whether `record` withdraws the record `seq`: it answers it by `--re` or names `#<seq>`, and says "withdrawn"."""
+    return (record.get("re") == seq or re.search(rf"#{seq}\b", record["text"]) is not None) and WITHDRAWN_WORD.search(record["text"]) is not None

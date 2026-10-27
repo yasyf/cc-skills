@@ -494,6 +494,7 @@ import merge_queue
 import prompt_screen
 from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, old_app_grades_in, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
+from grades import withdraws
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -4904,13 +4905,13 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`, plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
+        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
                 gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
                 later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
-                closed = {seq for record in later for seq in closes(record)}
+                closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
@@ -5274,7 +5275,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that is still out of the queue five minutes after that go, naming the newest enqueue outcome at that head that kept it out."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the newest enqueue outcome at that head that kept it out."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         now = self.runner.now()
         for pr, row in rows.items():
@@ -5282,6 +5283,8 @@ class Landing:
             if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
+                continue
+            if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE:
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-")), key=lambda action: action.accepted_at)
             why = f"its newest enqueue ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}" if tried else "no enqueue was accepted for it"
