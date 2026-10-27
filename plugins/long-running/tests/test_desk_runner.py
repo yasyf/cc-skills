@@ -2801,7 +2801,7 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
     seq = grade(shell, "29020", graded)
     landing_pass(shell, config)
     [line] = escalations(shell)
-    stale = f"#29020 cccc333333 is ready, but its newest grade, cci #{seq}, says `title: stale, it names the old fix`, so no go until the lane's title fix posts, and merge mode every"
+    stale = f"; no go until the lane's title fix: cci #{seq} says `title: stale, it names the old fix`"
     assert line.startswith("MERGE-ASK ") and (stale in line) == warns and len(shell.pr_cards) == 1 and shell.enqueues() == []
     assert [LANE in post["to"].split(",") for post in blockers(shell) if "title: stale" in post_body(post)] == ([True] if warns else [])
 
@@ -2814,7 +2814,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers the merge card at ts 1700000001.000100 in the root's status thread or on its board, waiting on `merge:29020:cccc333`")
+    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts 1700000001.000100 (merge mode every)"
     [card] = shell.pr_cards
     assert card == {
         "card": {
@@ -2830,10 +2830,6 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
         "argv": ["-", "--session", "s-root"],
     }
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
-    assert 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line and "send a needs_you" not in line
-    assert "the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture" in line
-    assert "answer in plain words with `cc-present reply --block merge:29020:cccc333 --body <answer>`, which replies on the board and under the Slack card with the link back to it" in line
-    assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: merge:29020:cccc333"`' in line
     merge_go(shell, "29020", "merge #29020 at bbbb222")
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -3111,7 +3107,7 @@ def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go
     landing_pass(shell, config)
     assert checks(shell) == [] and shell.pr_cards == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers on the root's board, where the root asks it, waiting on `merge:29020:cccc333`")
+    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every)"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
@@ -3292,10 +3288,10 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     landing_pass(shell, config)
     assert shell.enqueues() == [] and blockers(shell) == []
     [line] = escalations(shell)
-    assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
-    message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts ")
+    assert f"(merge mode {mode}); only the tap authorizes reserved/user-data" in line
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
-    assert "the card quotes reserved/user-data and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive d1 --row reserved/user-data --action <the tap's ts>`, since a go never does" in message
+    assert line.endswith("; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`")
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
@@ -3368,7 +3364,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     first, second = shell.pr_cards
     assert second["card"]["id"] == first["card"]["id"] == "merge:29020:cccc333" and "User data stays where it is." in second["card"]["children"][0]["md"]
-    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("at ts 1700000001.000100") == 1
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("card ts 1700000001.000100") == 1
 
 
 def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell, config, tmp_path):
