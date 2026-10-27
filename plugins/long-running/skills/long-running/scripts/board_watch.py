@@ -21,6 +21,15 @@ A write-in a later pick replaces survives as its own capture. A capture already 
 not written again. A pick or approval whose block is missing from the board's document gets no
 capture, so no option id or bare verdict stands in for the owner's words; its event line stays. The state directory resolves as `rulings.py` resolves it; `--state-dir`
 overrides it. A second watch of the same board exits at once.
+
+Each decision.created, choice.selected, input.submitted, feedback.created, triage.decided and
+submit also reaches the drive's bus the moment it arrives, so no lane waits on a root to relay a
+tap: one `cci post --kind owner --to all` from lane `board-watch` names the card title and block
+id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
+time, and resolves every open `ask`, `blocker` or `hold` whose text names the block, its card, or
+the merge row (`merge-row-<pr>` or `merge:<pr>`). Its idempotency key is the event's line number
+in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
+never posts an event twice.
 """
 
 from __future__ import annotations
@@ -33,9 +42,12 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import board_rows
+import drive
 import rulings
 
 SOURCE = "board"
@@ -51,6 +63,16 @@ CREDENTIAL = re.compile(
 )
 REDACTED = "[credential redacted]"
 BOARDS = "boards"
+OWNER_EVENTS = frozenset({"decision.created", "choice.selected", "input.submitted", "feedback.created", "triage.decided", "submit"})
+OPEN_KINDS = ("ask", "blocker", "hold")
+BUS_LANE = "board-watch"
+GREP_BYTES = 200000
+
+
+@dataclass
+class Bus:
+    drive: str
+    lines: int
 
 
 class Shell:
@@ -60,10 +82,13 @@ class Shell:
         with subprocess.Popen(["cc-present", "watch", "--session", session], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
             yield from child.stdout
 
-    def block(self, session: str, block: str) -> dict | None:
+    def document(self, session: str, block: str) -> dict | None:
         argv = ["cc-present", "outcomes", "--session", session, "--block", block]
         done = subprocess.run(argv, capture_output=True, text=True)
-        return find(json.loads(done.stdout).get("doc"), block) if done.returncode == 0 else None
+        return json.loads(done.stdout).get("doc") if done.returncode == 0 else None
+
+    def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(["cci", *argv], capture_output=True, text=True)
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -97,13 +122,13 @@ def unread(session: str, block: str) -> None:
     print(f"board-watch {session}: {block} is not in the board's document, so its event stays only in the events file", flush=True)
 
 
-def rendered(event: dict, session: str, shell: Shell) -> str | None:
+def rendered(event: dict, session: str, doc: dict | None) -> str | None:
     block = event.get("blockId", "")
     match event:
         case {"type": "choice.selected", "optionIds": [_, *_] as ids}:
-            text = picked(shell.block(session, block), ids)
+            text = picked(find(doc, block), ids)
         case {"type": "decision.created", "verdict": "approved"}:
-            text = (shell.block(session, block) or {}).get("prompt")
+            text = (find(doc, block) or {}).get("prompt")
         case {"type": "decision.created", "verdict": str() as verdict}:
             return verdict
         case _:
@@ -113,7 +138,7 @@ def rendered(event: dict, session: str, shell: Shell) -> str | None:
     return text
 
 
-def texts(event: dict, session: str, shell: Shell) -> list[str]:
+def texts(event: dict, session: str, doc: dict | None) -> list[str]:
     match event.get("type"):
         case "choice.selected":
             written = [event["other"]] if event.get("other") else []
@@ -123,11 +148,11 @@ def texts(event: dict, session: str, shell: Shell) -> list[str]:
             written = [event["note"]] if event.get("note") else []
         case _:
             written = []
-    verdict = rendered(event, session, shell)
+    verdict = rendered(event, session, doc)
     return [*([verdict] if verdict else []), *written] if event.get("type") == "decision.created" else [*written, *([verdict] if verdict else [])]
 
 
-def captures(event: dict, session: str, shell: Shell, moment: datetime) -> list[dict]:
+def captures(event: dict, session: str, doc: dict | None, moment: datetime) -> list[dict]:
     block = event.get("blockId", "")
     if event.get("type") == "triage.decided":
         return [
@@ -137,8 +162,88 @@ def captures(event: dict, session: str, shell: Shell, moment: datetime) -> list[
         ]
     return [
         {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)}
-        for text in texts(event, session, shell)
+        for text in texts(event, session, doc)
     ]
+
+
+def card_of(doc: dict | None, block: str) -> dict | None:
+    return next((top for top in (doc or {}).get("blocks", []) if find(top, block)), None)
+
+
+def quoted(text: str) -> str:
+    return f"\u201c{text}\u201d"
+
+
+def said(verb: str, text: str | None) -> list[str]:
+    return [verb, quoted(text)] if text else []
+
+
+def told(event: dict, doc: dict | None) -> str:
+    found = find(doc, event.get("blockId", ""))
+    match event:
+        case {"type": "triage.decided", "verdicts": verdicts}:
+            heads = {row.id: row.head for row in board_rows.rows_of(doc or {})}
+            return "; ".join(
+                " ".join([row, entry["verdict"], *(["at", head] if (head := entry.get("head") or heads.get(row)) else []), *said("noted", entry.get("note"))])
+                for row, entry in verdicts.items()
+            )
+        case {"type": "submit"}:
+            return f"closed round {event.get('revision', 0)}"
+        case {"type": "decision.created", "verdict": verdict}:
+            prompt = (found or {}).get("prompt") if verdict == "approved" else None
+            words = [verdict, *([quoted(prompt)] if prompt else []), *said("noted", event.get("note"))]
+        case {"type": "choice.selected"}:
+            ids = event.get("optionIds") or []
+            words = [*(["picked", quoted(labels) if (labels := picked(found, ids)) else "option " + ", ".join(ids)] if ids else []), *said("wrote", event.get("other"))]
+        case {"type": "input.submitted"}:
+            words = said("wrote", event.get("text"))
+        case _:
+            words = said("noted", event.get("text"))
+    return " ".join(words)
+
+
+def announced(event: dict, session: str, doc: dict | None) -> str:
+    block = event.get("blockId", "")
+    title = (card_of(doc, block) or {}).get("title")
+    where = f"{title} ({block})" if title else block or "the board"
+    return CREDENTIAL.sub(REDACTED, f"Owner on board {session[:8]}, {where}: {told(event, doc)}, at {{at}}")
+
+
+def row_names(row: str) -> list[str]:
+    pr = board_rows.pr_of(row)
+    return [*([] if row.isdigit() else [row]), *([f"merge-row-{pr}", f"merge:{pr}"] if pr else [])]
+
+
+def named(event: dict, doc: dict | None) -> list[str]:
+    if event["type"] == "triage.decided":
+        return list(dict.fromkeys(name for row in event["verdicts"] for name in row_names(row)))
+    block = event.get("blockId", "")
+    return list(dict.fromkeys(name for name in (block, (card_of(doc, block) or {}).get("id")) if name))
+
+
+def open_asks(shell: Shell, bus: Bus, names: list[str]) -> list[int]:
+    seqs: set[int] = set()
+    for name in names:
+        pattern = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])", re.IGNORECASE)
+        done = shell.cci(["grep", name, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in OPEN_KINDS)])
+        found = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+        seqs |= {record["seq"] for record in found if record["kind"] in OPEN_KINDS and record["drive"] == bus.drive and record.get("status") == "open" and pattern.search(record["text"])}
+    return sorted(seqs)
+
+
+def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
+    key = f"board:{session}:{bus.lines}:{hashlib.sha256(line.encode()).hexdigest()[:8]}"
+    resolves = open_asks(shell, bus, named(event, doc))
+    prs = [pr for row in event.get("verdicts", {}) if (pr := board_rows.pr_of(row))]
+    argv = [
+        "post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "owner", "--to", "all", "--id", key, "--text", announced(event, session, doc),
+        *(["--topic", event["blockId"]] if event.get("blockId") else []),
+        *(f"--pr={pr}" for pr in prs),
+        *(["--resolves", ",".join(map(str, resolves))] if resolves else []),
+    ]
+    done = shell.cci(argv)
+    if done.returncode:
+        print(f"board-watch {session}: cci post {key} failed: {done.stderr.strip()}", flush=True)
 
 
 def recorded(path: Path) -> set[str]:
@@ -155,13 +260,19 @@ def free(lock) -> bool:
     return True
 
 
-def record(line: str, state: Path, session: str, shell: Shell, seen: set[str]) -> None:
+def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], bus: Bus) -> None:
     with (state / BOARDS / f"{session}-events.jsonl").open("a") as events:
         events.write(line if line.endswith("\n") else f"{line}\n")
+    bus.lines += 1
     if not line.strip():
         return
+    event = json.loads(line)
+    owner = event.get("type") in OWNER_EVENTS
+    doc = shell.document(session, event["blockId"]) if owner and event.get("blockId") else None
+    if owner:
+        announce(event, line, session, doc, shell, bus)
     with (state / CAPTURES).open("a") as sink:
-        for capture in captures(json.loads(line), session, shell, shell.now()):
+        for capture in captures(event, session, doc, shell.now()):
             if capture["digest"] not in seen:
                 sink.write(json.dumps(capture, ensure_ascii=False) + "\n")
                 seen.add(capture["digest"])
@@ -175,8 +286,10 @@ def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
             print(f"board-watch {args.session}: another watch holds {lock.name}")
             return 0
         seen = recorded(state / CAPTURES)
+        events = state / BOARDS / f"{args.session}-events.jsonl"
+        bus = Bus(args.program or drive.cci_drive(drive.load(drive.drives_dir() / f"{args.drive}.json")), events.read_text().count("\n") if events.exists() else 0)
         for line in shell.watch(args.session):
-            record(line, state, args.session, shell, seen)
+            record(line, state, args.session, shell, seen, bus)
     print(f"board-watch {args.session}: the board closed")
     return 0
 
@@ -200,7 +313,5 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import drive
-
     drive.run_installed(__file__)
     sys.exit(main())
