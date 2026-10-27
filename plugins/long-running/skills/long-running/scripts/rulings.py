@@ -210,7 +210,9 @@ FUNCTION_HEAD = re.compile(
 TICKER = re.compile(r"\btime::interval(?:_at)?\(|(?<![\w.:])interval(?:_at)?\(\s*(?:Duration|std::time|tokio::time)|\bIntervalStream::new\(|\btime\.(?:NewTicker|Tick)\(|\bsetInterval\(")
 WAIT = re.compile(r"\b(?:thread::sleep|time::sleep|sleep_until|time\.Sleep|time\.sleep|asyncio\.sleep|Bun\.sleep)\(|\bawait\s+(?:sleep|delay)\(|<-\s*time\.After\(|\bsetTimeout\(")
 RESCHEDULED = re.compile(r"\bsetTimeout\(\s*(?P<name>\w+)\s*,")
-FILE_WRITE = re.compile(r"\b(?:fs::write|File::create|OpenOptions::new|WriteFile|writeFile(?:Sync)?|createWriteStream|Bun\.write|os\.Create|os\.OpenFile|write_text|write_bytes)\s*\(|\bopen\([^)]*[\"'][wa]b?\+?[\"']")
+FILE_WRITE = re.compile(r"\b(?:fs::write|File::create|WriteFile|writeFile(?:Sync)?|createWriteStream|Bun\.write|os\.Create|write_text|write_bytes)\s*\(|\bopen\([^)]*[\"'][wa]b?\+?[\"']")
+FILE_OPEN = re.compile(r"\bos\.OpenFile\s*\(|\bOpenOptions::new\(")
+WRITE_FLAG = re.compile(r"\bO_(?:WRONLY|RDWR|CREATE|APPEND|TRUNC)\b|\.(?:write|create|create_new|append|truncate)\(\s*true\s*\)")
 SECRET_PARTS = frozenset({"secret", "secrets", "token", "tokens", "grant", "grants", "pass", "passes", "password", "passwords", "passwd", "credential", "credentials", "creds", "apikey"})
 KEY_QUALIFIERS = frozenset({"api", "private", "secret", "signing", "access", "auth", "session", "master", "encryption", "hmac"})
 IDENTIFIER_PART = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
@@ -832,7 +834,7 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
         if not kept.is_file():
             kept.parent.mkdir(parents=True, exist_ok=True)
             staged = kept.with_suffix(f".{os.getpid()}")
-            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{pinned}...{head}"])
+            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{pinned}...{head}"])
             staged.replace(kept)
         return parse_diff(kept.read_text(errors="replace"))
     finally:
@@ -2061,7 +2063,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
-    findings.refusals += [str(hit) for hit in banned_mechanisms(head.diff) if not owner_cleared(hit, head, authorizers)]
+    findings.refusals += [str(hit) for hit in uncleared(banned_mechanisms(head.diff), head, authorizers)]
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
@@ -2093,15 +2095,17 @@ LOCAL_EXEC = Banned("local exec", ("rule/c9b7c87",), re.compile(r"\blocal(?:ly)?
 
 @dataclass(frozen=True)
 class BannedHit:
-    banned: Banned
+    banned: tuple[Banned, ...]
     file: str
     line: int
     text: str
 
     def __str__(self) -> str:
+        shapes = " and ".join(banned.shape for banned in self.banned)
+        rows = ",".join(dict.fromkeys(row for banned in self.banned for row in banned.rows))
         return (
-            f"MECHANISM-BANNED {self.banned.shape} {self.file}:{self.line} {','.join(self.banned.rows)} `{self.text[:CCI_TEXT // 4]}`"
-            f"\tfix it, or cite his answer naming the {self.banned.shape} as a `# owner: <answer id>` line under ## Rulings"
+            f"MECHANISM-BANNED {shapes} {self.file}:{self.line} {rows} `{self.text[:CCI_TEXT // 4]}`"
+            f"\tfix it, or cite his answer naming the {shapes} as a `# owner: <answer id>` line under ## Rulings"
         )
 
 
@@ -2126,14 +2130,13 @@ def in_loop(lines: dict[int, str], number: int, text: str) -> bool:
 
 
 def statement(lines: dict[int, str], number: int) -> str:
+    """The added line at `number` and the lines that continue its call: open parentheses or a method chain."""
     joined, balance = [], 0
     for at in range(number, number + STATEMENT_LINES):
-        if (line := lines.get(at)) is None:
+        if (line := lines.get(at)) is None or (joined and balance <= 0 and not line.lstrip().startswith(".")):
             break
         joined.append(line)
         balance += line.count("(") - line.count(")")
-        if balance <= 0:
-            break
     return " ".join(joined)
 
 
@@ -2155,19 +2158,22 @@ def banned_mechanisms(diff: Diff) -> list[BannedHit]:
         if Path(file).suffix in PROSE_SUFFIXES or commented(text):
             continue
         lines = sides[file]
-        if TICKER.search(text):
-            hits.append(BannedHit(TIMER, file, number, text.strip()))
-        elif WAIT.search(text) and in_loop(lines, number, text):
-            hits.append(BannedHit(POLL, file, number, text.strip()))
-        if FILE_WRITE.search(text) and names_secret(statement(lines, number)):
-            hits.append(BannedHit(CREDENTIAL_FILE, file, number, text.strip()))
-        if not CI_CONFIG.search(file) and LOCAL_RUN.search(ARGUMENT_PUNCTUATION.sub(" ", text)) and (LOCAL_TOOL.search(file) or MAC_PATH.search(text)):
-            hits.append(BannedHit(LOCAL_EXEC, file, number, text.strip()))
+        call = statement(lines, number)
+        found = [
+            *([TIMER] if TICKER.search(text) else [POLL] if WAIT.search(text) and in_loop(lines, number, text) else []),
+            *([CREDENTIAL_FILE] if (FILE_WRITE.search(text) or FILE_OPEN.search(text) and WRITE_FLAG.search(call)) and names_secret(call) else []),
+            *([LOCAL_EXEC] if not CI_CONFIG.search(file) and LOCAL_RUN.search(ARGUMENT_PUNCTUATION.sub(" ", text)) and (LOCAL_TOOL.search(file) or MAC_PATH.search(text)) else []),
+        ]
+        if found:
+            hits.append(BannedHit(tuple(found), file, number, text.strip()))
     return hits
 
 
-def owner_cleared(hit: BannedHit, head: Head, authorizers: dict[str, list[tuple[str, frozenset[str]]]]) -> bool:
-    return any(hit.banned.said.search(words) for found in OWNER_LINE.finditer(head.rulings) for words, _ in authorizers.get(found["answer"][:SHORT], []))
+def uncleared(hits: list[BannedHit], head: Head, authorizers: dict[str, list[tuple[str, frozenset[str]]]]) -> list[BannedHit]:
+    """Each hit less the shapes an owner answer cited as a `# owner: <answer id>` line under ## Rulings names in its words."""
+    said = [words for found in OWNER_LINE.finditer(head.rulings) for words, _ in authorizers.get(found["answer"][:SHORT], [])]
+    left = [BannedHit(tuple(banned for banned in hit.banned if not any(banned.said.search(words) for words in said)), hit.file, hit.line, hit.text) for hit in hits]
+    return [hit for hit in left if hit.banned]
 
 
 def drive_checkout(args: argparse.Namespace) -> str:

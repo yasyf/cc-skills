@@ -527,6 +527,8 @@ BANNED_CELLS = {
     "setTimeout rescheduling itself": (changed("dashboard/src/poll.ts", [], ["function refresh() {", "  load();", "  setTimeout(refresh, 5000);", "}"]), "poll loop", "dashboard/src/poll.ts", 3),
     "grant written by Go": (changed("go/sand/cmd/runner_grant.go", [], ["if err := os.WriteFile(grantPath, []byte(grant), 0o600); err != nil {"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
     "signing key over three lines": (changed("rust/src/keys.rs", [], ["fs::write(", "    &path,", "    signing_key.to_bytes(),", ")?;"]), "credential written to a file", "rust/src/keys.rs", 1),
+    "grant opened for writing": (changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(grantPath, os.O_CREATE|os.O_WRONLY, 0o600)"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
+    "timer that writes a token": (changed("api/src/renew.ts", [], ["setInterval(() => writeFileSync(tokenPath, token), 1000);"]), "timer and credential written to a file", "api/src/renew.ts", 1),
     "cargo test from a tool script": (changed("tools/check.sh", [], ["cargo test -p sandsql-server"]), "local exec", "tools/check.sh", 1),
     "go test from a hook": (changed(".claude/hooks/verify.py", [], ['subprocess.run(["go", "test", "./..."], check=True)']), "local exec", ".claude/hooks/verify.py", 1),
 }
@@ -534,6 +536,7 @@ BENIGN_CELLS = {
     "one-shot sleep with its reason": changed("go/sand/cmd/dial.go", [], ["func dial() {", "\t// the socket binds a beat after listen returns", "\ttime.Sleep(50 * time.Millisecond)", "\tconnect()", "}"]),
     "timer deletion": changed("go/sand/cmd/runner_grant.go", ["\tticker := time.NewTicker(15 * time.Minute)"], ["\t<-done"]),
     "one-shot promise delay": changed("dashboard/src/wait.ts", [], ["async function settle(ms: number) {", "  await new Promise((resolve) => setTimeout(resolve, ms));", "}"]),
+    "token opened to read": changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(tokenPath, os.O_RDONLY, 0)"]),
     "state file write": changed("go/sand/cmd/state.go", [], ["os.WriteFile(statePath, data, 0o644)"]),
     "cache key file write": changed("api/src/cache.ts", [], ["writeFileSync(cacheKeyPath, digest);"]),
     "cargo test in CI config": changed(".buildkite/pipeline.yml", [], ["  - cargo test -p sandsql-server"]),
