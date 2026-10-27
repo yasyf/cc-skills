@@ -550,33 +550,33 @@ def test_a_row_root_go_d_at_its_head_passes_when_its_carried_list_names_his_appr
 RED = "DEV-RED since 12:03 AM: dev's buildkite/test fails lint on build 1. No PR can land until this is fixed."
 
 
-def test_a_red_dev_withholds_every_tap_row_but_its_fix_and_banners_the_card(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_red_dev_banners_the_card_and_keeps_every_row_on_it(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
     shell.pull("42591")
     shell.graded("42591")
     shell.trunk(RED)
     shell.post("opened", "fix-dev", "opened #42591", pr="42591", topic="dev-red")
 
-    assert gate(tmp_path, shell, groups(pr_row("42590", review=""), pr_row("42591")), "--", "cc-present", "update-block") == 0
+    assert gate(tmp_path, shell, groups(pr_row("42590"), pr_row("42591")), "--", "cc-present", "update-block") == 0
 
     banner = "dev's test build is red since 12:03 AM; nothing lands until #42591 fixes it."
-    assert f"WITHHELD 42590 42590 {HEAD[:7]} {banner}" in lines(capsys)
+    assert f"BANNER {banner}" in lines(capsys)
     pushed = shell.pushed[0][1]["children"][0]
     assert pushed["prompt"] == banner
-    assert [row["number"] for group in pushed["groups"] for row in group["prs"]] == [42591]
+    assert [row["number"] for group in pushed["groups"] for row in group["prs"]] == [42590, 42591]
 
 
-def test_a_red_dev_with_every_row_withheld_pushes_the_banner_alone(tmp_path: Path, shell: FakeShell) -> None:
+def test_a_red_dev_still_fails_a_row_missing_a_field(tmp_path: Path, shell: FakeShell) -> None:
     shell.trunk(RED)
 
-    assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
+    assert gate(tmp_path, shell, groups(pr_row("42590", review="")), "--", "cc-present", "update-block") == 1
 
-    assert shell.pushed[0][1]["children"][0] == {"id": "merge-prs", "type": "markdown", "md": "dev's test build is red since 12:03 AM; nothing lands until its fix lands."}
+    assert shell.pushed == []
 
 
 @pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 12:03 AM."], ["POST-MERGE-RED since 12:03 AM: dev's buildkite/test fails publish on build 1. Landing continues."]])
-def test_a_green_or_post_merge_red_dev_withholds_nothing(tmp_path: Path, shell: FakeShell, posted: list[str]) -> None:
+def test_a_green_or_post_merge_red_dev_carries_no_banner(tmp_path: Path, shell: FakeShell, posted: list[str]) -> None:
     shell.trunk(*posted)
 
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
 
-    assert [row["number"] for group in shell.pushed[0][1]["children"][0]["groups"] for row in group["prs"]] == [42590]
+    assert "prompt" not in shell.pushed[0][1]["children"][0]
