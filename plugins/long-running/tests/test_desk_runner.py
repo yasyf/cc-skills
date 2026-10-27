@@ -3434,7 +3434,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
 
 
 def ungone_parents(bottom: str, heads: str, parents: str) -> str:
-    return f"BELOW-BLOCKED stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+    return f"BELOW-BLOCKED above #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so none of them is enqueued, and the stack below #{bottom} lands without them; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
 
 
 def notes(shell: FakeShell) -> list[dict]:
@@ -4397,6 +4397,32 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     finder_verdict(shell, "29020", "ok cccc333 answered: the PR rebuts it with the sealed-read test")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
+
+
+@pytest.mark.parametrize("settled", ["decision", "go"])
+def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the migration test seeds write version 1")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    if settled == "decision":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "a test gap, not a defect"})
+        shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
+    else:
+        merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    landing_pass(shell, config)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    landing_pass(shell, config)
+    first, second = blockers(shell)
+    assert "no `finder:` review record names this head" in first["text"] and f"posted on cci #{seq}: finder: major cccc333" in second["text"]
 
 
 @pytest.mark.parametrize(
@@ -5452,7 +5478,7 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
     landing_pass(shell, config)
     assert unqueued(shell) == []
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
-        "BELOW-BLOCKED stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so nothing in the stack is enqueued; each red or conflicting parent's lane makes it green and mergeable"
+        "BELOW-BLOCKED above #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so none of them is enqueued, and the stack below #29020 lands without them; each red or conflicting parent's lane makes it green and mergeable"
     ]
 
 
@@ -5471,7 +5497,7 @@ def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and
     landing_pass(shell, config)
     assert unqueued(shell) == []
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
-        "BELOW-HELD stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, which a hold covers, so nothing in the stack is enqueued; the stack waits for each hold to lift"
+        "BELOW-HELD above #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, which a hold covers, so none of them is enqueued, and the stack below #29020 lands without them; the stack waits for each hold to lift"
     ]
 
 
