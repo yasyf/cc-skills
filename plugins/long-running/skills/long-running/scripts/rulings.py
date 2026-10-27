@@ -165,6 +165,7 @@ PLACEMENT = re.compile(
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
 DIGEST_CHARS = 16
 OWNER_ANSWER = "from:owner"
+OWNER_SOURCES = frozenset({OWNER_ANSWER, "slack:owner-words"})
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
 CLAUSE_ENDS = (";", ". ", "\n")
@@ -1290,8 +1291,8 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
 
 def answer_capture(loaded: Register, identity: str) -> dict:
     answer = ccn(loaded.shell, loaded.repo, "answer", "show", identity)
-    if OWNER_ANSWER not in (answer.get("tags") or []):
-        raise SystemExit(f"NOT-OWNER {identity}: classify --answer reads only an answer labelled {OWNER_ANSWER}, whose body holds the owner's clicked words")
+    if not OWNER_SOURCES & set(answer.get("tags") or []):
+        raise SystemExit(f"NOT-OWNER {identity}: classify --answer reads only an answer labelled {' or '.join(sorted(OWNER_SOURCES))}, whose body holds the owner's clicked words or his verbatim Slack replies")
     return {"digest": answer["id"][:DIGEST_CHARS], "at": answer["created_at"], "source": ANSWER_SOURCE, "text": answer["body"], "answer": answer["id"]}
 
 

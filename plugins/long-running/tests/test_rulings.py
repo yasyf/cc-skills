@@ -1742,8 +1742,9 @@ def answer_sourced(tmp_path: Path, words: str = APPROVED) -> Path:
     return path
 
 
-def test_classify_answer_extends_the_row_with_the_owners_six_approvals_and_the_answer_as_proof(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
-    shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[ROUND_TWO])
+@pytest.mark.parametrize("source", ["from:owner", "slack:owner-words"])
+def test_classify_answer_extends_the_row_with_the_owners_six_approvals_and_the_answer_as_proof(home: Path, package: Path, state: Path, tmp_path: Path, capsys, source: str) -> None:
+    shell = RegisterShell(seeded(package) | {"rule/5eed0c0": dict(ROUND_TWO_ROW)}, answers=[dict(ROUND_TWO, tags=[source, "program:brook", "scope:durable"])])
 
     code, _ = ran(capsys, shell, "classify", "--answer", "5eed0c0", str(answer_sourced(tmp_path)))
 
