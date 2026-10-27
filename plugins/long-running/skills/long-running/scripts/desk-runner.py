@@ -379,7 +379,7 @@ Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, HOLDS-UNREAD,
-UNGRADED-30, BATCH-POST-OWED, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
+UNGRADED-30, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
 escalation, worker_done, status, decision gate or handoff is a summary: its receipt carries
@@ -427,7 +427,7 @@ no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
 stops naming, and a root `go` never does, whatever it names (C224). A PR that no ledger `progress` entry with
-an artifact lists by `#<n>` in its note gets no `MERGE-ASK`; its batch logs one `BATCH-POST-OWED` instead (8908f83). A quiet pass writes nothing.
+an artifact lists by `#<n>` in its note still gets its `MERGE-ASK`, and its batch logs one `BATCH-POST-OWED` report for comms (8908f83). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
@@ -495,7 +495,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "BATCH-POST-OWED": "blocker", "SLICE-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -4792,7 +4792,7 @@ class Landing:
         done = self.ledger_py("show", "--ledger", self.ledger, "--json")
         if done.code:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-            self.runner.escalate(f"batch-read:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "BATCH-READ-FAILED", "landing", f"the ledger did not read for its batch posts: {last[0]}; no MERGE-ASK goes out until it reads")
+            self.runner.escalate(f"batch-read:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "BATCH-READ-FAILED", "landing", f"the ledger did not read for its batch posts: {last[0]}; the merge cards go out, and no BATCH-POST-OWED is reported until it reads")
             return None
         entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
         return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
@@ -4824,20 +4824,19 @@ class Landing:
             return Done(127, "", f"cc-present did not start: {error}")
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
-        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83). A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
+        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists still gets its card, and the batch logs one `BATCH-POST-OWED` report for comms, since the post is comms under the owner's standing grant and never a merge gate (8908f83, root #138202). A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
         mode = self.merge_mode
         asking = self.waiting_on_owner(heads, list(waiting))
-        if not asking or (posted := self.batch_posted()) is None:
+        if not asking:
             return
-        if owed := [pr for pr in asking if pr not in posted]:
+        if (posted := self.batch_posted()) is not None and (owed := [pr for pr in asking if pr not in posted]):
             self.runner.escalate(
                 f"batch-post:{hashlib.sha1(' '.join(sorted(owed)).encode()).hexdigest()[:12]}",
                 "BATCH-POST-OWED",
                 numbered(owed),
-                f"{numbered(owed)} are ready, and no batch post recorded on the ledger lists them, so no MERGE-ASK goes out (8908f83)"
-                f" | post the batch, then run `ledger.py progress --ledger {self.ledger} --ask <the ask the batch answers> --note \"{numbered(owed)}\" --artifact <permalink>`; the cards follow on the next pass",
+                f"{numbered(owed)} are ready, and no batch post recorded on the ledger lists them; their merge cards go out anyway (8908f83)"
+                f" | comms posts the batch, then runs `ledger.py progress --ledger {self.ledger} --ask <the ask the batch answers> --note \"{numbered(owed)}\" --artifact <permalink>`",
             )
-            asking = [pr for pr in asking if pr not in owed]
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
             waits = f"merge:{pr}:{short}"
