@@ -2,6 +2,7 @@
 """The merge queue's CLI over a drive's landing desk: read why a PR waits, and steer what the queue holds.
 
     mq.py --config PATH status
+    mq.py --config PATH gos
     mq.py --config PATH why PR
     mq.py --config PATH gate PR... [--partial]
     mq.py --config PATH enqueue PR... [--partial]
@@ -15,7 +16,9 @@
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`; every verb reads the same ledger,
 holds file, action store, and repository adapter the landing desk runs on. `status` prints each enqueue
-this drive's store believes queued and each open tree in the order the desk gates it. `why` prints the
+this drive's store believes queued and each open tree in the order the desk gates it. `gos` prints each
+open PR a standing root go names that the queue does not hold, with the head the go names, the queue state
+and verdict from one batched status read, and any hold, never a GitHub read per PR. `why` prints the
 adapter's verdict on the PR's current head, then one `<check> pass|pending|fail <reason>` line per
 configured check, posting nothing. `gate` prints each hold or enqueue check that does not pass a head a hand
 `stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any. `enqueue` runs that gate and
@@ -56,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     verbs = parser.add_subparsers(dest="verb", required=True)
     verbs.add_parser("status")
+    verbs.add_parser("gos")
     verbs.add_parser("checks")
     for verb in ("why", "lift", "requeue"):
         verbs.add_parser(verb).add_argument("pr")
@@ -94,6 +98,9 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         return 0
     if args.verb == "status":
         print("\n".join(landing.status_lines()))
+        return 0
+    if args.verb == "gos":
+        print("\n".join(landing.standing_go_lines()))
         return 0
     if args.verb == "why":
         print("\n".join(landing.why(args.pr)))

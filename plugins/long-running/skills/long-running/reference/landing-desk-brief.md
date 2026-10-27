@@ -150,9 +150,12 @@ Authority: reconcile landings; the merge queue is the only enqueuer, and lanes n
   record its label on refresh as "in the queue, labelled outside the desk", never
   as a bypass. Everything else stops for the root.
 
-Track through `ledger.py` and read the queue through `mq.py`. Never enqueue,
-  label, dequeue, or requeue beside the landing runner; a dequeue or requeue is
-  the root's `mq.py` call. Never use scripts of your own.
+Track through `ledger.py` and read the queue through `mq.py`; `mq.py gos` lists
+  every open PR a standing go names that the queue does not hold, from one batched
+  status read. Never enqueue, label, dequeue, or requeue beside the landing runner;
+  a dequeue or requeue is the root's `mq.py` call. Never use scripts of your own,
+  and never loop a GitHub read over PRs: a per-PR scan spends the machine's shared
+  GraphQL quota and stalls every merge on it.
   Other gaps in `ledger.py` are a `RULING NEEDED`.
 
 Readers first (D21): grade every tracked PR's diff for a change to a format another
