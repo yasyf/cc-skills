@@ -73,7 +73,7 @@ function decideBar(row, v) {
   }
   return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
 }
-async function decide(row, verdict, note) {
+async function decide(row, verdict, note, advance = true) {
   clearTimeout(pending.advance);
   Object.assign(pending, { number: row.number, holding: false, error: '', note: '' });
   render();
@@ -87,7 +87,7 @@ async function decide(row, verdict, note) {
   row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note };
   row.state = verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held';
   pending.number = null;
-  const next = verdict === 'cleared' ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
+  const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const from = location.hash;
   if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 700);
   render();

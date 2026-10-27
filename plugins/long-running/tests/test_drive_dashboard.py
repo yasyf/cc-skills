@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from server import Drive, drive_prs, parse_plan, plan_prs, verdict_state
+from server import Drive, drive_prs, parse_plan, plan_prs, step_rows, verdict_state
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -122,3 +122,29 @@ def test_the_ring_counts_exactly_the_green_squares():
     assert [square["tree"] for square in squares] == ["New tree", "Shared", "Shared", "Old tree", "Shared"]
     assert {square["number"]: square["state"] for square in squares}[42005] == "doing"
     assert drive["moving"] == 1
+
+
+def step(prs, lanes=(), tone="later"):
+    return {"id": "s", "title": "T", "state": "S", "tone": tone, "blocker": None, "next": "N", "prs": list(prs), "lanes": list(lanes)}
+
+
+@pytest.mark.parametrize(
+    ("states", "lanes", "tone"),
+    [
+        ({1: "landed", 2: "landed"}, [], "done"),
+        ({1: "landed", 2: "you"}, [], "you"),
+        ({1: "doing", 2: "failing"}, [], "failing"),
+        ({1: "work"}, ["p8a-step7"], "moving"),
+        ({1: "work"}, [], "queued"),
+        ({}, [], "later"),
+    ],
+)
+def test_a_step_takes_its_tone_and_fill_from_the_drive_list(states, lanes, tone):
+    drive = {"prs": [{"number": n, "state": state, "tree": "Shared", "worker": None} for n, state in states.items()]}
+    workers = [{"lane": "p8a-step7", "at": "2026-10-27T07:55:00Z", "text": "pushed"}]
+
+    row = step_rows([step([*states, 99], lanes)], drive, workers, NOW)[0]
+
+    assert row["tone"] == tone
+    assert [entry["number"] for entry in row["prs"]] == list(states)
+    assert row["landed"] == sum(1 for state in states.values() if state == "landed")

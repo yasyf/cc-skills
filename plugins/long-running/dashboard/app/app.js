@@ -16,7 +16,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, tree: 'new', overlay: null };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, overlay: null, stepOpen: null };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -169,7 +169,7 @@ function workersOn(numbers) {
   const bots = [...lanes.entries()].map(([lane, n]) => `<a class="bot" href="${prHref(n)}" title="${esc(lane)} is on #${n} ${esc(plainTitle(n))}"><i></i>${esc(lane)}</a>`);
   return bots.slice(0, 3).join('') + (bots.length > 3 ? `<span class="bot more">+${bots.length - 3}</span>` : '');
 }
-function tile(name, numbers) {
+function tile(name, numbers, bots = true) {
   const sorted = numbers.sort((a, b) => prRank(a) - prRank(b));
   const done = sorted.filter((n) => prState(n) === 'landed').length;
   const pct = Math.round((100 * done) / sorted.length);
@@ -177,48 +177,74 @@ function tile(name, numbers) {
   return `<div class="ptile${pct === 100 ? ' complete' : ''}" style="flex-grow:${grow}" data-tile="${esc(name)}" data-nums="${sorted.join(',')}">
     <div class="ptile-h"><b>${esc(name)}</b><span class="pct">${pct}%</span></div>
     <div class="mosaic">${sorted.map(square).join('')}</div>
-    <div class="bots">${workersOn(sorted)}</div></div>`;
+    ${bots ? `<div class="bots">${workersOn(sorted)}</div>` : ''}</div>`;
 }
-function stage() {
-  const [target, ...rest] = state.model.tree_names;
-  const trees = [...rest, target];
-  const lanes = trees.map((tree) => {
-    const parts = new Map();
-    for (const { number: n } of state.model.drive.prs.filter((e) => e.tree === tree)) {
-      const part = partOf(n);
-      if (!parts.has(part)) parts.set(part, []);
-      parts.get(part).push(n);
-    }
-    const all = [...parts.values()].flat();
-    const done = all.filter((n) => prState(n) === 'landed').length;
-    const key = tree.split(' ')[0].toLowerCase();
-    return `<section class="lane lane-${key}${state.tree === key ? ' picked' : ''}"><header><span class="lane-name">${esc(TREE_SHORT[tree] ?? tree)}</span><span class="lane-pct">${all.length ? Math.round((100 * done) / all.length) : 0}%</span></header>
-      <div class="ptiles">${[...parts.entries()].sort((a, b) => b[1].length - a[1].length).map(([name, nums]) => tile(name, nums)).join('')}</div></section>`;
-  });
-  return `<div class="stage">${lanes.join('<div class="flow" aria-hidden="true"></div>')}</div>`;
+function treeParts(tree) {
+  const parts = new Map();
+  for (const { number: n } of state.model.drive.prs.filter((e) => e.tree === tree)) {
+    const part = partOf(n);
+    if (!parts.has(part)) parts.set(part, []);
+    parts.get(part).push(n);
+  }
+  return [...parts.entries()].sort((a, b) => b[1].length - a[1].length);
 }
-const TREE_SHORT = { 'Old tree': 'Old tree · retires at cutover', Shared: 'Shared code', 'New tree': 'New tree · the end state' };
-function journey() {
-  const steps = state.model.plan;
-  let here = steps.findIndex((s) => inDrive(s.prs).some((n) => prState(n) !== 'landed'));
-  if (here < 0) here = steps.length;
-  return `<ol class="journey">${steps.map((s, i) => {
-    const nums = inDrive(s.prs);
-    const done = nums.filter((n) => prState(n) === 'landed').length;
-    const pct = nums.length ? (100 * done) / nums.length : i < here ? 100 : 0;
-    const label = s.title.split(/[,(;]/)[0].split(' ').slice(0, 4).join(' ');
-    return `<li class="${i < here ? 'past' : i === here ? 'here' : ''}" data-overlay="plan" data-step="${i}" title="${esc(s.title)}${nums.length ? ` · ${done} of ${nums.length} landed` : ''}">
-      <span class="node" style="--p:${pct}%">${nums.length ? '' : '◆'}</span><span class="cap">${esc(label)}</span></li>`;
-  }).join('')}<li class="end" title="Cutover: the old tree is deleted"><span class="node">⚑</span><span class="cap">Cutover</span></li></ol>`;
+function treeBar(tree, label) {
+  const nums = state.model.drive.prs.filter((e) => e.tree === tree).map((e) => e.number);
+  const done = nums.filter((n) => prState(n) === 'landed').length;
+  return `<div class="thin" data-tile="${esc(label)}" data-nums="${nums.join(',')}"><span>${esc(label)}</span><span class="tbar"><i style="width:${nums.length ? (100 * done) / nums.length : 0}%"></i></span><b>${done}/${nums.length}</b></div>`;
 }
-const TICK_ICON = { landed: '✓', go: '▲', owner: '★', release: '⇪', incident: '!', 'fix-live': '✓', hold: '‖', lift: '▶', report: '●' };
-function ticker() {
-  const events = timeline().filter(TIMELINE_FILTERS[0][2]).slice(0, 6);
-  return events.map((e) => {
-    const n = /#(4\d{4})/.exec(e.text)?.[1];
-    const what = e.kind === 'owner' ? 'You said' : n ? `#${n}` : KIND_WORD[e.kind];
-    return `<a class="tick k-${e.kind}" href="#/timeline" title="${esc(e.text)}"><i>${TICK_ICON[e.kind] ?? '•'}</i><b>${esc(what)}</b><span>${n ? esc(plainTitle(n)) : esc(firstSentences(e.text, 40))}</span><time>${clock(e.at)}</time></a>`;
-  }).join('');
+function endState() {
+  const [target, old, shared] = state.model.tree_names;
+  return `<section class="endstate"><header>Where it ends: the new code, part by part</header>
+    <div class="ptiles">${treeParts(target).map(([name, nums]) => tile(name, nums, false)).join('')}</div>
+    ${treeBar(shared, 'Shared code')}${treeBar(old, 'Old code, deleted at cutover')}</section>`;
+}
+const TONE_WORD = { done: 'Done', moving: 'Moving', queued: 'Queued', you: 'Needs you', failing: 'Tests failing', held: 'Held', later: 'Later' };
+function stepRow(s, i) {
+  const total = s.prs.length;
+  const segs = s.prs.map((p) => `<i class="${p.state}" title="#${p.number} ${esc(plainTitle(p.number))} · ${STATE_WORD[p.state]}"></i>`).join('');
+  const onPrs = s.workers.filter((w) => w.pr);
+  const boxes = onPrs.slice(0, 3).map((w) => `<span class="wbox" title="${esc(plainTitle(w.pr))}: ${esc(w.lane)} wrote ${agoWords(w.at)}"><i class="pulse"></i>#${w.pr}</span>`).join('')
+    + (s.workers.length > onPrs.length && !onPrs.length ? `<span class="wbox" title="${esc(s.workers.map((w) => w.lane).join(', '))}"><i class="pulse"></i>at work</span>` : '');
+  const blocker = s.blocker && !/^(none|nothing)$/i.test(s.blocker) ? `<em class="sblock">${esc(s.blocker)}</em>` : '';
+  return `<li class="step t-${esc(s.tone)}" data-step="${esc(s.id)}" tabindex="0">
+    <span class="sn">${s.tone === 'done' ? '✓' : i + 1}</span>
+    <div class="sbody"><b class="st">${esc(s.title)}</b><span class="snext">${esc(s.next)}</span></div>
+    <div class="sbar">${total ? `<span class="segs">${segs}</span><span class="frac">${s.landed}/${total}</span>` : ''}</div>
+    <span class="stone">${TONE_WORD[s.tone] ?? esc(s.tone)}</span>
+    <div class="sside">${blocker}${boxes}</div>
+  </li>`;
+}
+function strip() {
+  const m = state.model;
+  const now = m.now ?? {};
+  const asks = m.board.rows.filter((r) => verdictState(r) === 'you');
+  const chips = [];
+  if (now.release) chips.push(`<a class="chip-r" href="#/releases"><i>⇪</i><span><b>${esc(now.release.name)}</b>${esc(now.release.state)}</span></a>`);
+  if (now.blocker) chips.push(`<a class="chip-r bad" href="#/timeline"><i>!</i><span><b>Stopped since ${clock(now.blocker.since)}</b>${esc(now.blocker.text)}</span></a>`);
+  else if ('blocker' in now) chips.push('<span class="chip-r ok"><i>✓</i><span><b>Nothing is stopping the drive</b></span></span>');
+  if (asks.length === 1) {
+    const r = asks[0];
+    const busy = pending.number === r.number && !pending.error;
+    const failed = pending.number === r.number && pending.error ? `<em class="sblock">${esc(pending.error)}</em>` : '';
+    chips.push(`<div class="chip-r you"><i>★</i><span><b>Your tap</b><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a>${failed}</span><button class="btn pri" data-strip-approve="${r.number}"${busy ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button></div>`);
+  } else if (asks.length) {
+    chips.push(`<a class="chip-r you" href="#/now"><i>★</i><span><b>${asks.length} pull requests</b>need your approval</span></a>`);
+  } else if (m.board.cards.length) {
+    chips.push(`<a class="chip-r you" href="#/now"><i>?</i><span><b>${plural(m.board.cards.length, 'question')}</b>${esc(m.board.cards[0].title)}</span></a>`);
+  } else {
+    chips.push('<span class="chip-r ok"><i>✓</i><span><b>Nothing needs you</b></span></span>');
+  }
+  return `<div class="strip">${chips.join('')}</div>`;
+}
+function stepSheet(s) {
+  const prs = [...s.prs].sort((a, b) => RANK[a.state] - RANK[b.state]);
+  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>
+    <div class="kick">${TONE_WORD[s.tone] ?? esc(s.tone)}${s.prs.length ? ` · ${s.landed} of ${s.prs.length} landed` : ''}</div><h2>${esc(s.title)}</h2>
+    <dl class="facts"><dt>Where it is</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
+    ${prs.length ? `<ul class="prlist">${prs.map((p) => `<li><a href="${prHref(p.number)}">${square(p.number)}<b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${driveEntry(p.number)?.worker ? ` · ${esc(driveEntry(p.number).worker.lane)}` : ''}</em></a></li>`).join('')}</ul>` : ''}
+    ${s.workers.length ? `<div class="lives">${s.workers.map((w) => `<div class="live"><div class="live-h"><i class="pulse"></i><b>${esc(w.lane)}</b><span class="dim">${agoWords(w.at)}</span></div>${w.pr ? `<div class="live-t">${prLink(w.pr)} ${esc(plainTitle(w.pr))}</div>` : ''}</div>`).join('')}</div>` : ''}
+  </div></div>`;
 }
 function tileSheet() {
   const { name, nums } = state.tileOpen;
@@ -227,21 +253,21 @@ function tileSheet() {
 }
 function overview() {
   const m = state.model;
-  const { landed, total, moving: doing } = m.drive;
-  const needs = m.needs.taps + m.needs.questions;
+  const { landed, total, moving } = m.drive;
   const pct = total ? Math.round((100 * landed) / total) : 0;
-  return `<div class="ov">
-  <section class="hero">
-    <div class="big" title="${landed} of ${total} pull requests in the drive have landed"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab">landed<br><b>${doing}</b> moving now</span></div>
-    ${journey()}
-    ${needs ? `<a class="needs" href="#/now"><b>${needs}</b><span>need you</span></a>` : '<span class="needs calm"><b>✓</b><span>nothing needs you</span></span>'}
-  </section>
-  <div class="seg phone-only">${['old', 'shared', 'new'].map((k) => `<button data-tree="${k}" class="${(state.tree ?? 'new') === k ? 'on' : ''}">${k === 'old' ? 'Old' : k === 'shared' ? 'Shared' : 'New'}</button>`).join('')}</div>
-  ${stage()}
-  <div class="key"><span><i class="sq landed"></i>landed</span><span><i class="sq doing"></i>being worked on</span><span><i class="sq work"></i>queued</span><span><i class="sq you"></i>needs you</span><span><i class="sq failing"></i>tests failing</span></div>
-  <div class="ticker">${ticker()}</div>
-  </div>
+  const openStep = m.steps.find((s) => s.id === state.stepOpen);
+  return `<div class="ov3">
+  ${strip()}
+  <div class="ov3-grid">
+    <section class="steps-card"><header><span>The plan, step by step</span><button class="linkish" data-overlay="plan">Full plan ›</button></header><ol class="steps">${m.steps.map(stepRow).join('')}</ol>
+      <div class="key"><span><i class="sq landed"></i>landed</span><span><i class="sq doing"></i>being worked on</span><span><i class="sq work"></i>queued</span><span><i class="sq you"></i>needs you</span><span><i class="sq failing"></i>tests failing</span></div></section>
+    <aside class="side">
+      <div class="big" title="${esc(m.drive.source)}"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab"><b>${landed}</b> of ${total} pull requests landed<br>since the drive began<br><b>${moving}</b> moving now</span></div>
+      ${endState()}
+    </aside>
+  </div></div>
   ${state.overlay === 'tile' ? tileSheet() : ''}
+  ${state.overlay === 'step' && openStep ? stepSheet(openStep) : ''}
   ${state.overlay === 'plan' ? `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>The plan of action, in order</h2><ol class="psteps">${planSteps(true)}</ol><h2>The release plan</h2><div class="prose">${markdown(m.releases.markdown)}</div></div></div>` : ''}`;
 }
 
@@ -379,8 +405,10 @@ document.addEventListener('click', (e) => {
   }
   const tileEl = e.target.closest('[data-tile]');
   if (tileEl && !e.target.closest('a')) { state.tileOpen = { name: tileEl.dataset.tile, nums: tileEl.dataset.nums.split(',') }; state.overlay = 'tile'; render(); return; }
-  const tree = e.target.closest('[data-tree]');
-  if (tree) { state.tree = tree.dataset.tree; render(); }
+  const stepEl = e.target.closest('[data-step]');
+  if (stepEl && !e.target.closest('a')) { state.stepOpen = stepEl.dataset.step; state.overlay = 'step'; render(); return; }
+  const approve = e.target.closest('[data-strip-approve]');
+  if (approve) { decide(boardRow(approve.dataset.stripApprove), 'approved', '', false); return; }
   const close = e.target.closest('[data-close]');
   if (close && (e.target === close || close.matches('button'))) { state.overlay = null; render(); return; }
   const overlay = e.target.closest('[data-overlay]');
