@@ -184,21 +184,11 @@ function tracks() {
     ${loose.length ? `<div class="trk loose" data-track="" tabindex="0"><span class="no">┄</span><span class="nm">Unplanned</span><span class="tdots">${byLight(loose).map((e) => dot(e.number)).join('')}</span><span class="tws">${looseWs.slice(0, 2).map(strip).join('')}${looseWs.length ? `<b class="badge">▶${looseWs.length}</b>` : ''}</span><span class="ct">${loose.length}</span><span class="g"></span><i class="into"></i></div>` : ''}
     ${done || later ? `<button class="fold" data-unfold>${ov.unfold ? 'Fold done and later steps' : `${done ? `✓ ${done} done` : ''}${done && later ? ' · ' : ''}${later ? `⚑ ${later} later` : ''}`}</button>` : ''}</section>`;
 }
-function gateTone(r) {
-  if (!r) return ['done', 'all out'];
-  const waits = [...r.state.matchAll(/#(\d{5})\b/g)].map((x) => prState(x[1]));
-  if (state.model.now.blocker || /\b(blocked|stopped|rolled back)\b/i.test(r.state)) return ['bad', 'blocked'];
-  if (waits.includes('failing')) return ['bad', 'waits on red'];
-  if (waits.includes('you')) return ['you', 'needs you'];
-  if (/\b(live|cutting|rolling|running|passed|complete)\b/i.test(r.state)) return ['ok', 'moving'];
-  return ['wait', 'waiting'];
-}
-function gate() {
-  const rels = state.model.now.releases ?? [];
-  const r = rels.find((x) => !RELEASED.test(x.state));
-  const open = r ? [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))].filter((n) => prState(n) !== 'landed') : [];
-  const [tone, word] = open.length && gateTone(r)[0] === 'ok' ? ['stop', 'part out'] : gateTone(r);
-  return `<div class="gate g-${tone}"><button class="gb"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></button>${open.length ? `<span class="gw"><i class="bar"></i><small>stopped: waits on</small>${open.map(dot).join('')}</span>` : ''}<i class="trunk"></i></div>`;
+function releaseWait(r) {
+  const open = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))].filter((n) => prState(n) !== 'landed');
+  if (!open.length) return null;
+  const red = open.filter((n) => prState(n) === 'failing');
+  return { word: `waits on ${plural(open.length, 'pull request')}${red.length ? `, ${red.length} red` : ''}`, detail: open.map((n) => `#${n} ${shortName(n) ?? plainTitle(n)}: ${STATE_WORD[prState(n)]}${driveEntry(n)?.step ? ` (${state.model.steps.find((x) => x.id === driveEntry(n).step)?.label ?? ''} step)` : ''}`).join('\n'), red: red.length > 0 };
 }
 function dock() {
   const need = state.model.needs.length;
