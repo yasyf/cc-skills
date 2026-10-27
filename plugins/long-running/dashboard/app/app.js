@@ -225,11 +225,21 @@ function hourDigest() {
   const landed = Object.entries(m.prs).filter(([, pr]) => pr.state === 'landed' && pr.landed_at && new Date(pr.landed_at) > from).sort((a, b) => new Date(b[1].landed_at) - new Date(a[1].landed_at));
   const said = (kinds) => recent.filter((e) => kinds.includes(e.kind));
   const settled = (e) => { const named = [...String(e.text).matchAll(/#(\d{5})\b/g)].map((x) => x[1]); return named.length && named.every((n) => new Date(m.prs[n]?.landed_at ?? 0) > new Date(e.at)); };
-  const broke = said(['incident', 'blocker']).filter((e) => !settled(e));
-  const line = (e) => `<li><span class="time">${clock(e.at)}</span><span>${inline(firstSentences(e.text, 140))}</span></li>`;
+  const onePerPr = (list) => {
+    const seen = new Set();
+    return list.filter((e) => {
+      const key = /#(\d{5})\b/.exec(e.text)?.[1] ?? e.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const broke = onePerPr(said(['incident', 'blocker']).filter((e) => !settled(e)));
+  const freed = onePerPr(said(['fix-live', 'lift', 'go']));
+  const line = (e) => `<li><span class="time">${clock(e.at)}</span><span>${inline(firstSentences(shortShas(e.text), 140))}</span></li>`;
   const rows = [
     ['Landed', landed.length, landed.slice(0, 5).map(([n, pr]) => `<li><span class="time">${clock(pr.landed_at)}</span><span>${prLink(n)} ${esc(plainTitle(n))} <em class="dim">${{ 'New tree': 'new app', 'Old tree': 'old app' }[driveEntry(n)?.tree] ?? 'shared'}</em></span></li>`)],
-    ['Unblocked or fixed', said(['fix-live', 'lift', 'go']).length, said(['fix-live', 'lift', 'go']).slice(0, 4).map(line)],
+    ['Cleared to land or fixed', freed.length, freed.slice(0, 4).map(line)],
     ['Newly broke or blocked', broke.length, broke.slice(0, 4).map(line)],
     ['You said', said(['owner']).length, said(['owner']).slice(0, 3).map(line)],
   ];
