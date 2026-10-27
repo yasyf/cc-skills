@@ -262,12 +262,12 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
 
     red = next((step for step in steps if step["tone"] == "failing"), None)
     red_entries = [by_number[item["number"]] for item in (red or {}).get("prs", []) if item["state"] == "failing"]
-    failed = lambda checks: "; ".join(": ".join(filter(None, (check["name"], check.get("first_error")))) for check in checks) or "its tests fail"
+    failed = lambda checks: "; ".join(": ".join(filter(None, (check["name"], check.get("error")))) for check in checks) or "its tests fail"
     red_lines = [answer_line(
         f"#{entry['number']} {prs.get(str(entry['number']), {}).get('title', '')}: {failed(entry['checks'])}",
         who=entry["owner"], since=(entry["word"] or {}).get("at"), next=entry["next"], href=(entry["checks"][0]["url"] if entry["checks"] else f"#/review/{entry['number']}"), label="failing check" if entry["checks"] else f"#{entry['number']}",
     ) for entry in red_entries]
-    red_missing = [f"#{entry['number']} {check['name']}: its first error line (ledger writer failing_checks first_error)" for entry in red_entries for check in entry["checks"] if not check.get("first_error")]
+    red_missing = [f"#{entry['number']} {check['name']}: its first error line (ledger writer failing_checks error)" for entry in red_entries for check in entry["checks"] if not check.get("error")]
 
     since = now - dt.timedelta(hours=6)
     happened = []

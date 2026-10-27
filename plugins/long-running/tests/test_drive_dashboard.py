@@ -430,16 +430,16 @@ def test_the_release_answer_names_its_open_blockers_with_owner_and_next_and_stop
     assert (out["lines"][1]["next"], out["missing"]) == ("2nd in the queue; lands after #43350", [])
 
 
-def test_the_red_step_answer_says_what_failed_and_names_a_missing_first_error():
+def test_the_red_step_answer_says_what_failed_and_names_a_missing_error_line():
     drive = journey_drive({"number": 42741, "state": "failing", "checks": [{"name": "buildkite/test", "url": "https://bk/1"}]})
     steps = [{"id": "s1", "label": "Journal", "tone": "failing", "prs": [{"number": 42741, "state": "failing"}]}]
 
     out = journeys(drive, steps, [], [], [], {"42741": {"title": "sandsql: reader"}}, {}, TREES, NOW)["red"]
 
     assert out["lines"][0]["text"] == "#42741 sandsql: reader: buildkite/test"
-    assert out["missing"] == ["#42741 buildkite/test: its first error line (ledger writer failing_checks first_error)"]
+    assert out["missing"] == ["#42741 buildkite/test: its first error line (ledger writer failing_checks error)"]
 
-    drive["prs"][0]["checks"][0]["first_error"] = "TestReplica timed out after 30s"
+    drive["prs"][0]["checks"][0]["error"] = "TestReplica timed out after 30s"
     out = journeys(drive, steps, [], [], [], {"42741": {"title": "sandsql: reader"}}, {}, TREES, NOW)["red"]
 
     assert (out["lines"][0]["text"], out["missing"]) == ("#42741 sandsql: reader: buildkite/test: TestReplica timed out after 30s", [])
