@@ -474,7 +474,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_heads, gone_at, goes, full_text, graded_head, met_prs, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -3901,7 +3901,6 @@ class Landing:
         self.designed_red: dict[str, bool] = {}
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
-        self.pushed: dict[str, str] = {}
         self.gos: list[dict] | None = None
         self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
@@ -4640,49 +4639,26 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
 
     def check_precondition(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head whose PR body or one of whose cci records holds its landing on something outside the PR fails `PRECONDITION-UNMET` until a root `decide` record opening `precondition-met #<n>` posts after the head was pushed, with one blocker to the root per head naming each sentence; a body or push time GitHub does not read leaves the head pending that pass."""
-        states = {}
-        for pr, sha in graded.heads.items():
-            if (sentences := self.preconditions(pr, sha)) is None:
-                states[pr] = merge_queue.State(merge_queue.PENDING, f"the body of #{pr} did not read, so its landing preconditions are unread this pass")
-            elif sentences and (met := self.precondition_met(pr, sha)) is not True:
-                said = "; ".join(f'{where} says "{sentence}"' for where, sentence in sentences)
-                if met is None:
-                    states[pr] = merge_queue.State(merge_queue.PENDING, f"{said}, and the time {sha[:10]} was pushed did not read, so no `precondition-met #{pr}` can count this pass")
-                else:
-                    states[pr] = merge_queue.State(merge_queue.FAIL, f"PRECONDITION-UNMET #{pr}: {said}, and no root `decide` record opening `precondition-met #{pr}` came after {sha[:10]} was pushed at {self.pushed[sha]}")
+        """No head fails here (4236611): a head whose PR body or one of whose cci records holds its landing on something outside the PR gets one `note` warning to the root per head, quoting each sentence and where it was said. The head stays landable; the root posts a `hold` record when a sentence is a real dependency."""
         if graded.act:
-            for pr, state in states.items():
-                key = f"precondition:{pr}:{graded.heads[pr]}"
-                if state.state == merge_queue.FAIL and not self.book.known(LANDING, key):
-                    self.post_blocker(key, ROOT, f"#{pr} {graded.heads[pr]}: {state.reason}. Nothing in it lands until the root reads the precondition back as holding and posts `cci post --kind decide --text \"precondition-met #{pr}: <what was read back>\"`", pr)
-        return states
+            for pr, sha in graded.heads.items():
+                key = f"precondition:{pr}:{sha}"
+                if not self.book.known(LANDING, key) and (sentences := self.preconditions(pr, sha)):
+                    said = "; ".join(f'{where} says "{sentence}"' for where, sentence in sentences)
+                    self.post_record("note", key, ROOT, f"#{pr} {sha}: WARNING landing precondition: {said}. The head stays landable; post a `hold` record on #{pr} if this is a real dependency", pr)
+        return {}
 
-    def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]] | None:
-        """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head, then each cci record about the PR that a lane other than the runner posted, read once per pass. None when the body does not read, which escalates once per head."""
+    def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]]:
+        """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass."""
         if (pr, sha) not in self.body_preconditions:
             done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-            if done.code:
-                self.runner.escalate(f"body:{pr}:{sha}", "BODY-READ-FAILED", f"#{pr}", f"GitHub refused the body of #{pr} at {sha[:10]}: {(done.err or done.out).strip()[:200]}; nothing in its prefix enqueues until its landing preconditions read")
-                return None
-            self.body_preconditions[(pr, sha)] = precondition_sentences(json.loads(done.out)["body"] or "")
+            if done.code == 0:
+                self.body_preconditions[(pr, sha)] = precondition_sentences(json.loads(done.out)["body"] or "")
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
             records = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}")
-            self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and about_pr(record, self.repo, pr) and not met_prs(record) for sentence in precondition_sentences(full_text(record))]
-        return [("the PR body", sentence) for sentence in self.body_preconditions[(pr, sha)]] + self.said_preconditions[pr]
-
-    def precondition_met(self, pr: str, sha: str) -> bool | None:
-        """Whether a root `decide` record on this drive, unwithdrawn, opens `precondition-met` naming `pr` after `sha` was pushed, its committer time on GitHub. None when that time does not read."""
-        if sha not in self.pushed:
-            done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}", "--jq", ".commit.committer.date"])
-            if done.code or not done.out.strip():
-                return None
-            self.pushed[sha] = done.out.strip()
-        drive = self.runner.config.drive
-        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=decide", "--kind=withdraw", since=self.pushed[sha]) if record["lane"] == ROOT and record["drive"] == drive]
-        withdrawn = {record.get("re") for record in records if record["kind"] == "withdraw"}
-        return any(record["kind"] == "decide" and record["seq"] not in withdrawn and pr in met_prs(record) for record in records)
+            self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and about_pr(record, self.repo, pr) for sentence in precondition_sentences(full_text(record))]
+        return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), [])] + self.said_preconditions[pr]
 
     @property
     def merge_mode(self) -> str:
@@ -5042,7 +5018,7 @@ class Landing:
         return [pr for pr, row in open_rows.items() if row.get("ours") and row.get("base") == TRUNK and self.is_incident(pr, row)]
 
     def squash_incidents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Merge each unheld incident fix PR on the trunk by plain squash in the pass its head is review-approved, every required check passes, `check-pr --incident` names none of its three ruling checks and no landing precondition stands unmet, once per head, and post `landed`; the queue never takes it."""
+        """Merge each unheld incident fix PR on the trunk by plain squash in the pass its head is review-approved, every required check passes and `check-pr --incident` names none of its three ruling checks, once per head, warning the root of any landing precondition its words state, and post `landed`; the queue never takes it."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         for pr in sorted(self.incident_rows(open_rows), key=int):
@@ -5075,8 +5051,7 @@ class Landing:
             return
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
-        if self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True)):
-            return
+        self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])

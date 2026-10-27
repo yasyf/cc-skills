@@ -1372,7 +1372,7 @@ Every prefix passes the check registry before it enqueues. `landing.checks` list
 checks in order, and every built-in runs when it lists none:
 
 - `hold`: the holds file, the `hold` label, and the PR's cci `hold` and `ready` records, read fresh just before the enqueue call.
-- `precondition`: a sentence in the PR body or the PR's cci records that holds its landing on something outside the PR in so many words (`lands only after`, `merge only after`, `before it lands`, `do not land until`, `not for landing`). The head is refused, with one blocker to the root quoting the sentence, until a root `decide` record opening `precondition-met #<n>` posts after the head was pushed. The incident squash honors it too.
+- `precondition`: a sentence in the PR body or the PR's cci records that holds its landing on something outside the PR in so many words (`lands only after`, `merge only after`, `before it lands`, `do not land until`, `not for landing`). It never refuses a head: the root gets one `note` warning per head quoting the sentence, on the incident squash too, and posts a `hold` record when the sentence is a real dependency.
 - `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
 - `rulings`: `rulings.py check-pr` at the head, below.
 - `fidelity`: the fidelity lane's cci `review` grade at the head, below.
