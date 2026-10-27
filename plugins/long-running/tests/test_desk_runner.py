@@ -4361,6 +4361,17 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
     assert len(shell.posts) == posts
 
 
+def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full_or_short_sha(shell, config, tmp_path):
+    lone_green_pr(shell)
+    shell.check_pr["29020"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    for head in ("cccc333333" + "d" * 30, "cccc333333"):
+        landing.check_rulings(runner_module.Graded({"29020": head}, rows, shell.now(), act=True))
+    assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == 1
+
+
 def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)

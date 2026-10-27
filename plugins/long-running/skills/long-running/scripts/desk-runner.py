@@ -4710,7 +4710,7 @@ class Landing:
             for pr, sha in graded.heads.items():
                 if warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]:
                     text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
-                    self.warn_head(f"rulings:{pr}:{sha}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
+                    self.warn_head(f"rulings:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
 
     def scanned_reviews(self) -> list[dict]:
