@@ -339,7 +339,7 @@ function needRow(r) {
     ? `<span class="decided sending">${DECIDE_WORD[row.pending]} ${esc(r.head.slice(0, 7))}…</span>`
     : r.state === 'you'
       ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}">✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}">‖ Hold</button>`
-      : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
+      : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.ci_fix_go ? '✓ CI fix, landing without your tap' : r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   const stuck = r.blocker && !/^nothing/i.test(r.blocker);
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(shortName(r.number) ?? r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
     ${r.md ? `<div class="md nmd">${markdown(r.md)}</div>` : `<p class="nline">${inline(r.change)}</p>`}${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}

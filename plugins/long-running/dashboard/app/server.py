@@ -39,6 +39,7 @@ SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
+CI_FIX = re.compile(r"\bCI fix\b", re.I)
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
@@ -509,6 +510,7 @@ class Drive:
         self.reported_build = None
         self.gos = {}
         self.carried = {}
+        self.ci_fixes = set()
         self.board_raw = None
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
@@ -712,6 +714,8 @@ class Drive:
         if record["kind"] == "go" and (found := GO.match(record["text"])):
             self.gos[int(found[1])] = found[2]
             self.carried[int(found[1])] = bool(set(re.findall(r"\b[0-9a-f]{7,40}\b", record["text"][found.end():])) - {found[2]})
+            if CI_FIX.search(record["text"]):
+                self.ci_fixes.add(int(found[1]))
 
     def load_gos(self):
         after = 0
@@ -728,8 +732,9 @@ class Drive:
             row["go_head"] = self.gos.get(row["number"])
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
+            row["ci_fix_go"] = row["state"] == "approved" and not stored and row["number"] in self.ci_fixes
             key = (row["number"], row["head"])
-            if row["state"] == "approved" and not stored and not self.carried.get(row["number"]) and key not in self.reported:
+            if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
 
