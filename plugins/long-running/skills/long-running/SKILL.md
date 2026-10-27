@@ -2469,8 +2469,9 @@ Keep text under 400 characters; put a longer body in a file and attach it with
 `--path <file>`. Link durable records with `--ccn <id>`.
 
 **I2. Read from the saved cursor at the top of every iteration.** Before any other
-work, act on the records printed by `desk-wait.sh` or the cci Monitor. Both readers
-advance the cci cursor named for the desk. Then read with
+work, act on the records printed by `desk-wait.sh` or the cci Monitor. `desk-wait.sh`
+reads its own `<desk>-wake` cursor, so the read below prints those records again; act
+once per seq. Then read with
 `cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new record
 and any delivered message. Repeat a capped read with the same cursor and filters.
 Every report names the last sequence read as `cursor #<seq>`.
@@ -2545,7 +2546,8 @@ messages from 4:12 to 5:27 AM never reached it. slack-watch-26 ran slack-watch-2
 scripts, which watched slack-watch-25's mailbox through `| tail -12`.*
 
 The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk
-past the cci cursor named for it, advancing that cursor. The script also advances
+past the cci cursor named `<desk>-wake`, advancing that cursor and never the desk's own,
+so a broadcast before an addressed record stays in the desk's read. The script also advances
 each file's cursor. Act on the printed records and file lines before reading
 beyond those cursors (I2). Run the 3-minute reconciliation pass, the 30-minute
 summary, and periodic sources such as `ledger.py watch --drive <drive> ... --once` and

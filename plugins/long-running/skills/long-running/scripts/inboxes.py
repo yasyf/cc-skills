@@ -38,8 +38,9 @@ the message here, not from the harness. The stat check runs every
 never wake it. A mailbox:<lane> source watches the team mailbox `mailbox` resolves
 for <lane>, and the call exits 1 when no roster lists it. A <file> source must be an
 absolute path; a relative one exits 2. A cci:<drive>:<lane> source prints the cci
-records addressed to <lane> past the cursor named <lane>, through `cci tail`, which
-advances it.
+records addressed to <lane> past the cursor named <lane>-wake, through `cci tail`, which
+advances it. It never moves the cursor named <lane>, so the lane's own read still
+finds the broadcasts the wake skipped.
 
 wait ... -- <command> runs the command in its own process group, with its output
 passing through, and returns with its exit status when it exits first. When a source
@@ -306,7 +307,7 @@ def wait(argv: list[str]) -> int:
     while True:
         changed = False
         for drive, lane in feeds:
-            unread = subprocess.run(["cci", "tail", "--drive", drive, "--cursor", lane, "--to", lane], capture_output=True, text=True, check=True).stdout
+            unread = subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
             for line in unread.splitlines():
                 print(clip(line), flush=True)
                 changed = True

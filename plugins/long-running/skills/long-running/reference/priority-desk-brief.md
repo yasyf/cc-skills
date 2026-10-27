@@ -80,8 +80,9 @@ In-process desk: loop over the foreground wait, act on its output, and run the
 
 Do, in this order, every iteration:
   0. At the TOP, before any other work, act on the records and file lines printed
-     by `desk-wait.sh`, or the records printed by the Monitor. Both readers
-     advance the cci cursor named <outcome>-desk. Then run
+     by `desk-wait.sh`, or the records printed by the Monitor. `desk-wait.sh`
+     reads its own <outcome>-desk-wake cursor, so the read below prints those
+     records again; act once per seq. Then run
      `cci tail --drive <drive> --cursor <outcome>-desk --to <outcome>-desk`.
      Act on each new record and any delivered message; repeat a capped read
      with the same cursor and filters.
