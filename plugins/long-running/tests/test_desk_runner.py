@@ -93,6 +93,7 @@ class FakeShell(runner_module.Shell):
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
+        self.pr_marks: dict[str, dict] = {}
         self.status_read_error = ""
         self.advance_error = ""
         self.diffs: dict[str, str] = {}
@@ -409,7 +410,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", self.status_read_error)
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} \} \}', query)
         commits = {alias: {"status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
-        return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
+        marked = {f"p{pr}": self.pr_marks.get(pr) for pr in re.findall(r"p(\d+): pullRequest\(number: \d+\)", query)}
+        return runner_module.Done(0, json.dumps({"data": {"repository": {**commits, **marked}}}), "")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
         if self.tail_failures:
@@ -3681,7 +3683,7 @@ def test_one_github_blip_across_many_heads_logs_one_status_read_record_with_the_
     assert line.startswith("STATUS-READ-FAILED status-read:") and "TLS handshake timeout, for 5 head(s): " + " ".join(f"#{pr} {pr}abcd" for pr in prs) in line
 
 def graphql_reads(shell: FakeShell) -> list[list[str]]:
-    return [call for call in shell.calls if call[:3] == ["gh", "api", "graphql"]]
+    return [call for call in shell.calls if call[:3] == ["gh", "api", "graphql"] and "object(expression" in call[4]]
 
 
 def github_calls(shell: FakeShell) -> list[list[str]]:
@@ -3718,6 +3720,36 @@ def test_a_pass_reads_every_tracked_head_in_one_graphql_query(shell, config, tmp
     assert "cccc333333" in read[4]
     assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
     assert len(shell.enqueues()) == 1
+
+
+def pr_mark(updated: str = "2026-10-01T18:00:00Z", rollup: str = "FAILURE") -> dict:
+    return {"headRefOid": "cccc333333", "baseRefName": "dev", "updatedAt": updated, "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": rollup}}}]}}
+
+
+@pytest.mark.parametrize(
+    ("verdict", "later", "after", "checks"),
+    [
+        (gate("#29020 BLOCKED cccc333333 failing CI checks: test."), pr_mark(), timedelta(minutes=3), 1),
+        (gate("#29020 BLOCKED cccc333333 failing CI checks: test."), pr_mark(updated="2026-10-01T18:02:00Z"), timedelta(minutes=3), 2),
+        (gate("#29020 BLOCKED cccc333333 failing CI checks: test."), pr_mark(rollup="PENDING"), timedelta(minutes=3), 2),
+        (gate("#29020 BLOCKED cccc333333 failing CI checks: test."), None, timedelta(minutes=3), 2),
+        (gate("#29020 BLOCKED cccc333333 failing CI checks: test."), pr_mark(), runner_module.CHECK_REUSE, 2),
+        (gate("#29020 GREEN cccc333333 graphite READY", would="#29020"), pr_mark(), timedelta(minutes=3), 2),
+    ],
+    ids=["unchanged", "updated", "rollup-moved", "unread", "too-old", "would-enqueue"],
+)
+def test_a_check_that_enqueues_nothing_is_reused_while_its_prs_read_the_same(shell, config, tmp_path, verdict, later, after, checks):
+    lone_green_pr(shell)
+    shell.gates["29020"] = [verdict]
+    shell.pr_marks["29020"] = pr_mark()
+    landing = landing_of(shell, config, tmp_path)
+    landing.rows()
+    landing.adapter_check(["29020"], False)
+    landing.marks = None
+    shell.clock += after
+    shell.pr_marks["29020"] = later
+    landing.adapter_check(["29020"], False)
+    assert len([call for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call]) == checks
 
 
 def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):

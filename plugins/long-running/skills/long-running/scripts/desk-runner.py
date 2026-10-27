@@ -258,7 +258,9 @@ adapter call runs the trunk's script; a checkout that cannot fast-forward logs `
 Right after the ledger and holds read, the pass gates every tree holding a PR whose ledger head a root `go` record names, eight
 checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read,
 the queue read, and the gate over every other tree. Every gate settles each tree in order as its checks come back, and runs the
-enqueue it accepts at once, while the trees after it are still being checked. The queue read is one `ccx vcs pr status` call over every open row a pass,
+enqueue it accepts at once, while the trees after it are still being checked. A check that would enqueue nothing is reused, with no
+adapter call, by the next passes while each PR it names reads the same head, base, update time, mergeability and check rollup
+in one GraphQL read per pass, for at most `CHECK_REUSE`; any change, or a read that fails, runs the check again. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the requeue and the landed check share.
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
@@ -611,6 +613,8 @@ RUN_NUMBERS = re.compile(r"\d+")
 POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 HEADS_PER_QUERY = 100
+CHECK_REUSE = timedelta(minutes=15)
+MARK_FIELDS = "headRefOid baseRefName updatedAt mergeable mergeStateStatus commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
 QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
 ROTATE_EVERY = timedelta(hours=1)
@@ -3841,6 +3845,17 @@ def heads_query(repo: str, shas: list[str]) -> str:
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
+def marks_query(repo: str, prs: list[str]) -> str:
+    owner, name = repo.split("/")
+    fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ {MARK_FIELDS} }}" for pr in prs)
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+
+
+def marks_of(marks: dict[str, tuple], heads: dict[str, str], prs: Iterable[str]) -> dict[str, tuple] | None:
+    named = {pr: (marks.get(pr), heads.get(pr)) for pr in prs}
+    return None if any(mark is None for mark, _ in named.values()) else named
+
+
 def same_head(one: str, other: str) -> bool:
     return one.startswith(other) or other.startswith(one)
 
@@ -3921,6 +3936,9 @@ class Landing:
         self.grading = False
         self.grade_tried: set[str] = set()
         self.stacks: dict[str, set[str]] = {}
+        self.adapter_checks: dict[tuple[tuple[str, ...], bool, bool], tuple[merge_queue.Gate, dict[str, tuple] | None, datetime]] = {}
+        self.marks: dict[str, tuple] | None = None
+        self.marking = threading.Lock()
         self.no_go: set[str] = set()
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
@@ -4203,14 +4221,45 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
-        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
+        return self.proven(self.adapter_check(tips, False))
 
     def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
         return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})
 
     def exact(self, tops: list[str]) -> merge_queue.Gate:
         """The gate of exactly `tops` and the PRs below them, leaving out every PR stacked beside or above, as the enqueue of an accepted prefix names them."""
-        return self.proven(self.adapter.check(tops, self.whole(), self.row_heads, not self.whole()))
+        return self.proven(self.adapter_check(tops, not self.whole()))
+
+    def adapter_check(self, tips: list[str], partial: bool) -> merge_queue.Gate:
+        """The adapter's check of `tips`, or the last one when it would enqueue nothing, is under `CHECK_REUSE` old, and every PR it names read the same marks before it ran as this pass reads."""
+        key = (tuple(tips), self.whole(), partial)
+        now = self.runner.now()
+        marks = self.pass_marks()
+        if (last := self.adapter_checks.get(key)) and last[1] is not None and now - last[2] < CHECK_REUSE and last[1] == marks_of(marks, self.row_heads, last[0].verdicts):
+            return last[0]
+        gate = self.adapter.check(tips, self.whole(), self.row_heads, partial)
+        self.adapter_checks[key] = (gate, None if gate.would is not None or verdictless(gate) else marks_of(marks, self.row_heads, gate.verdicts), now)
+        return gate
+
+    def pass_marks(self) -> dict[str, tuple]:
+        with self.marking:
+            if self.marks is None:
+                self.marks = self.read_marks(sorted({pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"} | {pr for gate, _, _ in self.adapter_checks.values() for pr in gate.verdicts}, key=int))
+            return self.marks
+
+    def read_marks(self, prs: list[str]) -> dict[str, tuple]:
+        """Each PR's head, base, update time, mergeability and check rollup, one GraphQL query per `HEADS_PER_QUERY` PRs; a batch GitHub refuses reads as no marks."""
+        marks = {}
+        for start in range(0, len(prs), HEADS_PER_QUERY):
+            batch = prs[start : start + HEADS_PER_QUERY]
+            done = self.shell.run(["gh", "api", "graphql", "-f", f"query={marks_query(self.repo, batch)}"])
+            if done.code != 0:
+                continue
+            for pr, node in json.loads(done.out)["data"]["repository"].items():
+                if node:
+                    rollup = node["commits"]["nodes"][0]["commit"]["statusCheckRollup"] if node["commits"]["nodes"] else None
+                    marks[pr[1:]] = (node["headRefOid"], node["baseRefName"], node["updatedAt"], node["mergeable"], node["mergeStateStatus"], rollup and rollup["state"])
+        return marks
 
     def proven(self, gate: merge_queue.Gate) -> merge_queue.Gate:
         """`gate` with each GREEN head whose passing build is the Graphite optimizer's redundant-within-its-stack skip read as BLOCKED, and the prefix that would enqueue cut below it, until a full build passes at that head or at the open child it defers to."""
@@ -5760,7 +5809,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.marks = None, False, None, None, None, None
         if self.quota_low():
             return
         advanced = self.advance()
