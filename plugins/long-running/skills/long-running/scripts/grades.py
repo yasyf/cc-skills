@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 
 import cci
@@ -138,7 +139,7 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
         text = record["text"]
         if record["kind"] == "head":
             named = list(HEAD_MOVE.finditer(text))
-            for move, after in zip(named, [*named[1:], None], strict=True):
+            for move, after in pairwise([*named, None]):
                 said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
                 moves.append((move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said), record["seq"]))
         elif record["kind"] == "review" and record["lane"] in lanes and (carried := CARRIED.match(text)):
