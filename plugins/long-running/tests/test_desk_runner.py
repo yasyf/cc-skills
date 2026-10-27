@@ -3878,6 +3878,7 @@ def said_on_the_bus(shell: FakeShell) -> str:
         ("Interim pin, not for landing as is.\nRe-pins later.", "Interim pin, not for landing as is."),
         ("Do not merge until the seed reads back! Then ship.", "Do not merge until the seed reads back!"),
         ('This lands only after "the seed. It reads back" holds. Then ship.', 'This lands only after "the seed. It reads back" holds.'),
+        ('Ready. "worker" lands only after the seed.', '"worker" lands only after the seed.'),
     ],
 )
 def test_each_explicit_landing_order_phrase_reads_as_a_precondition(text, sentence):
@@ -3892,6 +3893,7 @@ def test_each_explicit_landing_order_phrase_reads_as_a_precondition(text, senten
         "Scans for `before it lands` and `not for landing`.",
         "```\nThis lands only after the seed.\n```",
         "> Do not merge until the seed reads back.\nQuoted from the plan.",
+        "Scans for ``do not land until`` too.\n```\nDo not merge until the seed reads back.",
     ],
 )
 def test_a_text_that_cites_the_phrases_holds_no_landing(text):
