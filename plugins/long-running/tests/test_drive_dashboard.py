@@ -163,6 +163,15 @@ def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_t
     assert (light["state"], light["base"]) == (state, 42001)
 
 
+def test_an_approved_pull_request_on_a_failing_base_reads_approved_not_waiting():
+    prs = ledger(
+        pr42001={"state": "open", "branch": "base", "test_state": "failure"},
+        pr42002={"state": "open", "branch": "child", "base": "base", "test_state": "failure"},
+    )
+
+    assert listed(prs, gos={42002: "hhhhhhh"})[42002]["state"] == "queued"
+
+
 def step(prs, lanes=(), tone="later", step_id="s"):
     return {"id": step_id, "title": "T", "state": "S", "tone": tone, "blocker": None, "next": "N", "prs": list(prs), "lanes": list(lanes)}
 
@@ -187,6 +196,14 @@ def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
 
     assert row["tone"] == tone
     assert [entry["number"] for entry in row["prs"]] == list(states)
+
+
+def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
+    drive = {"prs": [{"number": 42001, "state": "landed"}, {"number": 42002, "state": "failing"}]}
+
+    row = step_rows([{**step([42001]), "blocker": "a fix for what the check found in #42002"}], drive, [])[0]
+
+    assert (row["tone"], [entry["number"] for entry in row["prs"]]) == ("failing", [42001, 42002])
 
 
 def record(lane, minutes_ago, kind="state", text="", topic=""):

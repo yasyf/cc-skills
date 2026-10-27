@@ -129,10 +129,9 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
         if pr.get("state") not in ("open", "landed", None):
             continue
         found = trees.get(number, [])
-        state = pr_state(pr, by_number.get(number), gos.get(int(number)), active.get(number), now)
         base = by_branch.get(pr.get("base"))
-        if state == "failing" and base and prs[base].get("test_state") == "failure":
-            state = "waiting"
+        inherited = base and prs[base].get("test_state") == "failure"
+        state = pr_state({**pr, "test_state": None} if inherited else pr, by_number.get(number), gos.get(int(number)), active.get(number), now)
         listed.append({
             "number": int(number),
             "state": state,
@@ -186,7 +185,8 @@ def step_rows(steps, drive, workers):
     by_number = {entry["number"]: entry for entry in drive["prs"]}
     rows = []
     for step in steps:
-        prs = [by_number[n] for n in step["prs"] if n in by_number]
+        named = [int(n) for n in PR_MENTION.findall(step.get("blocker") or "")]
+        prs = [by_number[n] for n in dict.fromkeys([*step["prs"], *named]) if n in by_number]
         on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
         rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on), "workers": on})
     return rows

@@ -40,7 +40,7 @@ function dot(n) {
   const entry = driveEntry(n);
   const s = entry ? seen(entry) : prState(n);
   const pr = state.model.prs[n] ?? {};
-  const fresh = s === 'landed' && pr.landed_at && Date.now() - new Date(pr.landed_at) < 3600 * 1000 ? ' fresh' : '';
+  const fresh = s === 'landed' && pr.landed_at && Date.now() - new Date(pr.landed_at) < 3600 * 1000 ? ' recent' : '';
   const flash = s === 'landed' && ov.was.size && ov.was.get(Number(n)) && ov.was.get(Number(n)) !== 'landed' ? ' flash' : '';
   const dim = ov.only && !ov.only.numbers.has(Number(n)) ? ' out' : '';
   return `<a class="dot ${DOT[s] ?? 's-waiting'}${fresh}${flash}${dim}" href="${prHref(n)}" data-n="${n}" aria-label="#${n} ${esc(STATE_WORD[s])}"></a>`;
@@ -194,7 +194,8 @@ function gate() {
   const rels = state.model.now.releases ?? [];
   const r = rels.find((x) => !RELEASED.test(x.state));
   const [tone, word] = gateTone(r);
-  return `<button class="gate g-${tone}"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><span class="gb"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></span><i class="trunk"></i></button>`;
+  const open = r ? [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))].filter((n) => prState(n) !== 'landed') : [];
+  return `<div class="gate g-${tone}"><button class="gb"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></button>${open.length ? `<span class="gw"><small>then waits on</small>${open.map(dot).join('')}</span>` : ''}<i class="trunk"></i></div>`;
 }
 function dock() {
   const need = state.model.needs.length;
@@ -291,7 +292,7 @@ function releaseTrunk() {
 function overview() {
   const m = state.model;
   const stop = m.now.blocker;
-  return `<div class="ck">
+  return `<div class="ck ov">
     ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
     ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
     ${tonight()}
