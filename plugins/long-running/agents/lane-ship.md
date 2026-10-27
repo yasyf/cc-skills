@@ -29,6 +29,5 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   a hook refuses longer text.
 - On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
   `flushed <ids>` within 10 minutes, and keep working. Without that reply, the root
-  rotates you by hand. It spawns a numbered successor from your brief and handoff,
-  then sends you a stand-down once the successor reports. On a stand-down, stop
-  working and send nothing further.
+  rotates you by hand: it stops you with `TaskStop` and spawns a numbered successor
+  from your brief and handoff. On a stand-down, stop working and send nothing further.

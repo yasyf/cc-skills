@@ -4092,7 +4092,8 @@ received a `STAND-DOWN` message from `team-lead`, still queued in its teammate i
 or already delivered into its transcript, is never asked or escalated, since its
 successor already owns the work. Neither is a lane that has a `<lane>-handoff`
 subagent and a live numbered successor: `alerts-watch` once `alerts-watch-2` runs,
-`desk-3` once `desk-4` runs. Numbered siblings with no handoff are still asked.
+`desk-3` once `desk-4` runs, nor a lane a successor's brief names on a
+`Replaces: <lane>` line. Numbered siblings with no handoff are still asked.
 
 A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
 without a reply starting `flushed` to its first ask, subject to the cap below. A later
@@ -4100,26 +4101,29 @@ main-session `Stop` queues ``ROOT-ACTION `<lane>`: Rotate it by hand: ...``. Thi
 and the no-inbox `ROOT-ACTION` ask share a cap of one line per lane per two hours;
 a new ask does not reset it. The escalation has three steps:
 
-0. Spawn `<lane>-handoff` as a subagent from
+0. Stop the old lane with `TaskStop`, its name as `task_id`. Never `SendMessage` it
+   again, a stand-down included: a message resumes a stopped lane on its stale brief.
+1. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
    a cc-notes doc. Pass the previous handoff's doc id, if any. It returns the new
    doc id, plus at most three lines on what it could not reconstruct.
-1. Spawn `<lane>-N+1` from the old lane's brief plus that doc id, read with
-   `ccn doc show <id>`, and the cursor it names. `alerts-watch` becomes
-   `alerts-watch-2`; `desk-3` becomes `desk-4`.
-2. Once the successor reports, send the old lane a stand-down with `SendMessage`
-   to its name. The old lane stops working and sends nothing further.
+2. Spawn `<lane>-N+1` from that file's successor brief, then the old lane's brief, the
+   doc id, read with `ccn doc show <id>`, and the cursor it names. `alerts-watch`
+   becomes `alerts-watch-2`; `desk-3` becomes `desk-4`. The successor's first act is
+   `drive.py lane-status <lane>` and a check that no process still works in any
+   worktree it lists; with one live, it writes nothing and posts a `blocker` to root.
 
 Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
-adding another. The root acts on it in the turn it arrives. The root sends the old
-lane a stand-down only after the successor has reported. A reply starting `flushed`
-cancels the rotation.
+adding another. The root acts on it in the turn it arrives. A reply starting
+`flushed` cancels the rotation.
 
-A `SendMessage` to a retired lane resumes it on its old brief, so the pack denies it
-and names the successor. Spawning `<lane>-N+1` beside `<lane>-handoff` retires the old
-name. A `TaskStop` or a root `STAND-DOWN` retires a lane with no successor, and a lane
-writing to it is sent to `main`. The root's `STAND-DOWN` still goes through, and
-respawning under the name clears it.
+A `SendMessage` to a rotated lane resumes it on its stale brief. The pack blocks the
+first one to each rotated name, from any sender and a stand-down included, and names
+`TaskStop` and the successor; each later one passes with a warning. Spawning
+`<lane>-N+1` beside `<lane>-handoff`, or any successor whose brief carries
+`Replaces: <lane>`, rotates the old name. A `TaskStop`, by name, `<name>@<team>`, or
+agent id, or a root `STAND-DOWN` retires a lane with no successor, and a lane writing
+to it is sent to `main`. Respawning under the name clears both.
 
 The same swap applies to a lane that died or outgrew its line before any ask. The
 root never reconstructs a handoff inline. It never opens a lane's transcript, its
@@ -4127,8 +4131,10 @@ receipts, its cursor files, or a runtime listing such as `orca orchestration
 task-list` for a rotation. The handoff subagent reads all of them in its own
 context; the root holds only the doc id it returns.
 
-The session's hook state directory holds `rotation_state.json` with a `timeline`
-list. It records one entry per `ask`, `flushed`, `compacted`, `finished` or `gone`
+The session's hook state directory holds `rotation_state.json`. Its `retired` map
+names each retired lane's successor, or null for a lane stopped with none, and
+`blocked` lists the rotated lanes whose first `SendMessage` the pack blocked. Its
+`timeline` list records one entry per `ask`, `flushed`, `compacted`, `finished` or `gone`
 event. An `ask` entry holds `via` as `inbox` or `root`, `tokens`, and `line`. A
 `flushed` entry holds `ids`, the first line's tokens containing a digit. A
 `compacted` entry holds `tokens`. An `escalate` entry holds its first `at`, latest
@@ -4137,6 +4143,10 @@ that entry.
 
 *Prevents stopping and respawning lanes from ending live sessions during the
 release-v3 drive (2026-09-30).*
+
+*Prevents a rotated lane resuming on its stale brief from the root's stand-down
+`SendMessage`, pushing to its successor's PR and entering the successor's conflict
+worktree until the root ran `TaskStop` by name 25 minutes later (2026-10-27).*
 
 *Prevents alerts-watch sitting over its line from 07:02Z until the owner ordered its
 rotation by hand (release-v3, 2026-10-01).*
@@ -4252,7 +4262,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (a question card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
-18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
+18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? `TaskStop` the old lane by name first and never `SendMessage` it again, spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor from that file's successor brief with that id; never open the lane's transcript, receipts, or runtime listings myself.
 19. Before writing a desk brief or handoff with an owner rule, record each standing
     rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`
     under I6. Never mark it done. Only a later `correction` record with

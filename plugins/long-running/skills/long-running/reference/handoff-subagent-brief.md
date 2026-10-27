@@ -7,16 +7,44 @@ paste the brief.
 
 ## Root discipline
 
+First stop the old lane: `TaskStop` with its name as `task_id`, or, for an Orca lane,
+the desk's `orca-desk: withdraw <lane>` line. Never `SendMessage` it afterwards, a
+stand-down included: any message resumes a stopped lane on its stale brief, and the pack
+blocks the first one once the successor exists.
+
 Pass the drive checkout and previous handoff's doc id, or `none`, before spawning. Read
 nothing of the old lane yourself, neither its transcript, receipts, cci deliveries, nor
 runtime listings. The subagent's reply is at most two lines:
 `handoff <lane>: doc <id>; successor <lane>-<N+1>` and
 `unverified: <n> items (in the doc)`. The doc carries everything else.
 
-Then do only the swap. Spawn
-`<lane>-N+1` with its reference brief, `ccn doc show <id>` as its handoff, and the cursor the
-handoff names. Wait for its first report, then send the old lane a stand-down with
-`SendMessage` to its name.
+Then do only the swap. Spawn `<lane>-<N+1>` from the successor brief below, followed by
+the lane's reference brief. Its `Replaces: <lane>` line records the rotation, so the pack
+holds sends to the old name even when no `<lane>-handoff` subagent exists.
+
+## Successor brief
+
+```text
+Replaces: <lane>
+You are <lane>-<N+1> and take over <lane>'s work. The root stopped <lane>; never
+SendMessage it. Your handoff is `ccn -R <drive checkout> doc show <handoff doc id>`, and
+you read deliveries from cci cursor <cursor the handoff names>.
+
+Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):
+  1. From <drive checkout>, run `drive.py lane-status <lane>`. Each line is a worktree
+     <lane> held, with its branch, dirty files, push state, and PR.
+  2. From <drive checkout>, never from inside one of those worktrees, run for each
+     worktree path it printed:
+     lsof -n -d cwd 2>/dev/null | awk -v w='<worktree>' '$NF == w || index($NF, w "/") == 1'
+     It prints one line per process still working in that worktree.
+  3. If any line printed, write nothing. Post
+     `cci post --drive <drive> --lane <lane>-<N+1> --kind blocker --to root --text "LIVE <lane>: <worktree> pids <pids>"`
+     and end your turn with that as your report. Never stop or signal those processes.
+  4. With no live process in any worktree, continue in <lane>'s worktree and branch,
+     starting from the dirty files, unpushed commits, and PR that lane-status shows.
+
+<the lane's reference brief, unchanged>
+```
 
 ## Spawn brief
 
