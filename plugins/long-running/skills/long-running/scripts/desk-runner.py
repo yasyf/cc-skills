@@ -414,7 +414,7 @@ under `every`, under `high-risk` for a PR whose changed files a `landing.high_ri
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
-starts; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+starts, or carries one: a fidelity desk's `fidelity: ok <head> carried from <earlier head>` on a PR whose go names the earlier head is a go at the new head; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
@@ -475,7 +475,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -4754,7 +4754,7 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
+        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`, plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
@@ -4762,7 +4762,9 @@ class Landing:
                 later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)}
                 withdrawals = [record for record in later if WITHDRAWN_OPENING.match(record["text"])]
-                self.gos = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
+                posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
+                oks = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
+                self.gos = posted + carried_gos(posted, oks, self.repo)
             return self.gos
 
     def head_gos(self, pr: str, head: str) -> list[dict]:
