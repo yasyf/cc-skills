@@ -5017,22 +5017,22 @@ class Landing:
             why = f"It changes {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}." if paths else "Every PR waits for your answer." if mode == "every" and not self.lands_green else "It touches a reserved rule."
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
             if self.landing_config.get("merge_ask_surface", "slack") == "board":
-                where = "on the root's board, where the root asks it"
+                where = "on the root's board"
             elif ts := self.merge_card(pr, heads[pr], f"{why}{touched}"):
-                where = f"the merge card at ts {ts} in the root's status thread or on its board"
+                where = f"on merge card ts {ts}"
             else:
                 continue
             stale = self.stale_title(pr)
             if stale:
                 self.warn_stale_title(pr, heads[pr], rows.get(pr, {}), *stale)
-            authorize = "".join(f"; the card quotes {key} and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <the tap's ts>`, since a go never does" for key, _ in reserved)
+            authorize = "".join(f"; only the tap authorizes {key}: `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <tap ts>`" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}" + (f":title-stale:{stale[0]['seq']}" if stale else ""),
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {heads[pr]} is ready" + (f", but its newest grade, cci #{stale[0]['seq']}, says `{stale[1]}`, so no go until the lane's title fix posts" if stale else "") + f", and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers {where}, waiting on `{waits}`"
-                f" | Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture,"
-                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and answer in plain words with `cc-present reply --block {waits} --body <answer>`, which replies on the board and under the Slack card with the link back to it",
+                f"#{pr} {short} waits on the owner's tap on `{waits}` {where} (merge mode {mode})"
+                + (f"; no go until the lane's title fix: cci #{stale[0]['seq']} says `{stale[1]}`" if stale else "")
+                + authorize,
             )
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
