@@ -17,7 +17,8 @@ model `orca-launch.sh` starts; `--now` skips the runner's load hold. `relay`, `h
 since the runner's verdict reaches the root on cci. The next key is one past the highest
 `R<n>` the runner can hold: one opening an `orca-desk:` record addressed to `orca-desk` on
 the drive, or a line of the drive's `inbox/orca-desk.md`, its archive included, so a line
-appended by hand is never keyed twice. Each line is one
+appended by hand is never keyed twice. A drive with no orca runner heartbeat beside that inbox
+posts nothing: the command refuses in one line, naming the Agent to spawn for a launch. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
 unaddressed or in another form. A launch then reads the runner's records on the drive
 until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
@@ -72,17 +73,28 @@ def records(out: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
-def desk_inbox(drive: str) -> Path:
+def desk_inbox(drive: str, fallback: str) -> Path:
     session = os.environ.get(registry.SESSION_ENV)
     entry = next((entry for entry in registry.drives() if registry.cci_drive(entry) == drive or (not drive and session in entry["sessions"])), None)
     if not entry:
         sys.exit(f"no drive in the registry is {f'cci drive {drive}' if drive else f'bound to session {session}'}, so the keys in its {INBOX} are unread and no R<n> is safe to take")
-    return Path(entry["state_dir"]) / INBOX
+    inbox = Path(entry["state_dir"]) / INBOX
+    if not (inbox.parent / registry.HEARTBEATS["orca"]).is_file():
+        sys.exit(f"refused: no orca desk runner has finished a pass on this drive (no {registry.HEARTBEATS['orca']} in {inbox.parent}), so nothing reads {DESK} lines; {fallback}")
+    return inbox
 
 
-def next_key(drive: str) -> int:
+def agent_fallback(args: argparse.Namespace) -> str:
+    if args.verb == "incident":
+        return f"spawn an Agent named `{args.name}-fix`{f' and one named `{args.name}-evidence`' if args.evidence_brief else ''} instead"
+    if args.verb == "lane":
+        return f"spawn an Agent named `{args.target}` instead"
+    return "nothing was posted"
+
+
+def next_key(drive: str, fallback: str) -> int:
+    appended = [line.text for line in inboxes.Inbox(desk_inbox(drive, fallback)).lines()]
     posted = [record["text"] for record in records(cci(drive, "grep", f"R[0-9]+ .*{DESK}: ", "--to", DESK, "--json", "--limit", "20", "--budget", BUDGET))]
-    appended = [line.text for line in inboxes.Inbox(desk_inbox(drive)).lines()]
     return 1 + max((int(match[1]) for text in [*posted, *appended] if (match := KEY.match(text.strip()))), default=0)
 
 
@@ -191,14 +203,14 @@ def main(argv: list[str] | None = None) -> int:
         return refused(args)
     if args.verb in ("relay", "hold", "unhold", "withdraw"):
         topic, text = directive(args)
-        post(args.drive, args.lane, topic, next_key(args.drive), text)
+        post(args.drive, args.lane, topic, next_key(args.drive, agent_fallback(args)), text)
         return 0
     planned = launches(args)
     for *_, brief in planned:
         if not brief.is_file():
             parser.error(f"brief {brief} is not a file")
     topic = args.name if args.verb == "incident" else args.target
-    first = next_key(args.drive)
+    first = next_key(args.drive, agent_fallback(args))
     keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
     since = min(post(args.drive, args.lane, topic, first + offset, launch_directive(lane, model, effort, now, role, brief.resolve())) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
     settled = wait(args.drive, since, keys, args.timeout_seconds)

@@ -517,7 +517,8 @@ It takes the next `R<n>`, one past every key on cci and in the desk inbox, posts
 on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
 the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or
 `LAUNCH-FAILED`, and prints each lane's dispatch and terminal. It exits 0 only when
-both launched. `incident.py open ... --adopt fix=<name>-fix --adopt
+both launched. On a drive whose orca runner has no heartbeat it posts nothing and refuses
+in one line naming the Agent to spawn instead, `<name>-fix`. `incident.py open ... --adopt fix=<name>-fix --adopt
 evidence=<name>-evidence` hands both lanes to the executor. A codex lane writes its
 PR title, body, and commit message with `pr-prose.py`, a headless Opus 5.5 writer
 that `orca-launch.sh` names in its brief, so it never asks the root for prose. The

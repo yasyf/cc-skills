@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -52,6 +53,7 @@ class Drive:
 def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "prog"
     (directory / "inbox").mkdir(parents=True)
+    (directory / "inbox" / desk_launch.registry.HEARTBEATS["orca"]).write_text("{}")
     monkeypatch.setenv(desk_launch.registry.SESSION_ENV, "s1")
     monkeypatch.setattr(desk_launch.registry, "drives", lambda: [{"drive": "prog", "sessions": ["s1"], "state_dir": str(directory)}])
     return directory
@@ -193,3 +195,23 @@ def test_a_drive_the_registry_lacks_posts_nothing(drive, monkeypatch):
     with pytest.raises(SystemExit, match="no drive in the registry is bound to session s1"):
         desk_launch.main(["unhold", "sandsql-5177"])
     assert posted(drive) == []
+
+
+@pytest.mark.parametrize(
+    ("argv", "instead"),
+    [
+        (["incident", "inc-x", "{fix}", "{evidence}"], "spawn an Agent named `inc-x-fix` and one named `inc-x-evidence` instead"),
+        (["incident", "inc-x", "{fix}"], "spawn an Agent named `inc-x-fix` instead"),
+        (["lane", "solo", "opus", "xhigh", "{fix}"], "spawn an Agent named `solo` instead"),
+        (["relay", "lane-a", "go"], "nothing was posted"),
+    ],
+)
+def test_a_drive_with_no_orca_desk_refuses_in_one_line_naming_the_agent_fallback(drive, state, tmp_path, argv, instead):
+    fix, evidence = briefs(tmp_path)
+    shutil.rmtree(state / "inbox")
+    with pytest.raises(SystemExit) as refused:
+        desk_launch.main([arg.format(fix=fix, evidence=evidence) for arg in argv])
+    assert str(refused.value).startswith("refused: no orca desk runner has finished a pass on this drive")
+    assert str(refused.value).endswith(f"nothing reads orca-desk lines; {instead}")
+    assert "\n" not in str(refused.value)
+    assert drive.calls == []
