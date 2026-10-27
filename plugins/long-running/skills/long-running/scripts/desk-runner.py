@@ -249,7 +249,8 @@ blockers and restacks. Every queue call goes through the repository adapter `lan
 `graphite-stack-enqueue` runs the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none: `hold`, `precondition`,
-`rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict. Trees gate in
+`rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
+`old-app` runs only when `landing.checks` names it. Trees gate in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
@@ -315,7 +316,9 @@ prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until t
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
-gets one `note` to its lane naming the line it reads. A finder ok of an older head
+gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
+`old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
+neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` blocker to its lane and the fidelity lanes. A finder ok of an older head
 carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
@@ -485,7 +488,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, old_app_grades_in, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -536,10 +539,10 @@ DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
 HOLD_LABEL = "hold"
 MERGE_MODES = ("every", "high-risk", "auto")
-ACCEPT_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "merge-mode")
+ACCEPT_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "merge-mode")
 HOLD_CHECKS = ("hold",)
-ENQUEUE_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "merge-mode")
-CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-review": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
+ENQUEUE_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "merge-mode")
+CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-review": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
@@ -4637,7 +4640,7 @@ class Landing:
         return None
 
     def check(self, name: str, graded: Graded) -> dict[str, merge_queue.State]:
-        return {"hold": self.check_hold, "precondition": self.check_precondition, "rules-review": self.check_rules_review, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "merge-mode": self.check_merge_mode}[name](graded)
+        return {"hold": self.check_hold, "precondition": self.check_precondition, "rules-review": self.check_rules_review, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "merge-mode": self.check_merge_mode}[name](graded)
 
     def check_hold(self, graded: Graded) -> dict[str, merge_queue.State]:
         return {pr: merge_queue.State(merge_queue.FAIL, reason) for pr, reason in self.holding(list(graded.heads), graded.rows, graded.accepted_at).items()}
@@ -4669,12 +4672,12 @@ class Landing:
             self.reported[key] = causes
         return self.reported[key]
 
-    def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str]) -> None:
-        """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
+    def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str], also: Iterable[str] = ()) -> None:
+        """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
+        self.post_blocker(key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
@@ -4693,13 +4696,16 @@ class Landing:
                     self.warn_head(f"rulings:{pr}:{sha}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
 
-    def finder_reviews(self, pr: str) -> list[dict]:
-        """Every finder review about `pr`, from one scan of the drive's `review` and `head` records a pass, so a review whose text names the PR but whose refs do not still counts."""
-        drive = self.runner.config.drive
+    def scanned_reviews(self) -> list[dict]:
+        """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""
         with self.scanning:
             if self.reviews is None:
-                self.reviews = cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=head")
-        return finder_reviews_in(self.reviews, drive, self.repo, pr)
+                self.reviews = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
+        return self.reviews
+
+    def finder_reviews(self, pr: str) -> list[dict]:
+        """Every finder review about `pr`."""
+        return finder_reviews_in(self.scanned_reviews(), self.runner.config.drive, self.repo, pr)
 
     def finder_records(self, pr: str) -> list[dict]:
         return finder_records(self.finder_reviews(pr))
@@ -4710,7 +4716,7 @@ class Landing:
 
     def finder_carried(self, pr: str, sha: str) -> bool:
         records = self.finder_records(pr)
-        if self.finder_carried_by_fidelity(records, pr, sha):
+        if self.carried_by_fidelity(pr, sha, lambda old: (newest := newest_finder(records, old)) is not None and newest["grade"] == FINDER_PASS):
             return True
         heads = dict.fromkeys(record["head"] for record in records if not names_head(record["head"], sha))
         oks = [head for head in heads if (newest := newest_finder(records, head)) and newest["grade"] == FINDER_PASS]
@@ -4718,8 +4724,8 @@ class Landing:
             return False
         return any(self.patch_id(pr, head, commits, escalate=False) == ours for head in oks)
 
-    def finder_carried_by_fidelity(self, records: list[dict], pr: str, sha: str) -> bool:
-        """Whether a chain of fidelity carries runs from `sha` back to a head whose newest finder verdict is ok (root #139077)."""
+    def carried_by_fidelity(self, pr: str, sha: str, passes: Callable[[str], bool]) -> bool:
+        """Whether a chain of fidelity carries runs from `sha` back to a head that `passes`, such as one whose newest finder verdict is ok (root #139077)."""
         drive = self.runner.config.drive
         withdrawn = {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
         carries = fidelity_carries([grade for grade in self.grades(pr) if grade["seq"] not in withdrawn])
@@ -4730,7 +4736,7 @@ class Landing:
             for new, old in carries:
                 if not names_head(new, head) or old in seen:
                     continue
-                if (newest := newest_finder(records, old)) and newest["grade"] == FINDER_PASS:
+                if passes(old):
                     return True
                 seen.add(old)
                 frontier.append(old)
@@ -4762,6 +4768,22 @@ class Landing:
         unread = "verdict" if not record["grade"] else "head"
         text = f"#{pr}: cci #{record['seq']} names the finder, but the runner reads no {unread} in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."
         self.post_record("note", key, record["lane"], text, pr)
+
+    def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
+        """Each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` fails `OLD-APP-PENDING`, with one blocker per head to its lane and the fidelity lanes (root #140437)."""
+        states = {}
+        for pr, sha in graded.heads.items():
+            grades = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+            if (newest := newest_finder(grades, sha)) and newest["grade"] in OLD_APP_PASSES:
+                continue
+            if not newest and self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES):
+                continue
+            why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
+            states[pr] = merge_queue.State(merge_queue.FAIL, f"OLD-APP-PENDING #{pr}: {why}")
+        if graded.act:
+            for pr, state in states.items():
+                self.refuse_head(f"old-app:{pr}:{graded.heads[pr]}", pr, graded, state.reason, states, also=self.fidelity_lanes)
+        return states
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
         ungraded = self.ungraded(graded.heads)
@@ -5990,9 +6012,10 @@ def mq_config_fault(landing: dict) -> str:
     elif adapter["kind"] == merge_queue.GraphiteStackEnqueue.kind and not adapter.get("script"):
         faults.append("names no landing.adapter.script, the stack-enqueue script relative to landing.checkout")
         members.append(f'"adapter": {json.dumps({**adapter, "script": merge_queue.STACK_ENQUEUE})}')
-    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in merge_queue.CHECKS]:
-        faults.append(f"lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(merge_queue.CHECKS)}")
-        members.append(f'"checks": {json.dumps([name for name in landing["checks"] if name in merge_queue.CHECKS])}')
+    known = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
+    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in known]:
+        faults.append(f"lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(known)}")
+        members.append(f'"checks": {json.dumps([name for name in landing["checks"] if name in known])}')
     if landing["merge_mode"] == "high-risk" and not landing.get("high_risk_paths"):
         faults.append("runs merge mode high-risk with no landing.high_risk_paths globs, so no PR would read as high-risk")
         members.append(f'"high_risk_paths": {json.dumps(list(HIGH_RISK_STARTER))}')

@@ -18,6 +18,8 @@ FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b"
 FINDER_ISSUES = "issues"
 FINDER_LGTM = "lgtm"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
+OLD_APP = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b", re.IGNORECASE | re.MULTILINE)
+OLD_APP_PASSES = frozenset({"unchanged", "bug fix"})
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
@@ -187,10 +189,26 @@ def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list
     for record in records:
         if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(FIDELITY_GRADES):
             continue
-        posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
-        reviews.append(record | {"grade": finder_grade(record["text"]), "head": graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")})
+        reviews.append(record | {"grade": finder_grade(record["text"]), "head": head_named(record, heads)})
     return reviews
 
 
 def finder_records(reviews: list[dict]) -> list[dict]:
     return [record for record in reviews if record["grade"] and record["head"]]
+
+
+def head_named(record: dict, heads: list[dict]) -> str:
+    """The head `record` names: its first short sha, or the first short sha of the newest `head` record of `heads` posted before it."""
+    posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
+    return graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")
+
+
+def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
+    """Every `old-app:` grade a fidelity lane of `lanes` posted about `pr`, on a line of its own in a review or in the body a fidelity grade spilled to, with the grade it reads as and the head it names (root #140437)."""
+    records = [record for record in found if record["drive"] == drive and record["kind"] in ("review", "head") and about_pr(record, repo, pr)]
+    heads = [record for record in records if record["kind"] == "head"]
+    return [
+        record | {"grade": said[1].lower(), "head": head_named(record, heads)}
+        for record in records
+        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record)))
+    ]
