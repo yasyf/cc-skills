@@ -2844,6 +2844,27 @@ def test_a_forked_stack_of_five_with_go_on_all_enqueues_each_chain_as_its_own_ba
     assert list(enqueues_of(tmp_path)) == ["enqueue:31001@aaaa111111,31002@bbbb222222,31003@cccc333333,31004@dddd444444,31005@eeee555555#1"]
 
 
+def test_a_go_with_a_batch_enqueues_nothing_until_every_pr_it_binds_enqueues_in_one_call(shell, config, tmp_path):
+    merge_mode(config, "every")
+    heads = {"32001": "aaaa111111", "32002": "bbbb222222", "32003": "cccc333333"}
+    bases = {"32001": "dev", "32002": "c/1", "32003": "c/2"}
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"c/{pr[-1]}", "base": bases[pr], "head": head, "state": "open", "reported_head": head} for pr, head in heads.items()]
+    green = {pr: f"#{pr} GREEN {head} graphite READY" for pr, head in heads.items()}
+    for pr, head in heads.items():
+        grade(shell, pr, f"ok F307 at {head[:7]}.")
+    merge_go(shell, "32001", "go #32001 at aaaa111 and #32002 at bbbb222 with #32003")
+    merge_go(shell, "32003", "go #32003 at cccc333")
+    shell.enqueue_out["32003"] = (0, "enqueue #32001 #32002 #32003: {}\n")
+    shell.gates["32003"] = [gate(green["32001"], green["32002"], "#32003 BLOCKED cccc333333 CI running (graphite RUNNING)", would="#32001 #32002")]
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [waits] = [line for line in escalations(shell) if line.startswith("BATCH-WAITS ")]
+    assert "binds #32001 #32002 into a batch" in waits
+    shell.gates["32003"] = [gate(*green.values(), would="#32001 #32002 #32003")]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["32003", "--partial"]]
+
+
 def test_a_chain_stacked_on_an_open_fork_waits_for_the_fork_to_land(shell, config, tmp_path):
     merge_mode(config, "every")
     heads, green, queued = five_pr_fork(shell)

@@ -1406,6 +1406,10 @@ Oct 26 runner brief:
 - `HELD-OUT`: a hold covers a PR the check would sweep into the batch. The PR and
   every PR above it stay out, and the enqueue names only the tops below it, with
   `--partial`. No check or enqueue call ever names a held PR.
+- `BATCH-WAITS`: a root `go #<n> at <sha> with #<a> #<b>` binds its PRs and the
+  `with` PRs into one batch, and the prefix holds only part of it, because one is
+  held, red, or not yet tracked. Every PR of the batch and every PR above them stay
+  out until the whole batch is enqueueable in one call.
 - `FORK-DEFERRED`: the batch sits on an open fork outside it, so it waits until
   that fork lands, and the line names the PRs that wait and the fork. Graphite keeps
   one linear chain per batch, so a batch that forks within itself goes in as one
