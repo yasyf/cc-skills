@@ -25,7 +25,7 @@ function nowScreen() {
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)} · ${esc(b.progress.code_line)}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     <div class="nw-cols">
       <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
       <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
@@ -69,7 +69,7 @@ function journey(b) {
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
   return `<div class="nw-panel">
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<div class="ms ms-${s.state}${i === cur ? ' cur' : ''}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</div>`).join('')}</div>
-    <div class="nw-foot"><p class="nw-sent">${esc(b.progress.sentence)}</p><p class="nw-code">${esc(b.progress.code_line)}</p></div></div>`;
+    </div>`;
 }
 function compact(b) {
   const list = stops(b);
@@ -123,8 +123,9 @@ function chart(path, index) {
 }
 function node(n, key) {
   const work = n.item && workItem(n.item);
-  return `<div class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><div><span class="w">${NODE_WORD[n.state]}</span>${esc(n.text)}</div>
-    ${n.how ? `<div class="how">${esc(n.how)}${n.since ? `<span class="since"> · since ${esc(n.since)}</span>` : ''}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div>` : ''}</div>`;
+  const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
+  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${work ? '<em>Live story ›</em>' : ''}</span>${esc(n.text)}
+    ${n.how || n.since ? `<span class="how">${esc(n.how)}${n.since ? `<i> · since ${esc(n.since)}</i>` : ''}</span>` : ''}</${work ? 'a' : 'div'}>`;
 }
 function cards(paths) {
   const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
