@@ -275,7 +275,8 @@ class FakeShell(runner_module.Shell):
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[7:]]), "")
+            assert argv[7:9] == ["--max-age", "5m"]
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[9:]]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -2956,7 +2957,7 @@ def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell
     shell.gates["29100"] = [gate(f"#29100 BLOCKED eeee555555 {CONFLICT}")]
     landing_pass(shell, config)
     reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
-    assert [call[7:] for call in reads] == [["29020", "29100"]]
+    assert [call[7:] for call in reads] == [["--max-age", "5m", "29020", "29100"]]
     assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
 
 
@@ -2965,7 +2966,7 @@ def test_a_pass_reads_pr_status_in_pages_of_twenty_five(shell, config, tmp_path)
     shell.rows = [{"pr": str(pr), "lane": LANE, "branch": f"b/{pr}", "base": "dev", "head": f"{pr:x}aaaaaa", "state": "open", "reported_head": f"{pr:x}aaaaaa"} for pr in range(30000, 30030)]
     shell.queue |= {row["pr"]: "not queued" for row in shell.rows}
     landing_pass(shell, config)
-    reads = [call[7:] for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+    reads = [call[9:] for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
     assert reads == [[str(pr) for pr in range(30000, 30025)], [str(pr) for pr in range(30025, 30030)]]
 
 
