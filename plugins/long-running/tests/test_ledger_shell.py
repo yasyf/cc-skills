@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import subprocess
 
@@ -54,3 +55,33 @@ def test_the_lock_names_its_holder_only_while_held(tmp_path):
         assert path.read_text().startswith(f"pid {os.getpid()} since ")
 
     assert path.read_text() == ""
+
+
+class StopAtCcn(ledger.Shell):
+    def __init__(self) -> None:
+        self.cwd = ""
+
+    def run(self, argv, stdin=None, cwd=None):
+        if argv[0] == "ccn":
+            self.cwd = os.getcwd()
+            raise SystemExit("stopped at ccn")
+        return super().run(argv, stdin, cwd)
+
+
+def test_a_command_outside_any_checkout_runs_in_its_registered_drives_checkout(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin", "https://github.com/acme/app.git"], check=True)
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "brook.json").write_text(json.dumps({"drive": "brook", "ledger": "5b91baca4e233792d0bb", "cci_drive": "brook-bus", "checkout": str(checkout)}))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.chdir(scratch)
+    shell = StopAtCcn()
+
+    with pytest.raises(SystemExit, match="stopped at ccn"):
+        ledger.main(["hold", "--ledger", "5b91baca4e233792d0bb", "--pr", "12", "--reason", "r", "--hours", "1"], shell)
+
+    assert shell.cwd == str(checkout.resolve())
