@@ -1167,8 +1167,10 @@ def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str
 def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
     path = loaded.state / "sweep" / "repeats" / f"{key.replace('/', '-')}.txt"
     write_atomic(path, "\n".join([f"The owner repeated {key}. Each sweep hit of its names stays open until its line is deleted or an owner answer names it.", *hits]) + "\n")
+    if not (lanes := fidelity_lanes(loaded)):
+        return
     argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "state", "--text", f"owner repeated {key}: {len(hits)} sweep hits, posted by classify", "--path", str(path)]
-    for lane in sorted(fidelity_lanes(loaded)):
+    for lane in sorted(lanes):
         argv += ["--to", lane]
     loaded.shell.run(argv)
 
@@ -1488,7 +1490,9 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def fidelity_lanes(loaded: Register) -> set[str]:
-    lanes = json.loads((loaded.state / "runner.json").read_text())["landing"]["fidelity_lane"]
+    if not (runner := loaded.state / "runner.json").exists():
+        return set()
+    lanes = json.loads(runner.read_text())["landing"]["fidelity_lane"]
     return {lanes} if isinstance(lanes, str) else set(lanes)
 
 
