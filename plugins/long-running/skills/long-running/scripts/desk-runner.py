@@ -4763,8 +4763,9 @@ class Landing:
                 closed = {seq for record in later for seq in closes(record)}
                 withdrawals = [record for record in later if WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
-                oks = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
-                self.gos = posted + carried_gos(posted, oks, self.repo)
+                graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
+                unsaid = closed | {seq for record in graders for seq in closes(record)}
+                self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo)
             return self.gos
 
     def head_gos(self, pr: str, head: str) -> list[dict]:

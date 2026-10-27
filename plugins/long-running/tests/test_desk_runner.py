@@ -3195,18 +3195,20 @@ def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_f
     assert not [post for post in blockers(shell) if post["to"] == "root" and "root gos name" in post_body(post)]
 
 
-@pytest.mark.parametrize("carried", [True, False])
-def test_a_root_go_carries_along_the_fidelity_desks_carried_grades_to_the_replayed_head(shell, config, tmp_path, carried):
+@pytest.mark.parametrize(("first", "lands"), [("carried", True), ("plain", False), ("withdrawn", False)])
+def test_a_root_go_carries_along_the_fidelity_desks_carried_grades_to_the_replayed_head(shell, config, tmp_path, first, lands):
     merge_mode(config, "every")
     gone, replayed, head = "aaaa111111", "bbbb222222", "cccc333333"
     shell.rows = [{"pr": "33001", "lane": LANE, "branch": "c/1", "base": "dev", "head": head, "state": "open", "reported_head": head}]
     merge_go(shell, "33001", f"go #33001 at {gone[:7]}")
-    grade(shell, "33001", f"ok {replayed[:7]} carried from {gone[:7]} (patch-identical replay)" if carried else f"ok {replayed[:7]} at the replayed head")
+    seq = grade(shell, "33001", f"ok {replayed[:7]} at the replayed head" if first == "plain" else f"ok {replayed[:7]} carried from {gone[:7]} (patch-identical replay)")
+    if first == "withdrawn":
+        shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "withdraw", "re": seq, "to": ["root"], "refs": {"prs": [33001]}, "text": "withdrawn: not patch-identical", "at": actions.stamp(shell.clock)})
     grade(shell, "33001", f"ok {head} carried from {replayed[:7]} plus one test-only commit")
     shell.gates["33001"] = [gate(f"#33001 GREEN {head} graphite READY", would="#33001")]
     shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == ([["33001", "--partial"]] if carried else [])
+    assert [call[1:] for call in shell.enqueues()] == ([["33001", "--partial"]] if lands else [])
 
 
 def test_a_withdrawn_root_go_lets_nothing_merge(shell, config, tmp_path):

@@ -99,23 +99,26 @@ def go_batch(record: dict) -> set[str]:
 
 
 def carried_gos(gos: list[dict], grades: list[dict], repo: str) -> list[dict]:
-    """The gos a fidelity desk carries: a root go naming a PR at head G and a `fidelity: ok H carried from G` grade on that PR, a patch-identical replay or a test-only fix, make a go at H, posted as the grade, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770)."""
-    gone = {(pr, sha) for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
+    """The gos a fidelity desk carries: a root go naming a PR at head G and a `fidelity: ok H carried from G` grade on that PR, a patch-identical replay or a test-only fix, make a go at H, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770). A carried go keeps its source go's seq, time and `with` batch, so it never reads as a newer root decision or frees a PR from its batch."""
+    gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
     carried: list[dict] = []
     while fresh := [
-        (pr, found[1].lower(), grade)
+        (pr, found[1].lower(), source)
         for grade in grades
         if (found := CARRIED.match(grade["text"]))
         for pr, _ in repo_prs(grade, repo)
-        if reached(gone, pr, found[2].lower()) and not reached(gone, pr, found[1].lower())
+        if (source := reached(gone, pr, found[2].lower())) and not reached(gone, pr, found[1].lower())
     ]:
-        gone |= {(pr, head) for pr, head, _ in fresh}
-        carried += [{"seq": grade["seq"], "at": grade["at"], "drive": grade["drive"], "lane": "root", "kind": "go", "text": f"go #{pr} at {head}", "refs": {"prs": [int(pr)]}, "voided": set()} for pr, head, grade in fresh]
+        for pr, head, source in fresh:
+            bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
+            go = {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go #{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set()}
+            gone[(pr, head)] = go
+            carried.append(go)
     return carried
 
 
-def reached(gone: set[tuple[str, str]], pr: str, sha: str) -> bool:
-    return any(named == pr and names_head(head, sha) for named, head in gone)
+def reached(gone: dict[tuple[str, str], dict], pr: str, sha: str) -> dict | None:
+    return next((go for (named, head), go in gone.items() if named == pr and names_head(head, sha)), None)
 
 
 def goes(record: dict, pr: str) -> bool:
