@@ -19,6 +19,7 @@ TROUBLE_WINDOW = dt.timedelta(hours=3)
 TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "hold", "lift"}
 SUCCESSOR = re.compile(r"-\d+$")
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
+FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 SLOTS = {
@@ -185,6 +186,7 @@ def digest(model, config, previous, now):
         "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
         "workers": workers,
         "recent_trouble": trouble,
+        "review_findings": [f"{clock(at(r['at']))} from {r['lane']}: {clip(r['text'], 300)}" for r in records if r["kind"] == "review" and now - at(r["at"]) <= WORDS_WINDOW and FINDING.search(r["text"])][-10:],
         "owner_words": [f"{clock(at(w['at']))}: {clip(w['title'] + ' ' + w['text'], 300)}" for w in model["words"] if now - at(w["at"]) <= WORDS_WINDOW][-12:],
         "drive_summary": {k: model["story"].get(k) for k in ("now", "users_now")},
         "previous_brief": previous and {k: previous[k] for k in SCHEMA["required"]},
