@@ -561,6 +561,9 @@ REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
 BUILDS_PATH = re.compile(r"/builds/\d+")
 GRADE_BRANCH = "ci-grade/"
 GRADE_KEY = "ci-grade:"
+CLAIM_CLAUSE = re.compile(r";|\.\s")
+CLAIMED_PR = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+))?#(?P<pr>\d+)\b")
+STATUS_PAGE = 25
 FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
 FULL_RUN_WINDOW = timedelta(days=2)
 RELEASE_POLL = timedelta(seconds=15)
@@ -994,6 +997,16 @@ def started_build_url(out: str) -> str:
         return ""
     url = build.get("web_url") if isinstance(build, dict) else None
     return url if isinstance(url, str) and BUILD_URL.search(url) else ""
+
+
+def root_claim(record: dict) -> bool:
+    return record["kind"] == "claim" and record["lane"] == ROOT
+
+
+def claimed_prs(record: dict, repo: str) -> set[str]:
+    """The PRs of `repo` a claim takes: its refs, and each `#<n>` bare or qualified with `repo` in its text before the first `;` or sentence end, so a PR it mentions after that is not taken."""
+    clause = CLAIM_CLAUSE.split(record["text"], maxsplit=1)[0]
+    return {pr for pr, _ in repo_prs(record, repo)} | {match["pr"] for match in CLAIMED_PR.finditer(clause) if not match["repo"] or match["repo"].lower() == repo.lower()}
 
 
 def parse_until(text: str) -> datetime | None:
@@ -3847,6 +3860,7 @@ class Landing:
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
         self.reviews: list[dict] | None = None
+        self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
         self.designed_red: dict[str, bool] = {}
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
@@ -5419,15 +5433,24 @@ class Landing:
         return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
 
     def owner(self, pr: str, row: dict) -> str:
-        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
+        """The lane that owns `pr` now: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's claims left out, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
         posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
         claims = [
             record
             for record in posted
-            if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and pr in dict(repo_prs(record, self.repo))
+            if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and not root_claim(record) and pr in dict(repo_prs(record, self.repo))
         ]
-        return claims[-1]["lane"] if claims else row.get("lane", "")
+        claims += [record for record in self.claims() if record["drive"] == drive and record["kind"] == "claim" and not root_claim(record) and pr in claimed_prs(record, self.repo)]
+        newest = max(claims, key=lambda record: record["seq"], default=None)
+        return newest["lane"] if newest else row.get("lane", "")
+
+    def claims(self) -> list[dict]:
+        """The drive's `claim` records, from one scan a pass, so a claim that names its PRs only in its text still moves them."""
+        with self.scanning:
+            if self.claims_read is None:
+                self.claims_read = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=claim")
+        return self.claims_read
 
     def reach(self, lane: str) -> list[str]:
         """Who a blocker for `lane` goes to: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
@@ -5466,11 +5489,16 @@ class Landing:
         return pr in self.landed
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one call a pass that the requeue read, the landed check, and the routing of PRs no go names share; None when the call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in calls of `STATUS_PAGE` PRs, each with its own deadline, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
-            done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers])
-            self.statuses = {str(entry["number"]): entry for entry in json.loads(done.out)} if done.code == 0 else None
+            self.statuses, done = {}, Done(0, "", "")
+            for start in range(0, len(numbers), STATUS_PAGE):
+                done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers[start : start + STATUS_PAGE]])
+                if done.code != 0:
+                    self.statuses = None
+                    break
+                self.statuses |= {str(entry["number"]): entry for entry in json.loads(done.out)}
             self.queues_read = True
             if self.statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
@@ -5584,7 +5612,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews = None, False, None
+        self.statuses, self.queues_read, self.reviews, self.claims_read = None, False, None, None
         if self.quota_low():
             return
         advanced = self.advance()
