@@ -26,10 +26,10 @@ Loop, one foreground Bash call each, timeout 570000 ms:
 - A record addressed to you: decide what the owner now reads differently, edit the
   story to say it, and set `as_of`. Most records change nothing; then change nothing.
 - A `defect` the app posted about its build: the app keeps serving its last good
-  build, so read the server log beside the config and fix a cause you can see in the
+  build, so read `server.log` beside the config and fix a cause you can see in the
   story file; anything else goes to root as one `defect` record naming the log line.
-  Only when the URL stops answering, start the app again with
-  `dashboard-start.sh <state dir>/dashboard.json` and tell root.
+- Every wake, run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`:
+  it restarts the app only when the URL stops answering, and tells root when it does.
 - QUIET: when `as_of` is older than 30 minutes, reread `cci digest --drive <drive>` and
   the newest progress doc, correct each sentence they make false, move each state
   forward, drop yesterday's entries after midnight Pacific, and set `as_of`.

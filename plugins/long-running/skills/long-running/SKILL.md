@@ -1016,7 +1016,7 @@ card at once. No lane and not the root writes anything else there or in any chan
 status update, per-landing line, ready-to-tap list, batch post, lane report, correction,
 or prose reply in the thread beyond the answer to his own `Explain more` tap. Status
 lives on the drive dashboard. Prompt watch's
-`needs_you` card for a dialog only the owner's hands can clear is the one exception. The landing desk's
+`needs_you` card is the one exception, and only in a drive that opts in with `--slack-cards`. The landing desk's
 redraw of the thread's root card below is an edit, not a post, and stays. A new
 automated poster needs the owner's word first, and a post the owner names goes out
 through `comms-desk` or the R20 Slack lane.
@@ -3136,8 +3136,9 @@ The drive's pack adds `lr.needs-owner`, `lr.plan-progress`, `lr.inbox-feed`, `lr
 main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
 PR's ledger row.
 
-`dashboard-start.sh <state dir>/dashboard.json` starts the app detached and logs
-beside the config; the root hands the owner its tailnet URL once, and never a cc-present
+`python3 dashboard/app/keep.py --config <state dir>/dashboard.json` starts the app
+detached when it is not answering, logs to `server.log` beside the config, and tells
+root; the root hands the owner its tailnet URL once, and never a cc-present
 board in its place. `dashboard-keeper`, briefed from `reference/dashboard-keeper-brief.md`,
 is the config's keeper lane: it keeps the story file's sentences true, answers each build
 `defect` the app posts, and takes the place of `/live-dashboard`'s `dashboard-curator`.
@@ -3292,8 +3293,7 @@ so it identifies nothing.
   coordinator's approval is then a `blocker` to that lane, and the watch types the
   record's line into the supervisor's own terminal with `orca terminal send --enter`.
 - The owner gets a `needs_you` card in the DM status thread of the drive's newest root
-  session, through `cc-slack dm-status`, when no supervisor can take the prompt. It is
-  the one Slack write besides the merge card, because only the owner's hands clear it. That
+  session, through `cc-slack dm-status`, when no supervisor can take the prompt. That
   covers a drive with no supervisor, a supervisor that is itself at a prompt, unknown,
   or unreachable, and a wake Orca refuses. A prompt still open five minutes after the
   supervisor's record gets one too. The card goes out only in a drive whose watch was
