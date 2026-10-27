@@ -498,6 +498,7 @@ class Drive:
         self.reported = set()
         self.pr_facts = {}
         self.board_seq = None
+        self.reported_build = None
         self.gos = {}
         self.carried = {}
         self.board_raw = None
@@ -523,7 +524,7 @@ class Drive:
     def asked(self, text):
         lane, kind = ("dashboard-ask-test", "note") if text.startswith("[user-test") else ("dashboard", "owner")
         run(["cci", "post", "--drive", self.config["drive"], "--lane", lane, "--kind", kind, "--to", "root", "--text", f"Asked on the dashboard: {text}"])
-        return 200, ""
+        return 200, {}
 
     def interact(self, interaction):
         origin, _, subject = self.config["board_url"].partition("/p/")
@@ -532,9 +533,8 @@ class Drive:
             with urllib.request.urlopen(request, timeout=15):
                 pass
         except urllib.error.HTTPError as error:
-            return error.code, error.read().decode().strip()
-        self.touch(slow=True)
-        return 200, ""
+            return error.code, {"error": error.read().decode().strip()}
+        return 200, {"seq": self.store_seq()}
 
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
@@ -556,6 +556,7 @@ class Drive:
             try:
                 url = f"{CCI}/stream?drive={self.config['drive']}&since={after}&" + "&".join(f"kind={k}" for k in TIMELINE_KINDS)
                 with urllib.request.urlopen(url, timeout=None) as stream:
+                    self.errors.pop("records", None)
                     for line in stream:
                         if line.startswith(b"data: "):
                             record = json.loads(line[6:])
@@ -619,27 +620,32 @@ class Drive:
     def rebuild_loop(self):
         while True:
             time.sleep(0.5)
-            with self.lock:
-                due = self.dirty_at and time.monotonic() - self.dirty_at >= REBUILD_AFTER
-            stale = time.monotonic() - self.slow_at >= SLOW_REFRESH
-            if not due and not stale:
-                continue
-            with self.lock:
-                self.dirty_at = 0.0
-            try:
-                model = self.build(refresh_slow=stale)
-            except Exception as error:
-                failure = f"{type(error).__name__}: {error}"
-                if self.errors.get("build") != failure:
-                    self.report_defect(failure)
-                self.errors["build"] = failure
-                self.slow_at = time.monotonic()
-                continue
-            self.errors.pop("build", None)
-            with self.changed:
-                self.model = model
-                self.version += 1
-                self.changed.notify_all()
+            self.rebuild()
+
+    def rebuild(self):
+        with self.lock:
+            due = self.dirty_at and time.monotonic() - self.dirty_at >= REBUILD_AFTER
+        stale = time.monotonic() - self.slow_at >= SLOW_REFRESH
+        if not due and not stale:
+            return
+        with self.lock:
+            self.dirty_at = 0.0
+        try:
+            model = self.build(refresh_slow=stale)
+        except Exception as error:
+            failure = f"{type(error).__name__}: {error}"
+            if self.errors.get("build") == failure and self.reported_build != failure:
+                self.reported_build = failure
+                self.report_defect(failure)
+            self.errors["build"] = failure
+            self.slow_at = time.monotonic()
+            return
+        self.errors.pop("build", None)
+        self.reported_build = None
+        with self.changed:
+            self.model = model
+            self.version += 1
+            self.changed.notify_all()
 
     def note_go(self, record):
         if record["kind"] == "go" and (found := GO.match(record["text"])):
@@ -666,14 +672,17 @@ class Drive:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
 
-    def board(self):
+    def store_seq(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
         with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
-            seq = store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
+            return store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
+
+    def board(self):
+        seq = self.store_seq()
         if seq != self.board_seq:
             self.board_raw = run(["cc-present", "outcomes", "--session", self.config["board_session"]])
             self.board_seq = seq
-        return self.read_board(json.loads(self.board_raw))
+        return {**self.read_board(json.loads(self.board_raw)), "seq": seq}
 
     def live(self, model):
         board = self.board()
@@ -849,12 +858,12 @@ def handler(drive):
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path == "/api/answer":
-                status, error = drive.answer(body)
+                status, out = drive.answer(body)
             elif self.path == "/api/asked":
-                status, error = drive.asked(body["text"])
+                status, out = drive.asked(body["text"])
             else:
-                status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
-            self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
+                status, out = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
+            self.send(status, "application/json", json.dumps(out).encode())
 
         def send(self, status, kind, body):
             self.send_response(status)

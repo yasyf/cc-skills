@@ -1,6 +1,8 @@
+import contextlib
 import datetime as dt
 import itertools
 import queue
+import urllib.error
 import urllib.parse
 
 import pytest
@@ -602,6 +604,55 @@ def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interact
     drive.answer(body)
 
     assert {k: v for k, v in sent[0].items() if k != "id"} == interaction
+
+
+
+def test_a_tap_answers_with_the_board_position_and_leaves_the_slow_sources_alone(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.store_seq = lambda: 41
+    drive.slow_at = 123.0
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: contextlib.nullcontext())
+
+    assert drive.decide("merge-prs", 43211, "approved", "8242887", None) == (200, {"seq": 41})
+    assert drive.slow_at == 123.0
+
+
+def test_a_build_failure_is_reported_once_and_only_when_the_next_build_fails_the_same_way():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    reported = []
+    drive.report_defect = reported.append
+
+    def refused(refresh_slow):
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    drive.build = refused
+    drive.rebuild()
+    assert reported == []
+    for _ in range(2):
+        drive.dirty_at = 1.0
+        drive.rebuild()
+    assert reported == ["URLError: <urlopen error [Errno 61] Connection refused>"]
+
+
+def test_the_record_stream_clears_its_failure_once_it_reconnects(monkeypatch):
+    drive = Drive({"drive": "d"}, None)
+    drive.errors["records"] = "URLError: <urlopen error [Errno 61] Connection refused>"
+
+    class Stop(Exception):
+        pass
+
+    streams = iter([contextlib.nullcontext(iter([]))])
+
+    def urlopen(*args, **kwargs):
+        stream = next(streams, None)
+        if stream is None:
+            raise Stop
+        return stream
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(Stop):
+        drive.follow_records(0)
+    assert "records" not in drive.errors
 
 
 def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments(tmp_path):

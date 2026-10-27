@@ -14,7 +14,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, overlay: null };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, overlay: null, taps: [] };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -51,6 +51,44 @@ function boardRow(n) {
 }
 function verdictState(row) {
   return row.state;
+}
+const ASK_PARTS = new Set(['choice', 'approval', 'input']);
+function tapped(tap) {
+  state.taps.push(tap);
+  settle(state.model);
+  render();
+}
+function settle(model) {
+  state.taps = state.taps.filter((t) => t.seq > (model.board.seq ?? 0));
+  const cards = [...model.board.cards, ...model.needs.filter((item) => item.kind === 'card').map((item) => item.card)];
+  for (const t of state.taps) {
+    if (t.number) {
+      const row = model.board.rows.find((r) => r.block === t.block && r.number === t.number && r.head === t.head);
+      if (row) Object.assign(row, { verdict: t.verdict, state: t.state });
+      continue;
+    }
+    for (const card of cards) {
+      if (t.noted && card.id === t.block) card.noted = true;
+      const part = card.parts.find((p) => p.id === t.block);
+      if (part) part.answer = t.answer;
+      if (card.choice !== t.block) continue;
+      const next = card.parts.find((p) => p.kind === 'choice' && !p.answer);
+      Object.assign(card, { choice: next?.id ?? null, options: next?.options ?? [], recommended: next?.options.find((o) => o.recommended)?.label ?? null });
+    }
+  }
+  const live = (r) => model.board.rows.find((b) => b.block === r.block && b.number === r.number)?.state ?? r.state;
+  const open = (card) => {
+    const asks = card.parts.filter((p) => ASK_PARTS.has(p.kind));
+    return asks.length ? asks.some((p) => !p.answer) : card.embed || !card.noted;
+  };
+  model.board.cards = model.board.cards.filter(open);
+  model.needs = model.needs.flatMap((item) => {
+    if (item.kind === 'card') return open(item.card) ? [item] : [];
+    if (item.kind !== 'prs') return [item];
+    const rows = [...item.prs, ...item.others].map((r) => ({ ...r, state: live(r) }));
+    const prs = rows.filter((r) => r.state === 'you');
+    return prs.length ? [{ ...item, prs, others: rows.filter((r) => r.state !== 'you') }] : [];
+  });
 }
 function driveEntry(n) {
   return state.drive.get(Number(n));
@@ -297,10 +335,11 @@ function sourceLink(source) {
 }
 function needRow(r) {
   const row = boardRow(r.number);
-  const busy = row?.pending ? ' disabled' : '';
-  const acts = r.state === 'you'
-    ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>‖ Hold</button>`
-    : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
+  const acts = row?.pending
+    ? `<span class="decided sending">${DECIDE_WORD[row.pending]} ${esc(r.head.slice(0, 7))}…</span>`
+    : r.state === 'you'
+      ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}">✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}">‖ Hold</button>`
+      : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   const stuck = r.blocker && !/^nothing/i.test(r.blocker);
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(shortName(r.number) ?? r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
     <p class="nline">${inline(r.change)}</p>${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}
@@ -496,6 +535,8 @@ async function load() {
   const res = await fetch('/api/model', { cache: 'no-store' });
   const model = await res.json();
   if (!model.prs) return setTimeout(load, 1000);
+  if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
+  settle(model);
   state.model = model;
   state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
   state.version = model.version;
