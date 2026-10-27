@@ -3138,9 +3138,11 @@ is the config's keeper lane: it keeps the story file's sentences true, answers e
 The owner set the app's bar, and every revision is graded against it:
 
 - A five-second glance tells him how far along the drive is, with nothing to read.
-- The first screen is a picture: the end state, its pieces colored done, doing, or not
-  started; a progress figure; one live box per worker saying what it is doing now; and
-  the exact current plan one click away, full-screen.
+- The first screen is the plan's steps as a visual, interactive table: each step's
+  state, what blocks it, and what happens next, with its landed, queued, and
+  waiting-on-his-tap counts. The end state sits beside it as a picture, its pieces
+  colored done, doing, or not started, with one live box per worker saying what it is
+  doing now, and the exact current plan is one click away, full-screen.
 - Needs you lists every tap and card he owes. Approve and Hold act in place, posting the
   board's own decision event, and never open the board.
 - The PR review screen embeds cc-review for each PR and each stack and cc-present's row,

@@ -22,6 +22,7 @@ One round per revision the builder tells you is up:
    the owner, given his words, the screenshots, and the DOM text. Time each task as
    found at a glance, found after N clicks, or not found:
    - how far along is the work, and what does done look like
+   - the state of each step and what blocks it
    - what is being worked on right now
    - what needs me, and act on it in place
    - show me the exact current plan
