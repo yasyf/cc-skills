@@ -42,8 +42,6 @@ class ReviewAssistant:
         self.stale = set()
         self.closed = set()
         self.starting = {}
-        self.warming = queue.Queue()
-        threading.Thread(target=self.warm_loop, daemon=True).start()
 
     def session(self, number):
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://github.com/{self.config['repo']}/pull/{number}#{self.scope(number)}"))
@@ -61,7 +59,7 @@ class ReviewAssistant:
         if not watching:
             threading.Thread(target=self.watch, args=(number,), daemon=True).start()
 
-    def review_url(self, number, head, landed, viewing=True):
+    def review_url(self, number, head, landed):
         with self.lock:
             starting = self.starting.setdefault(number, threading.Lock())
         with starting:
@@ -71,7 +69,7 @@ class ReviewAssistant:
                 try:
                     started = subprocess.run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.session(number), "--cwd", str(cwd)], capture_output=True, text=True, check=True, timeout=120)
                 except subprocess.CalledProcessError:
-                    if not (viewing and (url := self.opened(cwd))):
+                    if not (url := self.opened(cwd)):
                         raise
                     self.stale.add(number)
                 else:
@@ -84,7 +82,7 @@ class ReviewAssistant:
             if landed and url not in self.closed:
                 subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
                 self.closed.add(url)
-            if viewing and not landed:
+            if not landed:
                 self.attach(number)
             return url
 
@@ -93,22 +91,6 @@ class ReviewAssistant:
         slug = next((f[0] for f in map(str.split, listed) if f[1] == "open" and f[-1] == str(cwd)), None)
         port = DAEMON_PORT.search(subprocess.run(["cc-review", "status"], capture_output=True, text=True, check=True, timeout=30).stdout)
         return slug and port and f"http://{self.config['host']}:{port[1]}/s/{slug}"
-
-    def refresh(self, waiting):
-        for number, head in waiting:
-            if (number, head) not in self.urls:
-                self.warming.put((number, head))
-
-    def warm_loop(self):
-        while True:
-            number, head = self.warming.get()
-            if (number, head) in self.urls:
-                continue
-            try:
-                self.review_url(number, head, False, viewing=False)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
-                with (self.reviews / "warm.log").open("a") as log:
-                    log.write(f"#{number} at {head}: {failure.stderr}\n")
 
     def watch(self, number):
         while True:
