@@ -266,8 +266,8 @@ class FakeShell(ledger.Shell):
                 "state": "SUCCESS",
                 "contexts": {
                     "nodes": [
-                        {"__typename": "CheckRun", "name": run["name"], "conclusion": (run.get("conclusion") or "").upper(), "status": run["status"].upper()}
-                        for run in reversed(checks)
+                        {"__typename": "CheckRun", "name": run["name"], "conclusion": (run.get("conclusion") or "").upper(), "status": run["status"].upper(), "databaseId": run_id}
+                        for run_id, run in enumerate(reversed(checks), 1)
                     ]
                 },
             },

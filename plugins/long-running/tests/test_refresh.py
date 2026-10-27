@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from datetime import timedelta
@@ -272,7 +273,7 @@ def test_grade_reads_a_ccx_record():
         },
     }
 
-    assert ledger.grade(record) == {
+    assert ledger.grade(record, "yasyf/cc-context") == {
         "state": "closed",
         "head": "50f993302e17013bff91d0e53764c7c17f9387c4",
         "base": "main",
@@ -284,8 +285,24 @@ def test_grade_reads_a_ccx_record():
         "mergeable_state": "unknown",
         "labels": "",
         "ai_review": "in_progress",
+        "failing_checks": "[]",
         "changed_files": "5",
     }
+
+
+def test_failing_checks_name_each_check_whose_newest_run_failed_with_its_url():
+    contexts = [
+        {"__typename": "CheckRun", "name": "lint", "conclusion": "FAILURE", "status": "COMPLETED", "databaseId": 11},
+        {"__typename": "CheckRun", "name": "lint", "conclusion": "SUCCESS", "status": "COMPLETED", "databaseId": 12},
+        {"__typename": "CheckRun", "name": "unit", "conclusion": "TIMED_OUT", "status": "COMPLETED", "databaseId": 13},
+        {"__typename": "StatusContext", "context": "buildkite/test", "state": "FAILURE", "targetUrl": "https://buildkite.com/forge/test/builds/9"},
+        {"__typename": "StatusContext", "context": "buildkite/lint", "state": "PENDING", "targetUrl": "https://buildkite.com/forge/lint/builds/9"},
+    ]
+
+    assert json.loads(ledger.failing_checks(contexts, "acme/app")) == [
+        {"name": "unit", "url": "https://github.com/acme/app/runs/13"},
+        {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9"},
+    ]
 
 
 def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):

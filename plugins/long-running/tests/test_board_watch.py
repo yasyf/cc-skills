@@ -79,6 +79,12 @@ def test_the_digest_joins_session_text_and_block_with_nul(tmp_path: Path) -> Non
     assert approval["session"] == SESSION
 
 
+def test_only_an_approvals_prompt_is_marked_approved(tmp_path: Path) -> None:
+    verdicts = {capture["text"]: capture.get("verdict") for capture in run(tmp_path) if capture["block"] in ("update-confirm-ok", "banner-ok")}
+
+    assert verdicts == {CONFIRMED: "approved", "rejected": None, "keep the old banner text": None}
+
+
 def test_each_event_line_is_kept_verbatim(tmp_path: Path) -> None:
     run(tmp_path)
 

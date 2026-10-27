@@ -104,6 +104,7 @@ import cci
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
+FAILED_CHECKS = frozenset({"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED"})
 STACK_MERGEABILITY_CHECK = "Graphite / mergeability_check"
 APPROVED = "APPROVED"
 REVIEW_DECISIONS = (APPROVED, "CHANGES_REQUESTED", "DISMISSED")
@@ -747,7 +748,17 @@ def cache_banner(shell: Shell, rows: dict[str, dict[str, str]], moment: datetime
     return f"pr states: cached {age} (GraphQL quota exhausted, resets {quota_resets(shell)})"
 
 
-def grade(record: dict) -> dict[str, str]:
+def failing_checks(contexts: list[dict], repo: str) -> str:
+    """Each check whose newest run on the head failed, as a JSON list of its name and URL, off the rollup the row's test_state comes from, so a reader names the red check without a GitHub call (root #145266)."""
+    newest = {node.get("name") or node.get("context"): node for node in contexts}
+    return json.dumps([
+        {"name": name, "url": f"https://github.com/{repo}/runs/{node['databaseId']}" if node["__typename"] == "CheckRun" else node.get("targetUrl") or ""}
+        for name, node in newest.items()
+        if (node.get("conclusion") or node.get("state") or "").upper() in FAILED_CHECKS
+    ])
+
+
+def grade(record: dict, repo: str) -> dict[str, str]:
     """A row's graded fields, off one record whose head and verdicts a single poll read together."""
     rollup = record.get("rollup") or {}
     return {
@@ -762,6 +773,7 @@ def grade(record: dict) -> dict[str, str]:
         "mergeable_state": record["mergeStateStatus"].lower(),
         "labels": ",".join(record.get("labels") or []),
         "ai_review": ai_review(rollup.get("contexts", {}).get("nodes", [])),
+        "failing_checks": failing_checks(rollup.get("contexts", {}).get("nodes", []), repo),
         "changed_files": str(record["changedFiles"]),
     }
 
@@ -1590,7 +1602,7 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     for key in sorted((set(wanted) | set(registered)) - settled, key=int):
         if key in reopenable and state["prs"][key]["state"] != "OPEN":
             continue
-        fields = grade(state["prs"][key])
+        fields = grade(state["prs"][key], scope.repo)
         fields["last_refresh"] = moment
         if key not in known:
             fields["first_seen"] = moment

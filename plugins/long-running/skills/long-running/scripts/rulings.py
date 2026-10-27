@@ -1761,11 +1761,9 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if not quotes_row(shown, key, fields):
             print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
             return 1
-        if fields.get("kind") == "reserved" and (merge := MERGE_CARD.fullmatch(str(action.get("id") or ""))):
-            repo = ledger.origin_repo(shell, Path(args.repo))
-            if not reserved_hit(fields, pr_diff(args, shell, repo, base_of(shell, repo, merge["pr"]), merge["head"])):
-                print(f"AUTHORIZE-ROW-UNTOUCHED {key}: #{merge['pr']} at {merge['head']} changes nothing {key} covers, so the tap authorizes nothing")
-                return 1
+        if pr_head := untouched(args, shell, fields, str(action.get("id") or "")):
+            print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
+            return 1
         permalink = f"p{action['ts'].replace('.', '')}"
         found = [
             answer
@@ -1774,11 +1772,19 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
             or (permalink in (answer.get("body") or "") and action["label"] in (answer.get("body") or ""))
         ]
     else:
-        capture = captures(loaded.state).get(args.prompt)
-        if not capture or (said := replied_to(entries, capture["text"])) is None or not quotes_row(said, key, fields):
-            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} replies to no root message quoting {key} and its words")
+        capture = captures(loaded.state).get(args.prompt) or {}
+        board = capture.get("source") == "board"
+        if board and (capture.get("verdict") != "approved" or capture.get("row")):
+            print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing")
             return 1
-        found = [answer for answer in owner if f"proof:prompt:{args.prompt}" in (answer.get("tags") or [])]
+        said = capture.get("text") if board else replied_to(entries, capture["text"]) if capture else None
+        if said is None or not quotes_row(said, key, fields):
+            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} is no board approval quoting {key} and its words, and replies to no root message that does")
+            return 1
+        if board and (pr_head := untouched(args, shell, fields, capture.get("block") or "")):
+            print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the approval authorizes nothing")
+            return 1
+        found = [answer for answer in owner if f"proof:{capture['source']}:{args.prompt}" in (answer.get("tags") or [])]
     named_row = [answer for answer in found if key in f"{answer.get('title', '')}\n{answer.get('body', '')}" or card_id(key) in f"{answer.get('title', '')}\n{answer.get('body', '')}"]
     if not named_row:
         print(f"AUTHORIZE-ANSWER-NAMES-NO-ROW {key}: no from:owner answer for this capture names {key}")
@@ -1940,6 +1946,14 @@ def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
     ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
     paths = [op for op in ops if "/" in op and not any(char.isspace() for char in op)]
     return any(op_hits(op, diff, paths) for op in ops if op not in paths)
+
+
+def untouched(args: argparse.Namespace, shell: ledger.Shell, fields: dict[str, str], card: str) -> str:
+    """The PR and head a merge card names, when the row is reserved and that head changes nothing the row covers, so the owner's approval of the card authorizes nothing; empty otherwise."""
+    if fields.get("kind") != "reserved" or not (merge := MERGE_CARD.fullmatch(card)):
+        return ""
+    repo = ledger.origin_repo(shell, Path(args.repo))
+    return "" if reserved_hit(fields, pr_diff(args, shell, repo, base_of(shell, repo, merge["pr"]), merge["head"])) else f"#{merge['pr']} at {merge['head']}"
 
 
 def authorized(loaded: Register, head: Head, key: str) -> bool:
@@ -2410,7 +2424,7 @@ def build_parser() -> argparse.ArgumentParser:
     shown.add_argument("--since-last-update", action="store_true")
     shown.add_argument("--full", action="store_true")
     verb("glossary", cmd_glossary, "print the product nouns and the owner's own captured words")
-    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a captured tap or reply quoting the row")
+    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a captured Slack tap, board approval or reply quoting the row")
     authorize.add_argument("--row", required=True, metavar="KEY")
     tap = authorize.add_mutually_exclusive_group(required=True)
     tap.add_argument("--action", metavar="TS")
