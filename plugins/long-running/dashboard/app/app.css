@@ -159,8 +159,8 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   h2.sec .dim { display: none; }
   .sheet { padding: 16px; } .overlay { padding: 0; } .sheet { border-radius: 0; min-height: 100%; }
   .top { flex-wrap: wrap; height: auto; padding: 8px 14px 0; gap: 6px 12px; }
-  .tabs { order: 3; flex-basis: 100%; }
-  .tab { padding: 10px 10px 10px; }
+  .tabs { order: 3; flex-basis: 100%; flex-wrap: wrap; column-gap: 0; }
+  .tab { padding: 7px 8px 8px; font-size: 13.5px; }
   .wrap { padding: 16px 14px 96px; }
   .thesis { font-size: 18px; }
   .tl li { grid-template-columns: 52px 12px minmax(0, 1fr); gap: 0 8px; }
