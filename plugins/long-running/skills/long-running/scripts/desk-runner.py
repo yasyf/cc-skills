@@ -383,7 +383,8 @@ passes (default 2) run at once and the rest wait queued; each PR's newest queued
 queued head of the same PR settles as superseded. A head some lane's `finder:` record already names starts nothing. A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
 `codex-ask -m <finder.model, default sol> --schema findings` in `finder.checkout`, default `landing.checkout`, over
-`<base>...<head>`, or over what changed since the head the PR's newest finder record at another head read, and posts
+the head's own commits against the base branch's current tip, or over what changed since the head the PR's newest finder
+record at another head read (finder.py), and posts
 `finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane and each
 `finder.to` address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
 `FINDER-FAILED` once. `show` lists each queued and running pass.
@@ -3951,7 +3952,7 @@ class Runner:
         job = json.loads(action.target)
         if self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
             log = Path(action.dispatch_id) / finder.LOG
-            self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed: {why}; its log is {log}; the lane runs the pass by hand from reference/finder-brief.md")
+            self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed: {why}; its log is {log}; the lane runs the pass by hand from {finder.BRIEF}")
 
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
@@ -5255,7 +5256,7 @@ class Landing:
                 continue
             if not verdict and self.finder_carried(pr, sha):
                 continue
-            why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else "no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+            why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` review record names this head; run the sol finder {finder.BRIEF} names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
         if graded.act:
             for pr, state in states.items():

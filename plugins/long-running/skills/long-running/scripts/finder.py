@@ -4,25 +4,33 @@
     finder.py DIR
 
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
-this script detached. The job reads the PR through ccx's gateway, writes the head's required register
-rows to `DIR/rows.md` with `rulings.py slice --required`, fills `reference/finder-desk-brief.md`, and
-runs `codex-ask -m <model> --schema findings` in the drive's checkout. A reply that names no verdict
-for a row key the slice printed is asked once more; a second such reply fails the job. The verdict is
-posted under lane `finder-desk` as `finder: ok <head> …` or `finder: major <head> <n> open: …`, kind
-`review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>`, and the whole reply on `--path`,
-to the lane that posted the head and every `finder.to` address. A closed PR posts nothing.
-`DIR/result.json` is written last, `{"error": …}` when the job raised, and the runner settles the
-dispatch from it.
+this script detached. The job reads the PR through ccx's gateway, retrying a failed read once after
+`RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
+PR's own commits as the head's commits no commit on the base branch's current tip matches by patch,
+so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
+graded is a fixed head: it reads only the change since that head, runs no row pass, and posts
+nothing when its own change is patch-identical to the graded head's. A whole pass writes the head's
+required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
+`reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
+checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
+`swept`, is asked once more; a second such reply fails the job. A head that moved while codex read
+it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
+`finder: major <head> <n> open: …`, kind `review`, with `--pr <repo>#<n>`,
+`--id finder:<repo>#<n>:<head>`, and the whole reply on `--path`, to the lane that posted the head
+and every `finder.to` address. `DIR/result.json` is written last, `{"error": …}` when the job
+raised, and the runner settles the dispatch from it.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import drive
@@ -30,7 +38,14 @@ import ghread
 from grades import names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
+BRIEF = SCRIPTS.parent / "reference" / "finder-brief.md"
 TEMPLATE = SCRIPTS.parent / "reference" / "finder-desk-brief.md"
+ROWS_STEP = SCRIPTS.parent / "reference" / "finder-desk-rows.md"
+SCOPED_STEP = (
+    "2. This head fixes one an earlier finder record graded, so it gets no row pass. Name an owner row\n"
+    "   only when a hunk this pass reads breaks it, as one major finding whose defect starts\n"
+    '   "row <key> missing:".'
+)
 LANE = "finder-desk"
 JOB = "job.json"
 RESULT = "result.json"
@@ -40,8 +55,12 @@ FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
+LISTED = re.compile(r"(rows met|n/a|pending|tests):[^;.\n]*;?")
+REASON_WORDS = 12
+REASONLESS = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 CCI_TEXT = 400
 READ_SECONDS = 120
+RETRY_SECONDS = 30
 SLICE_SECONDS = 900
 FINDER_SECONDS = 5400
 
@@ -71,16 +90,16 @@ def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dic
     return full, {"seq": prior["seq"], "lane": prior["lane"], "head": prior["head"], "text": prior["text"]}
 
 
-def scope(job: dict, base: str) -> str:
-    head, last = job["head"], job["since"]
-    whole = f"`git diff {base}...{head}`"
+def scope(job: dict, base: str, root: str, last: str) -> str:
+    head = job["head"]
+    whole = f"`git diff {root} {head}`"
     if not last:
         return f"This pass reads the PR's whole change: {whole}."
     return (
-        f"The finder last read {last}. This pass reads what changed since: `git diff {last} {head}` when "
+        f"The finder last graded {last}. This pass reads only what changed since: `git diff {last} {head}` when "
         f"`git merge-base --is-ancestor {last} {head}` succeeds; otherwise the head was rebased, and "
         f"`git range-diff {base} {last} {head}` names each commit that changed, which you read whole. "
-        f"The PR's whole change, for context, is {whole}."
+        f"The PR's whole change, for context only, is {whole}."
     )
 
 
@@ -94,26 +113,26 @@ def prior_text(job: dict) -> str:
     )
 
 
-def prompt(job: dict, view: dict, rows: Path, plan: str) -> str:
+def prompt(job: dict, view: dict, base: str, root: str, last: str, rows: Path | None, plan: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
         head=job["head"],
         base=view["baseRefName"],
-        base_oid=view["baseRefOid"],
+        base_oid=base,
         checkout=job["checkout"],
-        fetch=" ".join(filter(None, [job["head"], view["baseRefOid"], job["since"]])),
-        scope=scope(job, view["baseRefOid"]),
+        fetch=" ".join(filter(None, [job["head"], base, last])),
+        scope=scope(job, base, root, last),
         prior=prior_text(job),
-        rows=rows,
+        rows_step=ROWS_STEP.read_text().format(rows=rows).rstrip() if rows else SCOPED_STEP,
         plan=plan or "none; the register names no plan",
         body=view["body"].strip() or "(empty)",
     )
 
 
-def record_text(job: dict, view: dict, findings: list[dict]) -> str:
+def record_text(job: dict, view: dict, last: str, findings: list[dict]) -> str:
     head = job["head"]
-    read = f"{job['since'][:7]}..{head[:7]}" if job["since"] else f"{view['baseRefName']}...{head[:7]}"
+    read = f"{last[:7]}..{head[:7]}" if last else f"{view['baseRefName']}...{head[:7]}"
     if not (majors := [finding for finding in findings if finding["severity"] in MAJORS]):
         return f"finder: ok {head} {job['model']} finder over {read}: no majors"
     opened = "; ".join(" ".join(f"{finding['cite']} {finding['defect']}".split()) for finding in majors)
@@ -133,6 +152,49 @@ def unanswered(keys: list[str], reply: str) -> list[str]:
     return [key for key in keys if key not in reply]
 
 
+def reasoned(reply: str) -> bool:
+    return len(LISTED.sub(" ", json.loads(reply)["swept"]).split()) >= REASON_WORDS
+
+
+def shortfalls(keys: list[str], reply: str) -> list[str]:
+    missing = unanswered(keys, reply)
+    return ([f"no verdict for {', '.join(missing)}"] if missing else []) + ([] if reasoned(reply) else [REASONLESS])
+
+
+def view_pr(shell: Shell, job: dict) -> dict:
+    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body", max_age=ghread.FRESH)
+    try:
+        return json.loads(shell.run(argv))
+    except subprocess.CalledProcessError:
+        time.sleep(RETRY_SECONDS)
+        return json.loads(shell.run(argv))
+
+
+def git(shell: Shell, job: dict, *argv: str) -> str:
+    return shell.run(["git", *argv], cwd=Path(job["checkout"]), timeout=SLICE_SECONDS).strip()
+
+
+def own_root(shell: Shell, job: dict, base: str, head: str) -> str:
+    """The parent of the oldest commit `head` carries that no commit since its merge-base with `base` matches by patch, empty when there is none."""
+    own = git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{base}...{head}").split()
+    return f"{own[0]}^" if own else ""
+
+
+def patch_id(diff: str) -> str:
+    changed = (line.rstrip() for line in diff.splitlines() if line.startswith(("diff --git", "+", "-")) and not line.startswith(("+++", "---")))
+    return hashlib.sha256("\n".join(changed).encode()).hexdigest()
+
+
+def graded(shell: Shell, job: dict) -> str:
+    """The full head the PR's last finder record graded, resolved in the checkout when the record spelled it short, empty when it cannot be."""
+    if job["since"] or not job["prior"]:
+        return job["since"]
+    try:
+        return git(shell, job, "rev-parse", "--verify", "--quiet", f"{job['prior']['head']}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return ""
+
+
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
     argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}", "--path", str(body)]
@@ -142,23 +204,37 @@ def post(shell: Shell, job: dict, text: str, body: Path) -> str:
 
 def run(directory: Path, shell: Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
-    pr = f"{job['repo']}#{job['pr']}"
-    view = json.loads(shell.run(ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,baseRefOid,body")))
+    pr, head = f"{job['repo']}#{job['pr']}", job["head"]
+    view = view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
-    rows = directory / "rows.md"
-    rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", job["head"], "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
-    keys = ROW_KEY.findall(rows.read_text())
+    if view["headRefOid"] != head:
+        return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
+    base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
+    last = graded(shell, job)
+    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, *filter(None, [last]))
+    if not (root := own_root(shell, job, base, head)):
+        return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
+    if last and (last_root := own_root(shell, job, base, last)) and patch_id(git(shell, job, "diff", last_root, last)) == patch_id(git(shell, job, "diff", root, head)):
+        return {"skipped": f"{pr} at {head[:12]} is patch-identical to {last[:12]}, which cci #{job['prior']['seq']} graded"}
+    rows = None if last else directory / "rows.md"
+    keys: list[str] = []
+    if rows:
+        rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
+        keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, rows, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, base, root, last, rows, shell.run(rulings(job, "plan")).strip()))
     reply = ask(shell, job, directory, question, 1)
-    if missing := unanswered(keys, reply):
+    if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
-        retry.write_text(f"{question.read_text()}\nYour last reply named no verdict for {', '.join(missing)}. Every key in the rows file appears exactly once, as met, n/a, pending, or a missing finding.\n")
+        rule = " Every key in the rows file appears exactly once, as met, n/a, pending, or a missing finding." if keys else ""
+        retry.write_text(f"{question.read_text()}\nYour last reply gave {'; and '.join(short)}.{rule}\n")
         reply = ask(shell, job, directory, retry, 2)
-        if missing := unanswered(keys, reply):
-            raise JobFailed(f"two replies named no verdict for {', '.join(missing)}")
-    text = record_text(job, view, json.loads(reply)["findings"])
+        if short := shortfalls(keys, reply):
+            raise JobFailed(f"two replies gave {'; and '.join(short)}")
+    if (now := view_pr(shell, job)["headRefOid"]) != head:
+        return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
+    text = record_text(job, view, last, json.loads(reply)["findings"])
     body = directory / "record.md"
     body.write_text(f"{text}\n\n{reply.strip()}\n")
     return {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}

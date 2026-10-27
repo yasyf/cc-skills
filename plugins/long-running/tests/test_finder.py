@@ -1,8 +1,9 @@
-"""finder.py against a fake gh, rulings.py, codex-ask and cci: the record a pass posts, the range it reads, and when it asks again or posts nothing."""
+"""finder.py against a fake gh, git, rulings.py, codex-ask and cci: the record a pass posts, the range it reads, and when it asks again or posts nothing."""
 
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,19 +16,33 @@ REPO = "Forge-AI/monorepo"
 HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"
 OLD = "a269784e49009c5aa92b2341e08d6945f7ff8e95"
 BASE = "d011466aa1b2c3d4e5f60718293a4b5c6d7e8f90"
+STALE_BASE = "c3a3afc0307096aabf6d24513b2436d1bb23bbe8"
+OWN = "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
+OLD_OWN = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
+NEWER = "5be7c0de5be7c0de5be7c0de5be7c0de5be7c0de"
 ROWS = (
     f"Required rows for {REPO}#43299 at {HEAD}\n\n## Every global, pending and touched row (2)\n\n"
     "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> it should be a ssql replica that is live streaming, not polled\n\n"
     "### prompt/1026-105052 | reserved | in-force | said 1 | 2026-10-26\n> no credential on disk\nslice-hash: 0123456789ab\n"
 )
-SWEPT = "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
+REASONS = "The resubscribe hunks keep the fetched position across a cut, and every caller passes it through unchanged. "
+SWEPT = REASONS + "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
+
+
+def patch(start: int) -> str:
+    return f"diff --git a/follow.go b/follow.go\nindex 1111111..2222222 100644\n--- a/follow.go\n+++ b/follow.go\n@@ -{start},2 +{start},2 @@\n-poll()\n+stream()\n"
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN"):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, diffs: dict | None = None, resolve: dict | None = None, failures: int = 0):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
+        self.heads = list(heads)
+        self.own = {HEAD: [OWN]} if own is None else own
+        self.diffs = diffs or {}
+        self.resolve = resolve or {}
+        self.failures = failures
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
 
@@ -35,7 +50,13 @@ class Fake:
         argv = gateway(argv)
         self.calls.append((argv, cwd))
         if argv[:3] == ["gh", "pr", "view"]:
-            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": BASE, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
+            if self.failures:
+                self.failures -= 1
+                raise subprocess.CalledProcessError(1, argv, stderr='Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
+            head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
+            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": STALE_BASE, "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
+        if argv[0] == "git":
+            return self.git(argv[1:])
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
             return ROWS if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
         if argv[0] == "codex-ask":
@@ -46,6 +67,21 @@ class Fake:
             self.posted.append(dict(zip(argv[2::2], argv[3::2], strict=True)))
             return "#150001\n"
         raise AssertionError(f"unexpected call {argv}")
+
+    def git(self, argv: list[str]) -> str:
+        if argv[0] == "ls-remote":
+            return f"{BASE}\trefs/heads/dev\n"
+        if argv[0] == "fetch":
+            return ""
+        if argv[0] == "rev-parse":
+            if (full := self.resolve.get(argv[-1].removesuffix("^{commit}"))) is None:
+                raise subprocess.CalledProcessError(1, argv)
+            return f"{full}\n"
+        if argv[0] == "rev-list":
+            return "".join(f"{sha}\n" for sha in self.own.get(argv[-1].split("...")[1], []))
+        if argv[0] == "diff":
+            return self.diffs.get((argv[1], argv[2]), "")
+        raise AssertionError(f"unexpected git {argv}")
 
     def asks(self) -> list[tuple[list[str], Path | None]]:
         return [(argv, cwd) for argv, cwd in self.calls if argv[0] == "codex-ask"]
@@ -81,8 +117,28 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}" and post["--path"] == str(directory / "record.md")
     assert post["--text"] == f"finder: ok {HEAD} sol finder over dev...{HEAD[:7]}: no majors"
     assert finder_grade(post["--text"]) == FINDER_PASS and graded_head(post["--text"]) == HEAD
-    assert f"git diff {BASE}...{HEAD}" in (directory / "question-1.md").read_text()
+    question = (directory / "question-1.md").read_text()
+    assert f"`git diff {OWN}^ {HEAD}`" in question and f"on base dev ({BASE})" in question and STALE_BASE not in question
+    assert str(directory / "rows.md") in question and "Open `swept` with your reasoning" in question
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
+
+
+def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_the_base_branchs_current_tip(tmp_path):
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()], own={HEAD: [OWN, NEWER]})
+    finder.main([str(directory)], shell)
+    [rev_list] = [argv for argv, _ in shell.calls if argv[:2] == ["git", "rev-list"]]
+    assert rev_list == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
+    question = (directory / "question-1.md").read_text()
+    assert f"`git diff {OWN}^ {HEAD}`" in question and f"{BASE}...{HEAD}" not in question and f"{STALE_BASE}...{HEAD}" not in question
+
+
+def test_a_head_that_carries_no_commit_the_base_lacks_runs_no_finder(tmp_path):
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [], own={})
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} carries no commit dev lacks"}
 
 
 def test_blockers_and_majors_post_finder_major_one_clause_each_and_minors_stay_off_the_record(tmp_path):
@@ -115,7 +171,9 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     assert f"origin {HEAD} {BASE} {OLD}`" in question
     assert f"`git diff {OLD} {HEAD}`" in question and f"`git range-diff {BASE} {OLD} {HEAD}`" in question
     assert "cci #149302 from p8a-step9 at a269784" in question and "walk.go:9 skips the volume link" in question
-    assert "/plans/durable/plan/plan.md" in question and str(directory / "rows.md") in question
+    assert "/plans/durable/plan/plan.md" in question and finder.SCOPED_STEP in question
+    assert "rows.md" not in question and not (directory / "rows.md").exists()
+    assert not [argv for argv, _ in shell.calls if argv[2:3] == ["slice"]]
     [(ask, cwd)] = shell.asks()
     assert ask[:5] == ["codex-ask", "-m", "sol", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
@@ -135,7 +193,72 @@ def test_a_reply_that_drops_a_row_key_is_asked_once_more_and_two_such_replies_po
     with pytest.raises(finder.JobFailed):
         finder.main([str(again)], shell)
     assert not shell.posted
-    assert result(again) == {"error": "JobFailed: two replies named no verdict for prompt/1026-105052"}
+    assert result(again) == {"error": "JobFailed: two replies gave no verdict for prompt/1026-105052"}
+
+
+def test_a_reply_with_no_reasoning_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
+    bare = reply(swept="ok; rows met: rule/949e6be; n/a: prompt/1026-105052; pending: ")
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [bare, reply()])
+    finder.main([str(directory)], shell)
+    assert finder.REASONLESS in (directory / "question-2.md").read_text()
+    assert len(shell.posted) == 1
+
+    again = job(tmp_path / "again")
+    shell = Fake(tmp_path, [bare, bare])
+    with pytest.raises(finder.JobFailed):
+        finder.main([str(again)], shell)
+    assert not shell.posted
+    assert result(again) == {"error": f"JobFailed: two replies gave {finder.REASONLESS}"}
+
+
+def test_a_head_the_pr_no_longer_carries_runs_no_finder(tmp_path):
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [], heads=(NEWER,))
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 moved to {NEWER[:12]}"}
+
+
+def test_a_head_superseded_while_codex_read_it_posts_nothing(tmp_path):
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply(finding("major"))], heads=(HEAD, NEWER))
+    finder.main([str(directory)], shell)
+    assert len(shell.asks()) == 1 and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 moved to {NEWER[:12]} while codex read {HEAD[:12]}"}
+
+
+def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
+    slept = []
+    monkeypatch.setattr(finder.time, "sleep", slept.append)
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()], failures=1)
+    finder.main([str(directory)], shell)
+    assert slept == [finder.RETRY_SECONDS] and len(shell.posted) == 1
+
+    again = job(tmp_path / "again")
+    with pytest.raises(subprocess.CalledProcessError):
+        finder.main([str(again)], Fake(tmp_path, [], failures=2))
+    assert "TLS handshake timeout" in result(again)["error"]
+
+
+def test_a_fixed_head_whose_own_change_matches_the_graded_heads_by_patch_posts_nothing(tmp_path):
+    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, prior=prior)
+    shell = Fake(tmp_path, [], own={HEAD: [OWN], OLD: [OLD_OWN]}, diffs={(f"{OWN}^", HEAD): patch(40), (f"{OLD_OWN}^", OLD): patch(12)}, resolve={"a269784": OLD})
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} is patch-identical to {OLD[:12]}, which cci #149302 graded"}
+
+
+def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_what_changed_since(tmp_path):
+    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, prior=prior)
+    shell = Fake(tmp_path, [reply()], own={HEAD: [OWN], OLD: [OLD_OWN]}, diffs={(f"{OWN}^", HEAD): patch(40), (f"{OLD_OWN}^", OLD): patch(12).replace("stream", "push")}, resolve={"a269784": OLD})
+    finder.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"`git diff {OLD} {HEAD}`" in question and finder.SCOPED_STEP in question
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
 def test_a_closed_pr_runs_no_finder_and_posts_nothing(tmp_path):

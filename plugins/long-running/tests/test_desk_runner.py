@@ -4224,7 +4224,7 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert blocker["to"] == LANE and blocker["topic"] == "29020"
-    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"
 
 
 PRECONDITION = "This lands only after the seed's read-back shows the pointer."
@@ -4725,7 +4725,7 @@ QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pas
     [
         ("hold", "hold fail the holds-file line `#29020 owner review`"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
-        ("finder", "finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"),
+        ("finder", f"finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"),
         ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
     ],
 )
@@ -4844,7 +4844,7 @@ def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_githubs_head_of_e
     posts = len(shell.posts)
     assert mq(shell, config, "gate", "29020", *partial) == 1
     assert capsys.readouterr().out.splitlines() == [
-        "#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+        f"#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"
     ]
     assert viewed_heads(shell)[-len(graded):] == graded and len(shell.posts) == posts
 
@@ -10044,8 +10044,8 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_escalates_once(sh
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert finder_failures(shell) == [
-        f"FINDER-FAILED finder:43439:{FINDER_HEAD} p8a-step9: #43439 {FINDER_HEAD[:12]}: the finder desk's pass failed: codex-ask -m sol --schema findings exited 1: quota exhausted; its log is {failed / 'job.log'}; the lane runs the pass by hand from reference/finder-brief.md",
-        f"FINDER-FAILED finder:43299:{FINDER_OLD} p8a-step9: #43299 {FINDER_OLD[:12]}: the finder desk's pass failed: no result 2 min after it started; its log is {silent / 'job.log'}; the lane runs the pass by hand from reference/finder-brief.md",
+        f"FINDER-FAILED finder:43439:{FINDER_HEAD} p8a-step9: #43439 {FINDER_HEAD[:12]}: the finder desk's pass failed: codex-ask -m sol --schema findings exited 1: quota exhausted; its log is {failed / 'job.log'}; the lane runs the pass by hand from {runner_module.finder.BRIEF}",
+        f"FINDER-FAILED finder:43299:{FINDER_OLD} p8a-step9: #43299 {FINDER_OLD[:12]}: the finder desk's pass failed: no result 2 min after it started; its log is {silent / 'job.log'}; the lane runs the pass by hand from {runner_module.finder.BRIEF}",
     ]
 
 
