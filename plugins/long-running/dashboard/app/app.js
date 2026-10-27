@@ -420,6 +420,7 @@ function render() {
   const m = state.model;
   if (!m || !m.prs) return;
   const r = route();
+  if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
@@ -491,7 +492,7 @@ document.addEventListener('click', (e) => {
   }
   const close = e.target.closest('[data-close]');
   if (close && (e.target === close || close.matches('button'))) {
-    if (state.overlay) { state.overlay = null; render(); } else if (overRoute(route())) location.hash = '#/';
+    if (state.overlay) closeSheet(); else if (overRoute(route())) location.hash = '#/';
     return;
   }
   const overlay = e.target.closest('[data-overlay]');
@@ -512,9 +513,19 @@ document.addEventListener('submit', (e) => {
   ask(e.target.q.value);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.overlay) { state.overlay = null; render(); }
+  if (e.key === 'Escape' && state.overlay) closeSheet();
   else if (e.key === 'Escape' && overRoute(route())) location.hash = '#/';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
+});
+function closeSheet() {
+  if (history.state?.sheet) return history.back();
+  state.overlay = null;
+  render();
+}
+window.addEventListener('popstate', (e) => {
+  if (e.state?.sheet || !state.overlay) return;
+  state.overlay = null;
+  render();
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
 window.addEventListener('DOMContentLoaded', () => {

@@ -456,7 +456,7 @@ def test_a_merge_card_with_no_rows_waiting_still_reaches_needs_you_as_its_featur
     board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
 
     assert board["rows"] == []
-    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "tables": [table], "pages": ["| Feature | Waiting on |"]}
+    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "chips": [], "tables": [table], "pages": ["| Feature | Waiting on |"]}
 
 
 def test_a_board_row_missing_a_fact_still_reaches_needs_you():

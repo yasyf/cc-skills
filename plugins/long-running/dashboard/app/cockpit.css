@@ -608,3 +608,5 @@ body:has(.ck.ov) .top .tabs { display: none; }
 }
 .ck .prlist li .own small { white-space: nowrap; }
 .ck .left .waiting .what small { display: block; color: var(--ink2); font-size: 11.5px; }
+.sheet .ck .wt-h b { white-space: normal; overflow-wrap: anywhere; }
+.sheet .ck .wt-on { height: auto; } .sheet .ck .wt-on span { white-space: normal; }

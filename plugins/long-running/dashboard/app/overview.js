@@ -115,7 +115,7 @@ function tonight() {
   const target = stop ?? next;
   const rail = rels.map((r, i) => `<button class="mr ${releaseWord(rels, i)[0]}" data-release="${esc(r.id)}" aria-label="${esc(r.id)} ${esc(r.name)}: ${esc(releaseWord(rels, i)[1])}"><i></i><span>${esc(r.id)}</span></button>`).join('');
   return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0].split(/\.\s/)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
-    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
+    <span class="tn-facts"><span class="ok" title="Pull requests in the new app's code that have merged, of all the drive's new-app pull requests"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>on the new Mac build${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
   const c = Math.min(13, Math.max(2, Math.ceil(Math.sqrt(list.length * 2.4))));
@@ -174,7 +174,7 @@ function track(s) {
   return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
     <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</span>
     <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
-    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
+    <span class="ct" title="${t.landed} of ${plural(t.total, 'pull request')} landed${s.untracked.length ? `; ${s.untracked.length} more the merge ledger does not track yet` : ''}">${t.landed}/${t.total}</span><span class="g" title="${TONE_SAY[tone] ?? ''}" aria-label="${TONE_SAY[tone] ?? ''}">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -240,7 +240,7 @@ function deck() {
   const need = needsTotal();
   ov.page = Math.min(ov.page, Math.max(0, m.needs.length - 1));
   return `<div class="deck"><div class="readouts">
-    <button class="ro ro-done" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
+    <button class="ro ro-done" title="Every pull request of the drive that has merged: new app, old app and shared code" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
     <button class="ro ro-fly" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></button>
     <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap the card to act' : 'nothing to approve'}</em></button></div>
     ${m.needs.length ? cta(m.needs[ov.page]) : `<a class="calm" href="#/review"><span class="ic">✓</span><span><b>Nothing needs you right now</b><span>Approvals and questions land here with their buttons. Review ›</span></span></a>`}</div>`;

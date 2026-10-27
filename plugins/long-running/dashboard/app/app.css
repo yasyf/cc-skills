@@ -276,3 +276,5 @@ details.brec[open] > summary { margin-bottom: 6px; }
 .mergecard { max-width: none; }
 .note input, .note textarea, #ask textarea { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--surface-3); background: var(--bg); color: var(--ink); font: 13.5px var(--sans); }
 .note input:focus, .note textarea:focus, #ask textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+#cardembed { bottom: auto; max-height: calc(100vh - 84px); }
+@media (max-width: 760px) { .bpick .btn, .bpick .note input, .bpick .note textarea { min-height: 44px; } .bopt summary { padding: 8px 0; } }
