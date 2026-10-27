@@ -308,3 +308,8 @@ body:has(.ck) { background: #080a0d; }
   .ck .wp .n { width: 9px; height: 9px; } .ck .wp.here .n { width: 16px; height: 16px; font-size: 9px; }
   .ck .wt { flex-basis: 136px; padding: 7px 8px; gap: 3px; } .ck .crew-h { margin-bottom: 4px; }
 }
+.ck .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; } .ck .wgrid .wt { flex: none; }
+.ck .wfold > summary { cursor: pointer; padding: 10px 2px; color: var(--ink2); font-weight: 600; font-size: 13px; } .ck .wfold .lives { margin-top: 6px; }
+.wrap:has(> .ck) > .as-since { margin-bottom: 10px; padding: 8px 14px; gap: 12px; border-radius: 14px; }
+.wrap:has(> .ck) > .as-since .when { font-size: 13px; } .wrap:has(> .ck) > .as-since .as-tiles { gap: 6px; }
+.wrap:has(> .ck) > .as-since .as-tile { min-width: 0; padding: 3px 10px; } .wrap:has(> .ck) > .as-since .as-tile b { display: inline; font-size: 17px; margin-right: 5px; }

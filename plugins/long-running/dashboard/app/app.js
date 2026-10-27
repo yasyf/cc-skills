@@ -206,9 +206,15 @@ function activeLanes() {
     .sort((a, b) => b.stall - a.stall || new Date(b.at) - new Date(a.at));
 }
 function workers() {
-  const lanes = activeLanes();
-  const stalls = lanes.filter((l) => l.stall).length;
-  return `<h2 class="sec">Workers <span class="pill">${lanes.length}</span>${stalls ? `<span class="pill bad">${stalls} quiet while holding a pull request</span>` : ''}</h2><div class="lives">${lanes.map(liveBox).join('')}</div>`;
+  const live = state.model.workers.filter((w) => w.live);
+  const busy = new Set(live.map((w) => w.lane));
+  const lanes = activeLanes().filter((l) => !busy.has(l.lane));
+  const quiet = lanes.filter((l) => l.stall);
+  const rest = lanes.filter((l) => !l.stall);
+  const fold = (id, label, list) => list.length ? `<details class="wfold" data-id="${id}"${state.open.has(id) ? ' open' : ''}><summary>${label}</summary><div class="lives">${list.map(liveBox).join('')}</div></details>` : '';
+  return `<div class="ck"><section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} wrote in the last 20 minutes</span></div><div class="wgrid">${live.map(workerTile).join('') || '<span class="dim">Nobody wrote in the last 20 minutes.</span>'}</div></section>
+    ${fold('w-quiet', `${plural(quiet.length, 'worker')} quiet for ${STALL_MIN}+ minutes while holding a pull request`, quiet)}
+    ${fold('w-rest', `${plural(rest.length, 'worker')} finished or idle in the last 3 hours`, rest)}</div>`;
 }
 
 function hourDigest() {

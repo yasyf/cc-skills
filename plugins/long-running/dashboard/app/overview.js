@@ -186,20 +186,20 @@ function routeStrip() {
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${esc(cur.state)}` : 'Every release is out'}</div>
     <button class="thumb" data-plan aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
 }
-function crew() {
+function workerTile(w) {
   const m = state.model;
-  const live = m.workers.filter((w) => w.live);
+  const r = m.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
+  const pr = w.prs.find((n) => driveEntry(n)?.state !== 'landed') ?? w.prs[0];
+  const where = m.steps.find((s) => s.id === (w.step ?? driveEntry(pr)?.step))?.label ?? m.parts.find((p) => p.key === driveEntry(pr)?.part)?.name ?? 'Other work';
+  const first = w.boxes.findIndex(Boolean);
+  const st = ['blocker', 'defect', 'incident'].includes(r?.kind) ? 'blocked' : r?.kind === 'ask' ? 'asking' : 'live';
+  const doing = `${r ? SAID[r.kind] ?? 'Working' : 'Working'}${pr ? ` on ${shortName(pr) ?? plainTitle(pr)}` : ''}`;
+  return `<a class="wt st-${st}" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><span class="wt-h"><i class="lt"></i><b>${esc(where)}</b><time>${agoWords(w.at)}</time></span><span class="wt-on"><span>${esc(doing)}</span></span><span class="wt-for">on it ${first < 0 ? 'a few' : (w.boxes.length - first) * 5} min</span></a>`;
+}
+function crew() {
+  const live = state.model.workers.filter((w) => w.live && w.prs.length);
   if (!live.length) return '';
-  const tile = (w) => {
-    const r = m.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
-    const pr = w.prs.find((n) => driveEntry(n)?.state !== 'landed') ?? w.prs[0];
-    const where = m.steps.find((s) => s.id === (w.step ?? driveEntry(pr)?.step))?.label ?? m.parts.find((p) => p.key === driveEntry(pr)?.part)?.name ?? 'Other work';
-    const first = w.boxes.findIndex(Boolean);
-    const st = ['blocker', 'defect', 'incident'].includes(r?.kind) ? 'blocked' : r?.kind === 'ask' ? 'asking' : 'live';
-    const doing = `${r ? SAID[r.kind] ?? 'Working' : 'Working'}${pr ? ` on ${shortName(pr) ?? plainTitle(pr)}` : ''}`;
-    return `<a class="wt st-${st}" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><span class="wt-h"><i class="lt"></i><b>${esc(where)}</b><time>${agoWords(w.at)}</time></span><span class="wt-on"><span>${esc(doing)}</span></span><span class="wt-for">on it ${first < 0 ? 'a few' : (w.boxes.length - first) * 5} min</span></a>`;
-  };
-  return `<section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} active</span><a href="#/workers">all workers ›</a></div><div class="strip">${live.map(tile).join('')}</div></section>`;
+  return `<section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} active</span><a href="#/workers">all workers ›</a></div><div class="strip">${live.map(workerTile).join('')}</div></section>`;
 }
 function waitingOn() {
   const items = (state.model.now.waiting ?? []).filter((w) => w.unblocks);
