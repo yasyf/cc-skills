@@ -74,7 +74,28 @@ function inline(md) {
 function markdown(md) {
   const out = [];
   let list = null;
+  let table = null;
+  let code = null;
+  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const flushTable = () => {
+    if (!table) return;
+    const [head, ...rows] = table;
+    out.push(`<div class="tablewrap"><table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td data-h="${esc(head[i] ?? '')}">${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    table = null;
+  };
   for (const line of md.split('\n')) {
+    if (code !== null) {
+      if (/^\s*```/.test(line)) { out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); code = null; } else code.push(line);
+      continue;
+    }
+    if (/^\s*```/.test(line)) { flushTable(); code = []; continue; }
+    if (/^\s*\|/.test(line)) {
+      if (list) { out.push(`</${list}>`); list = null; }
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
+      (table ??= []).push(cells(line));
+      continue;
+    }
+    flushTable();
     const item = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(line);
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
     if (!item && list) { out.push(`</${list}>`); list = null; }
@@ -83,11 +104,13 @@ function markdown(md) {
       if (list !== kind) { if (list) out.push(`</${list}>`); out.push(`<${kind}>`); list = kind; }
       out.push(`<li>${inline(item[1])}</li>`);
     } else if (heading) {
-      out.push(`<h${heading[1].length + 1}>${inline(heading[2])}</h${heading[1].length + 1}>`);
+      const id = heading[2].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      out.push(`<h${heading[1].length + 1} id="md-${id}">${inline(heading[2])}</h${heading[1].length + 1}>`);
     } else if (line.trim()) {
       out.push(`<p>${inline(line)}</p>`);
     }
   }
+  flushTable();
   if (list) out.push(`</${list}>`);
   return out.join('');
 }

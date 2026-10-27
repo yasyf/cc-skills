@@ -274,3 +274,16 @@ a.chip-r:hover { text-decoration: none; border-color: var(--ink-3); }
   .st { white-space: normal; }
   .facts { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 760px) { .lives { grid-template-columns: 1fr; } }
+.tablewrap { overflow-x: auto; margin: 10px 0 16px; }
+.prose table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.prose th, .prose td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.prose th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.prose pre { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; overflow-x: auto; font: 12.5px/1.5 var(--mono); }
+@media (max-width: 760px) {
+  .prose table, .prose tbody, .prose tr, .prose td { display: block; }
+  .prose thead { display: none; }
+  .prose tr { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; padding: 6px 4px; }
+  .prose td { border: 0; padding: 3px 8px; } .prose td::before { content: attr(data-h); display: block; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+}

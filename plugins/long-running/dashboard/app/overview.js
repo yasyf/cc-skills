@@ -51,32 +51,66 @@ function workerStrip(w) {
 function liveWorkers(stepId) {
   return state.model.workers.filter((w) => w.live && w.step === stepId);
 }
-function track(s, i) {
+const TONE_WORD = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, landing', waiting: 'Waiting', done: 'Done', later: 'Later' };
+function stepRow(s) {
   const t = tally(s.prs);
   const ws = liveWorkers(s.id);
-  const strips = ws.slice(0, 2).map(workerStrip).join('') + (ws.length > 2 ? `<span class="more">+${ws.length - 2}</span>` : '');
-  return `<li class="trk tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0">
-    <span class="tn">${i + 1}</span><span class="tl">${esc(s.label ?? '')}</span>
-    <span class="tls">${lights(s.prs)}</span>
-    <span class="tws">${strips}</span>${ws.length ? `<span class="badge">▶${ws.length}</span>` : ''}
-    <span class="tf">${s.prs.length ? `${t.landed}/${t.total}` : ''}</span>
-    <span class="tg" title="${TONE_SAY[s.tone] ?? ''}">${TONE_GLYPH[s.tone] ?? ''}</span><span class="wire"></span></li>`;
+  const blocker = s.blocker && !/^(none|nothing)$/i.test(s.blocker) ? s.blocker : '';
+  return `<li class="srow tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0">
+    <span class="r-step">${esc(s.label ?? s.title)}${ws.length ? `<i class="pulse" title="${ws.length} at work"></i>` : ''}</span>
+    <span class="r-prog"><span class="tls">${lights(s.prs)}</span>${s.prs.length ? `<em>${t.landed}/${t.total}</em>` : ''}</span>
+    <span class="r-state">${TONE_WORD[s.tone] ?? esc(s.tone)}</span>
+    <span class="r-block">${esc(blocker)}</span>
+    <span class="r-next">${esc(s.next)}</span></li>`;
 }
 function unplanned() {
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
   if (!list.length) return '';
-  const ws = state.model.workers.filter((w) => w.live && !w.step);
-  return `<li class="trk tn-waiting unplanned" data-track="" tabindex="0"><span class="tn">┄</span><span class="tl">Unplanned</span>
-    <span class="tls">${lights(list)}</span><span class="tws">${ws.slice(0, 2).map(workerStrip).join('')}</span>${ws.length ? `<span class="badge">▶${ws.length}</span>` : ''}
-    <span class="tf">${list.length}</span><span class="tg"></span><span class="wire"></span></li>`;
+  const t = tally(list);
+  return `<li class="srow tn-waiting unplanned" data-track="" tabindex="0"><span class="r-step">Not in a step</span>
+    <span class="r-prog"><span class="tls">${lights(list)}</span><em>${list.length}</em></span>
+    <span class="r-state">${t.you ? 'Needs you' : t.failing ? `${t.failing} failing` : 'Open'}</span><span class="r-block"></span><span class="r-next">Fixes and tooling outside the plan steps</span></li>`;
 }
-function tracks() {
-  const steps = state.model.steps;
-  const active = steps.map((s, i) => [s, i]).filter(([s]) => ov.unfold || !['done', 'later'].includes(s.tone));
-  const done = steps.filter((s) => s.tone === 'done').length;
-  const later = steps.filter((s) => s.tone === 'later').length;
-  return `<ol class="trks">${active.map(([s, i]) => track(s, i)).join('')}${unplanned()}</ol>
-    <button class="fold" data-unfold>${ov.unfold ? 'Fold' : `${done ? `✓${done}` : ''}${later ? `  ⚑${later}` : ''}`}</button>`;
+function steps() {
+  const all = state.model.steps;
+  const shown = all.filter((s) => ov.unfold || !['done', 'later'].includes(s.tone));
+  const folded = all.length - shown.length;
+  return `<section class="steps2"><header class="srow head"><span>Step</span><span>Landed</span><span>State</span><span>What blocks it</span><span>Next</span></header>
+    <ol>${shown.map(stepRow).join('')}${unplanned()}</ol>
+    <footer>${folded || ov.unfold ? `<button class="linkish" data-unfold>${ov.unfold ? 'Hide done and later steps' : `${plural(folded, 'more step')}: ${all.filter((s) => !shown.includes(s)).map((s) => `${esc(s.label)} ${TONE_WORD[s.tone].toLowerCase()}`).join(', ')}`}</button>` : ''}
+    <span class="legend">${['landed', 'queued', 'doing', 'you', 'failing', 'waiting'].map((k) => `<span><i class="lt ${k}"></i>${{ landed: 'landed', queued: 'approved', doing: 'being worked on', you: 'needs you', failing: 'tests failing', waiting: 'waiting' }[k]}</span>`).join('')}</span></footer></section>`;
+}
+function cell(label, value, sub, tone, fill) {
+  return `<div class="cell ${tone}"><small>${label}</small><b>${value}</b>${fill === undefined ? '' : `<span class="tbar"><i style="width:${fill}%"></i></span>`}<span class="sub">${sub}</span></div>`;
+}
+function goal() {
+  const m = state.model;
+  const target = m.drive.prs.filter((e) => e.tree === m.tree_names[0]);
+  const t = tally(target);
+  const rels = m.now.releases ?? [];
+  const out = rels.filter((r) => /^(released|done|live)/i.test(r.state)).length;
+  const g = m.now.goal ?? {};
+  const proof = (p) => (p ? [esc(p.text), `seen ${clock(p.at)}`] : ['Unknown', 'no proof yet']);
+  const [flag, flagAt] = proof(g.enabled);
+  const [old, oldAt] = proof(g.old_app);
+  return `<section class="goal"><div class="goal-say"><small>Tonight</small><p>Every new-tree change merged and released. The old app stays unchanged; people with the flag get the new app when they update.</p></div>
+    <div class="cells">${cell('New-tree changes merged', `${t.landed}<span>/${t.total}</span>`, `${t.queued} approved, ${t.you} need you`, t.total && t.landed === t.total ? 'ok' : '', pct(t))}
+    ${cell('Releases out', `${out}<span>/${rels.length}</span>`, esc(m.now.release ? m.now.release.state : ''), out ? 'ok' : '', rels.length ? (100 * out) / rels.length : 0)}
+    ${cell('Flag users on the new app', flag, flagAt, g.enabled ? '' : 'unknown')}
+    ${cell('Old app unchanged', old, oldAt, g.old_app ? '' : 'unknown')}</div></section>`;
+}
+function sinceLook() {
+  const m = state.model;
+  const since = new Date(Number(localStorage.getItem('drive-last-look')) || Date.now() - 3600 * 1000);
+  const shipped = m.drive.prs.filter((e) => e.state === 'landed' && new Date(m.prs[e.number]?.landed_at ?? 0) > since);
+  const after = m.records.filter((r) => new Date(r.at) > since);
+  const fixed = after.filter((r) => ['fix-live', 'lift'].includes(r.kind));
+  const broke = after.filter((r) => r.kind === 'incident');
+  const item = (glyph, cls, label, rows, href) => `<a class="si ${cls}" href="${href}"><i>${glyph}</i><b>${label}</b><span>${rows}</span></a>`;
+  return `<section class="since"><small>Since ${clock(since.toISOString())}</small>
+    ${item('✓', 'ok', `${shipped.length} landed`, shipped.slice(0, 4).map((e) => `#${e.number}`).join(' ') || 'nothing yet', '#/timeline')}
+    ${item('▲', 'acc', `${fixed.length} unblocked`, fixed.length ? esc(firstSentences(fixed[fixed.length - 1].text, 60)) : 'nothing', '#/timeline')}
+    ${item('!', broke.length ? 'bad' : '', `${broke.length} new problem${broke.length === 1 ? '' : 's'}`, broke.length ? esc(firstSentences(broke[broke.length - 1].text, 60)) : 'none', '#/timeline')}</section>`;
 }
 function needItem(item) {
   if (!item) return '<div class="act calm"><span class="big-glyph">✓</span></div>';
@@ -128,7 +162,7 @@ function destination() {
   return `<section class="dest">
     ${machine('cloud', 'Cloud')}
     <div class="ring-row"><span class="trunk"></span><button class="ring" data-key style="--p:${pct(t)}%"><b>${pct(t)}<small>%</small></b></button>
-      <span class="counts"><b>${t.landed}</b> landed <b>${t.queued}</b> queued <b class="${t.you ? 'you' : ''}">${t.you}</b> your tap</span><button class="btn ghost plan-btn" data-overlay="plan">⤢ Plan</button></div>
+      <span class="counts"><b>${t.landed}</b> landed <b>${t.queued}</b> queued <b class="${t.you ? 'you' : ''}">${t.you}</b> your tap</span></div>
     ${machine('mac', 'Mac')}
     <div class="toolsband" data-part="tools"><span class="pn">Tools</span><span class="pls">${lights(tools)}</span></div>
     ${releaseTrunk()}
@@ -138,11 +172,12 @@ function overview() {
   const m = state.model;
   const stop = m.now.blocker;
   return `<div class="cp">
-    <div class="cp-top">${stop ? `<button class="stop" data-stop><i></i>Stopped since ${clock(stop.since)} ›</button>` : ''}${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}<span class="sp"></span><button class="btn ghost" data-overlay="plan">⤢ Plan</button></div>
-    <div class="cp-grid">
-      <div class="cp-left">${actionCard()}${tracks()}</div>
-      <button class="gate" data-overlay="plan" title="${esc(m.now.release ? `${m.now.release.name}: ${m.now.release.state}` : 'Release 1')}"><span>R1</span></button>
-      ${destination()}
+    ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
+    ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
+    ${goal()}
+    <div class="cp-grid2">
+      <div class="cp-main">${sinceLook()}${steps()}</div>
+      <aside class="rail">${actionCard()}${destination()}</aside>
     </div>
     <div id="tip" class="tip" hidden></div>
   </div>
@@ -157,7 +192,7 @@ function planSheet() {
   const body = {
     steps: () => m.steps.map((s) => stepCard(s)).join(''),
     releases: () => `${releaseTrunk()}<div class="prose">${markdown(m.releases.markdown)}</div>`,
-    text: () => `<p class="dim">Written ${m.plan_at ? agoWords(m.plan_at) : ''}</p><ol class="psteps">${planSteps(true)}</ol>`,
+    text: () => `<p class="dim">The progress doc's ordered plan, written ${m.plan_at ? agoWords(m.plan_at) : ''}. Where it and the release plan differ, the release plan is newer.</p><ol class="psteps">${planSteps(true)}</ol>`,
   }[ov.planTab]();
   return `<div class="overlay" data-close="1"><div class="sheet plan"><button class="btn close" data-close="1">Close</button>
     <nav class="ptabs">${tabs.map(([k, l]) => `<button class="${ov.planTab === k ? 'on' : ''}" data-ptab="${k}">${l}</button>`).join('')}</nav>${body}</div></div>`;
@@ -177,7 +212,7 @@ function stepCard(s) {
   const t = tally(s.prs);
   const ws = state.model.workers.filter((w) => w.step === s.id);
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
-    <dl class="facts"><dt>Where it is</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
+    <dl class="facts"><dt>Desk note, ${clock(state.model.steps_at)}</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${s.prs.length ? `<div class="sc-counts"><b>${t.landed}</b> landed · <b>${t.queued}</b> queued · <b>${t.you}</b> your tap · ${t.total} in all</div><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}</em></a></li>`).join('')}</ul>` : ''}
     ${ws.length ? `<div class="wlist">${ws.map((w) => `<div class="wrow">${workerStrip(w)}<b>${esc(w.lane)}</b><span class="dim">${agoWords(w.at)}</span>${w.prs.map((n) => prLink(n)).join(' ')}</div>`).join('')}</div>` : ''}</section>`;
 }
@@ -261,11 +296,6 @@ function mountOverview() {
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = `<path class="base" d="${d}"/><path class="prog" d="${d}" pathLength="100" stroke-dasharray="${fig.dataset.pct} 100"/>`;
   }
-  if (!localStorage.getItem('drive-key-seen')) {
-    localStorage.setItem('drive-key-seen', '1');
-    state.overlay = 'key';
-    render();
-  }
 }
 document.addEventListener('mouseover', (e) => {
   const tip = $('#tip');
@@ -292,6 +322,16 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
+  const rel = e.target.closest('[data-release]');
+  if (rel) {
+    const r = state.model.now.releases.find((x) => x.id === rel.dataset.release);
+    state.overlay = 'plan';
+    ov.planTab = 'releases';
+    render();
+    const target = [...document.querySelectorAll('.sheet h2, .sheet h3, .sheet h4, .sheet h5')].find((h) => h.textContent.toLowerCase().startsWith(r.name.toLowerCase()));
+    target?.scrollIntoView({ block: 'start' });
+    return;
+  }
   if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
@@ -338,3 +378,5 @@ document.addEventListener('pointermove', (e) => {
   setScrub(ov.dragFrom + Math.round((e.clientX - ov.dragX) / 48));
 });
 document.addEventListener('pointerup', () => { ov.dragX = null; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) localStorage.setItem('drive-last-look', String(Date.now())); });
+window.addEventListener('pagehide', () => localStorage.setItem('drive-last-look', String(Date.now())));
