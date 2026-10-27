@@ -4598,6 +4598,38 @@ def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config,
     assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
 
 
+def old_app_checked(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = [*runner_module.merge_queue.CHECKS, "old-app"]
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize(
+    ("lane", "text", "enqueued"),
+    [
+        (None, None, False),
+        ("fidelity-desk", "old-app: unchanged cccc333 (touches only the new tree)", True),
+        ("fidelity-desk", "old-app: bug fix cccc333", True),
+        ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", False),
+        ("fidelity-desk", "old-app: unchanged bbbb222", False),
+        (LANE, "old-app: unchanged cccc333", False),
+        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", False),
+    ],
+)
+def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, enqueued):
+    old_app_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    if text:
+        shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert bool(shell.enqueues()) is enqueued
+    if not enqueued:
+        [blocker] = blockers(shell)
+        assert blocker["to"] == f"{LANE},fidelity-desk" and "OLD-APP-PENDING #29020: " in blocker["text"]
+
+
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
     return {"pr": "36642", "lane": lane, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
 
