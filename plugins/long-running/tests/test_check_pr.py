@@ -10,6 +10,7 @@ from pathlib import Path
 import ledger
 import pytest
 import rulings
+from conftest import gateway
 from test_rulings import DIFF, REPO, RegisterShell, home, package, ran, registered, seeded, state
 
 HEAD = "cafef00d"
@@ -86,9 +87,10 @@ class CheckShell(RegisterShell):
         self.failing = failing
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        if any(" ".join(argv).startswith(prefix) for prefix in self.failing):
+        plain = gateway(argv)
+        if any(" ".join(plain).startswith(prefix) for prefix in self.failing):
             raise subprocess.CalledProcessError(1, argv)
-        match argv:
+        match plain:
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName,comments"]:
                 return json.dumps({"body": self.body, "baseRefName": "main", "comments": [{"body": comment} for comment in self.comments]})
             case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--pr", "acme/app#12"]:

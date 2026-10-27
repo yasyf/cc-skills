@@ -101,6 +101,7 @@ from statistics import median
 from urllib.parse import urlencode
 
 import cci
+import ghread
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
@@ -183,7 +184,6 @@ WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
-RATE_LIMIT_RESET = re.compile(r"^X-RateLimit-Reset: (\d+)", re.IGNORECASE | re.MULTILINE)
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
 BK_SECTION = re.compile(r"^(~~~|---|\+\+\+|\^\^\^|\$ |# )")
@@ -340,7 +340,7 @@ class Github:
         endpoint = f"repos/{self.repo}/{path}"
         if params:
             endpoint = f"{endpoint}?{urlencode(params)}"
-        return json.loads(self.shell.run(["gh", "api", endpoint]))
+        return json.loads(self.shell.run(ghread.read("api", endpoint)))
 
     def paged(self, path: str) -> list[dict]:
         items: list[dict] = []
@@ -361,9 +361,9 @@ class Github:
 
     def default_branch(self) -> str:
         try:
-            return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
+            return json.loads(self.shell.run(ghread.read("api", f"repos/{self.repo}")))["default_branch"]
         except subprocess.CalledProcessError as failure:
-            raise ForgeUnreachable(forge_failure(self.shell, failure)) from failure
+            raise ForgeUnreachable(forge_failure(failure)) from failure
 
 
 def origin_repo(shell: Shell, checkout: Path) -> str:
@@ -709,43 +709,19 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
         raise
 
 
-def quota_resets(shell: Shell) -> str:
-    """When the GraphQL quota refills, off the headers of one GraphQL call the forge rejects at no cost.
-
-    The REST ``rate_limit`` endpoint reports a fresh bucket while the user's GraphQL calls still fail, so it is not asked.
-    """
-    try:
-        headers = shell.run(["gh", "api", "graphql", "-i", "-f", "query={viewer{login}}"])
-    except subprocess.CalledProcessError as failure:
-        headers = failure.stdout or ""
-    reset = RATE_LIMIT_RESET.search(headers)
-    return stamp(datetime.fromtimestamp(int(reset[1]), timezone.utc)) if reset else "at an unknown time"
-
-
-def rest_resets(shell: Shell) -> str:
-    try:
-        reset = json.loads(shell.run(["gh", "api", "rate_limit"]))["resources"]["core"]["reset"]
-    except subprocess.CalledProcessError:
-        return "at an unknown time"
-    return stamp(datetime.fromtimestamp(reset, timezone.utc))
-
-
-def forge_failure(shell: Shell, failure: subprocess.CalledProcessError) -> str:
-    call = " ".join(failure.cmd[:3])
-    detail = " ".join((failure.stderr or str(failure)).split())
-    if RATE_LIMITED.search(detail):
-        return f"{call}: REST quota exhausted, resets {rest_resets(shell)}"
-    return f"{call}: {detail}"
+def forge_failure(failure: subprocess.CalledProcessError) -> str:
+    """The read that failed and why, in the failure's own words: a quota refusal from ccx names the pool and its reset, so no further GitHub call asks."""
+    return f"{' '.join(ghread.gh_args(failure.cmd)[:3])}: {' '.join((failure.stderr or str(failure)).split())}"
 
 
 def is_gh_api(failure: subprocess.CalledProcessError) -> bool:
-    return failure.cmd[:2] == ["gh", "api"]
+    return ghread.gh_args(failure.cmd)[:2] == ["gh", "api"]
 
 
-def cache_banner(shell: Shell, rows: dict[str, dict[str, str]], moment: datetime) -> str:
+def cache_banner(exhausted: QuotaExhausted, rows: dict[str, dict[str, str]], moment: datetime) -> str:
     refreshed = max((fields["last_refresh"] for fields in rows.values() if fields.get("last_refresh")), default="")
     age = f"{age_minutes(refreshed, moment)}m" if refreshed else "age unknown"
-    return f"pr states: cached {age} (GraphQL quota exhausted, resets {quota_resets(shell)})"
+    return f"pr states: cached {age} ({' '.join(str(exhausted).split())})"
 
 
 def failing_checks(contexts: list[dict], repo: str) -> str:
@@ -1464,7 +1440,7 @@ def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[st
 
 
 def guard_prefix(shell: Shell, args: argparse.Namespace, notes: Notes) -> None:
-    login = json.loads(shell.run(["gh", "api", "user"]))["login"]
+    login = json.loads(shell.run(ghread.read("api", "user")))["login"]
     suggestion = f"register the lane's exact branch name, a lane-specific namespace such as {login}/{lane_slug(args.lane)}-, or each of its PRs with --pr N"
     if args.branch_prefix.endswith(("/", "-")) and f"{login}/".startswith(args.branch_prefix):
         raise SystemExit(f"{args.branch_prefix} covers {login}'s whole branch namespace, not lane {args.lane}'s; {suggestion}")
@@ -1721,7 +1697,7 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
         except subprocess.CalledProcessError as failure:
             if not is_gh_api(failure):
                 raise
-            print(f"route #{args.pr}: not routed this pass, {forge_failure(shell, failure)}")
+            print(f"route #{args.pr}: not routed this pass, {forge_failure(failure)}")
         return 0
     moment = now()
     routed = 0
@@ -1740,7 +1716,7 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
         except subprocess.CalledProcessError as failure:
             if not is_gh_api(failure):
                 raise
-            print(f"route #{pr}: not routed this pass, {forge_failure(shell, failure)}")
+            print(f"route #{pr}: not routed this pass, {forge_failure(failure)}")
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
     return 0
 
@@ -2344,8 +2320,8 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     records: dict[str, dict] | None
     try:
         records = pr_state(shell, args.ccx, args.repo, unsquashed, [])["prs"]
-    except QuotaExhausted:
-        print(cache_banner(shell, {pr: rows[pr] for pr in unsquashed}, now()))
+    except QuotaExhausted as exhausted:
+        print(cache_banner(exhausted, {pr: rows[pr] for pr in unsquashed}, now()))
         records = None
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure

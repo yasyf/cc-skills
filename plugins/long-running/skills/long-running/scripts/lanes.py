@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import cci
+import ghread
 
 Run = Callable[[list[str]], str]
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
@@ -107,7 +108,7 @@ def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], che
         if Path(path).name == lane or branch == lane or branch.endswith(f"/{lane}"):
             add(path, "git worktree list")
     for pr in record_prs(records) if repo else []:
-        head = json.loads(output(run, ["gh", "pr", "view", pr, "--repo", repo, "--json", "headRefName"]) or "{}").get("headRefName")
+        head = json.loads(output(run, ghread.read("pr", "view", pr, "--repo", repo, "--json", "headRefName")) or "{}").get("headRefName")
         for path, branch in listed.items():
             if head and branch == head:
                 add(path, f"PR #{pr} head")
@@ -147,7 +148,7 @@ def inspect(worktree: Worktree, trunk: str, repo: str, now: datetime, run: Run) 
         local = (output(run, ["git", "-C", path, "rev-parse", "HEAD"]) or "").strip()
         worktree.pushed = "no origin branch" if not remote else "pushed" if remote[0] == local else f"HEAD not pushed, origin at {remote[0][:SHORT]}"
     if branch and repo and not branch.startswith("HEAD "):
-        pulls = json.loads(output(run, ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", str(PULLS_SHOWN), "--json", "number,state,statusCheckRollup"]) or "[]")
+        pulls = json.loads(output(run, ghread.read("pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", str(PULLS_SHOWN), "--json", "number,state,statusCheckRollup")) or "[]")
         worktree.pr = ", ".join(f"PR #{pull['number']} {pull['state'].lower()}" + (f" {ci_state(pull.get('statusCheckRollup') or [])}" if pull["state"] == "OPEN" else "") for pull in pulls)
     return worktree
 

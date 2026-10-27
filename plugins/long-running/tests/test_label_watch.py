@@ -41,6 +41,8 @@ sys.stdout.write(body)
 
 CCX = """#!/usr/bin/env python3
 import json, os, sys
+if sys.argv[1:3] == ["vcs", "gh"]:
+    os.execvp("gh", ["gh", *sys.argv[sys.argv.index("--") + 1 :]])
 state = os.environ["FAKE_STATE"]
 queues = json.load(open(os.path.join(state, "queues.json")))
 evictions = json.load(open(os.path.join(state, "evictions.json")))

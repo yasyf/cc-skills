@@ -25,6 +25,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import ghread
 import ledger
 
 SCHEMA = Path(__file__).resolve().parent / "rules-review.schema.json"
@@ -135,7 +136,7 @@ def overridden_by(review: dict[str, str], lines: list[tuple[str, frozenset[str]]
 
 
 def pr_diff(shell: Shell, repo: str, base: str, head: str) -> str:
-    return shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences"])
+    return shell.run(ghread.read("api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences"))
 
 
 def section_path(section: str) -> str | None:
@@ -369,7 +370,7 @@ class Sweep:
             self.set(key, {"comment": "posted", "comment_error": ""})
 
     def already_posted(self, pr: str, head: str) -> bool:
-        pages = json.loads(self.shell.run(["gh", "api", "--paginate", "--slurp", f"repos/{self.repo}/pulls/{pr}/reviews?per_page=100"]))
+        pages = json.loads(self.shell.run(ghread.read("api", "--paginate", "--slurp", f"repos/{self.repo}/pulls/{pr}/reviews?per_page=100")))
         marker = MARKER.format(head=head)
         return any(marker in (review.get("body") or "") for page in pages for review in page)
 

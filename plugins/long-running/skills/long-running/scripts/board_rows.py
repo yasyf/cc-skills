@@ -81,6 +81,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -91,6 +92,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cci
+import ghread
 import grades
 
 ROW_ID = re.compile(r"^merge-row-(?P<pr>\d+)(?:-(?P<sha>[0-9a-f]{7,40}))?$")
@@ -132,8 +134,8 @@ class Done:
 class Shell:
     """The single side-effect boundary: gh, cci, cc-present, the push command, and blob reads."""
 
-    def run(self, argv: list[str]) -> Done:
-        done = subprocess.run(argv, capture_output=True, text=True)
+    def run(self, argv: list[str], env: dict[str, str] | None = None) -> Done:
+        done = subprocess.run(argv, capture_output=True, text=True, env={**os.environ, **env} if env else None)
         return Done(done.returncode, done.stdout, done.stderr)
 
     def push(self, argv: list[str]) -> int:
@@ -286,7 +288,7 @@ def read_pulls(shell: Shell, repo: str, prs: list[str], warnings: list[str]) -> 
     pulls: dict[str, Pull | None] = {}
     for start in range(0, len(prs), PRS_PER_QUERY):
         batch = prs[start : start + PRS_PER_QUERY]
-        done = shell.run(["gh", "api", "graphql", "-f", f"query={pulls_query(repo, batch)}"])
+        done = shell.run(ghread.read("api", "graphql", "-f", f"query={pulls_query(repo, batch)}"), env={"GH_REPO": repo})
         try:
             found = json.loads(done.out)["data"]["repository"]
         except (ValueError, KeyError, TypeError):

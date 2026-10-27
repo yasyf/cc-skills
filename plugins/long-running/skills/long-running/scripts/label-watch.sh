@@ -80,6 +80,11 @@ QUEUED=
 TRACKED=
 NODES=
 BRANCHES=
+export CCX_CALLER=label-watch
+
+gh_read() {
+  ccx vcs gh --max-age 5m -- "$@"
+}
 
 onto_trunk() {
   git -C "$CHECKOUT" -c user.name=label-watch -c user.email=label-watch@localhost \
@@ -118,7 +123,7 @@ downstack() {
       link "$child" "$known"
       return 0
     fi
-    below=$(gh api "repos/$REPO/pulls?state=open&head=$OWNER:$branch" --jq ".[:1][] | $PR") || return 1
+    below=$(gh_read api "repos/$REPO/pulls?state=open&head=$OWNER:$branch" --jq ".[:1][] | $PR") || return 1
     [ -n "$below" ] || break
     read -r known psha pref branch plabels <<EOF
 $below
@@ -139,7 +144,7 @@ upstack() {
     eval "walked=\${up_$up-} branch=\$ref_$up"
     [ -z "$walked" ] || continue
     eval "up_$up=1"
-    above=$(gh api "repos/$REPO/pulls?state=open&base=$branch&per_page=100" --jq ".[] | $PR") || return 1
+    above=$(gh_read api "repos/$REPO/pulls?state=open&base=$branch&per_page=100" --jq ".[] | $PR") || return 1
     while read -r kid ksha kref _ klabels; do
       [ -n "$kid" ] || continue
       add "$kid" "$ksha" "$kref" "$klabels"
@@ -155,7 +160,7 @@ expand() {
   eval "seen=\${ref_$1-}"
   if [ -z "$seen" ]; then
     eval "pull=\${pull_$1-}"
-    [ -n "$pull" ] || pull=$(gh api "repos/$REPO/pulls/$1" --jq "$PULL") || return 1
+    [ -n "$pull" ] || pull=$(gh_read api "repos/$REPO/pulls/$1" --jq "$PULL") || return 1
     read -r sha base mergeable state ref labels <<EOF
 $pull
 EOF
@@ -188,7 +193,7 @@ gate() {
   below=$2
   eval "pull=\${pull_$n-}"
   if [ -z "$pull" ]; then
-    pull=$(gh api "repos/$REPO/pulls/$n" --jq "$PULL") || {
+    pull=$(gh_read api "repos/$REPO/pulls/$n" --jq "$PULL") || {
       echo "$n API-FAIL pull"
       return 1
     }
@@ -256,8 +261,8 @@ EOF
     return 1
   fi
 
-  statuses=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | "\(.state) \(.context)"') \
-    && runs=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(if .status == "completed" then .conclusion else "pending" end) \(.name)"') || {
+  statuses=$(gh_read api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | "\(.state) \(.context)"') \
+    && runs=$(gh_read api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(if .status == "completed" then .conclusion else "pending" end) \(.name)"') || {
     echo "$n API-FAIL checks"
     return 1
   }
@@ -281,7 +286,7 @@ EOF
     return 1
   fi
 
-  reviews=$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100") || {
+  reviews=$(gh_read api "repos/$REPO/pulls/$n/reviews?per_page=100") || {
     echo "$n API-FAIL reviews"
     return 1
   }
@@ -432,7 +437,7 @@ sweep() {
   record "$queues"
   while IFS='	' read -r t why at; do
     [ -n "$t" ] || continue
-    if pull=$(gh api "repos/$REPO/pulls/$t" --jq "$PULL"); then
+    if pull=$(gh_read api "repos/$REPO/pulls/$t" --jq "$PULL"); then
       eval "pull_$t=\$pull"
       echo "$t EVICTED $(printf %.10s "$pull") $why $at"
     fi

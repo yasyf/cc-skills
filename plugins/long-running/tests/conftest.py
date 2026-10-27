@@ -4,7 +4,8 @@ Zero network and zero ``ccn``: each ledger store is a dict the fake mutates the 
 ``ccn ledger sync`` and ``row set`` would, so merge and insert semantics are exercised
 rather than mocked away; ``git`` answers from the fetch, log, and conflict tables a test
 sets; the repository's PR list is not served at all, so a listing call fails the test
-that makes it. Every argv is recorded on ``shell.calls``.
+that makes it. Every argv is recorded on ``shell.calls``, a GitHub read through ccx's gateway
+as the plain ``gh`` command it runs.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+import ghread
 import ledger
 import pytest
 
@@ -26,6 +28,16 @@ GREEN_HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
 LEDGER = "1a2b3c4d"
 LEDGER_CREATED = "2026-01-01T00:00:00Z"
 DRIVE = "d1"
+FLOOR_REFUSAL = "ccx: GitHub rate limit floor: app graphql has 812 of 10000 left, resets 7:13 AM (2026-09-21T14:13:20Z); top callers: desk-runner 412"
+
+
+def gateway(argv: list[str]) -> list[str]:
+    """The plain `gh` command behind `argv`, failing the test on a GitHub read outside ccx's gateway or a write through it, which ccx refuses."""
+    through = argv[:3] == ghread.GATEWAY
+    plain = ghread.gh_args(argv)
+    if plain[0] == "gh":
+        assert through != ("-X" in plain or "--method" in plain or plain[1:3] == ["pr", "merge"]), f"a GitHub {'write through' if through else 'read outside'} ccx's gateway: {argv}"
+    return plain
 
 
 def fixture(name: str) -> str:
@@ -68,8 +80,7 @@ class FakeShell(ledger.Shell):
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
         self.fail_gh: str | None = None
         self.fail_gh_error = "gh: connection refused"
-        self.rest_resets_at = 1790000000
-        self.quota_resets_at: int | None = None
+        self.quota_refusal = ""
         self.pr_state_error = ""
         self.prompt_watch: dict = {}
         self.calls: list[list[str]] = []
@@ -78,7 +89,8 @@ class FakeShell(ledger.Shell):
         self.stacks: dict[str, dict] = {}
 
     def run(self, argv, stdin=None, cwd=None):
-        self.calls.append(list(argv))
+        argv = gateway(argv)
+        self.calls.append(argv)
         if argv[0] == "cci":
             return self._cci(argv)
         if argv[0] == "gh":
@@ -166,11 +178,6 @@ class FakeShell(ledger.Shell):
         endpoint = argv[2]
         if endpoint == "user":
             return json.dumps({"login": self.login})
-        if endpoint == "graphql":
-            headers = f"HTTP/2.0 200 OK\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: {self.quota_resets_at}\n\n"
-            raise subprocess.CalledProcessError(1, argv, output=headers + '{"errors":[{"type":"RATE_LIMIT"}]}', stderr="gh: API rate limit already exceeded")
-        if endpoint == "rate_limit":
-            return json.dumps({"resources": {"core": {"remaining": 0, "reset": self.rest_resets_at}}})
         if self.fail_gh and self.fail_gh in endpoint:
             raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr=self.fail_gh_error)
         path, _, query = endpoint.partition("?")
@@ -229,8 +236,8 @@ class FakeShell(ledger.Shell):
 
     def _pr_state(self, argv):
         """Answer ``ccx vcs pr state`` in its JSON shape, off the same REST tables ``_gh`` serves."""
-        if self.quota_resets_at is not None:
-            raise subprocess.CalledProcessError(1, argv, stderr="graphql: API rate limit already exceeded for user ID 709645\n")
+        if self.quota_refusal:
+            raise subprocess.CalledProcessError(1, argv, stderr=f"{self.quota_refusal}\n")
         if self.pr_state_error:
             raise subprocess.CalledProcessError(1, argv, stderr=self.pr_state_error)
         repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "Forge-AI/monorepo"
