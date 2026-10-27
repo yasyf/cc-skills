@@ -3315,7 +3315,7 @@ def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, confi
 
 
 @pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])
-def test_a_carry_onto_a_merge_block_the_board_dropped_is_quiet_only_for_a_settled_head(shell, config, tmp_path, settled):
+def test_a_carry_onto_a_merge_block_the_board_dropped_is_nothing_to_carry_settled_or_not(shell, config, tmp_path, settled):
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -3329,7 +3329,7 @@ def test_a_carry_onto_a_merge_block_the_board_dropped_is_quiet_only_for_a_settle
     landing_pass(shell, config)
     landing_pass(shell, config)
     failed = [line for line in escalations(shell) if line.startswith("TAP-CARRY-FAILED")]
-    assert (len(failed), tap_notes(shell)) == (0 if settled != "none" else 1, [])
+    assert (failed, tap_notes(shell)) == ([], [])
 
 
 def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config, tmp_path, monkeypatch):
@@ -7426,8 +7426,8 @@ def test_a_lane_cci_lists_under_another_lane_by_its_agent_name_is_not_gone(shell
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
 
-@pytest.mark.parametrize(("lane", "kind"), [("p8-lane", "done"), ("p8-lane", "handoff"), ("orca-desk", "head")])
-def test_a_lane_that_ended_its_work_or_the_orca_desk_never_reads_as_gone(shell, config, tmp_path, lane, kind):
+@pytest.mark.parametrize(("lane", "kind"), [("p8-lane", "done"), ("p8-lane", "handoff"), ("orca-desk", "head"), ("dashboard-dev", "defect")])
+def test_a_lane_that_ended_its_work_the_orca_desk_or_a_script_posting_only_defects_never_reads_as_gone(shell, config, tmp_path, lane, kind):
     cci_record(shell, lane=lane, kind=kind, text="delivered", at=actions.stamp(shell.clock - timedelta(minutes=40)))
     cci_record(shell, kind="decide", to=[lane], text=f"{lane}: one more edit", at=actions.stamp(shell.clock - timedelta(minutes=30)))
     shell.gone.add(lane)
