@@ -201,6 +201,7 @@ OVERZEALOUS = [
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
+INCIDENT_CLOSEOUT = ["cci", "grep", r"->\s\S+\s(re\s#[0-9]+\s)?(FIX-LIVE|Incident\sclosed)", "--ignore-case=false", "--lane", "root", "--json", "-n", "1", "--since", "6h"]
 SETTLED_INCIDENT = ("closed", "recovered")
 INCIDENT_SOURCE_TIMEOUT_SECONDS = 10
 PLAN_MODE_IN_INCIDENT = (
@@ -348,17 +349,20 @@ def declared_fixes(evt: BaseHookEvent) -> list[str]:
 
 def open_incidents(evt: BaseHookEvent, source: Callable[[BaseHookEvent, list[str]], str] = incident_source) -> list[tuple[str, ...]]:
     stored = [(record["incident_id"], record["facts"].get("target"), record["facts"].get("alert")) for record in stored_incidents(evt, source)]
+    closed_at = max((json.loads(line)["seq"] for line in (source(evt, INCIDENT_CLOSEOUT) or "").splitlines() if line.strip()), default=0)
     posted = [
         (f"#{record['seq']}", record.get("topic"), record.get("id"), *((record.get("refs") or {}).get("targets") or []))
         for record in json.loads(source(evt, INCIDENT_DIGEST) or "{}").get("open_incidents") or []
+        if record["seq"] > closed_at
     ]
     return [tuple(name for name in names if name) for names in stored + posted]
 
 
-def incident_sources(*stored: dict, posted: tuple[dict, ...] = ()) -> dict[str, str]:
+def incident_sources(*stored: dict, posted: tuple[dict, ...] = (), closeout: tuple[dict, ...] = ()) -> dict[str, str]:
     return {
         " ".join(INCIDENT_STORE): json.dumps(list(stored)),
         " ".join(INCIDENT_DIGEST): json.dumps({"open_incidents": list(posted)}),
+        " ".join(INCIDENT_CLOSEOUT): "\n".join(json.dumps(record) for record in closeout),
     }
 
 

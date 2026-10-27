@@ -832,7 +832,7 @@ def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
 
 
 def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = LANE, incidents: str | tuple[int, str] = "[]", prs: str | tuple[int, str] = "[]") -> Input:
-    commands = {ACCEPTED_CHECK: said, LEDGER_LIST: prs, "cci post": "#1", " ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}"}
+    commands = {ACCEPTED_CHECK: said, LEDGER_LIST: prs, "cci post": "#1", " ".join(INCIDENT_STORE): incidents, " ".join(INCIDENT_DIGEST[:2]): "{}", "cci grep": ""}
     return Input(command=command, cwd=CWD, env=DRIVE_CONFIG | env, commands=commands)
 
 
