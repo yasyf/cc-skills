@@ -4687,19 +4687,21 @@ class Landing:
             list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
-        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head a pass. A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
-        key = (pr, sha, incident)
-        if key not in self.reported:
-            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
-            lines = [line.strip() for line in done.out.splitlines() if line.strip()]
-            causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
-            unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
-            if done.code == TIMED_OUT:
-                causes = [f"{CHECK_PR_TIMEOUT} it ran past {CHECK_PR_SECONDS}s and was killed, so the rulings at {sha[:10]} are unproven this pass"]
-            elif done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
-                causes = []
+        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head and kept across passes, except an incident fix's, a timeout, a run that does not read, and a reserved-row cause an owner answer can clear, which run again next pass. A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
+        key = (pr, sha[:7], incident)
+        if key in self.reported:
+            return self.reported[key]
+        done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
+        lines = [line.strip() for line in done.out.splitlines() if line.strip()]
+        causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
+        unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
+        if done.code == TIMED_OUT:
+            causes = [f"{CHECK_PR_TIMEOUT} it ran past {CHECK_PR_SECONDS}s and was killed, so the rulings at {sha[:10]} are unproven this pass"]
+        elif done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
+            causes = []
+        if not incident and done.code in (0, 1) and not unread and not any(cause(line) == RESERVED_TOUCH for line in causes):
             self.reported[key] = causes
-        return self.reported[key]
+        return causes
 
     def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str], also: Iterable[str] = ()) -> None:
         """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
@@ -5800,16 +5802,14 @@ class Landing:
         return pr in self.landed
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in calls of `STATUS_PAGE` PRs, each with its own deadline, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
-            self.statuses, done = {}, Done(0, "", "")
-            for start in range(0, len(numbers), STATUS_PAGE):
-                done = self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *numbers[start : start + STATUS_PAGE]])
-                if done.code != 0:
-                    self.statuses = None
-                    break
-                self.statuses |= {str(entry["number"]): entry for entry in json.loads(done.out)}
+            pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
+            with ThreadPoolExecutor(max(1, len(pages))) as pool:
+                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *page]), pages))
+            done = next((read for read in reads if read.code != 0), Done(0, "", ""))
+            self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
             if self.statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
@@ -5921,7 +5921,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}, {}
+        self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
         if self.quota_low():
