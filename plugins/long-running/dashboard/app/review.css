@@ -44,3 +44,7 @@ body:has(#embed:not([hidden])) .foot { display: none; }
 @media (max-width: 760px) {
   .tile { flex-basis: calc(50% - 5px); }
 }
+.review-lists { display: flex; gap: 6px; margin: 4px 0 18px; }
+.review-lists a { padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 650; }
+.review-lists a.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.review-lists a b { margin-left: 4px; font-weight: 700; opacity: .7; }
