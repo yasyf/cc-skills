@@ -145,6 +145,7 @@ function destination() {
   </section>`;
 }
 function replay() {
+  if (!ov.replayOpen && !ov.scrub) return '<button class="replay-open" data-replay>Replay the last four days, or see the plan ahead ›</button>';
   const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h >= 24 ? `${h / 24}d ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
   return `<div class="replay"><span class="rl">Replay</span><div class="ticks" data-keep-scroll="replay">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
 }
@@ -159,18 +160,12 @@ function onlyBy(key) {
   ov.only = { key, label, numbers: new Set(state.model.drive.prs.filter(test).map((e) => e.number)) };
   render();
 }
-function strip(w) {
-  return `<button class="wst" data-worker="${esc(w.lane)}" data-lane="${esc(w.lane)}"><span class="boxes">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></button>`;
-}
 function track(s) {
   const m = state.model;
   const t = tally(s.prs);
   const ws = m.workers.filter((w) => w.live && w.step === s.id);
   const tone = ov.scrub > 0 && m.steps.indexOf(s) < ov.scrub ? 'done' : s.tone;
-  return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
-    <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</span>
-    <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
-    <span class="ct" title="${t.landed} of ${plural(t.total, 'pull request')} landed${s.untracked.length ? `; ${s.untracked.length} more the merge ledger does not track yet` : ''}">${t.total ? `${t.landed}/${t.total}` : ''}</span><span class="g" title="${TONE_SAY[tone] ?? ''}" aria-label="${TONE_SAY[tone] ?? ''}">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
+  return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0" title="${esc(`${s.title}\n${s.state}${s.blocker ? `\nBlocked by ${s.blocker}` : ''}${ws.length ? `\n${plural(ws.length, 'worker')} on it now` : ''}`)}"><span class="nm">${esc(s.label)}</span><span class="sw">${TONE_SAY[tone] ?? ''}</span><span class="ct">${t.total ? `${t.landed} of ${t.total} landed` : ''}</span></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -178,10 +173,9 @@ function tracks() {
   const done = m.steps.filter((s) => s.tone === 'done').length;
   const later = m.steps.filter((s) => s.tone === 'later').length;
   const loose = m.drive.prs.filter((e) => !e.step && e.state !== 'landed');
-  const looseWs = m.workers.filter((w) => w.live && !w.step);
-  return `<section class="tracks"><div class="th"><b>The plan</b><span>each line is a step; its lights run into the release gate</span><button class="linkish" data-plan>Open the plan ⤢</button></div>
+  return `<section class="tracks"><div class="th"><b>The plan</b><a class="linkish" href="#/status">Status of every step ›</a></div>
     ${shown.map(track).join('')}
-    ${loose.length ? `<div class="trk loose" data-track="" tabindex="0"><span class="no">┄</span><span class="nm">Unplanned</span><span class="tdots">${byLight(loose).map((e) => dot(e.number)).join('')}</span><span class="tws">${looseWs.slice(0, 2).map(strip).join('')}${looseWs.length ? `<b class="badge">▶${looseWs.length}</b>` : ''}</span><span class="ct">${loose.length}</span><span class="g"></span><i class="into"></i></div>` : ''}
+    ${loose.length ? `<div class="trk loose" data-track="" tabindex="0" title="Open pull requests no plan step names"><span class="nm">Other work</span><span class="sw">${plural(loose.length, 'open pull request')}</span><span class="ct"></span></div>` : ''}
     ${done || later ? `<button class="fold" data-unfold>${ov.unfold ? 'Fold done and later steps' : `${done ? `✓ ${done} done` : ''}${done && later ? ' · ' : ''}${later ? `⚑ ${later} later` : ''}`}</button>` : ''}</section>`;
 }
 function releaseWait(r) {
@@ -226,9 +220,9 @@ function deck() {
   const need = needsTotal();
   ov.page = Math.min(ov.page, Math.max(0, m.needs.length - 1));
   return `<div class="deck"><div class="readouts">
-    <button class="ro ro-done" title="Every pull request of the drive that has merged: new app, old app and shared code" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
-    <button class="ro ro-fly" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></button>
-    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap to see them all' : 'nothing to approve'}</em></button></div>
+    <button class="ro ro-done" title="Every pull request of the drive that has merged: new app, old app and shared code. ${hour ? `${hour} in the last hour` : 'None in the last hour'}." data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span></button>
+    <button class="ro ro-fly" title="${t.doing} being worked on now, ${t.queued} approved and waiting to land" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span></button>
+    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span></button></div>
     ${m.needs.length ? cta(m.needs[ov.page]) : `<a class="calm" href="#/review"><span class="ic">✓</span><span><b>Nothing needs you right now</b><span>Approvals and questions land here with their buttons. Review ›</span></span></a>`}</div>`;
 }
 function routeStrip() {
@@ -236,7 +230,10 @@ function routeStrip() {
   const rels = m.now.releases ?? [];
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
-  const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span></span>`;
+  const rel = (r, i) => {
+    const wait = i === at ? releaseWait(r) : null;
+    return `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(wait ? `${r.id} ${wait.word}:\n${wait.detail}` : `${r.id} ${r.name}: ${r.state}`)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span>${wait ? `<span class="why${wait.red ? ' bad' : ''}">${esc(wait.word)}</span>` : ''}</span>`;
+  };
   return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(cur.state)}` : 'Every release is out'}</div>
     <button class="planlink" data-plan="releases">Release plan${m.releases.updated ? `<small>revised ${clock(m.releases.updated)}</small>` : ''}<span>Open ›</span></button></section>`;
@@ -290,7 +287,14 @@ function answerList(key, keep = () => true) {
   return `<ul class="answer">${lines.map((l) => `<li><span class="who">${who(l.who)}</span><span class="what">${inline(l.text)}${l.next ? `<small>${inline(l.next)}</small>` : ''}</span><em>${[l.since ? `last word ${agoWords(l.since)}` : '', src(l)].filter(Boolean).join(' · ')}</em></li>`).join('')}</ul>${lines.length ? '' : '<p class="dim">Nothing.</p>'}${j.missing.length ? `<p class="dim">Not known yet: ${j.missing.map(inline).join('; ')}</p>` : ''}`;
 }
 function waitingOn() {
-  return `<section class="waiting"><h4>Waiting on</h4>${answerList('waiting')}</section>`;
+  const j = state.model.journeys.waiting;
+  const line = (l) => {
+    const n = /^#\/review\/(\d+)$/.exec(l.source?.href ?? '')?.[1];
+    const what = n ? `<span class="d ${prState(n)}"></span> ${esc(shortName(n) ?? plainTitle(n))} <span class="dim">· ${STATE_WORD[prState(n)]}</span>` : esc(firstSentences(l.text.replace(/:.*$/s, ''), 90));
+    const href = l.source?.href ?? (n ? `#/review/${n}` : '#/status');
+    return `<li title="${esc([l.text, l.next].filter(Boolean).join('\n'))}"><span class="who">${l.who === 'you' ? '<b>You</b>' : l.who ? esc(workerName(l.who)) : ''}</span><a class="what" href="${esc(href)}"${href.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${what}</a></li>`;
+  };
+  return `<section class="waiting"><h4>Waiting on <a class="linkish" href="#/status">details ›</a></h4>${j.lines.length ? `<ul class="wone">${j.lines.map(line).join('')}</ul>` : '<p class="dim">Nobody: nothing is waiting on a person right now.</p>'}</section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -305,7 +309,7 @@ function overview() {
     ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
     ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
     ${tonight()}
-    <div class="body"><div class="left">${deck()}${tracks()}${waitingOn()}</div>${gate()}${destination()}</div>
+    <div class="body"><div class="left">${deck()}${tracks()}${waitingOn()}</div>${destination()}</div>
     ${routeStrip()}${crew()}${dock()}
     <div id="tip" class="tip" hidden></div>
   </div>
@@ -647,6 +651,7 @@ document.addEventListener('click', (e) => {
   const rel = e.target.closest('[data-release]');
   if (rel) { ov.release = rel.dataset.release; state.overlay = 'release'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
   if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
+  if (e.target.closest('[data-replay]')) { ov.replayOpen = true; return render(); }
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
   const page = e.target.closest('[data-page]');
