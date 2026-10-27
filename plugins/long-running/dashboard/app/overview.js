@@ -1,6 +1,7 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
+const ATTENTION = ['failing', 'you', 'held', 'doing', 'queued', 'waiting', 'landed'];
 const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {} };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 const RELEASED = /^(released|done|live)/i;
@@ -111,7 +112,7 @@ function tonight() {
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
   const target = stop ?? next;
   return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button>
-    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span><span class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}">Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</span></span></section>`;
+    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
   const c = Math.min(13, Math.max(2, Math.ceil(Math.sqrt(list.length * 2.4))));
@@ -333,7 +334,7 @@ function prSheet() {
   const row = boardRow(n);
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
   const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
-  const said = m.records.filter((r) => r.topic === String(n) || ([lane, pr.lane].includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
+  const said = latestOn(n);
   return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
@@ -342,7 +343,7 @@ function prSheet() {
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
     <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
-    ${said ? `<dt>Latest word on it</dt><dd>${inline(firstSentences(said.text, 260))} <small class="dim">${esc(said.lane)}, ${clock(said.at)} · <a href="/record/${said.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
+    ${said ? `<dt>Latest word on it</dt><dd>${inline(firstSentences(shortShas(said.text), 260))} <small class="dim">${esc(said.lane)}, ${clock(said.at)} · <a href="/record/${said.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
     <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
 }
 function partSheet() {
@@ -368,7 +369,7 @@ function workerSheet() {
   const where = m.steps.find((s) => s.id === w.step)?.label;
   return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
     ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
-    ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${inline(firstSentences(last.text.replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1'), 240))}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
+    ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${inline(firstSentences(shortShas(last.text), 240))}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
     <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
     <h4 class="sc-h">Before that <span>newest first</span></h4><ul class="tl">${events.length ? timelineRows(events, false) : '<li class="dim">Nothing else in the last day.</li>'}</ul>
     ${w.prs.length ? `<details data-id="worker-prs-${esc(w.lane)}"${state.open.has(`worker-prs-${w.lane}`) ? ' open' : ''}><summary class="sc-h">Pull requests it named <span>${w.prs.length}</span></summary><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul></details>` : ''}`);
@@ -440,7 +441,7 @@ function stepCard(s) {
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${blockerNow(s.blocker)}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.filter((w) => w.live).length, 'worker')} active in the last 20 minutes</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker has reported on this step.</p>'}
-    ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul>` : ''}
+    ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => ATTENTION.indexOf(a.state) - ATTENTION.indexOf(b.state)).map((p) => prRow(p, ['failing', 'held', 'you'].includes(p.state) ? ownerLine(p.number) : '')).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
 }
 function blockerNow(text) {
@@ -456,15 +457,30 @@ function trackSheet() {
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Other work: ${list.length} open pull requests</h3>
     <ul class="prlist">${list.map(prRow).join('')}</ul></div></div>`;
 }
+function shortShas(text) {
+  return String(text).replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1');
+}
+function ownerOf(n) {
+  return driveEntry(n)?.worker?.lane ?? state.model.prs[n]?.lane;
+}
+function latestOn(n) {
+  const lanes = [ownerOf(n), state.model.prs[n]?.lane];
+  return state.model.records.filter((r) => r.topic === String(n) || (lanes.includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
+}
+function ownerLine(n) {
+  const lane = ownerOf(n);
+  const r = latestOn(n);
+  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${inline(firstSentences(shortShas(r.text), 160))} <small class="dim">${clock(r.at)}</small>` : ''}</span>`;
+}
 function redWhy(n) {
   const r = state.model.records.filter((x) => x.kind === 'blocker' && x.text.includes(`#${n} `)).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
   const check = r && /CI is red: (.+)$/.exec(r.text)?.[1];
   return r ? ` · ${check ? `check ${esc(check)} failed` : esc(firstSentences(r.text.replace(/^.*?:\s*/, ''), 60))} at ${clock(r.at)}` : '';
 }
-function prRow(p) {
+function prRow(p, extra = '') {
   const pr = state.model.prs[p.number] ?? {};
-  const extra = `${p.state === 'failing' ? redWhy(p.number) : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
-  return `<li><a href="${prHref(p.number)}" data-pr="${p.number}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${extra}</em></a></li>`;
+  const why = `${p.state === 'failing' ? redWhy(p.number) : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
+  return `<li><a href="${prHref(p.number)}" data-pr="${p.number}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${why}</em></a>${extra}</li>`;
 }
 function releaseSheet() {
   const m = state.model;
@@ -475,7 +491,7 @@ function releaseSheet() {
   const parts = r.parts.map((k) => m.parts.find((p) => p.key === k)).filter(Boolean);
   const blocking = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))];
   const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0] && !blocking.includes(e.number));
-  const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) });
+  const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) }, ownerLine(n));
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
     <p class="relnow">${inline(r.state)}</p>
     ${blocking.length ? `<h4 class="sc-h">What it waits on</h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}

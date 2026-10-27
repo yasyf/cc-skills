@@ -563,3 +563,13 @@ body:has(.ck.ov) .top .tabs { display: none; }
   .ck .mini .pl, .ck .mini .tag { font-size: 9px; }
   .ck .mini p, .ck .mini .kb { display: none; }
 }
+.ck .prlist li .own { display: block; padding: 2px 0 8px 22px; font-size: 12.5px; line-height: 1.45; color: var(--ink2); }
+.ck .prlist li .own .linkish { font-weight: 650; }
+.sheet.route { max-width: 980px; }
+.sheet.route > h2.sec:first-of-type { margin-top: 0; }
+@media (max-width: 759px) {
+  .overlay.route { align-items: end; padding: 0; }
+  .sheet.route { min-height: 0; max-height: 78vh; overflow: auto; border-radius: 18px 18px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  body:has(.overlay.route) .ck .dock { display: none; }
+}
+.reldoc > summary { cursor: pointer; margin: 22px 0 10px; font-size: 18px; font-weight: 700; }

@@ -299,8 +299,8 @@ function releases() {
     const open = m.drive.prs.filter((e) => x.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]).length;
     return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><b>${esc(x.id)}</b><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${esc(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
   };
-  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><ol class="rellist">${rels.map(row).join('')}</ol>
-    <h2 class="sec">The full release plan ${r.updated ? `<span class="dim">revised ${clock(r.updated)}</span>` : ''}</h2><div class="prose">${markdown(r.markdown)}</div>`;
+  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><div class="ck">${routeStrip()}</div><ol class="rellist">${rels.map(row).join('')}</ol>
+    <details class="reldoc" data-id="rel-doc"${state.open.has('rel-doc') ? ' open' : ''}><summary class="sec">The full release plan ${r.updated ? `<span class="dim">revised ${clock(r.updated)}</span>` : ''}</summary><div class="prose">${markdown(r.markdown)}</div></details>`;
 }
 
 function chatTurns() {
@@ -337,6 +337,7 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
+const OVER_ROUTES = ['now', 'releases', 'workers', 'timeline'];
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
@@ -346,7 +347,8 @@ function render() {
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
   const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview, now: needsScreen, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
+  const over = (body) => () => `${overview()}<div class="overlay route" data-close="1"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
+  const screens = { overview, now: over(needsScreen), review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: askScreen };
   const y = window.scrollY;
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
@@ -356,7 +358,7 @@ function render() {
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   window.scrollTo(0, y);
   syncReviewEmbed(r);
-  if ((screens[r.screen] ?? overview) === overview) mountOverview();
+  if (OVER_ROUTES.includes(r.screen) || (screens[r.screen] ?? overview) === overview) mountOverview();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
 }
@@ -405,7 +407,10 @@ document.addEventListener('click', (e) => {
     render();
   }
   const close = e.target.closest('[data-close]');
-  if (close && (e.target === close || close.matches('button'))) { state.overlay = null; render(); return; }
+  if (close && (e.target === close || close.matches('button'))) {
+    if (state.overlay) { state.overlay = null; render(); } else if (OVER_ROUTES.includes(route().screen)) location.hash = '#/';
+    return;
+  }
   const overlay = e.target.closest('[data-overlay]');
   if (overlay && !e.target.closest('a.d')) {
     e.preventDefault();
@@ -425,6 +430,7 @@ document.addEventListener('submit', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) { state.overlay = null; render(); }
+  else if (e.key === 'Escape' && OVER_ROUTES.includes(route().screen)) location.hash = '#/';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
