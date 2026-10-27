@@ -30,6 +30,7 @@ QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MUL
 QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 CARRIED = re.compile(rf"^{FIDELITY_OK} ([0-9a-f]{{7,40}}) carried from ([0-9a-f]{{7,40}})\b", re.IGNORECASE)
+NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
 CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
 
 
@@ -116,6 +117,11 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str) -> list[dict]:
             gone[(pr, head)] = go
             carried.append(go)
     return carried
+
+
+def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
+    """Each `(H, G)` a `fidelity: ok H carried from G` grade names, unless it says the change adds new behavior: the desk read H as G's change, so G's finder verdict stands for H (root #139077)."""
+    return [(found[1].lower(), found[2].lower()) for grade in grades if (found := CARRIED.match(grade["text"])) and not NEW_BEHAVIOR.search(grade["text"])]
 
 
 def reached(gone: dict[tuple[str, str], dict], pr: str, sha: str) -> dict | None:

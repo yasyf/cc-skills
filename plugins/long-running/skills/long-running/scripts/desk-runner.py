@@ -316,7 +316,7 @@ words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. A finder ok of an older head
-carries to a head with no finder record when both heads' own patches match, as a fidelity ok does. A PR whose body opens with "Red by design", or whose lane's newest
+carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
@@ -475,7 +475,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -4619,11 +4619,29 @@ class Landing:
 
     def finder_carried(self, pr: str, sha: str) -> bool:
         records = self.finder_records(pr)
+        if self.finder_carried_by_fidelity(records, pr, sha):
+            return True
         heads = dict.fromkeys(record["head"] for record in records if not names_head(record["head"], sha))
         oks = [head for head in heads if (newest := newest_finder(records, head)) and newest["grade"] == FINDER_PASS]
         if not oks or not (commits := self.own_commits(pr, sha)) or not (ours := self.patch_id(pr, sha, commits, escalate=True)):
             return False
         return any(self.patch_id(pr, head, commits, escalate=False) == ours for head in oks)
+
+    def finder_carried_by_fidelity(self, records: list[dict], pr: str, sha: str) -> bool:
+        """Whether a chain of fidelity carries runs from `sha` back to a head whose newest finder verdict is ok (root #139077)."""
+        carries = fidelity_carries(self.grades(pr))
+        seen: set[str] = set()
+        frontier = [sha]
+        while frontier:
+            head = frontier.pop()
+            for new, old in carries:
+                if not names_head(new, head) or old in seen:
+                    continue
+                if (newest := newest_finder(records, old)) and newest["grade"] == FINDER_PASS:
+                    return True
+                seen.add(old)
+                frontier.append(old)
+        return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
         """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
