@@ -6019,7 +6019,7 @@ class Landing:
             refs = record["refs"]
             targets, named = set(refs.get("targets", [])), any(pr in names for pr in refs.get("prs", []))
             if landed.get("incident") and record["kind"] == "release":
-                return (record["lane"] == ROOT and named) or bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
+                return (record["lane"] == ROOT and names_pr(record, landed["pr"])) or bool(refs.get("builds")) and bool(targets & set(landed["components"]) if landed["components"] else targets)
             return bool(targets & set(landed["components"])) or named
 
         return next(
