@@ -3391,7 +3391,7 @@ def test_a_drive_with_no_registered_root_session_posts_no_merge_card_and_says_wh
     assert line.startswith("MERGE-CARD-FAILED merge-card:unset landing:") and "drive.py start --drive <drive>" in line
 
 
-def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_config(shell, config, tmp_path):
+def test_a_pr_no_batch_post_lists_still_gets_its_merge_ask_and_reports_the_post_owed(shell, config, tmp_path):
     merge_mode(config, "every")
     batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
     lone_green_pr(shell)
@@ -3399,11 +3399,9 @@ def test_merge_asks_wait_for_a_recorded_batch_post_that_lists_their_prs_with_no_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    [line] = escalations(shell)
-    assert line.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on the ledger lists them" in line
-    batch_posts(shell, POSTED)
-    landing_pass(shell, config)
-    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED", "MERGE-ASK"]
+    owed, ask = escalations(shell)
+    assert owed.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on the ledger lists them; their merge cards go out anyway" in owed
+    assert ask.startswith("MERGE-ASK ")
 
 
 def test_a_batch_post_owed_posts_once_per_set_of_prs_though_a_head_moves(shell, config, tmp_path):
@@ -3416,7 +3414,7 @@ def test_a_batch_post_owed_posts_once_per_set_of_prs_though_a_head_moves(shell, 
     shell.gates["29020"] = [gate("#29020 GREEN dddd444444 graphite READY", would="#29020")]
     grade(shell, "29020", "ok dddd444")
     landing_pass(shell, config)
-    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["BATCH-POST-OWED"]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)].count("BATCH-POST-OWED") == 1
 
 
 SKIP_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"name": ":graphite: Redundant within its stack"}]}
@@ -3571,7 +3569,7 @@ def test_a_full_build_that_does_not_start_escalates_once_per_head_and_is_tried_a
     assert len(shell.grade_starts) == 3
 
 
-def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shell, config, tmp_path):
+def test_a_ledger_that_does_not_read_still_sends_the_merge_ask_and_escalates_once(shell, config, tmp_path):
     merge_mode(config, "every")
     shell.ledger_outs["show"] = (1, "ccn: ledger unreachable\n")
     lone_green_pr(shell)
@@ -3579,8 +3577,9 @@ def test_a_ledger_that_does_not_read_sends_no_merge_card_and_escalates_once(shel
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    [line] = escalations(shell)
-    assert line.startswith("BATCH-READ-FAILED ") and "the ledger did not read for its batch posts: ccn: ledger unreachable; no MERGE-ASK goes out until it reads" in line
+    failed, ask = escalations(shell)
+    assert failed.startswith("BATCH-READ-FAILED ") and "the ledger did not read for its batch posts: ccn: ledger unreachable; the merge cards go out" in failed
+    assert ask.startswith("MERGE-ASK ")
 
 
 def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, tmp_path):

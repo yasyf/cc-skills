@@ -1584,11 +1584,12 @@ owner's tap on it is the authorization. After a Merge tap the root runs
 A root `go` never covers a reserved row, whatever it names or whenever it was
 posted (C224).
 
-A PR goes on a merge card only once a batch post lists it (8908f83). The root posts
-each batch, then records it with `ledger.py progress --ledger <id> --ask <ask>
---note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress` entry with an
-artifact lists logs one `BATCH-POST-OWED` per set of PRs instead of its `MERGE-ASK`, and
-a new head on one of them does not post it again.
+The batch post is comms, never a merge gate (8908f83, root #138202): a PR goes on
+its merge card, and a root go on its head enqueues it, whether or not a batch post
+lists it. Comms posts each batch, then records it with `ledger.py progress --ledger
+<id> --ask <ask> --note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress`
+entry with an artifact lists logs one `BATCH-POST-OWED` report per set of PRs beside
+its `MERGE-ASK`, and a new head on one of them does not post it again.
 
 A green head whose only passing build is Graphite's "Redundant within its stack" skip
 is not ready. With `landing.ci_build` set, as in
