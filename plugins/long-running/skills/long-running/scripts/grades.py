@@ -27,7 +27,6 @@ GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\blands after\b|\bdo not (?:land|merge) until\b|\breaders-first\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 PRECONDITION_MET = re.compile(r"\s*precondition-met\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+)#\d+)*)", re.IGNORECASE)
-PRECONDITION_LIMIT = 300
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 
 
@@ -95,7 +94,7 @@ def goes(record: dict, pr: str) -> bool:
 
 def precondition_sentences(text: str) -> list[str]:
     """Each sentence of `text` that holds a landing back on something outside the PR: `lands only after`, `lands after`, `merge only after`, `do not land until`, or a readers-first line."""
-    return [" ".join(sentence.split())[:PRECONDITION_LIMIT] for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
+    return [" ".join(sentence.split()) for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
 
 
 def full_text(record: dict) -> str:
