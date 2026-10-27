@@ -451,6 +451,15 @@ owner-ordered Buildkite apply on load 428 until the root answered (2026-10-02).*
 that allowance on 2026-10-13 (answer 7e82747, register F341) and ordered at 2:42 PM
 "no local compiles anywhere; CI grades" (F348).*
 
+A wrapper that sends builds or checks to remote compute refuses when no remote target
+answers; it never falls through to the local toolchain. A lane that sees work it sent
+remote run on the Mac stops it and posts a `defect` to root naming the wrapper and the
+command, and root spawns the fix that turn. CI grades the work meanwhile.
+
+*Prevents Oct 27 12:27 AM: a remote-check wrapper handed a check to the local compiler
+when no builder answered, and a lane compiled on the Mac while believing the work ran
+remotely.*
+
 A batch job never runs on the orchestrator's machine. A data pass, a backfill, a dry
 run of one, and a bulk rewrite run on in-region compute, one process per bucket or
 team, and the Mac runs only the root, its desks, and its lanes. That holds for a
@@ -2963,10 +2972,21 @@ and ships only while `rate.remaining` in
 `gh api rate_limit` lags the real GraphQL counter, so nothing gates on it. Both lane
 brief templates carry this rule.
 
+**Batch and cache every GitHub read.** A desk or tool that needs one fact for many PRs
+reads it in one batched query per pass, never one call per PR. A surface that shows a
+PR caches it by head, revalidates on a floor of a minute or more, and reads its files
+again only when its head or base moves. The secondary limit fires on bursts of writes,
+such as a dozen PR creates in a quarter hour, so a ship storm spaces its creates. A
+per-PR loop found in any tool is a defect fixed in that tool, not a second reader added
+beside it.
+
 *Prevents a per-shard log loop emptying the Buildkite budget mid-release, and a bulk
 scan across thousands of logs failing two releases' own pipeline syncs on the same
 shared limit; also the account's GraphQL budget running dry at 04:39Z during release v3
 (2026-10-01), which refused every lane's ship until the hourly reset.*
+*Also prevents Oct 27 12:21 AM: a landing pass spent one GraphQL query per open PR, a
+board page fetched each PR uncached, and twelve PR creates in thirteen minutes tripped
+the secondary limit, so every lane's PR create was refused.*
 
 ### Desk cadence
 
