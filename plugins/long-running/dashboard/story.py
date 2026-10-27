@@ -275,15 +275,26 @@ class Story:
 
 class Stories:
     def __init__(self, config, lanes, reports):
-        self.dir = Path(config["stories_dir"])
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.transcripts = Path(config["transcripts"])
-        self.model = config.get("story_model", "claude-sonnet-5-5")
+        self.config = config
         self.lanes = lanes
         self.reports = reports
         self.open = {}
         self.running = []
         self.lock = threading.Lock()
+
+    @property
+    def dir(self):
+        found = Path(self.config["stories_dir"])
+        found.mkdir(parents=True, exist_ok=True)
+        return found
+
+    @property
+    def transcripts(self):
+        return Path(self.config["transcripts"])
+
+    @property
+    def model(self):
+        return self.config.get("story_model", "claude-sonnet-5-5")
 
     def story(self, item, work):
         with self.lock:

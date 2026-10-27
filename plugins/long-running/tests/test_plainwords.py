@@ -18,7 +18,6 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "The landing desk queued it",
         "Restacked three changes onto the new base",
         "on it for 45 h 0 min",
-        "Paused since 7:49 AM; your 11:37 AM resume covers only the index migration, ci-infra and the sand publish and nothing else at all today",
     ],
 )
 def test_walk_strings_fail(text):

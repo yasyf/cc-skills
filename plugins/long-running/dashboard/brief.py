@@ -209,10 +209,7 @@ class Curator:
         self.config = config
         self.live_model = live_model
         self.on_brief = on_brief
-        self.dir = Path(config["brief_dir"])
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.dir / "brief.json"
-        self.brief = json.loads(self.path.read_text()) if self.path.exists() else None
+        self.brief = None
         self.dirty = threading.Event()
         self.error = None
         self.running = False
@@ -222,6 +219,10 @@ class Curator:
             self.dirty.set()
 
     def loop(self):
+        self.dir = Path(self.config["brief_dir"])
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.dir / "brief.json"
+        self.brief = json.loads(self.path.read_text()) if self.path.exists() else None
         self.dirty.set()
         while True:
             self.dirty.wait()
