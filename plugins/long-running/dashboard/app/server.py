@@ -45,6 +45,9 @@ UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
 HELD = re.compile(r"^(hold|held|paused|stopped)", re.I)
 WAITS = re.compile(r"^(waits? on|blocked)", re.I)
+QUEUED_NEXT = "Lands when the merge queue reaches it."
+PR_WORD = {"landed": "landed", "you": "waits on your tap", "failing": "its tests fail", "held": "held", "queued": "approved, waiting to land", "doing": "being worked on", "waiting": "waits its turn"}
+TONIGHT_KINDS = {"landed": "Landed", "go": "Approved", "lift": "Hold lifted", "fix-live": "Fix live", "incident": "Broke", "blocker": "Blocked"}
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
@@ -61,6 +64,10 @@ TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css")}
+
+
+def gh(repo, *args):
+    return run(["env", "CCX_CALLER=drive-dashboard", f"GH_REPO={repo}", "ccx", "vcs", "gh", "--max-age", "5m", "--", *args])
 
 
 def run(argv, cwd=None):
@@ -158,7 +165,7 @@ def next_action(state, pr, row, owner, base, base_landed, hold):
     if base and not base_landed:
         return f"Lands after #{base} lands."
     if state == "queued":
-        return "Lands when the merge queue reaches it."
+        return QUEUED_NEXT
     if state == "doing":
         return f"{who} is working on it."
     return "Waits its turn in its stack."
@@ -172,8 +179,11 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
     by_number = {str(row["number"]): row for row in rows}
     active = activity(records, now, prs)
     spoke = {}
-    for record in records:
+    said = {}
+    for record in sorted(records, key=lambda record: record["at"]):
         spoke[record["lane"]] = max(spoke.get(record["lane"], ""), record["at"])
+        for number in {*PR_MENTION.findall(record["text"]), *([record["topic"]] if re.fullmatch(r"\d{5}", record.get("topic") or "") else [])}:
+            said[(record["lane"], number)] = {"seq": record["seq"], "at": record["at"], "text": record["text"][:600]}
     by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
     listed = []
     for number, pr in sorted(prs.items()):
@@ -198,12 +208,116 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
             "head": (pr.get("head") or "")[:7],
             "owner": owner,
             "owner_at": spoke.get(owner),
+            "word": said.get((owner, number)),
             "blocker": blocker,
             "checks": pr.get("failing_checks") or [],
             "next": next_action(state, pr, row, owner, base, bool(base) and prs[base].get("state") == "landed", holds.get(number)),
             "read_at": pr.get("last_refresh"),
         })
     return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "tracked": sorted(int(number) for number in prs)}
+
+
+def answer_line(text, who=None, since=None, next=None, href=None, label=None):
+    return {"text": text, "who": who, "since": since, "next": next, "source": {"label": label, "href": href} if href else None}
+
+
+def pr_line(entry, prs):
+    number = str(entry["number"])
+    pr = prs.get(number, {})
+    clears = pr.get("queue_clears") if entry["state"] == "queued" else None
+    blocker = f". {entry['blocker']}" if entry["blocker"] else ""
+    return answer_line(
+        f"#{number} {pr.get('title', '')}: {PR_WORD[entry['state']]}{blocker}",
+        who=entry["owner"], since=(entry["word"] or {}).get("at"), next=clears or entry["next"], href=f"#/review/{number}", label=f"#{number}",
+    )
+
+
+def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_names, now):
+    by_number = {entry["number"]: entry for entry in drive["prs"]}
+    open_entry = lambda number: by_number.get(number) if by_number.get(number, {}).get("state") not in (None, "landed") else None
+
+    stop = next((release for release in releases if release.get("word") in ("now", "blocked", "held")), None)
+    release_lines, release_missing = [], []
+    for release in releases:
+        if release.get("word") not in ("now", "blocked", "held"):
+            continue
+        if release["word"] == "held":
+            release_lines.append(answer_line(f"{release['id']} {release['name']} is held: {release['state']}", who="you", href="#/releases", label="Release plan"))
+            break
+        named = [entry for entry in map(open_entry, plan_prs(release["state"])) if entry]
+        blockers = named or [entry for entry in drive["prs"] if entry["state"] != "landed" and entry["tree"] == tree_names[0] and entry["part"] in release["parts"]]
+        release_lines.append(answer_line(f"{release['id']} {release['name']}: {release['state']}", href="#/releases", label="Release plan"))
+        release_lines += [pr_line(entry, prs) for entry in blockers]
+        release_missing += [f"#{entry['number']}: what clears its place in the merge queue (landing-desk queue_clears)" for entry in blockers if entry["next"] == QUEUED_NEXT and not prs.get(str(entry["number"]), {}).get("queue_clears")]
+
+    tap = needs[0] if needs else None
+    tap_lines = [answer_line(
+        {"prs": lambda: f"{len(tap['prs'])} pull request{'s' if len(tap['prs']) > 1 else ''} in {tap.get('group')}: approve at the commit shown", "card": lambda: tap["card"]["title"], "ask": lambda: tap["ask"]["what"]}[tap["kind"]](),
+        who="you", next=tap["why"], href=(tap["source"] or {}).get("href") or "#/now", label=(tap["source"] or {}).get("label"),
+    )] if tap else [answer_line("Nothing needs you right now.", href="#/now", label="Needs you")]
+
+    red = next((step for step in steps if step["tone"] == "failing"), None)
+    red_entries = [by_number[item["number"]] for item in (red or {}).get("prs", []) if item["state"] == "failing"]
+    failed = lambda checks: "; ".join(": ".join(filter(None, (check["name"], check.get("first_error")))) for check in checks) or "its tests fail"
+    red_lines = [answer_line(
+        f"#{entry['number']} {prs.get(str(entry['number']), {}).get('title', '')}: {failed(entry['checks'])}",
+        who=entry["owner"], since=(entry["word"] or {}).get("at"), next=entry["next"], href=(entry["checks"][0]["url"] if entry["checks"] else f"#/review/{entry['number']}"), label="failing check" if entry["checks"] else f"#{entry['number']}",
+    ) for entry in red_entries]
+    red_missing = [f"#{entry['number']} {check['name']}: its first error line (ledger writer failing_checks first_error)" for entry in red_entries for check in entry["checks"] if not check.get("first_error")]
+
+    since = now - dt.timedelta(hours=6)
+    happened = []
+    for number, pr in prs.items():
+        if pr.get("landed_at") and at(pr["landed_at"]) >= since:
+            freed = [entry["number"] for entry in drive["prs"] if entry["base"] == int(number) and entry["state"] != "landed"]
+            done = [step["label"] for step in steps if int(number) in [item["number"] for item in step["prs"]] and step["tone"] == "done"]
+            happened.append((pr["landed_at"], answer_line(
+                f"#{number} {pr.get('title', '')} landed",
+                since=pr["landed_at"], next="; ".join([*(f"#{n} can now land" for n in freed), *(f"finishes step {label}" for label in done)]) or None, href=f"#/review/{number}", label=f"#{number}",
+            )))
+    latest = {}
+    for record in records:
+        named = [n for n in dict.fromkeys(PR_MENTION.findall(record["text"])) if n in prs]
+        if record["kind"] not in TONIGHT_KINDS or record["kind"] == "landed" or at(record["at"]) < since:
+            continue
+        if record["kind"] in ("go", "blocker") and not (named and (record["kind"] == "go" or "root" in record.get("to", []))):
+            continue
+        latest[(record["kind"], named[0] if record["kind"] == "go" else record["seq"])] = record
+    for record in latest.values():
+        named = [n for n in dict.fromkeys(PR_MENTION.findall(record["text"])) if n in prs]
+        happened.append((record["at"], answer_line(
+            f"Approved #{named[0]} {prs[named[0]].get('title', '')}" if record["kind"] == "go" else f"{TONIGHT_KINDS[record['kind']]}: {record['text'][:240]}",
+            who=record["lane"], since=record["at"],
+            next=f"lets {', '.join(f'#{n}' for n in named[:4])} move" if named and record["kind"] in ("go", "lift", "fix-live") else None, href=f"/record/{record['seq']}", label=f"record #{record['seq']}",
+        )))
+
+    new_tree = [entry for entry in drive["prs"] if entry["tree"] == tree_names[0]]
+    tonight = [release for release in releases if release.get("tonight")]
+    proof = progress_now.get("preservation")
+    track_lines = [
+        answer_line(f"{sum(entry['state'] == 'landed' for entry in new_tree)} of {len(new_tree)} new-app changes merged", href="#/", label="the plan"),
+        answer_line(f"{sum(release.get('word') == 'out' for release in tonight)} of {len(tonight)} releases out tonight", href="#/releases", label="Release plan"),
+        *([answer_line(f"Old app and flagged users: {proof['result']}", since=proof.get("checked_at"), next=proof.get("how"), href=proof.get("link"), label="proof")] if proof else []),
+        *([answer_line(f"Tonight's gate: {stop['id']} {stop['name']}, {stop['state']}", who="you" if stop["word"] == "held" else None, href="#/releases", label="Release plan")] if stop else []),
+    ]
+
+    labels = {step["id"]: step["label"] for step in steps}
+    waits = [
+        *([answer_line(f"{len(needs)} decisions in Needs you", who="you", next="those pull requests and questions move", href="#/now", label="Needs you")] if needs else []),
+        *[line for line in release_lines if line["who"]],
+        *[answer_line(f"#{entry['number']} {prs.get(str(entry['number']), {}).get('title', '')}: {entry['next']}", who=entry["owner"], since=(entry["word"] or {}).get("at"), next=f"unblocks step {labels[entry['step']]}" if entry["step"] in labels else None, href=f"#/review/{entry['number']}", label=f"#{entry['number']}") for entry in drive["prs"] if entry["state"] == "held"],
+        *[answer_line(item.get("what", ""), who=item.get("who"), since=item.get("since"), next=item.get("unblocks"), href=item.get("link"), label=item.get("link") and "source") for item in progress_now.get("waiting", [])],
+    ]
+
+    stamp = now.isoformat()
+    return {
+        "release": {"question": f"What is blocking {stop['id'] if stop else 'the next release'}, and why?", "lines": release_lines, "missing": release_missing, "as_of": stamp},
+        "tap": {"question": "What do I tap now?", "lines": tap_lines, "missing": [], "as_of": stamp},
+        "red": {"question": f"Why is {red['label'] if red else 'a step'} red, and who is on it?", "lines": red_lines, "missing": red_missing, "as_of": stamp},
+        "since": {"question": "What happened in the last six hours?", "lines": [line for _, line in sorted(happened, key=lambda pair: at(pair[0]), reverse=True)], "missing": [], "as_of": stamp},
+        "track": {"question": "Is tonight's goal on track?", "lines": track_lines, "missing": [] if proof else ["the latest proof that the old app and flagged users still work (progress-desk now.preservation)"], "as_of": stamp},
+        "waiting": {"question": "What is everyone waiting on right now?", "lines": waits, "missing": [], "as_of": stamp},
+    }
 
 
 def drive_workers(records, prs, steps, now, desks=False):
@@ -471,7 +585,7 @@ class Drive:
             stale = [(n, pr["head"], pr.get("changed_files")) for n, pr in prs.items() if pr.get("head") and pr.get("state") in ("open", "landed") and not paths_current(cache.get(n), pr)]
             for number, head, files in stale:
                 try:
-                    paths = run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}/files", "--paginate", "--jq", ".[].filename"]).split()
+                    paths = gh(self.config["repo"], "api", f"repos/{self.config['repo']}/pulls/{number}/files", "--paginate", "--jq", ".[].filename").split()
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                     self.errors["paths"] = f"#{number}: {str(error)[:200]}"
                     continue
@@ -560,18 +674,22 @@ class Drive:
         activity_records = [*model["records"], *model["lanes"]]
         drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
+        steps = step_rows(progress["steps"], drive, workers)
+        releases = release_path(progress.get("now", {}).get("releases", []))
+        need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
         return {
             **model,
             "board": board,
             "drive": drive,
             "workers": workers,
             "desks": drive_workers(activity_records, model["prs"], progress["steps"], now, desks=True),
-            "steps": step_rows(progress["steps"], drive, workers),
+            "steps": steps,
             "parts": self.config["parts"],
-            "now": {**progress.get("now", {}), "releases": release_path(progress.get("now", {}).get("releases", []))},
+            "now": {**progress.get("now", {}), "releases": releases},
             "steps_at": progress["updated"],
             "live": LIVE_SOURCES,
-            "needs": needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"}),
+            "needs": need_items,
+            "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
         }
 
     def report_defect(self, text):
@@ -621,7 +739,7 @@ class Drive:
         head = self.slow.get("prs", {}).get(str(number), {}).get("head")
         if head and self.pr_facts.get(number, {}).get("head", "").startswith(head):
             return self.pr_facts[number]
-        facts = json.loads(run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS]))
+        facts = json.loads(gh(self.config["repo"], "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS))
         self.pr_facts[number] = facts
         return facts
 

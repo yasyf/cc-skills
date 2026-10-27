@@ -1,11 +1,12 @@
 import datetime as dt
+import itertools
 import queue
 import urllib.parse
 
 import pytest
 from holds import Entry
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -324,8 +325,11 @@ def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_don
     assert (row["tone"], row["untracked"]) == ("waiting", [43196, 43197])
 
 
-def record(lane, minutes_ago, kind="state", text="", topic=""):
-    return {"lane": lane, "kind": kind, "text": text, "topic": topic, "at": (NOW - dt.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")}
+SEQ = itertools.count(140000)
+
+
+def record(lane, minutes_ago, kind="state", text="", topic="", to=()):
+    return {"seq": next(SEQ), "lane": lane, "kind": kind, "text": text, "topic": topic, "to": list(to), "at": (NOW - dt.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")}
 
 
 def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
@@ -369,6 +373,77 @@ def test_a_lane_that_only_mentions_a_pull_request_is_not_the_one_working_on_it()
 
     assert (lights[43203]["worker"]["lane"], lights[42900]["worker"]["lane"]) == ("p8a-step6b-creds-5", "p8f-replica-3")
     assert {w["lane"]: w["prs"] for w in drive_workers(records, prs, [], NOW)}["dashboard-user-test"] == []
+
+
+def test_a_pull_requests_last_word_is_its_owners_newest_record_about_it():
+    prs = ledger(pr43203={"state": "open", "lane": "p8a-step6b-creds-5"})
+    records = [
+        record("p8a-step6b-creds-5", 30, kind="head", text="HEAD #43203 abc1234"),
+        record("p8a-step6b-creds-5", 9, kind="answer", text="#43203 gets restacked onto current dev"),
+        record("p8a-step6b-creds-5", 2, kind="state", text="idle, nothing open"),
+        record("dashboard-user-test", 1, kind="report", text="conflicted #43203 shown ready to tap"),
+    ]
+
+    word = listed(prs, records=records)[43203]["word"]
+
+    assert word["text"] == "#43203 gets restacked onto current dev"
+    assert word["at"] == records[1]["at"]
+
+
+def journey_drive(*entries):
+    base = {"base": None, "base_failing": False, "tree": "New tree", "part": "api", "step": "s1", "worker": None, "head": "abc1234", "owner": "lane-a", "owner_at": None, "word": None, "blocker": None, "checks": [], "next": "x", "read_at": None}
+    return {"prs": [{**base, **entry} for entry in entries], "tracked": [entry["number"] for entry in entries]}
+
+
+def test_the_release_answer_names_its_open_blockers_with_owner_and_next_and_stops_at_the_held_release():
+    drive = journey_drive(
+        {"number": 42723, "state": "queued", "next": QUEUED_NEXT},
+        {"number": 42810, "state": "failing", "next": "lane-a fixes buildkite/test."},
+        {"number": 42700, "state": "landed", "next": "Nothing: it has landed."},
+    )
+    releases = [
+        {"id": "R1", "name": "Cloud", "state": "The second part waits on #42723, #42810 and #42700.", "parts": ["api"], "word": "now", "tonight": True},
+        {"id": "R2", "name": "Gateway", "state": "Live at 7:27 AM", "parts": ["gateway"], "word": "out", "tonight": True},
+        {"id": "R3", "name": "Desktop", "state": "Paused by you at 7:49 AM", "parts": ["app"], "word": "held", "tonight": True},
+        {"id": "R4", "name": "New code", "state": "Paused by you at 7:49 AM", "parts": ["agent"], "word": "unreachable", "tonight": True},
+    ]
+    prs = {"42723": {"title": "sand: restart"}, "42810": {"title": "sand: viewer"}, "42700": {"title": "api: done", "state": "landed"}}
+
+    out = journeys(drive, [], releases, [], [], prs, {}, TREES, NOW)["release"]
+
+    assert [line["text"][:6] for line in out["lines"]] == ["R1 Clo", "#42723", "#42810", "R3 Des"]
+    assert [(line["who"], line["next"]) for line in out["lines"][1:3]] == [("lane-a", QUEUED_NEXT), ("lane-a", "lane-a fixes buildkite/test.")]
+    assert out["missing"] == ["#42723: what clears its place in the merge queue (landing-desk queue_clears)"]
+
+    prs["42723"]["queue_clears"] = "2nd in the queue; lands after #43350"
+    out = journeys(drive, [], releases, [], [], prs, {}, TREES, NOW)["release"]
+
+    assert (out["lines"][1]["next"], out["missing"]) == ("2nd in the queue; lands after #43350", [])
+
+
+def test_the_red_step_answer_says_what_failed_and_names_a_missing_first_error():
+    drive = journey_drive({"number": 42741, "state": "failing", "checks": [{"name": "buildkite/test", "url": "https://bk/1"}]})
+    steps = [{"id": "s1", "label": "Journal", "tone": "failing", "prs": [{"number": 42741, "state": "failing"}]}]
+
+    out = journeys(drive, steps, [], [], [], {"42741": {"title": "sandsql: reader"}}, {}, TREES, NOW)["red"]
+
+    assert out["lines"][0]["text"] == "#42741 sandsql: reader: buildkite/test"
+    assert out["missing"] == ["#42741 buildkite/test: its first error line (ledger writer failing_checks first_error)"]
+
+    drive["prs"][0]["checks"][0]["first_error"] = "TestReplica timed out after 30s"
+    out = journeys(drive, steps, [], [], [], {"42741": {"title": "sandsql: reader"}}, {}, TREES, NOW)["red"]
+
+    assert (out["lines"][0]["text"], out["missing"]) == ("#42741 sandsql: reader: buildkite/test: TestReplica timed out after 30s", [])
+
+
+def test_the_catch_up_answer_says_what_each_landing_and_approval_freed():
+    drive = journey_drive({"number": 42766, "state": "landed"}, {"number": 42786, "state": "you", "base": 42766})
+    prs = {"42766": {"title": "sand: signal", "state": "landed", "landed_at": (NOW - dt.timedelta(minutes=50)).isoformat()}, "42786": {"title": "sand: child"}}
+    records = [record("root", 10, kind="go", text="go #42786 at c182871"), record("orca-desk", 5, kind="go", text="launch a lane")]
+
+    lines = journeys(drive, [], [], [], records, prs, {}, TREES, NOW)["since"]["lines"]
+
+    assert [(line["text"], line["next"]) for line in lines] == [("Approved #42786 sand: child", "lets #42786 move"), ("#42766 sand: signal landed", "#42786 can now land")]
 
 
 def merge_board(*groups):
