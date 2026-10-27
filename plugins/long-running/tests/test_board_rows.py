@@ -375,3 +375,38 @@ def test_a_triage_verdict_left_behind_fails_the_pr_groups_row_until_a_re_key_nam
 
     shell.post("go", "root", f"re-key #42590 to {HEAD[:7]}")
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
+@pytest.mark.parametrize(
+    ("kind", "lane", "text", "pr"),
+    [
+        ("head", "p8e", f"Restacked onto #42722 0c2cb1d: #42815 43072de and #42590 {HEAD[:11]} (patch-identical to go'd 8bb87a3).", None),
+        ("go", "root", f"merge #42711 at e6d93c0 and #42590 at {HEAD[:7]}: his taps and go carry, the patch is otherwise identical.", None),
+        ("go", "root", f"go-carry #42590 5321d37->{HEAD[:7]}: its commits implement his pick only.", None),
+        ("head", "p8f", f"dar-p8f-replica-plan {HEAD[:7]} on signal-1 509a21c (#133292). Patch-identical.", "42590"),
+    ],
+)
+def test_a_carry_record_tying_the_head_to_the_pr_counts_as_its_grade_and_finder(tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str, lane: str, text: str, pr: str | None) -> None:
+    fake = FakeShell()
+    fake.pull("42590")
+    fake.post(kind, lane, text, pr)
+
+    assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
+    assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"Desktop chain restacked, each patch-identical: #42721 4ddf3c8, #42829 b4d1bc1 (= {HEAD[:7]}, tapped 5321d37).",
+        f"#42590 {HEAD[:7]} restacked onto dev; finder pending.",
+        f"FIXED: 42590 5321d37/{HEAD[:7]} waits (log calls it patch-identical).",
+    ],
+)
+def test_a_record_that_does_not_carry_the_head_for_the_pr_leaves_it_ungraded(tmp_path: Path, capsys: pytest.CaptureFixture[str], text: str) -> None:
+    fake = FakeShell()
+    fake.pull("42590")
+    fake.post("head", "p8e", text)
+
+    assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
+    assert lines(capsys)[-1] == "rows 1 failing 0 ungraded 1 flags 0"
