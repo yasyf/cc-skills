@@ -4835,6 +4835,16 @@ def test_a_go_the_root_withdraws_by_naming_it_neither_enqueues_nor_escalates(she
     assert shell.enqueues() == [] and unqueued(shell) == []
 
 
+@pytest.mark.parametrize("text", ["go #{go} is not withdrawn; the grade it cited stands", "Answering go #{go}: the fidelity grade #140953 it cited was withdrawn. The go stands."])
+def test_a_root_record_that_mentions_a_go_beside_a_withdrawal_leaves_the_go_standing(shell, config, tmp_path, text):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    go = shell.records[-1]["seq"]
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["landing-desk"], "refs": {}, "re": go, "text": text.format(go=go), "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
+
+
 def test_a_green_head_a_go_names_that_enqueues_escalates_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
