@@ -1,7 +1,7 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, unfold: false, noting: false, note: '' };
+const ov = { page: 0, unfold: false, noting: false, note: '', planTab: 'steps', only: null, was: new Map() };
 
 function tally(list) {
   const out = { total: list.length };
@@ -14,7 +14,9 @@ function pct(t) {
 }
 function light(n) {
   const s = prState(n);
-  return `<a class="lt ${s}" href="${prHref(n)}" data-n="${n}" aria-label="#${n} ${esc(STATE_WORD[s])}"></a>`;
+  const flash = s === 'landed' && ov.was.size && ov.was.get(Number(n)) && ov.was.get(Number(n)) !== 'landed' ? ' flash' : '';
+  const dim = ov.only && !ov.only.numbers.has(Number(n)) ? ' out' : '';
+  return `<a class="lt ${s}${flash}${dim}" href="${prHref(n)}" data-n="${n}" aria-label="#${n} ${esc(STATE_WORD[s])}"></a>`;
 }
 function lights(list) {
   return [...list].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((e) => light(e.number)).join('');
@@ -113,7 +115,7 @@ function overview() {
   const m = state.model;
   const stop = m.now.blocker;
   return `<div class="cp">
-    <div class="cp-top">${stop ? `<button class="stop" data-stop><i></i>Stopped since ${clock(stop.since)} ›</button>` : ''}<span class="sp"></span><button class="btn ghost" data-overlay="plan">⤢ Plan</button></div>
+    <div class="cp-top">${stop ? `<button class="stop" data-stop><i></i>Stopped since ${clock(stop.since)} ›</button>` : ''}${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}<span class="sp"></span><button class="btn ghost" data-overlay="plan">⤢ Plan</button></div>
     <div class="cp-grid">
       <div class="cp-left">${actionCard()}${tracks()}</div>
       <button class="gate" data-overlay="plan" title="${esc(m.now.release ? `${m.now.release.name}: ${m.now.release.state}` : 'Release 1')}"><span>R1</span></button>
@@ -124,7 +126,23 @@ function overview() {
   ${state.overlay === 'track' ? trackSheet() : ''}
   ${state.overlay === 'stop' ? stopSheet() : ''}
   ${state.overlay === 'key' ? keySheet() : ''}
-  ${state.overlay === 'plan' ? `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>The plan, step by step</h2>${m.steps.map((s) => stepCard(s)).join('')}<h2>The release plan</h2><div class="prose">${markdown(m.releases.markdown)}</div><h2>The plan of action, word for word</h2><ol class="psteps">${planSteps(true)}</ol></div></div>` : ''}`;
+  ${state.overlay === 'plan' ? planSheet() : ''}`;
+}
+function planSheet() {
+  const m = state.model;
+  const tabs = [['steps', 'Steps'], ['releases', 'Releases'], ['text', 'Plan text']];
+  const body = {
+    steps: () => m.steps.map((s) => stepCard(s)).join(''),
+    releases: () => `${releaseTrunk()}<div class="prose">${markdown(m.releases.markdown)}</div>`,
+    text: () => `<p class="dim">Written ${m.plan_at ? agoWords(m.plan_at) : ''}</p><ol class="psteps">${planSteps(true)}</ol>`,
+  }[ov.planTab]();
+  return `<div class="overlay" data-close="1"><div class="sheet plan"><button class="btn close" data-close="1">Close</button>
+    <nav class="ptabs">${tabs.map(([k, l]) => `<button class="${ov.planTab === k ? 'on' : ''}" data-ptab="${k}">${l}</button>`).join('')}</nav>${body}</div></div>`;
+}
+function showOnly(label, numbers) {
+  ov.only = numbers ? { label, numbers: new Set(numbers.map(Number)) } : null;
+  if (route().screen !== 'overview') location.hash = '#/';
+  render();
 }
 function stepCard(s) {
   const t = tally(s.prs);
@@ -200,6 +218,7 @@ function numbersFor(el) {
   return null;
 }
 function mountOverview() {
+  ov.was = new Map(state.model.drive.prs.map((e) => [e.number, e.state]));
   for (const fig of document.querySelectorAll('.mach')) {
     const svg = fig.querySelector('svg');
     const W = fig.offsetWidth, H = fig.offsetHeight, r = 16, e = 1;
@@ -241,6 +260,9 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
+  if (e.target.closest('[data-only-clear]')) return showOnly(null);
+  const ptab = e.target.closest('[data-ptab]');
+  if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
   const page = e.target.closest('[data-page]');
   if (page) { ov.page = Number(page.dataset.page); ov.noting = false; return render(); }
   if (e.target.closest('[data-noting]')) { ov.noting = true; return render(); }
@@ -262,9 +284,11 @@ document.addEventListener('input', (e) => {
 document.addEventListener('keydown', (e) => {
   if (route().screen !== 'overview' || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey) return;
   const needs = state.model?.needs ?? [];
+  if (e.key === 'Escape' && ov.only && !state.overlay) { showOnly(null); return; }
   if (e.key === 'ArrowRight' && needs.length > 1) { ov.page = (ov.page + 1) % needs.length; render(); }
   else if (e.key === 'ArrowLeft' && needs.length > 1) { ov.page = (ov.page + needs.length - 1) % needs.length; render(); }
   else if (e.key === 'p' && !state.overlay) { state.overlay = 'plan'; render(); }
   else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) { ov.track = e.target.dataset.track; state.overlay = 'track'; render(); }
 });
 window.addEventListener('resize', () => { if (route().screen === 'overview' && state.model) mountOverview(); });
+Object.assign(window, { showOnly, tally });
