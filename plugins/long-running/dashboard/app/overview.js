@@ -355,7 +355,7 @@ function prFacts(n) {
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
     <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
-    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>`;
+    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260, n)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>`;
 }
 function prSheet() {
   const m = state.model;
@@ -488,13 +488,13 @@ function latestOn(n) {
   const lanes = [ownerOf(n), state.model.prs[n]?.lane];
   return state.model.records.filter((r) => r.topic === String(n) || (lanes.includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
 }
-function said(r, max) {
-  return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));
+function said(r, max, about) {
+  return inline(plainWord(r, about) ?? firstSentences(shortShas(r.text), max));
 }
 function ownerLine(n) {
   const lane = ownerOf(n);
   const r = latestOn(n);
-  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${said(r, 160)} <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
+  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${said(r, 160, n)} <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
 }
 function redWhy(n) {
   const r = state.model.records.filter((x) => x.kind === 'blocker' && x.text.includes(`#${n} `)).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
