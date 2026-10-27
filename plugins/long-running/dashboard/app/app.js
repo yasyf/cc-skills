@@ -495,16 +495,16 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const tabs = [['overview', 'Now'], ['status', 'Plan'], ['workers', 'Work'], ['review', 'Review', waiting], ['timeline', 'History'], ['ask', 'Ask']];
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
+  const over = (body) => () => `${nowScreen()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
+  const screens = { overview: nowScreen, story: nowScreen, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
-  $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
@@ -517,7 +517,8 @@ function render() {
     state.statusFocus = location.hash;
     document.getElementById(`st-${r.id}`)?.scrollIntoView({ block: 'center' });
   }
-  if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
+  if (overRoute(r) || (screens[r.screen] ?? nowScreen) === nowScreen) mountNow();
+  else unfollow();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
 }
@@ -591,7 +592,7 @@ document.addEventListener('submit', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
-  else if (e.key === 'Escape' && overRoute(route())) location.hash = '#/';
+  else if (e.key === 'Escape' && (overRoute(route()) || route().screen === 'story')) location.hash = '#/';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 function closeSheet() {

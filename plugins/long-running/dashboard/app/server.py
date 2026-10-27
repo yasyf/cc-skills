@@ -2,6 +2,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import queue
 import re
 import sqlite3
 import subprocess
@@ -17,6 +18,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from review_assistant import ReviewAssistant
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from brief import Curator
+from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
 import holds
@@ -39,6 +44,7 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
@@ -63,7 +69,7 @@ SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", 
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -502,6 +508,28 @@ class Drive:
         self.gos = {}
         self.carried = {}
         self.board_raw = None
+        self.curator = Curator(config, self.curator_model, self.bump)
+        self.stories = Stories(config, self.lane_names)
+
+    def curator_model(self):
+        while "prs" not in self.model:
+            time.sleep(1)
+        with self.lock:
+            model = dict(self.model)
+        return self.live(model)
+
+    def lane_names(self):
+        with self.lock:
+            return tuple({record["lane"] for record in self.records})
+
+    def bump(self):
+        with self.changed:
+            self.version += 1
+            self.changed.notify_all()
+
+    def work(self, item):
+        brief = self.curator.brief or {}
+        return next((w for w in brief.get("work", []) if w["item"] == item), None)
 
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
@@ -565,6 +593,7 @@ class Drive:
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
+                            self.curator.poke(record["kind"])
             except OSError as error:
                 self.errors["records"] = f"{type(error).__name__}: {error}"
                 time.sleep(5)
@@ -574,6 +603,7 @@ class Drive:
             watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
             for _ in watch.stdout:
                 self.touch()
+                self.curator.poke()
             watch.wait()
             time.sleep(5)
 
@@ -585,6 +615,7 @@ class Drive:
             if stamp != seen:
                 seen = stamp
                 self.touch()
+                self.curator.poke()
             time.sleep(1)
 
     def follow_paths(self):
@@ -709,7 +740,18 @@ class Drive:
             "live": LIVE_SOURCES,
             "needs": need_items,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
+            "brief": self.curator.brief,
+            "brief_error": self.curator.error,
+            "milestones": [m["name"] for m in self.config["milestones"]],
+            "milestones_label": self.config["milestones_label"],
+            "views": self.config.get("views", {}),
+            "pulse": self.pulses(),
         }
+
+    def pulses(self):
+        brief = self.curator.brief or {}
+        now = time.time()
+        return {w["item"]: {"pulse": bool((found := self.stories.transcript(w["workers"])) and now - found.stat().st_mtime < 120), "started": self.stories.started_at(w["workers"])} for w in brief.get("work", [])}
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
@@ -820,7 +862,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css"):
+                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css", "now.js", "now.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())
@@ -838,6 +880,8 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching, "stale": int(found[1]) in drive.assistant.stale}).encode())
             if path == "/ai.json":
                 return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
+            if found := STORY_ROUTE.fullmatch(path):
+                return self.story(found[1])
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
                     return self.send(200, "text/plain; charset=utf-8", run(["cci", "show", found[1]]).encode())
@@ -873,6 +917,32 @@ def handler(drive):
             self.end_headers()
             self.wfile.write(body)
 
+        def story(self, item):
+            work = drive.work(item)
+            if work is None:
+                return self.send(404, "text/plain", b"no such work")
+            story = drive.stories.story(item, work)
+            viewer = story.join()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                opening = {"type": "saved", "lines": story.lines(), "status": story.status, "draft": story.draft}
+                self.wfile.write(f"data: {json.dumps(opening)}\n\n".encode())
+                self.wfile.flush()
+                while True:
+                    try:
+                        entry = viewer.get(timeout=15)
+                        self.wfile.write(f"data: {json.dumps(entry)}\n\n".encode())
+                    except queue.Empty:
+                        self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+            except OSError:
+                return
+            finally:
+                story.leave(viewer)
+
         def stream(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -904,7 +974,7 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    for target, rest in ((drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True
