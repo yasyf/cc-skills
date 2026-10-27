@@ -83,10 +83,6 @@ function minutesPast(when) {
   const day = new Date(`${hm[4]} ${now.getFullYear()}`);
   return Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - day) / 60000) + late;
 }
-function overdue(when) {
-  const late = minutesPast(when);
-  return late !== null && late > 0 && late < 12 * 60;
-}
 function planRows() {
   const md = state.model.releases.markdown ?? '';
   const sec = md.split(/^## /m).find((x) => /^The releases at a glance/.test(x)) ?? '';
@@ -288,23 +284,15 @@ function desksSheet() {
       return `<li><button class="linkish" data-worker="${esc(d.lane)}">${esc(deskName(d.lane))}</button><span class="bx">${d.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><span class="dsaid">${r ? `<b>${SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind}</b> ${inline(firstSentences(r.text, 110))}` : ''}</span><time>${agoWords(d.at)}</time></li>`;
     }).join('')}</ul>`);
 }
-function waits() {
-  const m = state.model;
-  const rels = m.now.releases ?? [];
-  const next = rels.find((r) => ['now', 'blocked'].includes(r.word));
-  const held = rels.find((r) => r.word === 'held');
-  const taps = needsTotal();
-  const named = next ? [...new Set([...next.state.matchAll(/#(\d{5})\b/g)].map((x) => x[1]))].filter((n) => prState(n) !== 'landed') : [];
-  return [
-    ...(taps ? [{ who: '<b>You</b>', what: `<a href="#/now">${plural(taps, 'decision')} in Needs you</a>`, unblocks: 'those pull requests and questions move' }] : []),
-    ...(held ? [{ who: '<b>You, this morning</b>', what: `<button class="linkish" data-release="${esc(held.id)}">${esc(held.id)} ${esc(held.name)}</button>`, unblocks: rels.filter((r) => r.word === 'unreachable').map((r) => r.id).join(', ') }] : []),
-    ...named.map((n) => ({ who: ownerOf(n) ? `<button class="linkish" data-worker="${esc(ownerOf(n))}">${esc(ownerOf(n))}</button>` : 'Nobody named', what: `${dot(n)} #${n} ${esc(shortName(n) ?? plainTitle(n))}`, next: truth(n).next, unblocks: `${next.id} ${next.name}`, since: truth(n).owner_at })),
-    ...(m.now.waiting ?? []).map((w) => ({ who: esc(w.owed_by ?? 'Nobody named'), what: esc(w.what), unblocks: w.unblocks ?? '', since: null, at: w.since, expected: w.expected })),
-  ];
+function answer(key, keep = () => true) {
+  const j = state.model.journeys[key];
+  const who = (w) => !w ? '' : w === 'you' ? '<b>You</b>' : `<button class="linkish" data-worker="${esc(w)}">${esc(w)}</button>`;
+  const src = (x) => x ? ` · <a href="${esc(x.href)}"${x.href.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${esc(x.label)}</a>` : '';
+  const lines = j.lines.filter(keep);
+  return `<ul class="answer">${lines.map((l) => `<li><span class="who">${who(l.who)}</span><span class="what">${inline(l.text)}${l.next ? `<small>${inline(l.next)}</small>` : ''}</span><em>${l.since ? `last word ${agoWords(l.since)}` : ''}${src(l.source)}</em></li>`).join('')}</ul>${lines.length ? '' : '<p class="dim">Nothing.</p>'}${j.missing.length ? `<p class="dim">Not known yet: ${j.missing.map(inline).join('; ')}</p>` : ''}`;
 }
 function waitingOn() {
-  const items = waits();
-  return `<section class="waiting"><h4>Waiting on</h4>${items.length ? `<ul>${items.map((w) => `<li><span class="who">${w.who}</span><span class="what">${w.what}${w.next ? `<small>${inline(w.next)}</small>` : ''}</span><em>${w.unblocks ? `unblocks ${esc(w.unblocks)}` : ''}${w.since ? ` · last word ${agoWords(w.since)}` : w.at ? ` · since ${esc(w.at)}` : ''}${w.expected ? (overdue(w.expected) ? ` · <strong>overdue, expected ${esc(w.expected)}</strong>` : ` · expected ${esc(w.expected)}`) : ''}</em></li>`).join('')}</ul>` : '<p class="dim">Nobody: nothing is waiting on a person right now.</p>'}</section>`;
+  return `<section class="waiting"><h4>Waiting on</h4>${answer('waiting')}</section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -346,13 +334,13 @@ function prFacts(n) {
   const part = m.parts.find((p) => p.key === t.part);
   const row = boardRow(n);
   const w = m.workers.find((x) => x.lane === t.owner);
-  const word = latestOn(n);
+  const word = t.word;
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[t.state]}${t.base ? ` · stacked on #${t.base}${t.base_failing ? ', whose tests fail' : ''}` : ''}`;
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.head ? ` <small class="dim">at ${esc(t.head)}${t.read_at ? `, read ${agoWords(t.read_at)}` : ''}</small>` : ''}</dd>
     ${t.blocker ? `<dt>What blocks it</dt><dd class="${/^GitHub has not/.test(t.blocker) ? 'warn' : 'bad'}">${inline(t.blocker)}</dd>` : ''}
     ${t.checks.length ? `<dt>Which check failed</dt><dd>${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}</dd>` : ''}
     ${t.next ? `<dt>What happens next</dt><dd>${inline(t.next)}</dd>` : ''}
-    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>, ${w?.live ? 'working now' : t.owner_at ? `last word ${agoWords(t.owner_at)}` : 'no word from it in the last day'}` : 'No worker named'}</dd>
+    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${word ? `<dt>Its latest word on this</dt><dd>${said(word, 260)} <small class="dim">${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
@@ -487,7 +475,8 @@ function blockerNow(text) {
 }
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);
-  if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}</div></div>`;
+  const red = state.model.journeys.red;
+  if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}${red.question.includes(` ${s.label} `) ? `<h4 class="sc-h">${esc(red.question)}</h4>${answer('red')}` : ''}</div></div>`;
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Other work: ${list.length} open pull requests</h3>
     <ul class="prlist">${list.map((p) => prRow(p)).join('')}</ul></div></div>`;
@@ -498,22 +487,12 @@ function shortShas(text) {
 function truth(n) {
   return driveEntry(n) ?? { number: Number(n), state: prState(n), owner: state.model.prs[n]?.lane, next: null, blocker: null, checks: [] };
 }
-function ownerOf(n) {
-  return truth(n).owner;
-}
-function recordsOn(n) {
-  const lanes = [ownerOf(n), state.model.prs[n]?.lane];
-  return state.model.records.filter((r) => r.topic === String(n) || (/#(\d{5})\b/.exec(r.text)?.[1] === String(n) && (lanes.includes(r.lane) || ['go', 'landed', 'blocker', 'hold', 'lift'].includes(r.kind)))).sort((a, b) => b.seq - a.seq);
-}
-function latestOn(n) {
-  return recordsOn(n)[0] ?? null;
-}
 function said(r, max) {
   return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));
 }
 function ownerLine(n) {
   const t = truth(n);
-  return `<span class="own">${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>` : 'No worker named'}${t.next ? `: ${inline(t.next)}` : ''}${t.owner_at ? ` <small class="dim">last word ${agoWords(t.owner_at)}</small>` : ''}</span>`;
+  return `<span class="own">${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>` : 'No worker named'}${t.next ? `: ${inline(t.next)}` : ''}${t.word ? ` <small class="dim">last word ${agoWords(t.word.at)}</small>` : ''}</span>`;
 }
 function redWhy(n) {
   const checks = truth(n).checks.map((c) => c.name);
@@ -537,7 +516,7 @@ function releaseSheet() {
   const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0] && !blocking.includes(e.number));
   const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) }, ownerLine(n));
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
-    ${blocking.length ? `<h4 class="sc-h">What it waits on <span>${blocking.length}</span></h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
+    ${m.journeys.release.question.includes(` ${r.id},`) ? `<h4 class="sc-h">What blocks it</h4>${answer('release', (l) => !l.text.startsWith(`${r.id} `))}` : blocking.length ? `<h4 class="sc-h">What it waits on <span>${blocking.length}</span></h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
     ${cleared.length ? `<p class="dim">Already landed: ${cleared.map(prLink).join(', ')}</p>` : ''}
     <details class="relstate" data-id="rel-state-${esc(r.id)}"${state.open.has(`rel-state-${r.id}`) ? ' open' : ''}><summary>${inline(firstSentences(r.state, 140))}</summary><p class="relnow">${inline(r.state)}</p></details>
     <dl class="facts"><dt>What reaches people</dt><dd>${esc(planRows().find(([n]) => `R${n}` === r.id)?.[2] ?? '')}</dd><dt>Parts it ships</dt><dd>${parts.map((p) => esc(p.name)).join(' · ')}</dd></dl>
