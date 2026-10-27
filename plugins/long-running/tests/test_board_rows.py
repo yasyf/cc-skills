@@ -205,6 +205,9 @@ def test_a_root_ruling_that_supersedes_the_pr_fails_it_with_that_seq_until_a_lat
         ("merge #42590 at 45cfa25 (owner 'these are approved'; this go records it so the card at 1792787026.160129 closes)", False),
         ("#43001 superseded by #42590", False),
         ("go #42590 at 35aa930, closing the gap #131210 named", False),
+        ("(2) is #42590's declared red, closed by step 10, no action", False),
+        ("#42590 now superseded by #43001", True),
+        ("#42590 (4d8b3a1) landed on dev", True),
     ],
 )
 def test_a_closing_ruling_must_tie_the_word_to_the_pr(text: str, closed: bool) -> None:
