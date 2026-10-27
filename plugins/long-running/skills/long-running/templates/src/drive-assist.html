@@ -266,12 +266,13 @@ let batching=false;
 async function post(want,verdict){
  const row=boardRow(want.number);
  if(!row||row.head!==want.head||row.block!==want.block||verdictState(row)!=="you")return false;
- row.pending=true;row.failed="";render();
+ row.pending=verdict;row.failed="";render();
  try{
   const r=await fetch("/api/verdict",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({block:want.block,number:want.number,verdict,head:want.head})});
   const j=await r.json().catch(()=>({error:`came back ${r.status}`}));
   if(!r.ok||j.error){row.failed=j.error||`came back ${r.status}`;return false}
-  row.verdict={verdict,head:want.head,at:new Date().toISOString()};
+  row.pending=false;
+  tapped({seq:j.seq,block:want.block,number:want.number,head:want.head,verdict:{verdict,head:want.head,at:new Date().toISOString()},state:verdict==="approved"?"approved":"held"});
   return true;
  }catch(e){row.failed=e.message;return false}
  finally{row.pending=false;render()}
