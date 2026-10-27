@@ -5032,6 +5032,25 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
     ]
 
 
+@pytest.mark.parametrize("parent_go", [True, False], ids=["parent-go", "no-parent-go"])
+def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and_no_go_unqueued(shell, config, tmp_path, parent_go):
+    board_surface(config)
+    two_pr_stack(shell)
+    (tmp_path / "holds.md").write_text("#29020 owner gate on the old app\n")
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29031"] = "not queued"
+    if parent_go:
+        merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
+        "BELOW-HELD stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, which a hold covers, so nothing in the stack is enqueued; the stack waits for each hold to lift"
+    ]
+
+
 def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
     merge_mode(config, "every")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
