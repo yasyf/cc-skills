@@ -305,6 +305,18 @@ def test_failing_checks_name_each_check_whose_newest_run_failed_with_its_url():
     ]
 
 
+def test_a_red_buildkite_check_carries_its_first_error_line_read_once_per_url():
+    url = "https://buildkite.com/forge/test/builds/9"
+    checks = json.dumps([{"name": "buildkite/test", "url": url}, {"name": "unit", "url": "https://github.com/acme/app/runs/13"}])
+    shell = FakeShell()
+    first = json.loads(ledger.with_errors(shell, checks, None))
+    assert first[0]["error"] == ledger.resolve_error(FakeShell(), ledger.BUILDKITE_URL.match(url)) != ""
+    assert "error" not in first[1]
+    again = FakeShell()
+    assert json.loads(ledger.with_errors(again, checks, json.dumps(first))) == first
+    assert [call for call in again.calls if call[0] == "bk"] == []
+
+
 def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):
     shell = FakeShell()
     refresh(shell, lock)
