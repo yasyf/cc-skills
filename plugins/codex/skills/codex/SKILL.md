@@ -380,6 +380,10 @@ absolute and outside any repo). The filesystem is the registry:
   kills the tree a dead worker left behind. It covers runs settled longer ago than
   `--older-than` and prints one JSONL record per run it targets. `--ps` and
   `--collect` run it silently at the 1h default.
+- `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --cancel <run-dir>` stops a live run
+  you dispatched by mistake. It sends its worker SIGTERM, which kills the run's
+  codex tree and records the run as failed. Use it instead of `kill`, which the
+  session-protection hooks refuse.
 
 ## Generating Images ($imagegen)
 

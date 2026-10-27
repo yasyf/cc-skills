@@ -162,6 +162,9 @@ loop:
 			die("codex-ask: cannot read question file "+rest[0]+": "+err.Error(), 1)
 		}
 		qbytes = b
+	case questionPath(rest[0]):
+		wd, _ := os.Getwd()
+		die("codex-ask: question file "+rest[0]+" does not exist from "+wd+"; pass a path that resolves, - for stdin, or the question text itself", 2)
 	case rest[0] != "":
 		qbytes = []byte(rest[0] + "\n")
 	default:
@@ -444,4 +447,31 @@ func readShipped(embedded embed.FS, rel string) []byte {
 	}
 	b, _ := embedded.ReadFile(rel)
 	return b
+}
+
+var questionExts = []string{".md", ".txt", ".prompt", ".json", ".yaml", ".yml"}
+
+func questionPath(arg string) bool {
+	return !strings.ContainsAny(arg, " \t\n") && (strings.Contains(arg, "/") || contains(questionExts, filepath.Ext(arg)))
+}
+
+func cancelMode(dir string) {
+	if dir == "" || !isDir(dir) {
+		die("usage: codex-ask --cancel RUN_DIR", 2)
+	}
+	pid, ok := readPid(join(dir, "pid"))
+	if !ok || !pidAlive(dir) {
+		fmt.Printf("codex-ask: %s has no live worker; its state is %s\n", dir, classify(dir).state)
+		os.Exit(0)
+	}
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	deadline := time.Now().Add(cancelGrace)
+	for pidAlive(dir) && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if pidAlive(dir) {
+		die(fmt.Sprintf("codex-ask: worker %d of %s is still alive %s after SIGTERM", pid, dir, cancelGrace), 1)
+	}
+	fmt.Printf("codex-ask: cancelled %s; worker %d stopped and its state is %s\n", dir, pid, classify(dir).state)
+	os.Exit(0)
 }
