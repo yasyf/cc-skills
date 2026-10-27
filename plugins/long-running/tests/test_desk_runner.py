@@ -4532,6 +4532,47 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
+def pushed_while_enqueued(shell: FakeShell, monkeypatch: pytest.MonkeyPatch, pr: str, head: str) -> None:
+    run = shell.run
+
+    def pushing(argv, stdin=None, env=None):
+        if Path(argv[0]).name == "stack-enqueue" and not {"--check", "--status"} & set(argv):
+            shell.current_heads[pr] = head
+        return run(argv, stdin, env)
+
+    monkeypatch.setattr(shell, "run", pushing)
+
+
+def queued_at_new_head(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(post["to"], post_body(post)) for post in notes(shell) if post_body(post).startswith("QUEUED-AT-NEW-HEAD")]
+
+
+def test_mq_enqueue_runs_the_gate_enqueues_and_names_a_head_pushed_while_it_ran(shell, config, capsys, monkeypatch):
+    two_pr_stack(shell)
+    pushed_while_enqueued(shell, monkeypatch, "29031", "ffff777777")
+    assert mq(shell, config, "enqueue", "29031") == 0
+    assert capsys.readouterr().out.startswith("enqueued #29020 #29031 at #29020 cccc333333 #29031 dddd444444\n")
+    assert [call[1:] for call in shell.enqueues()] == [["29031", "--whole"]]
+    assert queued_at_new_head(shell) == [("root,fidelity-desk", "QUEUED-AT-NEW-HEAD #29031: the gate graded dddd444444 and the queue took ffff777777, pushed while the enqueue ran; grade ffff777777")]
+
+
+def test_mq_enqueue_refuses_a_head_the_gate_does_not_pass_and_enqueues_nothing(shell, config, capsys):
+    two_pr_stack(shell)
+    shell.current_heads["29020"] = "eeee555555"
+    assert mq(shell, config, "enqueue", "29031") == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue"
+    assert shell.enqueues() == []
+
+
+def test_a_head_pushed_while_the_runner_enqueued_it_draws_one_note_naming_the_head_the_queue_took(shell, config, monkeypatch):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    pushed_while_enqueued(shell, monkeypatch, "29020", "eeee555555")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert queued_at_new_head(shell) == [("root,fidelity-desk", "QUEUED-AT-NEW-HEAD #29020: the gate graded cccc333333 and the queue took eeee555555, pushed while the enqueue ran; grade eeee555555")]
+
+
 def viewed_heads(shell: FakeShell) -> list[str]:
     return [call[3] for call in shell.calls if call[:3] == ["gh", "pr", "view"] and call[-1] == ".headRefOid"]
 
