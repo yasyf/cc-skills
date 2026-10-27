@@ -53,7 +53,8 @@ def edits_pr_text(evt: BaseHookEvent) -> bool:
             return True
         api = GH_API.bind(call).values
         endpoint = next((word for word in api.get("words", ())[1:] if word), "")
-        if api.get("words", ())[:1] == ("api",) and "PATCH" in {method.upper() for method in api.get("method", ()) if method} and PULL.match(endpoint):
+        fields = {field.split("=", 1)[0] for field in api.get("field", ()) if field}
+        if api.get("words", ())[:1] == ("api",) and "PATCH" in {method.upper() for method in api.get("method", ()) if method} and PULL.match(endpoint) and (fields & {"body", "title"} or api.get("input")):
             return True
     return False
 
@@ -68,6 +69,9 @@ def edits_pr_text(evt: BaseHookEvent) -> bool:
         Input(command="gh -R acme/app pr edit 42758 --add-label hold --title 'x: y'", env=DRIVE): Warn(pattern=r"stay as opened"),
         Input(command="gh api --hostname github.com --method PATCH repos/acme/app/pulls/42758 -f body=x", env=DRIVE): Warn(pattern=r"stay as opened"),
         Input(command="gh pr edit 42758 --add-label hold", env=DRIVE): Allow(),
+        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH -f base=main", env=DRIVE): Allow(),
+        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH -F title=x", env=DRIVE): Warn(pattern=r"stay as opened"),
+        Input(command="gh api repos/acme/app/pulls/42758 -X PATCH --input payload.json", env=DRIVE): Warn(pattern=r"stay as opened"),
         Input(command="gh api -X PATCH repos/acme/pulls/issues/comments/9 -f body=x", env=DRIVE): Allow(),
         Input(command="gh api repos/acme/app/pulls/42758", env=DRIVE): Allow(),
         Input(command="gh api -X PATCH repos/acme/app/issues/comments/9 -f body=x", env=DRIVE): Allow(),
