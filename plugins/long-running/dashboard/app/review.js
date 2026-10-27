@@ -43,7 +43,23 @@ function reviewPR(n, tab) {
     <a class="pill" href="${gh}" target="_blank" rel="noopener">#${n} at ${esc(row.head.slice(0, 7))}</a>${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    <nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">Verdict</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
+    <div class="tiles">${factTiles(row).map(([key, label, short, tone, full]) => `<details class="tile ${tone}" data-id="fact-${n}-${key}"${state.open.has(`fact-${n}-${key}`) ? ' open' : ''}><summary><span class="tile-k">${label}</span><b>${esc(short)}</b></summary><p>${inline(full)}</p></details>`).join('')}</div>
+    <nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'notes' ? '' : 'on'}">Code and review</a><a href="#/review/${n}/notes" class="${tab === 'notes' ? 'on' : ''}">Full text and notes</a></nav>`;
+}
+function clip(text) {
+  const first = String(text ?? '').split(/(?<=[.:;])\s|,\s/)[0].replace(/[.:;]$/, '');
+  return first.length > 48 ? `${first.slice(0, first.lastIndexOf(' ', 46))}…` : first;
+}
+function factTiles(row) {
+  const tests = state.model.prs[row.number]?.test_state;
+  const tiles = [
+    ['plan', 'Plan', /^matches/i.test(row.plan) ? 'Matches' : clip(row.plan), /^matches/i.test(row.plan) ? 'ok' : 'warn', row.plan],
+    ['risk', 'Risk', clip(row.risk), /^low/i.test(row.risk) ? 'ok' : /^high/i.test(row.risk) ? 'bad' : 'warn', row.risk],
+    ['review', 'Review and CI', tests === 'success' ? 'Tests pass' : tests === 'failure' ? 'Tests failing' : tests === 'pending' ? 'Tests running' : clip(row.review), tests === 'failure' || /fail|red/i.test(row.review) ? 'bad' : tests === 'pending' ? 'warn' : 'ok', row.review],
+    ['blocker', 'Blocks landing', /^nothing/i.test(row.blocker) ? 'Nothing' : clip(row.blocker), /^nothing/i.test(row.blocker) ? 'ok' : 'bad', row.blocker],
+  ];
+  if (row.carried?.length) tiles.push(['carried', 'Earlier tap', `Carries from ${row.carried[0].slice(0, 7)}`, 'ok', `Your verdict at ${row.carried.map((h) => h.slice(0, 7)).join(', ')} still stands for this commit.`]);
+  return tiles;
 }
 function decideBar(row, v) {
   const head = esc(row.head.slice(0, 7));
@@ -109,7 +125,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'c') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
+  else if (key === 'f') location.hash = `#/review/${row.number}${r.tab === 'notes' ? '' : '/notes'}`;
   else return;
   e.preventDefault();
 });
@@ -129,8 +145,7 @@ function syncReviewEmbed(r) {
     el.replaceChildren();
     return;
   }
-  el.dataset.tab = !row || r.tab === 'code' ? 'code' : 'verdict';
-  el.classList.toggle('solo', !row);
+  el.dataset.tab = row && r.tab === 'notes' ? 'notes' : 'code';
   if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
   if (embed.number !== number || embed.row !== Boolean(row)) {
     const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
