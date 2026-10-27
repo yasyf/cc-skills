@@ -217,7 +217,6 @@ def test_rm_takes_back_a_hold_all_or_a_release_line(tmp_path):
     [
         (("add", "--all", "--reason", "owner review"), "hold:all already holding"),
         (("release", "--pr", "30082", "--reason", "again"), "release #30082 first reason"),
-        (("release", "--pr", "30082", "--reason", "with #30090 too"), None),
         (("release", "--lane", "L29", "--reason", "and lane:L30"), None),
     ],
 )
@@ -229,3 +228,15 @@ def test_a_second_hold_all_a_second_release_or_a_reason_naming_another_subject_i
     assert run(path, *argv) == 1
 
     assert (path.read_text() if path.exists() else None) == (f"{line}\n" if line else None)
+
+
+def test_lift_releases_like_release_with_a_reason_that_names_prs_or_with_none(tmp_path):
+    path = tmp_path / "holds.md"
+    path.write_text("hold:all every PR waits\n")
+
+    assert run(path, "lift", "--pr", "30082", "--reason", "owner tapped #30082 with #30090 at 2:16 AM") == 0
+    assert run(path, "release", "--lane", "L29") == 0
+
+    assert path.read_text() == "hold:all every PR waits\nrelease #30082 owner tapped #30082 with #30090 at 2:16 AM\nrelease lane:L29\n"
+    rows = {"30082": {"lane": "L1"}, "30090": {"lane": "L2"}, "30091": {"lane": "L29"}}
+    assert holds.released(holds.read(path), rows) == {"30082", "30091"}
