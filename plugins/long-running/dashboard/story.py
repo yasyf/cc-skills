@@ -283,7 +283,6 @@ class Stories:
         self.reports = reports
         self.open = {}
         self.running = []
-        self.firsts = {}
         self.lock = threading.Lock()
 
     def story(self, item, work):
@@ -297,20 +296,6 @@ class Stories:
     def transcript(self, workers):
         candidates = [path for lane in workers for path in self.transcripts.glob(f"agent-a{re.sub(r'-\d+$', '', lane)}*.jsonl")]
         return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
-
-    def started_at(self, workers):
-        today = time.time() - 16 * 3600
-        firsts = []
-        for lane in workers:
-            for path in self.transcripts.glob(f"agent-a{re.sub(r'-\d+$', '', lane)}*.jsonl"):
-                if path.stat().st_mtime < today:
-                    continue
-                key = (path, path.stat().st_ctime)
-                if key not in self.firsts:
-                    with path.open() as handle:
-                        self.firsts[key] = next((event["timestamp"] for line in handle if (event := json.loads(line)).get("timestamp")), None)
-                firsts.append(self.firsts[key])
-        return min(filter(None, firsts), default=None)
 
     def started(self, story):
         with self.lock:

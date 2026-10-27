@@ -301,9 +301,6 @@ body:has(.ck) { background: #080a0d; }
 }
 .ck .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; } .ck .wgrid .wt { flex: none; }
 .ck .wfold > summary { cursor: pointer; padding: 10px 2px; color: var(--ink2); font-weight: 600; font-size: 13px; } .ck .wfold .lives { margin-top: 6px; }
-.wrap:has(> .ck) > .as-since { margin-bottom: 10px; padding: 8px 14px; gap: 12px; border-radius: 14px; }
-.wrap:has(> .ck) > .as-since .when { font-size: 13px; } .wrap:has(> .ck) > .as-since .as-tiles { gap: 6px; }
-.wrap:has(> .ck) > .as-since .as-tile { min-width: 0; padding: 3px 10px; } .wrap:has(> .ck) > .as-since .as-tile b { display: inline; font-size: 17px; margin-right: 5px; }
 .ck .plan-wrap { position: relative; width: 100%; max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; }
 .ck .pv h2 { font-size: 24px; letter-spacing: -.02em; }
 .ck .pv .ph { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }

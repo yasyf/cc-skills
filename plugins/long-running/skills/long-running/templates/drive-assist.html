@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c98d601fdc6c — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:bbf65b9e5dfc — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -35,20 +35,6 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .aibox .k .dim { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .aibox p { margin: 6px 0 0; }
 .aibtn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--owner) 35%, transparent); background: var(--owner-soft); color: var(--owner); font: 650 12.5px var(--sans); cursor: pointer; }
-.as-since { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-bottom: 18px; }
-.as-since .when { font: 700 15px var(--display); }
-.as-since .when .dim { display: block; font: 500 12px var(--sans); }
-.as-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
-.as-tile { min-width: 92px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); cursor: pointer; border: 1px solid transparent; }
-.as-tile b { display: block; font: 750 24px/1.1 var(--display); }
-.as-tile span { font-size: 12px; color: var(--ink-2); }
-.as-tile.ok b { color: var(--ok); } .as-tile.bad b { color: var(--bad); } .as-tile.you b { color: var(--amber); } .as-tile.owner b { color: var(--owner); }
-.as-tile.on { border-color: var(--ink-3); }
-.as-since-list { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; }
-.as-since-list li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
-.as-since .aibox { margin: 8px 0 0; }
-.as-short { grid-column: 1 / -1; }
-.as-short summary { cursor: pointer; font: 650 12.5px var(--sans); color: var(--ink-2); list-style: none; }
 .as-now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
 .as-now-h h1 { margin: 0; font-size: 26px; }
 .as-batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
@@ -76,8 +62,6 @@ html:not(.ai-on) .ai-only { display: none !important; }
   #pal .list { order: 1; flex: 1; }
   #pal input { order: 2; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
-  .as-since { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-bottom: 10px; }
-  .as-since .as-tiles { grid-column: 1 / -1; order: 3; }
   .as-nl li { grid-template-columns: 1fr; }
   .as-nl .rank { display: none; }
   .as-nl .acts .btn { flex: 1; }
@@ -329,11 +313,9 @@ async function aiCached(feature,input,make){
 const aiReady=siteConfig().then(c=>{if(c.ai)Object.assign(AI,c.ai);document.documentElement.classList.toggle("ai-on",Boolean(c.ai))});
 function aiDiagRender(){}
 const KEY_KINDS=["owner","go","landed","release","incident","fix-live","hold","lift","blocker"];
-const BIG_KINDS=["owner","release","incident","fix-live","hold"];
-const SEEN_KEY="drive-assist:seen";
 const ai={};
 const pal={i:0,items:[],busy:null};
-let sheet=null,since=null,seenAt=Date.now();
+let sheet=null;
 const short=(s,n)=>{const t=String(s??"").replace(/\s+/g," ").trim();return t.length<=n?t:t.slice(0,t.lastIndexOf(" ",n))+"…"};
 const words=()=>state.model.words??[];
 const waiting=()=>state.model.board.rows.filter(r=>verdictState(r)==="you");
@@ -431,37 +413,6 @@ async function summarizeStack(group){
 const prKey=n=>`pr:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
 const stackKey=g=>`stack:${g}:${state.model.board.rows.filter(r=>r.group===g).map(r=>r.head).join(",")}`;
 
-function snapshot(){
- const m=state.model;
- return {at:new Date().toISOString(),seq:Math.max(0,...m.records.map(r=>r.seq)),prs:Object.fromEntries(Object.keys(m.prs).map(n=>[n,prState(n)])),cards:openCards().map(c=>c.id)};
-}
-function saveSeen(){if(state.model?.prs)localStorage.setItem(SEEN_KEY,JSON.stringify(snapshot()))}
-function delta(){
- const m=state.model,p=since;
- const was=n=>p.prs[n];
- const prs=Object.keys(m.prs);
- const landed=prs.filter(n=>prState(n)==="landed"&&was(n)&&was(n)!=="landed");
- const mine=waiting().map(r=>String(r.number)).filter(n=>was(n)!=="you");
- const failing=prs.filter(n=>prState(n)==="failing"&&was(n)!=="failing");
- const questions=openCards().filter(c=>!p.cards.includes(c.id));
- const events=timeline().filter(e=>BIG_KINDS.includes(e.kind)&&new Date(e.at)>new Date(p.at));
- return {landed,mine,failing,questions,events};
-}
-function sinceBanner(){
- if(!since)return "";
- const d=delta();
- const tiles=[["landed","ok","landed",d.landed.length],["mine","you","new for you",d.mine.length],["failing","bad","started failing",d.failing.length],["questions","owner","new questions",d.questions.length],["events","","big moments",d.events.length]].filter(t=>t[3]);
- if(!tiles.length)return "";
- const open=state.sinceOpen;
- const list=open==="landed"||open==="mine"||open==="failing"?d[open].map(n=>`<li><a class="d ${prState(n)}" href="${prHref(n)}"></a> ${prLink(n)} ${esc(plainTitle(n))}</li>`).join(""):open==="questions"?d.questions.map(c=>`<li><a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">${esc(c.title)}</a>${c.recommended?` <span class="dim">recommended: ${esc(c.recommended)}</span>`:""}</li>`).join(""):open==="events"?d.events.map(e=>`<li><span class="dim">${clock(e.at)} · ${esc(e.who)}</span> ${inline(short(e.text,200))}</li>`).join(""):"";
- const facts=[d.landed.length&&`Landed: ${d.landed.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.mine.length&&`Newly waiting on his tap: ${d.mine.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.failing.length&&`Started failing tests: ${d.failing.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.questions.length&&`New questions for him: ${d.questions.map(c=>c.title).join("; ")}`,...d.events.slice(0,25).map(e=>`${clock(e.at)} ${KIND_WORD[e.kind]??e.kind}: ${short(e.text,200)}`)].filter(Boolean);
- const key=`since:${aiHash(facts.join("\n"))}`;
- if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
- return `<div class="card as-since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
-  <div class="as-tiles">${tiles.map(([id,tone,label,n])=>`<div class="as-tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")}</div>
-  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?`<details class="as-short ai-only" data-id="as-short"${state.open.has("as-short")?" open":""}><summary>✦ In short</summary>${aiBox(key,"In short")}</details>`:""}</div>`;
-}
-
 function narration(){
  const events=timeline().filter(e=>KEY_KINDS.includes(e.kind)||(e.kind==="report"&&/READY/.test(e.raw))).slice(0,80);
  const key=`day:${aiHash(events.map(e=>e.id).join(","))}`;
@@ -540,7 +491,6 @@ function decorate(r){
  const top=document.querySelector(".top");
  if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
  const main=document.getElementById("main");
- if(r.screen==="overview"&&since)main.insertAdjacentHTML("afterbegin",sinceBanner());
  if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
  main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
@@ -746,17 +696,12 @@ document.addEventListener("click",e=>{
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}
  const sp=t.closest("[data-sum-pr]");if(sp){summarizePr(sp.dataset.sumPr);return}
  const ss=t.closest("[data-sum-stack]");if(ss){openSheet({kind:"stack",id:ss.dataset.sumStack});return}
- const tile=t.closest("[data-since]");if(tile){state.sinceOpen=state.sinceOpen===tile.dataset.since?null:tile.dataset.since;render();return}
- if(t.closest("[data-seen]")){saveSeen();since=null;render();return}
  const want=(n,head)=>{const r=boardRow(n);return {block:r.block,number:r.number,head}};
  const tap=t.closest("[data-tap]");if(tap&&!batching){post(want(tap.dataset.n,tap.dataset.head),tap.dataset.tap);return}
  const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&Date.now()-seenAt>8000)saveSeen()});
-window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("hashchange",closePal);
-try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
 Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
 })();
 </script>

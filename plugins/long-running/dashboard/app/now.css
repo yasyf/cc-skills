@@ -25,8 +25,7 @@ body:has(.nw) { background: #080a0d; }
 .nw-band .nl { display: flex; gap: 16px; align-items: center; padding: 3px 0; }
 .nw-band .nl + .nl { border-top: 1px solid #2a2310; }
 .nw-band .what { flex: 1; min-width: 0; }
-.nw-band .what b { font-weight: 600; margin-right: 8px; }
-.nw-band .why { color: var(--ink2); font-size: 13px; }
+.nw-band .what { font-weight: 600; }
 .nw-band .acts { display: flex; gap: 6px; flex: none; }
 .nw-band .more { font-size: 13px; padding-top: 4px; }
 .nw .nbtn { font: 600 12.5px var(--sans); padding: 4px 11px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); color: var(--ink); cursor: pointer; }
