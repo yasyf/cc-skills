@@ -292,10 +292,10 @@ function lastWord(w) {
 }
 function stepCard(s) {
   const t = tally(s.prs);
-  const ws = state.model.workers.filter((w) => w.step === s.id && w.live);
+  const ws = state.model.workers.filter((w) => w.step === s.id).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 5);
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
-    ${ws.length ? `<h4 class="sc-h">Who is on it</h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker is on this step right now.</p>'}
+    ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.filter((w) => w.live).length, 'worker')} active in the last 20 minutes</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker has reported on this step.</p>'}
     ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
 }
