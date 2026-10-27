@@ -1007,13 +1007,15 @@ permission hook owns that approval check, and no pack hook reroutes an approved 
 write to a lane. `cc-slack dm-status` to the user's own DM stays the root's.
 
 **Slack carries merge cards and nothing else.** The drive writes one kind of Slack
-message: the merge card with Approve and Hold buttons in the owner's DM status thread,
-one card per merge group, posted once and edited in place on every head change and on
-resolution, never re-posted. A tap on that card is a board tap: it records the same
+message: the merge card with Approve and Hold buttons in the owner's DM status thread.
+With `landing.merge_ask_surface` set to `board`, the board's `pr-groups` block mirrors
+each merge group to one card, posted once and edited in place on every head change and
+on resolution, never re-posted. A tap on that card is a board tap: it records the same
 verdict at the same head as the board row, and a verdict given on the board edits the
 card at once. No lane and not the root writes anything else there or in any channel: no
 status update, per-landing line, ready-to-tap list, batch post, lane report, correction,
-or prose reply in the thread. Status lives on the drive dashboard. Prompt watch's
+or prose reply in the thread beyond the answer to his own `Explain more` tap. Status
+lives on the drive dashboard. Prompt watch's
 `needs_you` card for a dialog only the owner's hands can clear is the one exception. The landing desk's
 redraw of the thread's root card below is an edit, not a post, and stays. A new
 automated poster needs the owner's word first, and a post the owner names goes out
@@ -1202,7 +1204,13 @@ the channel'.*
   names, commands, record ids, every clause) sits behind a click: a disclosure, a
   Background section, a linked doc. A markdown table renders as a table, never as pipe
   text. This binds every board card, merge row, plan and plan preview, release plan, and
-  dashboard screen, and the root reads each one as he will before it goes out.
+  dashboard screen, and the root reads each one as he will before it goes out:
+  - a merge row is its six facts, one line each, words before any id;
+  - a picture goes on a card with no decision in it, because the board's focus mode
+    hides every non-decision child of a card that asks one, and an answered decision
+    leaves the card;
+  - detail sits in a closed `<details>` inside the card's page;
+  - the writer screenshots the board at desktop width and at 390 wide before it reports.
 
 The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive and
 queues `Next reply to the owner: give times in Pacific with no zone label, never UTC`
@@ -1583,8 +1591,7 @@ the facts `For users`, `Differs from plan`, `Risk`, `Finder`, `Build (CI)` and `
 the Slack merge card's fields (root #131642). A row whose recorded verdict the push
 would hide fails too: its id decided under another triage block, or its PR decided
 under an id the push drops with no root record that re-keys it (root #131681). A head
-with no fidelity grade or finder review is a `WARN` line, because the grade gates the
-enqueue, never the row (root #131645). A finder review counts in any form lanes post,
+with no finder review is a `WARN` line; one with no fidelity grade fails as `ungraded`. A finder review counts in any form lanes post,
 `finder: ok|major|issues <sha>`, `finder [<pr>] issues <sha>` without a PR ref, or a
 codex reply saved as `finders/<pr>-<sha7>.md` in the drive's state directory. Any failing row stops the push; `FLAG` lines
 name rows whose first sentences match, for the root to merge or reword. The push hands

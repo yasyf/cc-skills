@@ -5235,7 +5235,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that is still out of the queue five minutes after that go, naming the newest enqueue outcome that kept it out."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that is still out of the queue five minutes after that go, naming the newest enqueue outcome at that head that kept it out."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         now = self.runner.now()
         for pr, row in rows.items():
@@ -5244,7 +5244,7 @@ class Landing:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
                 continue
-            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if pr in action.target.split(",") and action.response), key=lambda action: action.accepted_at)
+            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-")), key=lambda action: action.accepted_at)
             why = f"its newest enqueue ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}" if tried else "no enqueue was accepted for it"
             self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}")
 
