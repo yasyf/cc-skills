@@ -53,3 +53,6 @@ body:has(#embed:not([hidden])) .foot { display: none; }
 .review-embed .assist-line b { color: var(--ink); font-weight: 600; }
 .review-embed .assist-line .on { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .review-embed .assist-line.stale { color: var(--warn); }
+.review-embed .pr-ask { border-top: 1px solid var(--line); }
+.review-embed .pr-ask input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.review-embed .pr-answer p { margin: 0; padding: 10px 14px; }
