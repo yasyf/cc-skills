@@ -3,7 +3,7 @@
 
   python3 scripts/test_retro_live.py
 """
-import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.parse, urllib.request
+import argparse, datetime, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.parse, urllib.request
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -450,6 +450,41 @@ class NotebookSnapshot(unittest.TestCase):
         failed, out = self.render_check()
         self.assertEqual(failed, 1)
         self.assertIn(f"the page marked 'notebook {NOTEBOOK_ID}' as failed", out)
+
+
+class MixedTimeAxes(unittest.TestCase):
+    """Requests in one chart cell that come back on different axes share the coarsest step instead of failing the sync."""
+
+    T0 = 1788386400000
+    WINDOW = {"start": "2026-09-02T20:00:00Z", "end": "2026-09-02T20:15:00Z"}
+
+    def answer(self, step: int, values: list, skip: int = 0) -> dict:
+        return {"data": {"attributes": {"times": [self.T0 + (i + skip) * step for i in range(len(values))],
+                                        "series": [{"query_index": 0, "group_tags": [], "unit": None}], "values": [values]}}}
+
+    def post(self, path, body):
+        attrs = body["data"]["attributes"]
+        query, interval = attrs["queries"][0]["query"], attrs.get("interval")
+        self.calls.append((query, interval))
+        if query == "sum:runs.started{*}":
+            return self.answer(60000, list(range(15))) if interval is None else self.answer(300000, [10, 35, 60])
+        return self.answer(300000, [4, 9], skip=1)
+
+    def setUp(self):
+        self.calls = []
+        cell = retro_evidence.cell_skeleton(5, {"attributes": {"definition": {"type": "timeseries", "requests": [
+            {"q": "sum:runs.started{*}"}, {"q": "sum:runs.stalled{*}.rollup(sum, 300)"}]}}},
+            datetime.datetime(2026, 9, 3, tzinfo=datetime.timezone.utc))
+        self.data = retro_evidence.fetch_timeseries(mock.Mock(post=self.post), cell, self.WINDOW, None)
+
+    def test_the_finer_request_is_requeried_at_the_coarsest_step(self):
+        self.assertEqual(self.calls, [("sum:runs.started{*}", None), ("sum:runs.stalled{*}.rollup(sum, 300)", None),
+                                      ("sum:runs.started{*}", 300000)])
+        self.assertEqual(self.data["interval"], 300)
+
+    def test_every_series_lines_up_on_one_axis_with_gaps_left_empty(self):
+        self.assertEqual(self.data["t"], [self.T0 // 1000 + i * 300 for i in range(3)])
+        self.assertEqual([s["v"] for s in self.data["series"]], [[10, 35, 60], [None, 4, 9]])
 
 
 class HistoryAcrossSyncs(unittest.TestCase):

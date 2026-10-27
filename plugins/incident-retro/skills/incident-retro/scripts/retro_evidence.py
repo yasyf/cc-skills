@@ -189,22 +189,26 @@ def query_timeseries(dd: Datadog, request: dict, start, end, interval):
     return a
 
 
+def axis_step(times: list):
+    return min((b - a for a, b in zip(times, times[1:])), default=None)
+
+
 def fetch_timeseries(dd: Datadog, cell: dict, window: dict, interval) -> dict:
     start, end = parse_ts(window["start"]), parse_ts(window["end"])
-    times, series = None, []
-    for ri, request in enumerate(cell["requests"]):
-        a = query_timeseries(dd, request, start, end, interval)
-        if times is None:
-            times = a["times"]
-            if len(times) > 1 and not interval:
-                interval = (times[1] - times[0]) // 1000
-        elif a["times"] != times:
-            raise SystemExit(f"cell {cell['index']}: request {ri} returned a different time axis than request 0; pass --interval")
+    answers = [query_timeseries(dd, request, start, end, interval) for request in cell["requests"]]
+    steps = [axis_step(a["times"]) for a in answers]
+    step = max((s for s in [*steps, interval and interval * 1000] if s), default=None)
+    answers = [a if own in (None, step) else query_timeseries(dd, request, start, end, step // 1000)
+               for request, a, own in zip(cell["requests"], answers, steps, strict=True)]
+    times = sorted({t for a in answers for t in a["times"]})
+    series = []
+    for ri, (request, a) in enumerate(zip(cell["requests"], answers, strict=True)):
+        at = {t: i for i, t in enumerate(a["times"])}
         for s, v in zip(a["series"], a["values"], strict=True):
             formula = request["formulas"][s["query_index"]]
             series.append({"request": ri, "formula": s["query_index"], "label": series_label(formula, s["group_tags"], len(request["formulas"])),
-                           "tags": s["group_tags"], "unit": unit_name(s["unit"]), "v": v})
-    return {"interval": interval, "t": [t // 1000 for t in times], "series": series}
+                           "tags": s["group_tags"], "unit": unit_name(s["unit"]), "v": [v[at[t]] if t in at else None for t in times]})
+    return {"interval": step and step // 1000, "t": [t // 1000 for t in times], "series": series}
 
 
 def fetch_scalar(dd: Datadog, cell: dict, window: dict) -> dict:

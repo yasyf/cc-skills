@@ -180,8 +180,9 @@ The cell types map as follows:
   `--interval` is given; when a response would carry more than about 1500
   points the fetcher re-queries with an interval that fits, and the step
   actually used lands in `data.interval`. A cell with several requests
-  queries all of them at the first request's step so they share one time
-  axis.
+  re-queries any request that came back finer than the coarsest step any of
+  them returned, then lines every series up on the union of their
+  timestamps, with `null` where a request has no point.
 - `toplist` and `query_table` post to `POST /api/v2/query/scalar`; the
   column-oriented response becomes `data.rows`.
 - `log_stream` posts to `POST /api/v2/logs/events/search` with the cell's
