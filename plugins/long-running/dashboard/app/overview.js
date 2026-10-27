@@ -75,11 +75,13 @@ function clause(text) {
   return i > 0 ? [t.slice(0, i), t.slice(i + 1).trim()] : [t, ''];
 }
 function minutesPast(when) {
-  const hm = /^(\d{1,2}):(\d{2})\s*([AP]M)/i.exec(String(when ?? '').trim());
+  const hm = /^(\d{1,2}):(\d{2})\s*([AP]M)(?:\s+(\w{3} \d{1,2}))?/i.exec(String(when ?? '').trim());
   if (!hm) return null;
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: PACIFIC }));
   const late = now.getHours() * 60 + now.getMinutes() - ((Number(hm[1]) % 12) + (/p/i.test(hm[3]) ? 12 : 0)) * 60 - Number(hm[2]);
-  return late < 0 ? late + 24 * 60 : late;
+  if (!hm[4]) return late < 0 ? late + 24 * 60 : late;
+  const day = new Date(`${hm[4]} ${now.getFullYear()}`);
+  return Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - day) / 60000) + late;
 }
 function overdue(when) {
   const late = minutesPast(when);
@@ -358,8 +360,8 @@ function partSheet() {
   return sheet(`<div class="kick">${HOME[p.home] ?? ''} · ${pct(t)}% landed</div><h3>${esc(p.name)}</h3><p class="relnow">${esc(p.becomes)}</p>
     <div class="partbar">${LIGHT_ORDER.filter((k) => t[k]).map((k) => `<span class="pb ${k}" style="flex:${t[k]}" title="${t[k]} ${esc(STATE_WORD[k])}"><i class="lt ${k}"></i>${t[k]} <small>${PART_WORD[k]}</small></span>`).join('')}</div>
     ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.length, 'worker')} active</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : ''}
-    ${open.length ? `<h4 class="sc-h">Still to land <span>${open.length}</span></h4><ul class="prlist">${open.map(prRow).join('')}</ul>` : ''}
-    ${landed.length ? `<details data-id="part-landed-${esc(p.key)}"${state.open.has(`part-landed-${p.key}`) ? ' open' : ''}><summary class="sc-h">Landed <span>${landed.length}</span></summary><ul class="prlist">${landed.map(prRow).join('')}</ul></details>` : ''}`);
+    ${open.length ? `<h4 class="sc-h">Still to land <span>${open.length}</span></h4><ul class="prlist">${open.map((p) => prRow(p)).join('')}</ul>` : ''}
+    ${landed.length ? `<details data-id="part-landed-${esc(p.key)}"${state.open.has(`part-landed-${p.key}`) ? ' open' : ''}><summary class="sc-h">Landed <span>${landed.length}</span></summary><ul class="prlist">${landed.map((p) => prRow(p)).join('')}</ul></details>` : ''}`);
 }
 function workerSheet() {
   const m = state.model;
@@ -456,7 +458,7 @@ function trackSheet() {
   if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}</div></div>`;
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Other work: ${list.length} open pull requests</h3>
-    <ul class="prlist">${list.map(prRow).join('')}</ul></div></div>`;
+    <ul class="prlist">${list.map((p) => prRow(p)).join('')}</ul></div></div>`;
 }
 function shortShas(text) {
   return String(text).replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1');
@@ -500,7 +502,7 @@ function releaseSheet() {
     <p class="relnow">${inline(r.state)}</p>
     ${blocking.length ? `<h4 class="sc-h">What it waits on</h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
     <dl class="facts"><dt>What reaches people</dt><dd>${esc(planRows().find(([n]) => `R${n}` === r.id)?.[2] ?? '')}</dd><dt>Parts it ships</dt><dd>${parts.map((p) => esc(p.name)).join(' · ')}</dd></dl>
-    ${open.length ? `<details data-id="rel-open-${esc(r.id)}"${state.open.has(`rel-open-${r.id}`) ? ' open' : ''}><summary class="sc-h">Other new-app pull requests open in these parts <span>${open.length}</span></summary><ul class="prlist">${[...open].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul></details>` : ''}
+    ${open.length ? `<details data-id="rel-open-${esc(r.id)}"${state.open.has(`rel-open-${r.id}`) ? ' open' : ''}><summary class="sc-h">Other new-app pull requests open in these parts <span>${open.length}</span></summary><ul class="prlist">${[...open].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => prRow(p)).join('')}</ul></details>` : ''}
     <p><button class="linkish" data-plan>Open the full release plan ›</button></p></div></div>`;
 }
 function stopSheet() {

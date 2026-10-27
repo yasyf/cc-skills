@@ -338,7 +338,7 @@ function route() {
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function overRoute(r) {
-  return ['now', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !r.id);
+  return ['now', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !/^\d+$/.test(r.id ?? ''));
 }
 function render() {
   const m = state.model;
@@ -349,9 +349,10 @@ function render() {
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
   const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const over = (body) => () => `${overview()}<div class="overlay route" data-close="1"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, now: over(needsScreen), review: r.id ? () => reviewPR(r.id, r.tab) : over(reviewList), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
+  const screens = { overview, now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
+  const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
@@ -359,6 +360,7 @@ function render() {
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   window.scrollTo(0, y);
+  if ($('.overlay.route')) [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] = sheetY;
   syncReviewEmbed(r);
   if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
   state.seen = new Set(timeline().map((e) => e.id));

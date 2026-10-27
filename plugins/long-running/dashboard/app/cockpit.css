@@ -559,6 +559,7 @@ body:has(.ck.ov) .top .tabs { display: none; }
 }
 .ck .prlist li .own { display: block; padding: 2px 0 8px 22px; font-size: 12.5px; line-height: 1.45; color: var(--ink2); }
 .ck .prlist li .own .linkish { font-weight: 650; }
+.overlay.route { z-index: 55; }
 .sheet.route { max-width: 980px; }
 .sheet.route > h2.sec:first-of-type { margin-top: 0; }
 @media (max-width: 759px) {
