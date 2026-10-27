@@ -524,7 +524,7 @@ class Drive:
 
     def read_slow(self):
         ledger = json.loads(self.ccn("ledger", "show", self.config["ledger"], "--json"))
-        prs = {row["key"]: {k: v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
+        prs = {row["key"]: {k: json.loads(v) if k == "failing_checks" else v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
         plan_at, plan = self.read_plan()
         story = json.loads(Path(self.config["story"]).read_text())
         for ask in story.get("asks", []):

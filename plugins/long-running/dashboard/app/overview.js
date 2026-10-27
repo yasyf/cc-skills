@@ -355,7 +355,7 @@ function prFacts(n) {
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
     <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
-    ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
+    ${e.state === 'failing' ? `<dt>Which check</dt><dd>${pr.failing_checks?.length ? pr.failing_checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} failed ↗</a>`).join(', ') : `<a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its checks on GitHub ↗</a>`}</dd>` : ''}
     <dt>Who is on it</dt><dd>${owner ? `<button class="linkish" data-worker="${esc(owner)}">${esc(owner)}</button>, ${w?.live ? 'working now' : ownerAt ? `last word ${agoWords(ownerAt)}` : 'no word from it in the last day'}` : 'No worker named'}</dd>
     ${word || status ? `<dt>Where it stands, what is next</dt><dd>${status ? inline(status) : said(word, 260)}${word ? ` <small class="dim">from ${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</dd>` : ''}</dl>`;
 }
@@ -503,7 +503,7 @@ function statusOf(n) {
     `What it changes: ${shortName(n) ?? plainTitle(n)}`,
     row?.blocker && `What blocks it: ${row.blocker}`,
     pr.mergeable_state === 'dirty' && 'It conflicts with its base',
-    pr.test_state && `Its own tests: ${pr.test_state}`,
+    pr.test_state && `Its own tests: ${pr.test_state}${pr.failing_checks?.length ? `, failing ${pr.failing_checks.map((c) => c.name).join(', ')}` : ''}`,
     ownerOf(n) && `Worker: ${ownerOf(n)}`,
     ...recs.map((r) => `${clock(r.at)} ${r.kind}: ${firstSentences(shortShas(r.text), 400)}`),
   ].filter(Boolean).join('\n');
