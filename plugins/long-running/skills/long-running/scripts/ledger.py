@@ -381,6 +381,28 @@ def working_repo(shell: Shell, named: str | None) -> str:
         raise
 
 
+def inside_checkout(shell: Shell) -> bool:
+    try:
+        return shell.run(["git", "rev-parse", "--is-inside-work-tree"]).strip() == "true"
+    except subprocess.CalledProcessError:
+        return False
+
+
+def registry_checkout(args: argparse.Namespace) -> str | None:
+    """The checkout of the registered drive whose ledger or cci drive the command names."""
+    import drive
+
+    ledger_id, bus = vars(args).get("ledger") or "", vars(args).get("drive") or ""
+    return next(
+        (
+            entry["checkout"]
+            for entry in drive.drives()
+            if entry.get("checkout") and ((ledger_id and str(entry.get("ledger") or "").startswith(ledger_id)) or (bus and drive.cci_drive(entry) == bus))
+        ),
+        None,
+    )
+
+
 def same_repo(left: str, right: str) -> bool:
     return left.lower() == right.lower()
 
@@ -2434,7 +2456,7 @@ def add_shard(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ledger.py", description=__doc__.splitlines()[0])
-    parser.add_argument("-C", dest="directory", type=Path, help="run as if started in this directory, which ccn reads the ledger's repository from")
+    parser.add_argument("-C", dest="directory", type=Path, help="run as if started in this directory, which ccn reads the ledger's repository from; default: the working directory, or outside any checkout the checkout of the registered drive whose --ledger or --drive the command names")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="create the ledger and print its id")
@@ -2701,9 +2723,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
+    shell = shell or Shell()
     if args.directory:
         os.chdir(args.directory)
-    shell = shell or Shell()
+    elif not inside_checkout(shell) and (checkout := registry_checkout(args)):
+        os.chdir(checkout)
     if "repo" in vars(args):
         default = working_repo(shell, args.repo)
         checkout = vars(args).get("checkout")
