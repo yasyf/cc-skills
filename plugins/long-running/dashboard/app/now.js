@@ -25,7 +25,7 @@ function nowScreen() {
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)} · ${esc(b.progress.code_line)}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)} · ${(() => { const t = tally(m.drive.prs); return `${t.landed} of ${t.total} changes merged`; })()}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     <div class="nw-cols">
       <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
       <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
@@ -80,7 +80,7 @@ function compact(b) {
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
-    <p class="nw-code">${esc(b.progress.code_line)} <a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
+    <p class="nw-code"><a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
 }
 
 function unfinished(path) {
@@ -119,17 +119,17 @@ function chart(path, index) {
   const edges = [...path.edges.filter((e) => depth.has(e.from) && depth.has(e.to)).map((e) => [e.from, e.to]), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
   return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="--cols:${layers.length}"><svg class="arrows" aria-hidden="true"></svg>
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
-    <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
+    <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal">${esc(name)}</div></div></div>`;
 }
 function node(n, key) {
   const work = n.item && workItem(n.item);
   const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
-  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${work ? '<em>Live story ›</em>' : ''}</span>${esc(n.text)}
+  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}</span>${esc(n.text)}
     ${n.how || n.since ? `<span class="how">${esc(n.how)}${n.since ? `<i> · since ${esc(n.since)}</i>` : ''}</span>` : ''}</${work ? 'a' : 'div'}>`;
 }
 function cards(paths) {
   const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
-  const list = paths.flatMap((p) => p.nodes.filter((n) => n.state !== 'done').map((n) => ({ ...n, holds: state.model.milestones[p.milestone] }))).sort((a, b) => rank[a.state] - rank[b.state]).slice(0, 3);
+  const list = paths.flatMap((p) => p.nodes.filter((n) => n.state !== 'done').map((n) => ({ ...n, holds: state.model.milestones[p.milestone] }))).sort((a, b) => rank[a.state] - rank[b.state]);
   return `<div class="nw-cards">${list.map((n) => {
     const work = n.item && workItem(n.item);
     return `<div class="blk ${n.state}"><div class="stuck"><div class="t">${esc(n.text)}</div><div class="meta">Holds up <b>${esc(n.holds ?? 'the next milestone')}</b>${n.since ? ` · since ${esc(n.since)}` : ''}</div></div>
@@ -168,7 +168,7 @@ function workList(b) {
 function workRow(w) {
   return `<a class="wr" href="${storyHref(w.item)}">
     <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
-    <span class="side"><span class="open">${state.model.pulse?.[w.item] ? '<i class="live-dot"></i>' : ''}Live story ›</span></span></a>`;
+    <span class="side"><span class="open">Live story ›</span></span></a>`;
 }
 
 function follow(item) {

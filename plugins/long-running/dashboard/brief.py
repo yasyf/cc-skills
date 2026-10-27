@@ -26,7 +26,6 @@ SLOTS = {
     ("because",): "sentence",
     ("band", "text"): "sentence",
     ("progress", "sentence"): "headline",
-    ("progress", "code_line"): "line",
     ("calm",): "sentence",
 }
 STOP_SCHEMA = {
@@ -68,8 +67,8 @@ SCHEMA = {
         "progress": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["sentence", "code_line", "stops"],
-            "properties": {"sentence": {"type": "string"}, "code_line": {"type": "string"}, "stops": {"type": "array", "items": STOP_SCHEMA}},
+            "required": ["sentence", "stops"],
+            "properties": {"sentence": {"type": "string"}, "stops": {"type": "array", "items": STOP_SCHEMA}},
         },
         "paths": {
             "type": "array",
@@ -116,6 +115,7 @@ Rules for every string:
 - Never a record number, pull request number, release code (R1, P8), step number, hash, file path, branch, URL, worker name from worker_names, or these coined words: lane, desk, watchdog, finder, slice, census, fidelity, register, mirror, forest, tap row, ci-grade, rider, carry, restack, rebase, enqueue, old world, new world, cherry-pick. Say "a worker", "the merge process", "the automated review", "old code", "new code" instead. Describe what changed for users or what is left, never git mechanics.
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
+- Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
 - Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
 
@@ -125,7 +125,6 @@ Fields:
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
 - progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
-- progress.code_line: "Code: X of Y changes are merged" style, from code.by_state (landed of tracked).
 - paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most four nodes per path; merge small things. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how says how it is being unblocked and the next step; for nobody say who was told and when, and who should assign a worker (the coordinator). item names the work item fixing it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
 - work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work."""

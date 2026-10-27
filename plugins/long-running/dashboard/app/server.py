@@ -763,13 +763,7 @@ class Drive:
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
-            "pulse": self.pulses(),
         }
-
-    def pulses(self):
-        brief = self.curator.brief or {}
-        now = time.time()
-        return {w["item"]: bool((found := self.stories.transcript(w["workers"])) and now - found.stat().st_mtime < 120) for w in brief.get("work", [])}
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
