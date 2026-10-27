@@ -4033,12 +4033,12 @@ class Landing:
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def refuse_ungone_parents(self, rows: dict[str, dict]) -> None:
-        """Post one blocker to the root for each open row a root `go` names at its head that is stacked on a row `unpassed` keeps out: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
+        """Post one blocker to the root for each open row a root `go` names at its head that is stacked on a row `unpassed` keeps out, again only when that set of parents changes, never for a head that moves: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
             if pr in self.no_go or not (parents := sorted(downstack(open_rows, pr) & self.no_go, key=int)):
                 continue
-            key = f"go-parent:{pr}@{row['head']}:" + ",".join(f"{parent}@{open_rows[parent]['head']}" for parent in parents)
+            key = f"go-parent:{pr}:" + ",".join(parents)
             if self.book.known(LANDING, key):
                 continue
             named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
