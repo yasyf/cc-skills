@@ -178,16 +178,16 @@ def drive_workers(records, prs, steps, now, desks=False):
     return workers
 
 
-def step_tone(step, prs, workers):
+def step_tone(step, prs, workers, untracked):
     states = {entry["state"] for entry in prs}
-    if prs and states == {"landed"}:
+    if prs and states == {"landed"} and not untracked:
         return "done"
     for tone in ("you", "failing", "held"):
         if tone in states:
             return tone
     if "doing" in states or workers:
         return "moving"
-    if prs and states <= {"landed", "queued"}:
+    if prs and states <= {"landed", "queued"} and not untracked:
         return "queued"
     return "waiting" if prs else step["tone"]
 
@@ -199,7 +199,8 @@ def step_rows(steps, drive, workers):
         named = [int(n) for n in PR_MENTION.findall(step.get("blocker") or "")]
         prs = [by_number[n] for n in dict.fromkeys([*step["prs"], *named]) if n in by_number]
         on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
-        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on), "workers": on})
+        untracked = [n for n in named if n not in by_number]
+        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on, untracked), "workers": on})
     return rows
 
 

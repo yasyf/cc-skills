@@ -234,6 +234,14 @@ def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
     assert (row["tone"], [entry["number"] for entry in row["prs"]]) == ("failing", [42001, 42002])
 
 
+def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_done():
+    drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}]}
+
+    row = step_rows([{**step([42712, 42714]), "blocker": "a fix for what the plan check found in #43197"}], drive, [])[0]
+
+    assert row["tone"] == "waiting"
+
+
 def record(lane, minutes_ago, kind="state", text="", topic=""):
     return {"lane": lane, "kind": kind, "text": text, "topic": topic, "at": (NOW - dt.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")}
 
