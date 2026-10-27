@@ -29,6 +29,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -39,6 +40,16 @@ import rulings
 
 SOURCE = "board"
 CAPTURES = "owner-prompts.jsonl"
+CREDENTIAL = re.compile(
+    r"\b(?:sk|pk|rk)-[\w-]{16,}"
+    r"|\b(?:gh[pousr]|github_pat)_\w{20,}"
+    r"|\bxox[abprs]-[\w-]{10,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\b(?:api|sdk|mob)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b"
+    r"|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}"
+    r"|(?<![\w/+=.-])(?=[\w+/=]*[a-z])(?=[\w+/=]*[A-Z])(?=[\w+/=]*\d)[\w+/=]{32,}(?=[.,;:!?)\]\"'`]*(?:\s|$))"
+)
+REDACTED = "[credential redacted]"
 BOARDS = "boards"
 
 
@@ -120,12 +131,12 @@ def captures(event: dict, session: str, shell: Shell, moment: datetime) -> list[
     block = event.get("blockId", "")
     if event.get("type") == "triage.decided":
         return [
-            {"digest": digest(session, row["note"], row_id), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "row": row_id, "verdict": row["verdict"], "text": row["note"]}
+            {"digest": digest(session, row["note"], row_id), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "row": row_id, "verdict": row["verdict"], "text": CREDENTIAL.sub(REDACTED, row["note"])}
             for row_id, row in event["verdicts"].items()
             if row.get("note")
         ]
     return [
-        {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": text}
+        {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)}
         for text in texts(event, session, shell)
     ]
 
