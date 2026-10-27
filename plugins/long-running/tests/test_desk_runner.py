@@ -125,6 +125,7 @@ class FakeShell(runner_module.Shell):
         self.coordinator = "term_root"
         self.dead: set[str] = set()
         self.gone: set[str] = set()
+        self.seen: dict[str, str] = {}
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
@@ -383,7 +384,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
-            return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True}) + "\n", "")
+            return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             assert flags["--drive"] in self.drives and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -7031,6 +7032,39 @@ def cci_record(shell: FakeShell, **fields) -> int:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
     return seq
+
+
+@pytest.mark.parametrize(("seen_minutes_ago", "gone"), [(20, True), (5, False), (None, True)])
+def test_a_lane_silent_past_a_root_order_logs_one_lane_gone(shell, config, tmp_path, seen_minutes_ago, gone):
+    last = cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    order = cci_record(shell, kind="decide", to=["p8-lane", "drive-watchdog"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    cci_record(shell, lane="drive-watchdog", kind="note", text="ack", at=actions.stamp(shell.clock - timedelta(minutes=1)))
+    if seen_minutes_ago is None:
+        shell.gone.add("p8-lane")
+    else:
+        shell.seen["p8-lane"] = actions.stamp(shell.clock - timedelta(minutes=seen_minutes_ago))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    lines = [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+    assert len(lines) == gone
+    if gone:
+        assert lines[0].startswith(f"LANE-GONE lane-gone:p8-lane:{order} p8-lane: root #{order} to p8-lane unanswered; its last record is #{last} head at ")
+        assert lines[0].endswith(("cci last saw it 20 min ago; spawn its successor from its brief and handoff", "cci lists no session for it; spawn its successor from its brief and handoff"))
+
+
+@pytest.mark.parametrize("answer", [{"lane": "p8-lane-2", "kind": "note", "text": "taking over"}, {"kind": "stand-down", "to": ["p8-lane"], "text": "p8-lane: stand down"}])
+def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, config, tmp_path, answer):
+    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    cci_record(shell, **answer, at=actions.stamp(shell.clock - timedelta(minutes=20)))
+    shell.gone |= {"p8-lane", "p8-lane-2"}
+    orca_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+
+
+@pytest.mark.parametrize(("name", "lane", "expected"), [("p8-lane-2", "p8-lane", True), ("p8-lane-3", "p8-lane-2", True), ("p8-lane-2", "p8-lane-2", False), ("p8-lane-2", "p8-lane-3", False), ("p8-lane-x", "p8-lane", False), ("p8-lanes-2", "p8-lane", False)])
+def test_succeeds_reads_a_numbered_successor_only(name, lane, expected):
+    assert runner_module.succeeds(name, lane) is expected
 
 
 def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp_path):
