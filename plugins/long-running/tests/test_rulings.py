@@ -1950,3 +1950,8 @@ def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
     diff = rulings.parse_diff(SYMBOL_DIFF)
     assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
     assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
+
+
+def test_a_repository_name_as_repo_names_the_pr_form_instead_of_a_traceback() -> None:
+    with pytest.raises(SystemExit, match=r"^--repo takes the checkout path, not 'Forge-AI/monorepo'; name the repository in --pr Forge-AI/monorepo#N$"):
+        rulings.main(["slice", "--program", "brook", "--repo", "Forge-AI/monorepo", "--required", "--pr", "43368", "--head", "abc1234"])

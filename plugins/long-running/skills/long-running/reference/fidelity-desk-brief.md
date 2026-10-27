@@ -25,7 +25,7 @@ never argued: the root fixes the text and asks again.
 
 A grade covers every global row (reserved, scope, design, exception), every
 `pending-owner` row, and every row the head or text matches. For a head,
-`rulings.py slice --pr <n> --head <sha> --base <base> --repo <owner/name> --required`
+`rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required`
 prints each required row as a lane slice renders it, a `### <key> | ...` heading
 with the owner's words, implications, and names, and a last `slice-hash: <sha12>`
 line. A non-zero exit is a read failure: post one `blocker` to the root and grade

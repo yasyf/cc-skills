@@ -166,6 +166,7 @@ PLACEMENT = re.compile(
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
 DIGEST_CHARS = 16
 OWNER_ANSWER = "from:owner"
+REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 OWNER_SOURCES = frozenset({OWNER_ANSWER, "slack:owner-words"})
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
@@ -2474,6 +2475,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if REPO_NAME.fullmatch(args.repo) and not Path(args.repo).exists():
+        raise SystemExit(f"--repo takes the checkout path, not {args.repo!r}; name the repository in --pr {args.repo}#N")
     if not (args.program or args.drive):
         args.drive = drive.current_drive() or args.error("one of the arguments --program --drive is required")
     return args.handler(args, shell or ledger.Shell())
