@@ -469,7 +469,7 @@ def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     top = top.strip()
     branch = (lanes.output(shell.run, ["git", "-C", top, "branch", "--show-current"]) or "").strip() or "detached"
     shell.run(
-        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "state", "--to", "root", "--id", f"worktree:{args.lane}:{top}", "--attr", f"worktree={top}", "--attr", f"branch={branch}", "--text", f"WORKTREE {args.lane} {top} {branch}"]
+        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "state", "--id", f"worktree:{args.lane}:{top}", "--attr", f"worktree={top}", "--attr", f"branch={branch}", "--text", f"WORKTREE {args.lane} {top} {branch}"]
     )
     return 0
 
