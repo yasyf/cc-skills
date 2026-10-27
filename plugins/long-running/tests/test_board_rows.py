@@ -144,14 +144,15 @@ def test_a_row_with_no_grade_or_no_finder_at_its_head_warns_and_still_pushes(tmp
     shell.post("review", "fidelity-desk-2", f"fidelity: missing {HEAD[:7]} rule/2 one added line", "42592")
     rows = card(row("42590"), row("42591", md="Keeps a copy of each release's Rust-built files."), row("42592", md="Ports the journal reader tests to the new tree."))
 
-    assert gate(tmp_path, shell, rows, "--", "cc-present", "update-block") == 0
+    assert gate(tmp_path, shell, rows, "--", "cc-present", "update-block") == 1
 
     assert lines(capsys) == [
-        f"WARN merge-row-42591 42591 {HEAD[:7]} ungraded: no fidelity grade from fidelity-desk or fidelity-desk-2 names {HEAD[:7]}; ungraded: no finder review names {HEAD[:7]}",
+        f"merge-row-42591 42591 {HEAD[:7]} ungraded: no fidelity grade from fidelity-desk or fidelity-desk-2 names {HEAD[:7]}",
+        f"WARN merge-row-42591 42591 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
         f"WARN merge-row-42592 42592 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
-        "rows 3 failing 0 ungraded 2 flags 0",
+        "rows 3 failing 1 ungraded 2 flags 0",
     ]
-    assert len(shell.pushed) == 1
+    assert shell.pushed == []
 
 
 @pytest.mark.parametrize(
@@ -410,8 +411,8 @@ def test_a_record_that_does_not_carry_the_head_for_the_pr_leaves_it_ungraded(tmp
     fake.pull("42590")
     fake.post("head", "p8e", text)
 
-    assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
-    assert lines(capsys)[-1] == "rows 1 failing 0 ungraded 1 flags 0"
+    assert gate(tmp_path, fake, card(row("42590")), "--check") == 1
+    assert lines(capsys)[-1] == "rows 1 failing 1 ungraded 1 flags 0"
 
 
 def approved(pr: str, head: str = HEAD, at: str = WRITTEN) -> dict:
@@ -469,6 +470,7 @@ def test_a_blocker_naming_a_merged_pr_fails(tmp_path: Path, shell: FakeShell, ca
 )
 def test_a_one_tap_claim_over_a_rejected_pr_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], summary: str, verdicts: dict, failing: int) -> None:
     shell.pull("42593")
+    shell.graded("42593")
     shell.verdicts = {"merge-prs": verdicts}
 
     assert gate(tmp_path, shell, claimed(summary, pr_row("42590"), pr_row("42593")), "--check") == failing
@@ -480,8 +482,49 @@ def test_a_one_tap_claim_over_a_rejected_pr_fails(tmp_path: Path, shell: FakeShe
 def test_a_pr_listed_in_a_markdown_block_after_it_merged_or_closed_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], state: str, failing: int) -> None:
     shell.pull("42740", state=state)
     block = groups(pr_row("42590"))
-    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "**Approved by you and landing.**\n\n- #42740: One writer per run."})
+    block["children"].append({"id": "merge-fixing", "type": "markdown", "md": "**Being fixed or checked.**\n\n- #42740: One writer per run."})
 
     assert gate(tmp_path, shell, block, "--check") == failing
     if failing:
-        assert lines(capsys)[0] == f"merge-approved-landing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-approved-landing"
+        assert lines(capsys)[0] == f"merge-fixing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-fixing"
+
+
+@pytest.mark.parametrize(("md", "failing"), [("Old-path check: pending.", 1), ("Being reworked on your 11:17 PM note.", 1), (f"Being reworked at {HEAD[:7]}.", 1), (f"Was being reworked at {NEW_HEAD[:7]}.", 0), ("Old-path check: clean.", 0)])
+def test_a_row_whose_own_words_say_pending_or_being_reworked_asks_no_tap(tmp_path: Path, shell: FakeShell, md: str, failing: int) -> None:
+    assert gate(tmp_path, shell, groups(pr_row("42590", md=md)), "--check") == failing
+
+
+@pytest.mark.parametrize(("graded", "failing"), [(True, 0), (False, 1)])
+def test_an_open_pr_in_the_approved_list_needs_a_go_and_a_fidelity_ok_at_its_head(tmp_path: Path, shell: FakeShell, graded: bool, failing: int) -> None:
+    shell.pull("42740")
+    shell.post("go", "root", f"go #42740 at {HEAD[:7]} (owner tap 9:12 PM)", "42740")
+    if graded:
+        shell.graded("42740")
+    block = groups(pr_row("42590"))
+    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "- #42740: One writer per run."})
+
+    assert gate(tmp_path, shell, block, "--check") == failing
+
+
+@pytest.mark.parametrize(("other_title", "same_group", "failing"), [("Runs one background server per environment", False, 1), ("Runs one background server per environment", True, 0), ("Keeps each staging folder apart", False, 0)])
+def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, shell: FakeShell, other_title: str, same_group: bool, failing: int) -> None:
+    shell.pull("42593")
+    shell.graded("42593")
+    block = groups(pr_row("42590", title="Runs one background server for each environment"))
+    second = pr_row("42593", title=other_title)
+    if same_group:
+        block["children"][0]["groups"][0]["prs"].append(second)
+    else:
+        block["children"][0]["groups"].append({"id": "g2", "title": "Another group", "summary": "One line.", "prs": [second]})
+
+    assert gate(tmp_path, shell, block, "--check") == failing
+
+
+def test_a_row_at_a_head_he_did_not_approve_waits_until_root_rules_it_new_content(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and no root record rules {HEAD[:7]} replay or new content; it waits in Being fixed or checked"
+
+    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0

@@ -24,21 +24,34 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
               none on this id, and no root record that re-keys names this id or its head; a
               `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
-    approved  a root `go` names the PR at its head, no root `withdraw` closes that go, and the board
+    approved  a `go` from root, or from a lane the config's `landing.go_lanes` names, names the PR at its head, no root `withdraw` closes that go, and the board
               records no approval for the row at that head, so the row asks a tap he already gave;
               `cc-present verdict import` at the head, or dropping the row, clears it
+    re-ask    the board records his approval at another head, and no root go, decide or decision record
+              names the PR at this head saying it re-asks or is new content (root #138721): until root
+              rules replay or new content the row sits in Being fixed or checked
     rejected  the board records his reject for the row at its head, so the row asks again what he
               refused; it returns only at a new head
     landed    its blocker, the `blocker` field or the `Gate` fact, names a PR GitHub shows merged
     one tap   a row's or its group's words say one tap approves several PRs, and one they name or
               group with it is rejected on the board or no longer open on GitHub
 
+Two `pr-groups` rows in different groups whose titles share more than half the words of the shorter
+title, counting words of four letters or more, both fail with `alike`: he reads them as duplicates
+(root #138624), so they belong in one group with titles that name each piece.
+
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
-list the owner reads in the same push.
+list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
+PR also fails, with `unapproved`, when neither a standing root go, his board approval, nor a carry
+record names its GitHub head, or when no fidelity grade or carry names that head.
 
-A row with no fidelity grade or no finder review at its head gets a `WARN` line and fails
-nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
+A row asks a tap only once a fidelity lane graded its head and its own words settle it: a row
+with no fidelity grade at its head fails with `ungraded`, and one whose words say `pending` or
+`being reworked` in a sentence that names no commit, or names the row's head, fails with
+`unsettled` (root #138512, #138550): a sentence naming an older commit describes that commit, so a
+newer graded head clears it. A row with no finder review at its head
+gets a `WARN` line and fails nothing. Grades and finder reviews are read from one
 scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
 finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
 review too. `--finders` names that directory, `finders/` beside the config by default. A carry
@@ -80,9 +93,13 @@ SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
 PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
+REASK = re.compile(r"\bre-?asks?\b|\bnew (?:behavior|behaviour|content)\b|\basks? (?:his|a fresh) tap\b", re.IGNORECASE)
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
+APPROVED_LIST = "approved"
+TITLE_WORD = 4
+UNSETTLED = re.compile(r"\bpending\b|\bbeing reworked\b", re.IGNORECASE)
 LISTED = re.compile(r"^\s*[-*] #(\d+):", re.MULTILINE)
 MERGED = "MERGED"
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
@@ -138,6 +155,7 @@ class Row:
     sentence: str
     facts: dict[str, str]
     words: str = ""
+    group: str = ""
     required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -164,7 +182,7 @@ def triage_items(node: object) -> Iterator[tuple[str, dict]]:
 def pr_group_rows(node: object) -> Iterator[tuple[str, dict]]:
     if isinstance(node, dict):
         if node.get("type") == PR_GROUPS:
-            yield from ((node["id"], pr) for group in node.get("groups", []) for pr in group.get("prs", []))
+            yield from ((node["id"], group.get("id", ""), pr) for group in node.get("groups", []) for pr in group.get("prs", []))
         for value in node.values():
             yield from pr_group_rows(value)
     elif isinstance(node, list):
@@ -187,10 +205,10 @@ def rows_of(block: dict) -> list[Row]:
         label = item.get("label", "")
         words = "\n".join([label, item.get("hint", ""), item.get("md", ""), *facts.values()])
         rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts, words))
-    for block_id, pr in pr_group_rows(block):
+    for block_id, group, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
         words = "\n".join([pr.get("title", ""), pr.get("md", ""), *facts.values()])
-        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, PR_FIELDS))
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, PR_FIELDS))
     return rows
 
 
@@ -219,6 +237,17 @@ def listed_prs(node: object) -> Iterator[tuple[str, str]]:
     elif isinstance(node, list):
         for value in node:
             yield from listed_prs(value)
+
+
+def title_words(row: Row) -> set[str]:
+    return {word for word in WORD.findall(row.label.lower()) if len(word) >= TITLE_WORD}
+
+
+def alike(rows: list[Row]) -> Iterator[tuple[Row, Row]]:
+    for one, other in itertools.combinations([row for row in rows if row.group], 2):
+        mine, theirs = title_words(one), title_words(other)
+        if one.group != other.group and mine and theirs and len(mine & theirs) * 2 > min(len(mine), len(theirs)):
+            yield one, other
 
 
 def blocker_prs(row: Row) -> set[str]:
@@ -274,9 +303,10 @@ def ruling_text(shell: Shell, record: dict) -> str:
     return (shell.read(path) if path else None) or record["text"]
 
 
-def root_rulings(shell: Shell, drive: str) -> list[dict]:
+def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
+    """The go, decide and decision records of root and of each lane `landing.go_lanes` lets rule for it."""
     kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
-    records = [record for record in cci.records(tail(shell), drive, "--lane", "root", *kinds) if record["lane"] == "root" and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
+    records = [record for lane in lanes for record in cci.records(tail(shell), drive, "--lane", lane, *kinds) if record["lane"] == lane and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
     return [record | {"full": ruling_text(shell, record)} for record in records]
 
 
@@ -355,12 +385,18 @@ def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -
     return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head)
 
 
-def tap_reasons(row: Row, entry: dict | None, gos: list[dict]) -> list[str]:
+def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dict]) -> list[str]:
     if at_head(entry, "rejected", row.head):
         return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
     if gos and not at_head(entry, "approved", row.head):
         return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"]
+    if entry is not None and entry.get("verdict") == "approved" and not at_head(entry, "approved", row.head) and not reasked(rulings, row):
+        return [f"re-ask: he approved it at {entry['head']}, and no root record rules {row.head[:7]} replay or new content; it waits in Being fixed or checked"]
     return []
+
+
+def reasked(rulings: list[dict], row: Row) -> bool:
+    return any(REASK.search(record["full"]) and re.search(rf"#{row.pr}\b", record["full"]) and any(grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(record["full"])) for record in rulings)
 
 
 def newest_by_pr(verdicts: dict[str, dict[str, dict]]) -> dict[str, dict]:
@@ -469,7 +505,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     asked = {row.pr for row in named} | {pr for prs in blockers.values() for pr in prs} | {pr for *_, members in claims for pr in members} | {pr for _, pr in listed}
     pulls = read_pulls(shell, repo, sorted(asked, key=int), warnings)
     try:
-        rulings = root_rulings(shell, drive)
+        rulings = sorted(root_rulings(shell, drive, ["root", *landing.get("go_lanes", [])]), key=lambda record: record["seq"])
         withdrawn = {seq for record in cci.records(tail(shell), drive, "--lane", "root", "--kind=withdraw") if record["lane"] == "root" for seq in grades.closes(record)}
     except ReadFailed as failed:
         rulings, withdrawn = None, set()
@@ -494,9 +530,13 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
-            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [])
+            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
         if reviews is not None:
-            row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
+            gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
+            row.reasons += [gap for gap in gaps if "fidelity" in gap]
+            row.warnings += [gap for gap in gaps if "fidelity" not in gap]
+        if unsettled := sorted({found.lower() for sentence in SENTENCE.split(row.words) for found in UNSETTLED.findall(sentence) if not any(not grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(sentence))}):
+            row.reasons.append(f"unsettled: its words say {' and '.join(unsettled)}, so it asks no tap yet")
     for row in rows:
         if landed := sorted((pr for pr in blockers[row.id] if (pull := pulls.get(pr)) and pull.state == MERGED), key=int):
             row.reasons.append(f"landed: its blocker names {' '.join(f'#{pr}' for pr in landed)}, merged on GitHub")
@@ -505,11 +545,26 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         for block_id, anchor, _, members in claims:
             if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
                 owner.reasons.append(reason)
+    for one, other in alike(rows):
+        one.reasons.append(f"alike: its title shares most of its words with #{other.pr} in group {other.group}")
+        other.reasons.append(f"alike: its title shares most of its words with #{one.pr} in group {one.group}")
     found = flags(rows)
+    newest = newest_by_pr(verdicts) if verdicts is not None else {}
     for block_id, pr in listed:
-        if pr in pulls and (pull := pulls[pr]) is not None and pull.state != OPEN:
+        if pr not in pulls or (pull := pulls[pr]) is None:
+            continue
+        if pull.state != OPEN:
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
+        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, reviews, drive, lanes, repo)):
+            rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"unapproved: listed under {block_id} with {' and '.join(missing)} at GitHub's head {pull.head[:7]}"]))
     return rows, found, warnings
+
+
+def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], withdrawn: set[int], reviews: list[dict], drive: str, lanes: list[str], repo: str) -> list[str]:
+    carried = any(record["drive"] == drive and carries(record, repo, pr, head) for record in reviews + rulings)
+    approved = carried or standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
+    graded = carried or grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
+    return (["no go, approval or carry"] if not approved else []) + (["no fidelity ok"] if not graded else [])
 
 
 def stripped(block: object) -> object:
