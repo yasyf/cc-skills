@@ -675,6 +675,7 @@ DEAD_LANE = timedelta(minutes=60)
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
 LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
+LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
@@ -1123,6 +1124,13 @@ def applying_fault(landing: dict | None) -> str:
     except re.error as failure:
         return f"landing.applying.step is no regular expression: {failure}"
     return "" if {"component", "env"} <= set(groups) else "landing.applying.step has no `component` and `env` named groups"
+
+
+def succeeds(name: str, lane: str) -> bool:
+    """Whether `name` is a numbered successor of `lane`: the same base with a higher `-<n>` suffix, where a bare name counts as 1."""
+    base, number = LANE_NUMBER.fullmatch(lane).groups()
+    other, later = LANE_NUMBER.fullmatch(name).groups()
+    return other == base and later is not None and int(later) > int(number or 1)
 
 
 def pacific(moment: datetime) -> str:
@@ -3300,7 +3308,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), and that no later root `stand-down` or `stopped` retired, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3311,14 +3319,19 @@ class Runner:
                         if lane not in (ROOT, "main", "all", RUNNER) and not lane.startswith("peer:"):
                             orders.setdefault(lane, []).append(record)
             for lane, addressed in orders.items():
-                last = max((record for record in records if record["lane"] == lane), key=lambda record: record["seq"], default=None)
-                unanswered = [order for order in addressed if last is None or order["seq"] > last["seq"]]
+                family = {lane} | {record["lane"] for record in records if succeeds(record["lane"], lane)}
+                retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
+                last = max((record for record in records if record["lane"] in family), key=lambda record: record["seq"], default=None)
+                unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
                 if not unanswered or last and now - actions.parse_stamp(last["at"]) < LANE_SILENT:
                     continue
-                done = self.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--json"])
-                if done.code != 0:
-                    raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-                seen = max((actions.parse_stamp(entry["seen_at"]) for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("seen_at")), default=None)
+                sightings: list[datetime] = []
+                for name in sorted(family):
+                    done = self.shell.run(["cci", "who", "--drive", drive, "--lane", name, "--json"])
+                    if done.code != 0:
+                        raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                    sightings += [actions.parse_stamp(entry["seen_at"]) for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("seen_at")]
+                seen = max(sightings, default=None)
                 if seen and now - seen < LANE_SILENT:
                     continue
                 said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"

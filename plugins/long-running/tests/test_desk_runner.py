@@ -7052,6 +7052,21 @@ def test_a_lane_silent_past_a_root_order_logs_one_lane_gone(shell, config, tmp_p
         assert lines[0].endswith(("cci last saw it 20 min ago; spawn its successor from its brief and handoff", "cci lists no session for it; spawn its successor from its brief and handoff"))
 
 
+@pytest.mark.parametrize("answer", [{"lane": "p8-lane-2", "kind": "note", "text": "taking over"}, {"kind": "stand-down", "to": ["p8-lane"], "text": "p8-lane: stand down"}])
+def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, config, tmp_path, answer):
+    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    cci_record(shell, **answer, at=actions.stamp(shell.clock - timedelta(minutes=20)))
+    shell.gone |= {"p8-lane", "p8-lane-2"}
+    orca_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+
+
+@pytest.mark.parametrize(("name", "lane", "expected"), [("p8-lane-2", "p8-lane", True), ("p8-lane-3", "p8-lane-2", True), ("p8-lane-2", "p8-lane-2", False), ("p8-lane-2", "p8-lane-3", False), ("p8-lane-x", "p8-lane", False), ("p8-lanes-2", "p8-lane", False)])
+def test_succeeds_reads_a_numbered_successor_only(name, lane, expected):
+    assert runner_module.succeeds(name, lane) is expected
+
+
 def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     shell.cpu_load = 140
