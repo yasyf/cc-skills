@@ -5095,6 +5095,18 @@ def test_an_incident_fix_landing_settles_only_on_a_release_record_with_a_build(s
     assert len(blockers(shell)) == 1 and (released.status, released.verification_receipt["cci"], released.verification_receipt["release"]) == ("verified", seq, "2026-10-20/33")
 
 
+@pytest.mark.parametrize(("prs", "settles"), [(["Forge-AI/monorepo#36642"], True), (["Forge-AI/monorepo#36650"], False)], ids=["its-pr", "another-pr"])
+def test_an_incident_fix_landing_settles_on_a_root_release_record_naming_its_pr_and_the_release_that_carries_it(shell, config, tmp_path, prs, settles):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config, FAST_BODY)
+    landing_pass(shell, config)
+    seq = cci_record(shell, kind="release", refs={"prs": prs, "targets": ["sand"]}, at=actions.stamp(shell.now()), text="release: rides release 2's sand cut")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    released = release_action(tmp_path)
+    assert (len(blockers(shell)), released.status, (released.verification_receipt or {}).get("cci")) == ((0, "verified", seq) if settles else (1, "completed", None))
+
+
 def test_a_root_hold_on_a_landed_incident_fix_is_answered_once_and_the_cadence_holds(shell, config, tmp_path):
     live_clock(tmp_path, shell)
     land_incident(shell, config, FAST_BODY)
