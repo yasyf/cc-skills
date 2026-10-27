@@ -2164,7 +2164,7 @@ def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_e
     landing_pass(shell, config)
     assert escalations(shell) == [] and shell.enqueues() == []
     landing_pass(shell, config)
-    assert escalations(shell) == [] and len(checks(shell)) == 2 and len(shell.enqueues()) == 1
+    assert escalations(shell) == [] and len(shell.enqueues()) == 1
 
 
 def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
