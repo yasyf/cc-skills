@@ -26,9 +26,9 @@ construction.
 Work the phases below in order. Each ends with an **Exit criteria** line —
 don't advance until it holds.
 
-The profile's prose runs on Claude Opus 5.5: a session on another model
-delegates it to an Opus 5.5 writer (`Agent` with `model: opus`), never to
-codex.
+The profile's prose runs on gemini-4-argon: the session hands the facts to
+`gemini -m gemini-4-argon -p` and lands the reply verbatim, never to codex or
+a Claude writer.
 
 ## Terminology
 
