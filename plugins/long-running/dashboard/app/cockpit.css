@@ -605,3 +605,4 @@ body:has(.ck.ov) .top .tabs { display: none; }
   .ck .dbtn { width: 64px; height: 30px; font-size: 12px; }
   .wrap:has(> .ck) { padding-bottom: 120px; }
 }
+.ck .prlist li .own small { white-space: nowrap; }

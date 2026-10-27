@@ -460,9 +460,10 @@ function lastWord(w) {
 }
 function stepCard(s) {
   const t = tally(s.prs);
+  const red = s.prs.filter((p) => p.state === 'failing');
   const ws = state.model.workers.filter((w) => w.step === s.id).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 5);
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
-    <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${blockerNow(s.blocker)}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
+    <dl class="facts">${red.length ? `<dt>Red now</dt><dd class="bad">${red.map((p) => `${prLink(p.number)} ${esc(shortName(p.number) ?? plainTitle(p.number))}${(state.model.prs[p.number]?.failing_checks ?? []).map((c) => ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join('')}`).join('<br>')}</dd>` : ''}<dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${blockerNow(s.blocker)}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.filter((w) => w.live).length, 'worker')} active in the last 20 minutes</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker has reported on this step.</p>'}
     ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => ATTENTION.indexOf(a.state) - ATTENTION.indexOf(b.state)).map((p) => prRow(p, ['failing', 'held', 'you'].includes(p.state) ? ownerLine(p.number) : '')).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
@@ -488,7 +489,7 @@ function ownerOf(n) {
 }
 function recordsOn(n) {
   const lanes = [ownerOf(n), state.model.prs[n]?.lane];
-  return state.model.records.filter((r) => r.topic === String(n) || (/#(\d{5})/.exec(r.text)?.[1] === String(n) && (lanes.includes(r.lane) || ['go', 'landed', 'blocker', 'hold', 'lift'].includes(r.kind)))).sort((a, b) => b.seq - a.seq);
+  return state.model.records.filter((r) => r.topic === String(n) || (/#(\d{5})\b/.exec(r.text)?.[1] === String(n) && (lanes.includes(r.lane) || ['go', 'landed', 'blocker', 'hold', 'lift'].includes(r.kind)))).sort((a, b) => b.seq - a.seq);
 }
 function latestOn(n) {
   return recordsOn(n)[0] ?? null;
