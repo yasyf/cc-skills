@@ -4745,6 +4745,19 @@ def test_a_drive_naming_the_old_app_check_enqueues_every_head_and_warns_once_on_
     assert all(note["to"] == f"{LANE},fidelity-desk" for note in pending)
 
 
+@pytest.mark.parametrize(("session", "posted", "to"), [(True, False, f"{LANE},fidelity-desk"), (False, True, f"{LANE},fidelity-desk"), (False, False, "fidelity-desk")], ids=["live", "no-session", "dead"])
+def test_an_old_app_warning_reaches_its_living_lane_and_the_fidelity_lanes_and_never_the_root(shell, config, tmp_path, session, posted, to):
+    old_app_checked(config)
+    lone_green_pr(shell)
+    shell.gone = set() if session else {LANE}
+    if posted:
+        posted_lately(shell, LANE)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+    assert (pending["to"], post_body(pending).startswith("#29020 cccc333333: WARNING")) == (to, True)
+
+
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
     return {"pr": "36642", "lane": lane, "branch": "f/1", "base": "dev", "head": "eeee555555", "state": "landed", "reported_head": "eeee555555", "labels": labels, "landed_sha": FAST_SQUASH, "landed_at": actions.stamp(shell.now())}
 

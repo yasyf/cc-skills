@@ -4754,11 +4754,14 @@ class Landing:
         self.post_blocker(key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
-        """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
+        """Post one `note` warning per `key` to the lane that owns `pr` and to each lane of `also`. The lanes of `also` act on it, so it skips a dead owner and never reaches the root; with no `also`, the root stands in for an owner lane with no live session, or for none (root #142931)."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_record("note", key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+        if also:
+            self.post_record("note", key, ",".join([*([owner] if owner and not self.lane_dead(owner) else []), *also]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+            return
+        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
