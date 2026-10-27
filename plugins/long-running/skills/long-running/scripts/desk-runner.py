@@ -4480,24 +4480,27 @@ class Landing:
             if named := [pr for pr in out if pr in held and pr not in self.no_go]:
                 left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
                 self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {numbered(named)}, so {numbered(out)} stay out of the batch and {left}")
-        prefix = self.whole_batches(prefix, tips, base, open_rows)
-        if not prefix:
+        batched = self.whole_batches(prefix, tips, rows, open_rows)
+        if not batched or self.whole() and batched != prefix:
             return
+        prefix = batched
         if fork := unlanded_fork(prefix, open_rows):
             self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
             return
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             out = cut_out(prefix, refused, open_rows)
-            prefix = self.whole_batches([pr for pr in prefix if pr not in out], tips, base, open_rows)
+            prefix = self.whole_batches([pr for pr in prefix if pr not in out], tips, rows, open_rows)
 
-    def whole_batches(self, prefix: list[str], tips: list[str], base: str, open_rows: dict[str, dict]) -> list[str]:
-        """`prefix` without each PR of a root `go` batch that `prefix` does not hold whole, and the PRs stacked above them, until every batch left is whole: the PRs a `go ... with #a #b` binds enqueue in one call or not at all, so a hold or a red check on one keeps them all out."""
-        batches = [go_batch(go) & open_rows.keys() for go in self.root_gos() if any(pr in open_rows and names_head(sha, open_rows[pr].get("head", "")) for pr, sha in go_heads(go).items())]
+    def whole_batches(self, prefix: list[str], tips: list[str], rows: dict[str, dict], open_rows: dict[str, dict]) -> list[str]:
+        """`prefix` without each PR of a root `go` batch that `prefix` does not hold whole, and the PRs stacked above them, until every batch left is whole: the PRs a `go ... with #a #b` binds enqueue in one call or not at all, so a hold, a red check, a PR with no ledger row, or a batch spread over two chains of a fork keeps them all out. A PR the ledger reads landed or closed leaves its batch."""
+        closed = {pr for pr, row in rows.items() if row.get("state", "open") != "open"}
+        batches = [go_batch(go) - closed for go in self.root_gos() if any(pr in open_rows and names_head(sha, open_rows[pr].get("head", "")) for pr, sha in go_heads(go).items())]
+        split = {pr for batch in batches if not any(batch <= downstack(open_rows, top) for top in batch & open_rows.keys()) for pr in batch}
         kept = prefix
-        while out := cut_out(kept, {pr for batch in batches if batch & set(kept) and not batch <= set(kept) for pr in batch}, open_rows):
+        while out := cut_out(kept, split | {pr for batch in batches if batch & set(kept) and not batch <= set(kept) for pr in batch}, open_rows):
             kept = [pr for pr in kept if pr not in out]
         if waiting := [pr for pr in prefix if pr not in kept]:
-            self.runner.escalate(f"batch-waits:{base}", "BATCH-WAITS", numbered(tips), f"a root go binds {numbered(waiting)} into a batch the queue cannot take whole yet, so they stay out of this enqueue")
+            self.runner.escalate(f"batch-waits:{','.join(waiting)}", "BATCH-WAITS", numbered(tips), f"a root go binds {numbered(waiting)} into a batch the queue cannot take whole in one call yet, so they stay out of this enqueue")
         return kept
 
     def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
