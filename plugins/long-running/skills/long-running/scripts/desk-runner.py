@@ -4976,8 +4976,20 @@ class Landing:
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
-                self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo)
+                reviews = [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid]
+                self.gos = posted + carried_gos(posted, reviews, self.repo, self.old_app_lands(reviews))
             return self.gos
+
+    def old_app_lands(self, reviews: list[dict]) -> Callable[[str, str], bool]:
+        """Whether a carried go reaches `pr` at `head`: always, unless the drive runs the old-app check, and then once a fidelity lane's newest `old-app:` grade naming that head reads `unchanged` or `bug fix` (root #143450, #143861)."""
+        if "old-app" not in self.checks:
+            return lambda pr, head: True
+
+        def lands(pr: str, head: str) -> bool:
+            newest = newest_finder(old_app_grades_in(reviews, self.runner.config.drive, self.fidelity_lanes, self.repo, pr), head)
+            return newest is not None and newest["grade"] in OLD_APP_PASSES
+
+        return lands
 
     def head_gos(self, pr: str, head: str) -> list[dict]:
         return gone_at(self.root_gos(), pr, head)
