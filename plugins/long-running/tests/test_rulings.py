@@ -511,6 +511,32 @@ def test_classify_refuses_a_repeat_that_adds_a_second_row(home: Path, package: P
     assert out.strip() == f"REPEAT {'6' * 16}: the words carry how many times; extend rule/aaaaaaa with extends=<key>, never a second row"
 
 
+def test_a_quoted_phrase_no_row_carries_is_no_repeat_so_classify_adds_the_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = 'for the uploads use "direct or proxy via API" and nothing else'
+    captured(state, capture("4", words))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "4" * 16, "kind": "order", "words": words})
+
+    assert code == 0, out
+    assert shell.rows[PROMPT_KEY]["words"] == words
+
+
+def test_a_quoted_phrase_from_a_rows_words_is_a_repeat(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = 'remember "Relay code lives in relay-journal" for the uploader too'
+    captured(state, capture("5", words))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "5" * 16, "kind": "pick", "words": words})
+
+    assert code == 1
+    assert out.strip() == (
+        f'REPEAT {"5" * 16}: the words carry a quoted sentence "Relay code lives in relay-journal" from rule/aaaaaaa; '
+        "extend the row it repeats with extends=<key>, never a second row"
+    )
+    assert shell.writes() == []
+
+
 SYNC_ROW = {
     "rule/9999999": {
         "kind": "scope",
