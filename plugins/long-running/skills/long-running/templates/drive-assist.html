@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:dab7a48010b9 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c0bf82154f77 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -34,43 +34,43 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .aibox .k .dim { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .aibox p { margin: 6px 0 0; }
 .aibtn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--owner) 35%, transparent); background: var(--owner-soft); color: var(--owner); font: 650 12.5px var(--sans); cursor: pointer; }
-.since { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-bottom: 18px; }
-.since .when { font: 700 15px var(--display); }
-.since .when .dim { display: block; font: 500 12px var(--sans); }
-.tiles { display: flex; flex-wrap: wrap; gap: 10px; }
-.tile { min-width: 92px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); cursor: pointer; border: 1px solid transparent; }
-.tile b { display: block; font: 750 24px/1.1 var(--display); }
-.tile span { font-size: 12px; color: var(--ink-2); }
-.tile.ok b { color: var(--ok); } .tile.bad b { color: var(--bad); } .tile.you b { color: var(--amber); } .tile.owner b { color: var(--owner); }
-.tile.on { border-color: var(--ink-3); }
-.since-list { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; }
-.since-list li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
-.since .aibox { grid-column: 1 / -1; margin: 0; }
-.now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
-.now-h h1 { margin: 0; font-size: 26px; }
-.batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
-.nl { list-style: none; margin: 0; padding: 0; }
-.nl li { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--line); }
-.nl li:first-child { border-top: 0; }
-.nl .rank { font: 750 15px var(--display); color: var(--ink-3); text-align: center; }
-.nl .t { font-weight: 650; }
-.nl .t a { color: var(--ink); }
-.nl .w { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
-.nl .w .ai { font-weight: 650; }
-.nl .acts { display: flex; gap: 6px; }
-.nl .conf { margin-top: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); }
-.nl .done { color: var(--ok); font-weight: 650; }
-.bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
-.bucket.safe { color: var(--ok); } .bucket.read { color: var(--warn); }
+.as-since { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-bottom: 18px; }
+.as-since .when { font: 700 15px var(--display); }
+.as-since .when .dim { display: block; font: 500 12px var(--sans); }
+.as-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.as-tile { min-width: 92px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); cursor: pointer; border: 1px solid transparent; }
+.as-tile b { display: block; font: 750 24px/1.1 var(--display); }
+.as-tile span { font-size: 12px; color: var(--ink-2); }
+.as-tile.ok b { color: var(--ok); } .as-tile.bad b { color: var(--bad); } .as-tile.you b { color: var(--amber); } .as-tile.owner b { color: var(--owner); }
+.as-tile.on { border-color: var(--ink-3); }
+.as-since-list { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; }
+.as-since-list li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.as-since .aibox { grid-column: 1 / -1; margin: 0; }
+.as-now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
+.as-now-h h1 { margin: 0; font-size: 26px; }
+.as-batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.as-nl { list-style: none; margin: 0; padding: 0; }
+.as-nl li { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--line); }
+.as-nl li:first-child { border-top: 0; }
+.as-nl .rank { font: 750 15px var(--display); color: var(--ink-3); text-align: center; }
+.as-nl .t { font-weight: 650; }
+.as-nl .t a { color: var(--ink); }
+.as-nl .w { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.as-nl .w .ai { font-weight: 650; }
+.as-nl .acts { display: flex; gap: 6px; }
+.as-nl .conf { margin-top: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); }
+.as-nl .done { color: var(--ok); font-weight: 650; }
+.as-bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
+.as-bucket.safe { color: var(--ok); } .as-bucket.read { color: var(--warn); }
 @media (max-width: 700px) {
   .kbtn span, .kbtn kbd { display: none; }
   #pal { padding: 0; align-items: stretch; }
   #pal .box { max-height: none; border-radius: 0; width: 100%; }
   #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
-  .since { grid-template-columns: 1fr; }
-  .nl li { grid-template-columns: 1fr; }
-  .nl .rank { display: none; }
-  .nl .acts .btn { flex: 1; }
+  .as-since { grid-template-columns: 1fr; }
+  .as-nl li { grid-template-columns: 1fr; }
+  .as-nl .rank { display: none; }
+  .as-nl .acts .btn { flex: 1; }
 }
 </style>
 <div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a pull request, stack, worker, step, or ask a question…" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span class="ai-only"><kbd>⇥</kbd> ask the assistant</span><span><kbd>esc</kbd> close</span></div></div></div>
@@ -441,14 +441,15 @@ function sinceBanner(){
  if(!since)return "";
  const d=delta();
  const tiles=[["landed","ok","landed",d.landed.length],["mine","you","new for you",d.mine.length],["failing","bad","started failing",d.failing.length],["questions","owner","new questions",d.questions.length],["events","","big moments",d.events.length]].filter(t=>t[3]);
+ if(!tiles.length)return "";
  const open=state.sinceOpen;
  const list=open==="landed"||open==="mine"||open==="failing"?d[open].map(n=>`<li><a class="d ${prState(n)}" href="${prHref(n)}"></a> ${prLink(n)} ${esc(plainTitle(n))}</li>`).join(""):open==="questions"?d.questions.map(c=>`<li><a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">${esc(c.title)}</a>${c.recommended?` <span class="dim">recommended: ${esc(c.recommended)}</span>`:""}</li>`).join(""):open==="events"?d.events.map(e=>`<li><span class="dim">${clock(e.at)} · ${esc(e.who)}</span> ${inline(short(e.text,200))}</li>`).join(""):"";
  const facts=[d.landed.length&&`Landed: ${d.landed.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.mine.length&&`Newly waiting on his tap: ${d.mine.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.failing.length&&`Started failing tests: ${d.failing.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.questions.length&&`New questions for him: ${d.questions.map(c=>c.title).join("; ")}`,...d.events.slice(0,25).map(e=>`${clock(e.at)} ${KIND_WORD[e.kind]??e.kind}: ${short(e.text,200)}`)].filter(Boolean);
  const key=`since:${aiHash(facts.join("\n"))}`;
  if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
- return `<div class="card since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
-  <div class="tiles">${tiles.map(([id,tone,label,n])=>`<div class="tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")||'<span class="dim">Nothing new.</span>'}</div>
-  <button class="btn" data-seen>Got it</button>${list?`<ul class="since-list">${list}</ul>`:""}${facts.length?aiBox(key,"In short"):""}</div>`;
+ return `<div class="card as-since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
+  <div class="as-tiles">${tiles.map(([id,tone,label,n])=>`<div class="as-tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")}</div>
+  <button class="btn" data-seen>Got it</button>${list?`<ul class="as-since-list">${list}</ul>`:""}${facts.length?aiBox(key,"In short"):""}</div>`;
 }
 
 function narration(){
@@ -517,10 +518,10 @@ function needsYou(){
  rows.sort((a,b)=>order(a)-order(b));
  const safe=rows.filter(r=>by[r.number]?.bucket==="safe"&&verdictState(r)==="you");
  const sorted=t?.items?[["safe","Safe to approve together",rows.filter(r=>by[r.number]?.bucket==="safe")],["read","Read before you tap",rows.filter(r=>by[r.number]?.bucket!=="safe")]]:[["","",rows]];
- const head=`<div class="now-h"><h1>Needs you</h1>${waiting().length?`<span class="pill bad">${plural(waiting().length,"tap")}</span>`:""}${cards.length?`<span class="pill owner">${plural(cards.length,"question")}</span>`:""}${t?.busy?'<span class="pill ai-only">✦ sorting by what unblocks the most…</span>':""}${t?.error?`<span class="dim">The assistant could not sort them: ${esc(t.error)}</span>`:""}</div>`;
- const batch=safe.length>1?`<div class="card aibox batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}"${batching?" disabled":""}>✓ Approve all ${safe.length}</button></div>`:"";
- const lists=sorted.filter(([,,rs])=>rs.length).map(([id,label,rs])=>`${label?`<div class="bucket ${id}">${label}</div>`:""}<ul class="nl">${rs.map(r=>nowItem(r,rows.indexOf(r),by[r.number])).join("")}</ul>`).join("");
- const qs=cards.length?`<div class="bucket">Questions on the board</div><ul class="nl">${cards.map((c,i)=>`<li><span class="rank">${i+1}</span><div><div class="t">${esc(c.title)}</div><div class="w">${c.recommended?`Recommended: <b>${esc(c.recommended)}</b>`:esc(short(c.summary,120))}</div></div><div class="acts"><a class="btn" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Answer ›</a></div></li>`).join("")}</ul>`:"";
+ const head=`<div class="as-now-h"><h1>Needs you</h1>${waiting().length?`<span class="pill bad">${plural(waiting().length,"tap")}</span>`:""}${cards.length?`<span class="pill owner">${plural(cards.length,"question")}</span>`:""}${t?.busy?'<span class="pill ai-only">✦ sorting by what unblocks the most…</span>':""}${t?.error?`<span class="dim">The assistant could not sort them: ${esc(t.error)}</span>`:""}</div>`;
+ const batch=safe.length>1?`<div class="card aibox as-batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}"${batching?" disabled":""}>✓ Approve all ${safe.length}</button></div>`:"";
+ const lists=sorted.filter(([,,rs])=>rs.length).map(([id,label,rs])=>`${label?`<div class="as-bucket ${id}">${label}</div>`:""}<ul class="as-nl">${rs.map(r=>nowItem(r,rows.indexOf(r),by[r.number])).join("")}</ul>`).join("");
+ const qs=cards.length?`<div class="as-bucket">Questions on the board</div><ul class="as-nl">${cards.map((c,i)=>`<li><span class="rank">${i+1}</span><div><div class="t">${esc(c.title)}</div><div class="w">${c.recommended?`Recommended: <b>${esc(c.recommended)}</b>`:esc(short(c.summary,120))}</div></div><div class="acts"><a class="btn" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Answer ›</a></div></li>`).join("")}</ul>`:"";
  return `${head}${batch}<div class="card">${lists||'<p class="dim">No taps waiting on you.</p>'}${qs}</div>`;
 }
 
