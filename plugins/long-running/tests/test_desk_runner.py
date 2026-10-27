@@ -408,7 +408,7 @@ class FakeShell(runner_module.Shell):
             assert flags["--drive"] in self.drives and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
-            if (flags["--kind"], flags["--to"]) == ("state", runner_module.WATCHDOG):
+            if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
                 return runner_module.Done(0, "#0\n", "")
             if stored := self.post_ids.get(flags.get("--id", "")):
@@ -9632,8 +9632,8 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(she
 
     red = "DEV-RED since 10:50 AM: dev's buildkite/test is red on https://buildkite.com/forge/test/builds/29019, first red at bbbbbbbbbb, landed by #29019. No PR can land until this is fixed; "
     assert trunk_posts(shell) == [
-        ("incident", "root,drive-watchdog", red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
-        ("incident", "root,drive-watchdog", red + "nothing lands until #29021 fixes it."),
+        ("incident", "root,drive-watchdog@d1", red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
+        ("incident", "root,drive-watchdog@d1", red + "nothing lands until #29021 fixes it."),
     ]
 
 
@@ -9718,7 +9718,7 @@ def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
     bus_trunk(shell, "desk-runner", "report", trunk_posts(shell)[0][2])
     landing.watch_trunk(OPEN_ROWS)
 
-    assert trunk_posts(shell) == [("report", "root,drive-watchdog", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]
+    assert trunk_posts(shell) == [("report", "root,drive-watchdog@d1", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]
 
 
 @pytest.mark.parametrize(
