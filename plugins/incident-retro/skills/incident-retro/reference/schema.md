@@ -20,8 +20,8 @@ here.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `title` | yes | Opus-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
-| `subtitle` | yes | Opus-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
+| `title` | yes | gemini-4-argon-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
+| `subtitle` | yes | gemini-4-argon-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
 | `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team name warns |
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
@@ -49,7 +49,7 @@ a strict warning.
 For a retro written before 0.3.0, move the old `meta.title` into
 `meta.subtitle`, clear `meta.title`, and run
 `retro.py prose <dir> --quick` to write the newly required prose through
-Opus. Replace the old subtitle value, including
+gemini-4-argon. Replace the old subtitle value, including
 "Incident retrospective"; it no longer supplies a browser-title suffix.
 Add topical tags separately from the team names in `meta.teams`.
 
@@ -263,7 +263,7 @@ page renders Prevention options after Remediation.
 | `links` | PR links for the option, using the link shape below |
 | `lane` | Name of the follow-up lane carrying the option, matching `remediation.lanes[].name` |
 
-Opus writes every prose string in the question and its options; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
+gemini-4-argon writes every prose string in the question and its options; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
 `check` errors on fewer than
 two or more than four options, or more than one recommended option.
 An option id other than its question's id plus one lowercase letter also
@@ -292,7 +292,7 @@ The top-level object contains `done` and `lanes` lists.
 | `lanes` | `[{name, text, links?}]` | Named follow-up lanes, the work each carries, and optional links |
 
 Every entry requires nonempty `text`; each lane also requires a nonempty
-`name`. Links use the link shape below. Opus writes
+`name`. Links use the link shape below. gemini-4-argon writes
 `remediation.done[i].text` and `remediation.lanes[i].text`; lane names and
 links remain data.
 
@@ -427,7 +427,7 @@ an action's link.
 
 ## `prose`: authored fields and provenance
 
-An Opus lane writes the fields below in place and stamps them with `retro.py prose <dir> --record`, calling no other model; from a lane on another model, `retro.py prose <dir>` routes them through `claude -p --model claude-opus-5-5`.
+`retro.py prose <dir>` routes the fields below through `gemini -m gemini-4-argon -p`; `retro.py prose <dir> --record` stamps a hand edit of them without calling a model.
 `targets()` enumerates `meta.title` as `headline` and `meta.subtitle` as
 `subtitle`; both are addressable with `--field`. `meta.tags` stays
 operator-chosen data: tags are a controlled vocabulary for filtering, not
@@ -475,8 +475,11 @@ The command reuses that file when it exists.
 
 The linter's full catalog contains 226 rules, each with a `description`, a
 `tip`, and an `llmDirective`. The model must write to those rules in its first
-draft. The command calls `claude -p --model claude-opus-5-5 --json-schema` as a subprocess with a JSON reply schema of
-`{"fields": [{"id": "<address>", "text": "<wording>"}]}`. It writes accepted
+draft. The command calls `gemini -m gemini-4-argon -p --output-format json --approval-mode plan` as a subprocess,
+with the work order on stdin and, in `-p`, the JSON reply schema of
+`{"fields": [{"id": "<address>", "text": "<wording>"}]}` and an instruction to reply with that object alone.
+The CLI has no schema flag, so the command parses the envelope's `response` as JSON and fails the run on a
+nonzero exit, an `error` in the envelope, or a reply that is not that object. It writes accepted
 text into `retro.json` and `summary.html` when all calls finish, along with
 the provenance in `prose.lock.json`.
 
@@ -526,7 +529,7 @@ Without a selection flag, the command selects every enumerated field.
 over `--stale`. Combining `--field` with `--quick` still skips model lint and
 pins the other fields as legacy.
 
-An operator note directs Opus without supplying the prose. The work order
+An operator note directs gemini-4-argon without supplying the prose. The work order
 marks it `REQUIRED` and says that returning the current text unchanged does
 not answer it. Notes do not select fields; use `--field` to request the
 rewrite. For example:
@@ -549,7 +552,7 @@ offset. `--quick` omits this batched model lint pass; the fact freeze still
 checks every reply.
 
 The command returns each violation's rule id, matched text, rule directive, and
-suggested change to Opus for revision, with an explanation when present.
+suggested change to gemini-4-argon for revision, with an explanation when present.
 `SLOP_ROUNDS = 2` allows two rewrites after the first draft, stopping early
 when no findings remain. Each revision asks only for the fields the lint
 flagged. The same model writes every round within the
@@ -557,11 +560,11 @@ command's subprocess pipeline; no other model edits the returned text.
 The command reports refused fields but still exits zero; inspect the report
 and rerun those addresses with `--field`.
 
-Work orders and reply schemas live under
+Work orders live under
 `~/.cache/incident-retro/prose/<slug>/batch-<N>/round-<N>/`; the rule catalog
 sits at the slug root. The slug comes from `meta.slug`, with the directory
-name used when it is absent. Each round's `reply.jsonl`, the `claude -p`
-event stream, stays in its round directory. The retro directory is published as a static site,
+name used when it is absent. Each round's `reply.json`, the `gemini`
+JSON envelope, stays in its round directory. The retro directory is published as a static site,
 so work orders, replies, and logs stay outside it. `prose.lock.json` remains
 beside the record; atomic-write scratch files are transient.
 
@@ -581,8 +584,8 @@ Each write to `retro.json` or `prose.lock.json` in this pipeline writes a
 Successful replacement leaves no scratch file.
 
 `prose.lock.json` sits beside `retro.json`. Its top level records
-`model: "claude-opus-5-5"`, `command: "claude -p --model claude-opus-5-5
---json-schema"`, and the total `slop` count. Each field the model writes
+`model: "gemini-4-argon"`, `command: "gemini -m gemini-4-argon -p
+--output-format json --approval-mode plan"`, and the total `slop` count. Each field the model writes
 records `sha256`, the round directory in `run`, its `log` path, a UTC `at` timestamp, and a `slop` count
 of findings left after revision. `check --strict` sums the per-field counts and fails above
 `SLOP_BUDGET = 3`, naming up to five fields with the most findings. This gate
@@ -592,9 +595,9 @@ an earlier model stays valid as history.
 
 `check --strict` also errors when a required short name is absent or a
 nonempty enumerated field lacks a matching digest. A hand edit or another
-model's rewrite changes that digest; an Opus lane restores provenance with
-`retro.py prose <dir> --record --field <address>`, and a lane on another
-model with `retro.py prose <dir> --field <address>`. The check
+model's rewrite changes that digest; `retro.py prose <dir> --field <address>`
+rewrites the field through gemini-4-argon and restores provenance, and
+`retro.py prose <dir> --record --field <address>` stamps a hand edit. The check
 compares text hashes only; it does not authenticate the model, run, or log.
 
 ### `--quick`: migrate a retro written before 0.3.0
@@ -647,7 +650,7 @@ A later edit breaks the field's hash and fails `check --strict`. Send the
 edited field through `prose --field` without `--quick`. Running `--quick`
 again does not clear that failure: the migration pins a field only when the
 lock has no entry for it, so an edited field keeps the hash it was pinned
-with and stays failing until Opus rewrites it.
+with and stays failing until gemini-4-argon rewrites it.
 
 ## `live`: the retro while the incident runs
 
@@ -693,7 +696,7 @@ writes it back to `state.retro_slug`, scaffolds
 `live.source`, and runs the checkout's `sync-index.sh`, which regenerates the
 `data-retro` cards on both `index.html` pages from every `retro.json`. It
 deletes the starter `summary.html`, so the page opens on the live summary
-instead of the scaffold's placeholder deck; Opus writes the deck
+instead of the scaffold's placeholder deck; gemini-4-argon writes the deck
 after the incident. As `scaffold` does, it refuses a destination that already
 holds files and writes into an existing empty directory, so a path the
 checkout created in advance is usable. A second `init` over a scaffolded retro

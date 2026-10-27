@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route every authored sentence of a retro through Claude Opus 5.5, and lock it there.
+"""Route every authored sentence of a retro through gemini-4-argon, and lock it there.
 
   retro.py prose <dir> [--field ADDR]… [--stale] [--batch N] [--dry-run] [--detach]
   retro.py prose <dir> --await
@@ -8,21 +8,20 @@
 
 The command enumerates the prose a writer authors, builds one work order
 pointing the model at the writing contract rather than restating it, calls
-`claude -p --model claude-opus-5-5 --json-schema` as a subprocess, refuses a reply that moved a fact, writes
+`gemini -m gemini-4-argon -p --output-format json` as a subprocess, refuses a reply that moved a fact, writes
 the returned text straight into retro.json and summary.html, and records the
 model, run directory, log and per-field digest in prose.lock.json. `check
 --strict` reads that lock, so a hand edit or another model's rewrite fails the
-gate until this command runs again. An Opus lane writes the fields in place itself and runs
---record, which lints them and stamps the lane's model without calling another model.
+gate until this command runs again. A hand edit is stamped with --record, which lints the fields and
+records the writer's model without calling a model.
 """
 import fcntl, hashlib, json, os, re, shlex, shutil, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SLOP_COP = "slop-cop"
-PROSE_MODEL = "claude-opus-5-5"
-PROSE_TOOLS = "Read,Grep,Glob"
-REPLY_LOG = "reply.jsonl"
+PROSE_MODEL = "gemini-4-argon"
+REPLY_LOG = "reply.json"
 PROSE_LOCK = "prose.lock.json"
 PROSE_TIMEOUT = 1800
 PROSE_BATCH = 0
@@ -365,9 +364,10 @@ def work_order(retro, R: dict, root: Path, batch: list, store: dict, rules: Path
 
 
 def prose_command(schema: dict, dirs: list) -> list:
-    return ["env", "-u", "CLAUDECODE", "claude", "-p", "--model", PROSE_MODEL, "--output-format", "stream-json",
-            "--verbose", "--json-schema", json.dumps(schema), "--tools", PROSE_TOOLS, "--strict-mcp-config",
-            "--no-session-persistence", "--add-dir", *dirs]
+    contract = ("Reply with only one JSON object that validates against this JSON Schema, with no markdown fence "
+                f"and no text before or after it:\n{json.dumps(schema)}")
+    return ["gemini", "-m", PROSE_MODEL, "-p", contract, "--output-format", "json", "--approval-mode", "plan",
+            "--skip-trust", "--include-directories", ",".join(dirs)]
 
 
 def ask(question: str, schema: dict, lane: Path, timeout: float, dirs: list) -> dict:
@@ -378,13 +378,18 @@ def ask(question: str, schema: dict, lane: Path, timeout: float, dirs: list) -> 
     started = time.time()
     run = subprocess.run(argv, input=question, capture_output=True, text=True, timeout=timeout)
     log.write_text(run.stdout)
-    events = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
-    result = next((e for e in reversed(events) if e.get("type") == "result"), {})
-    if run.returncode != 0 or result.get("is_error") or "structured_output" not in result:
-        raise RuntimeError(f"claude -p --model {PROSE_MODEL} exited {run.returncode}: "
-                           f"{result.get('result') or run.stderr.strip()} (log {log})")
+    envelope = json.loads(run.stdout) if run.stdout.lstrip().startswith("{") else {}
+    if run.returncode != 0 or "error" in envelope or not isinstance(envelope.get("response"), str):
+        raise RuntimeError(f"gemini -m {PROSE_MODEL} exited {run.returncode}: "
+                           f"{envelope.get('error') or run.stderr.strip()} (log {log})")
+    try:
+        reply = json.loads(envelope["response"])
+    except ValueError as e:
+        raise RuntimeError(f"gemini -m {PROSE_MODEL} replied with text that is not JSON: {e} (log {log})") from e
+    if not isinstance(reply, dict) or not isinstance(reply.get("fields"), list):
+        raise RuntimeError(f"gemini -m {PROSE_MODEL} replied with JSON outside the reply schema (log {log})")
     return {
-        "reply": result["structured_output"],
+        "reply": reply,
         "run": str(lane),
         "log": str(log),
         "seconds": round(time.time() - started, 1),
@@ -572,8 +577,8 @@ def check_lock(retro, rep, R: dict, root: Path):
     if missing:
         shown = ", ".join(missing[:6]) + (f" and {len(missing) - 6} more" if len(missing) > 6 else "")
         rep.strict_warn(f"{len(missing)} prose field(s) carry no writer provenance in {PROSE_LOCK} ({shown}); every "
-                        f"sentence on the page is written by Opus: an Opus lane writes them in place and runs retro.py prose "
-                        f"--record, and a lane on another model runs retro.py prose")
+                        f"sentence on the page is written by {PROSE_MODEL}: run retro.py prose, and stamp a hand edit with "
+                        f"retro.py prose --record")
     findings = sum(f.get("slop", 0) for f in lock["fields"].values() if isinstance(f, dict))
     if findings > SLOP_BUDGET:
         worst = sorted(((f.get("slop", 0), a) for a, f in lock["fields"].items() if isinstance(f, dict)), reverse=True)
@@ -838,7 +843,7 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
     written |= write_summary(root, {a: t for a, t in landed.items() if a.startswith("summary.html#")})
     retro.write_retro(root, R)
     lock["model"] = PROSE_MODEL
-    lock["command"] = f"claude -p --model {PROSE_MODEL} --json-schema"
+    lock["command"] = f"gemini -m {PROSE_MODEL} -p --output-format json --approval-mode plan"
     lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
     write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
 
@@ -864,9 +869,9 @@ def add_prose_parser(sub, retro):
     p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask the model only for what this "
                    "version newly requires, skip the model lint rounds, and pin the rest as legacy provenance")
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
-    p.add_argument("--record", action="store_true", help="an Opus lane wrote the fields in place: lint them and "
+    p.add_argument("--record", action="store_true", help="the fields were edited by hand: lint them and "
                    "stamp them with --model in prose.lock.json, calling no model; the unlocked fields by default")
-    p.add_argument("--model", default=PROSE_MODEL, help="the writing lane's model, recorded by --record")
+    p.add_argument("--model", default=PROSE_MODEL, help="the writer's model, recorded by --record")
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call, the calls running side by "
                    "side; the default 0 sends every field in one call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")

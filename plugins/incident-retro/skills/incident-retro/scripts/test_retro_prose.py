@@ -167,7 +167,7 @@ class Grandfathering(unittest.TestCase):
 
 
 class RecordInPlace(unittest.TestCase):
-    """An Opus lane that wrote its own fields stamps them without a second model pass."""
+    """Fields edited by hand are stamped without a model pass."""
 
     def test_written_fields_are_stamped_with_the_lanes_model(self):
         store = {"C1.text": {"kind": "prose", "text": "The column rename broke inserts."},
@@ -359,30 +359,36 @@ class DetachedRun(unittest.TestCase):
         self.assertIn("--detach", err.getvalue())
 
 
-class OpusWriter(unittest.TestCase):
+class ArgonWriter(unittest.TestCase):
     def setUp(self):
         self.lane = Path(tempfile.mkdtemp())
 
     def run_ask(self, stdout, code=0):
         done = subprocess.CompletedProcess([], code, stdout=stdout, stderr="boom")
         with patch.object(retro_prose.subprocess, "run", return_value=done) as run:
-            got = retro_prose.ask("Write it.", retro_prose.REPLY_SCHEMA, self.lane, 60, ["/r"])
+            got = retro_prose.ask("Write it.", retro_prose.REPLY_SCHEMA, self.lane, 60, ["/r", "/s"])
         return got, run.call_args
 
-    def test_the_structured_reply_comes_from_the_result_event(self):
+    def test_the_reply_is_parsed_from_the_envelope_response(self):
         reply = {"fields": [{"id": "summary.text", "text": "It broke."}]}
-        lines = [{"type": "system"}, {"type": "result", "is_error": False, "structured_output": reply}]
-        got, call = self.run_ask("\n".join(json.dumps(line) for line in lines))
+        stdout = json.dumps({"response": json.dumps(reply), "stats": {}})
+        got, call = self.run_ask(stdout)
         argv = call.args[0]
         self.assertEqual(got["reply"], reply)
-        self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
-        self.assertEqual(json.loads(argv[argv.index("--json-schema") + 1]), retro_prose.REPLY_SCHEMA)
+        self.assertEqual(argv[:3], ["gemini", "-m", "gemini-4-argon"])
+        self.assertEqual(argv[argv.index("--approval-mode") + 1], "plan")
+        self.assertEqual(argv[argv.index("--output-format") + 1], "json")
+        self.assertEqual(argv[argv.index("--include-directories") + 1], "/r,/s")
+        self.assertIn(json.dumps(retro_prose.REPLY_SCHEMA), argv[argv.index("-p") + 1])
         self.assertEqual(call.kwargs["input"], "Write it.")
-        self.assertEqual((self.lane / retro_prose.REPLY_LOG).read_text().count("\n"), 1)
+        self.assertEqual((self.lane / retro_prose.REPLY_LOG).read_text(), stdout)
 
-    def test_a_reply_without_structured_output_raises(self):
-        for stdout, code in ((json.dumps({"type": "result", "is_error": True, "result": "overloaded"}), 1),
-                             (json.dumps({"type": "result", "is_error": False, "result": "prose"}), 0)):
+    def test_a_failed_or_malformed_reply_raises(self):
+        for stdout, code in (("", 41),
+                             (json.dumps({"response": None, "error": {"message": "quota"}}), 1),
+                             (json.dumps({"response": "", "error": {"message": "quota"}}), 0),
+                             (json.dumps({"response": "```json\n{}\n```"}), 0),
+                             (json.dumps({"response": json.dumps(["fields"])}), 0)):
             with self.subTest(stdout=stdout), self.assertRaises(RuntimeError):
                 self.run_ask(stdout, code)
 

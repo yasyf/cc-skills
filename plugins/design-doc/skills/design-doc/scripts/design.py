@@ -5,7 +5,7 @@
   design.py check <dir> [--strict]
   design.py summary-text <dir>
   design.py glossary <dir>
-  design.py plainify <dir> [--only DQ3,A2] [--provider claude|slop-cop|none] [--dry-run]
+  design.py plainify <dir> [--only DQ3,A2] [--provider gemini|slop-cop|none] [--dry-run]
   design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
   design.py build [dir]
@@ -27,7 +27,7 @@ summary-text prints summary.html as plain text, one "## <kind>" section per
 panel, the input for the voice gate. glossary prints the recurring terms the
 registers never define, as JSON to paste into terms[]. plainify writes a
 plain-language twin for every rendered entry that lacks one and a handle for
-every entry that has none, through Claude Opus 5.5, and prints a review table. The slop-cop provider remains
+every entry that has none, through gemini-4-argon, and prints a review table. The slop-cop provider remains
 available for batch generation and grading. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error, a diagram that never
@@ -95,8 +95,8 @@ IDENTIFIED = ("assumptions", "decisions", "arch", "open", "numbers", "paths")
 TWIN_KIND = {"tldr": "summary bullet", "constraints": "ground rule", "decisions": "decision",
              "assumptions": "assumption", "open": "open question", "arch": "architecture card",
              "numbers": "numbers table"}
-PLAIN_PROVIDERS = ("claude", "slop-cop", "none")
-PLAIN_MODEL = "claude-opus-5-5"
+PLAIN_PROVIDERS = ("gemini", "slop-cop", "none")
+PLAIN_MODEL = "gemini-4-argon"
 PLAIN_TIMEOUT = 180
 RENDER_TIMEOUT = 60
 PLAIN_FORBID = (r"\b(DQ|A|Q|V)\d+\b", r"(?i)\bfinding \d+", r"(?i)\bpass-\d")
@@ -569,8 +569,9 @@ def ask_plain(prompt: str, reg: str, e: dict, original: str, titles: dict) -> st
     if isinstance(e.get("t"), str) and reg != "open":
         request += f"Title: {e['t']}\n"
     request += f"Text: {original}\n"
-    out = subprocess.run(["env", "-u", "CLAUDECODE", "claude", "-p", "--model", PLAIN_MODEL, request],
-                         capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT).stdout
+    out = subprocess.run(["gemini", "-m", PLAIN_MODEL, "--approval-mode", "plan", "--skip-trust", "-p", request],
+                         stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True,
+                         timeout=PLAIN_TIMEOUT).stdout
     plain = " ".join(out.split()).strip("\"“” ")
     if not plain:
         raise ValueError(f"{PLAIN_MODEL} returned an empty reply")
@@ -581,7 +582,7 @@ def slop_cop_binary():
     binary = os.environ.get("SLOP_COP") or shutil.which("slop-cop")
     if binary is None:
         print(f"plainify: no slop-cop found; install it with `brew install {SLOP_COP_FORMULA}`, point SLOP_COP at "
-              "the binary, or pass --provider claude", file=sys.stderr)
+              "the binary, or pass --provider gemini", file=sys.stderr)
     return binary
 
 
@@ -2796,7 +2797,7 @@ def main():
     pl = sub.add_parser("plainify", help="write a plain-language twin for every rendered entry that lacks one")
     pl.add_argument("dir")
     pl.add_argument("--only", help="comma-separated entry ids to rewrite even when a twin exists, e.g. DQ3,A2,tldr[0]")
-    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="claude", help="claude runs Claude Opus 5.5 through the Claude Code CLI (default), slop-cop generates and grades a batch, none only lists missing twins and handles")
+    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="gemini", help="gemini runs gemini-4-argon through the Gemini CLI (default), slop-cop generates and grades a batch, none only lists missing twins and handles")
     pl.add_argument("--dry-run", action="store_true", help="print the review table without writing registers.json")
     pl.set_defaults(fn=plainify)
     rc = sub.add_parser("render-check", help="render the doc in headless Chrome and fail on a Mermaid error")

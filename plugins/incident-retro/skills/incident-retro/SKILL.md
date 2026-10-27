@@ -8,21 +8,21 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 While `meta.status` is `ongoing`, the live commands derive the record from
 incident state without producing LLM-authored prose. After `live finalize`,
-Claude Opus 5.5 (`claude-opus-5-5`) writes and revises all new prose,
-including headlines, subtitles, summaries, plain twins, handles, revision
-notes, and publication text. An Opus lane writes the enumerated fields in
-`retro.json` and `summary.html` in place itself, then runs `retro.py prose
---record`, which lints them with slop-cop and stamps their digests and the
-lane's model in `prose.lock.json` without calling another model. Only a lane
-on another model runs `retro.py prose --detach`, which calls `claude -p
---model claude-opus-5-5 --json-schema` and records the same provenance. `check` accepts every writer model a lock records, so a
+gemini-4-argon writes and revises all new prose, including headlines,
+subtitles, summaries, plain twins, handles, revision notes, and publication
+text. `retro.py prose --detach` sends the enumerated fields in `retro.json`
+and `summary.html` to `gemini -m gemini-4-argon -p` in read-only plan mode,
+lands the reply verbatim, and stamps each field's digest and the model in
+`prose.lock.json`. `retro.py prose --record` lints a hand edit with
+slop-cop and stamps it the same way without calling a model. `check` accepts every writer model a lock records, so a
 lock written by an earlier model stays valid as history. For a retro written
 before 0.3.0, use the `--quick` migration below to retain eligible existing
 prose.
 
-For prose outside that field list, a session on another model delegates the
-writing to an Opus 5.5 author (`Agent` with `model: opus`); it collects
-evidence and publishes the result itself. Tags remain operator-chosen data: they are a
+For prose outside that field list, the lane hands the facts and the rules
+(the writing contract, the slop-cop rules, the length caps) to `gemini -m
+gemini-4-argon -p` and lands the reply verbatim; it collects evidence and
+publishes the result itself. Tags remain operator-chosen data: they are a
 controlled vocabulary for filtering, not writing. `meta.tags` is outside
 the prose field list.
 
@@ -83,7 +83,7 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    the rows the story needs and correct their text. Fill timestamps,
    windows, causes, impact, resolution, detection, decisions, actions,
    lessons, `recognize`, `prevention`, section `takeaway` fields, and `summary.html`.
-   Leave `h` and `p` empty; Opus writes them from the entry. Never grep
+   Leave `h` and `p` empty; gemini-4-argon writes them from the entry. Never grep
    transcripts or re-derive a fact a record already holds. Put a fact no
    record carries in `unknowns`.
 3. Run `$TOOL board <dir> --out <board.json>`. The root presents the file
@@ -93,11 +93,9 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    with what stops the incident and `remediation.lanes` with the follow-up
    lanes carrying the picks. The initial retro PR includes this Remediation
    section and the owner's picks.
-4. Finish every fact. An Opus lane then writes every prose field in place and
-   runs `$TOOL prose <dir> --record`. A lane on another model instead runs one
-   `$TOOL prose <dir> --detach` and awaits it with the printed `AWAIT:`
-   command. A later fact edit means rewriting the affected fields and
-   recording them again.
+4. Finish every fact, then run one `$TOOL prose <dir> --detach` and await it
+   with the printed `AWAIT:` command. A later fact edit means running
+   `prose --field` again on the affected fields.
 5. Run `$TOOL publish <dir>`. It runs the gates before pushing, refreshes
    both cards, opens or updates a ready PR, merges it once it is clean and green with the
    merge method the repository allows, and waits for a successful Pages
@@ -171,9 +169,8 @@ $TOOL live finalize <incident-dir> --docs <design-docs-checkout> \
 unset `timestamps.resolved` from `state.all_clear_at`. Supply two to six topical
 tags; the draft requires them. It changes local files and runs `check`.
 Continue through Gather, Draft, Evidence, Check, and Publish in the same
-directory and at the same URL. Opus writes all prose from this point on:
-an Opus lane writes the enumerated fields in place and runs `retro.py prose
---record`, and a lane on another model runs `retro.py prose --detach`. The published draft no
+directory and at the same URL. gemini-4-argon writes all prose from this point on
+through `retro.py prose --detach`. The published draft no
 longer polls the live branch.
 
 An unattended updater adds `--push` to finalize. Nobody reloads the merged
@@ -194,14 +191,14 @@ a muted "no time data" mark. See [reference/components.md](reference/components.
 `retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then writes or routes the prose:
 
 - Complete the scaffolded `retro.json` from the records. Do not infer a missing event, cause, owner, or outcome.
-- Opus writes `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. Opus writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
+- gemini-4-argon writes `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. gemini-4-argon writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
 - Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep the affected customers' names in `meta.teams`.
-- For a retro written before 0.3.0, move the old `meta.title` into `meta.subtitle`, clear `meta.title`, and run `prose --quick` to write the newly required prose through Opus. Supply the tags yourself. Replace the old subtitle's browser-title suffix value.
+- For a retro written before 0.3.0, move the old `meta.title` into `meta.subtitle`, clear `meta.title`, and run `prose --quick` to write the newly required prose through gemini-4-argon. Supply the tags yourself. Replace the old subtitle's browser-title suffix value.
 - Once the causes and actions are settled, prepare one `summary.html` panel per question; its wording is a prose field like the rest.
 - Fetch only Slack snapshots missing from the records with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
 - Write every timestamp as ISO 8601 with a UTC offset. `meta.timezone` controls display only.
-- Leave each plain twin `p` empty for Opus to write in 30 words or fewer. The twin keeps every fact from the precise wording, with no register id or file path.
-- Leave `h` empty for Opus on every window, timeline entry, cause, action, decision, hypothesis, prevention question, unknown, sub-incident, and notebook, monitor, build, or PR evidence entry. Each needs a distinct noun phrase of two to six words. A nonempty handle outside that range errors even without strict mode. Missing handles and register ids draw strict warnings; trailing periods warn. Evidence labels do not waive the handle requirement.
+- Leave each plain twin `p` empty for gemini-4-argon to write in 30 words or fewer. The twin keeps every fact from the precise wording, with no register id or file path.
+- Leave `h` empty for gemini-4-argon on every window, timeline entry, cause, action, decision, hypothesis, prevention question, unknown, sub-incident, and notebook, monitor, build, or PR evidence entry. Each needs a distinct noun phrase of two to six words. A nonempty handle outside that range errors even without strict mode. Missing handles and register ids draw strict warnings; trailing periods warn. Evidence labels do not waive the handle requirement.
 - Keep Slack snapshots as verbatim evidence; never pass them through a language model. The renderer derives their row labels mechanically.
 - Name customers by their real names in prose, `meta.teams`, and `impact.teams`.
 
@@ -237,18 +234,18 @@ Complete `timestamps` from the records first. The opening tiles depend on `onset
 Then draft in reading order:
 
 1. Add `windows` for distinct periods of outage or degradation, including partial impact.
-2. Prune the scaffolded `timeline` to the rows the story needs, keep timestamp order, and correct the event text within 25 words. Leave each `h` empty for Opus. Check actors, `refs`, and guessed kinds against the records. Keep eight or fewer entries needed to explain the incident marked `key: true`.
+2. Prune the scaffolded `timeline` to the rows the story needs, keep timestamp order, and correct the event text within 25 words. Leave each `h` empty for gemini-4-argon. Check actors, `refs`, and guessed kinds against the records. Keep eight or fewer entries needed to explain the incident marked `key: true`.
 3. Separate the trigger and root cause from contributing causes. Attach the evidence that supports each claim.
 4. State `impact` through observed effects and measured or estimated metrics.
 5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward. Record the `decisions` made during the response, who made each, and why. Record the `hypotheses` ruled out and the evidence that cleared them.
 6. Fill every applicable `lessons` group from the evidence, then write the `recognize` rows for the next responder.
 7. Give every action an owner, source, state, and due date when one exists. Fill `prevention` with the questions the owner needs to settle, the facts that pose them, and two to four options per question. Record each option's pros, cons, buys, costs, losses, prerequisites, and alternatives before prose.
 8. Run `board --out`, present the board to the owner, and record the picks before prose. Each picked option carries `picked: true`, an `owner`, and PR `links` or a `lane` matching a name in `remediation.lanes`.
-9. Fill `remediation.done` with `{text, links?}` entries describing what stops the incident and `remediation.lanes` with `{name, text, links?}` entries for the follow-up lanes. Opus writes `remediation.done[i].text` and `remediation.lanes[i].text`. `check` treats `done`, `lanes`, `prevention`, and picks as optional at every status. Each pick that is present requires an owner and a PR link or a named lane present in `remediation.lanes`.
+9. Fill `remediation.done` with `{text, links?}` entries describing what stops the incident and `remediation.lanes` with `{name, text, links?}` entries for the follow-up lanes. gemini-4-argon writes `remediation.done[i].text` and `remediation.lanes[i].text`. `check` treats `done`, `lanes`, `prevention`, and picks as optional at every status. Each pick that is present requires an owner and a PR link or a named lane present in `remediation.lanes`.
 10. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
-11. Leave plain twins and handles empty for Opus to write from each entry. Fill one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
+11. Leave plain twins and handles empty for gemini-4-argon to write from each entry. Fill one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
 12. Prepare `summary.html` last with one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
-13. Finish every fact, then run `prose --list` to inspect the field addresses. An Opus lane writes every field in place and runs `prose --record`; that is the whole prose step, with no second model pass. A lane on another model runs one `prose --detach` to write them through Opus. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
+13. Finish every fact, then run `prose --list` to inspect the field addresses and one `prose --detach` to write them through gemini-4-argon; that is the whole prose step. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
 14. After `--detach`, run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Fields are written to disk after all calls finish.
 
 Review refused fields and lint findings, and rewrite affected addresses,
@@ -274,7 +271,7 @@ $TOOL prose <dir> --field meta.title \
 `--note "[ADDR=]TEXT"` is repeatable. `ADDR=text` steers one field; bare text
 steers every selected field. A later note replaces an earlier note for the
 same field. Notes direct the writing without supplying it and do not change
-field selection. The work order marks each note `REQUIRED` and tells Opus
+field selection. The work order marks each note `REQUIRED` and tells gemini-4-argon
 that returning the current text unchanged does not answer it. The disk
 note changed "Read failures and resource exhaustion" to "A full disk,
 failed reads, and exhausted executors" in a measured run.
@@ -300,14 +297,14 @@ the report before continuing. After a later edit, record the affected field
 again with `prose --record --field`; a changed hash fails `check --strict`.
 
 The work order names the writing contract and the full rule catalog from
-`slop-cop rules --pretty`, so Opus writes to the rules in the first draft.
+`slop-cop rules --pretty`, so gemini-4-argon writes to the rules in the first draft.
 
 The command runs deterministic lint per accepted reply field with
 `--llm-effort=off`; omitting the flag lets slop-cop enable its model pass
 when the Codex CLI is on `PATH`. Model lint runs once per batch over fields
 joined with delimiters, and character offsets attribute each finding to
 its field. The command returns the rule id, matched text, directive, and
-suggested change to Opus. It allows two revision rounds per batch
+suggested change to gemini-4-argon. It allows two revision rounds per batch
 (`SLOP_ROUNDS = 2`), asking only for flagged fields. No other model edits
 the text.
 
@@ -324,11 +321,11 @@ For the headline and subtitle, the fact freeze checks the other field plus
 `summary.text` and `summary.p`. `over_budget()` decides whether the current
 text also belongs in that grounding. Text within both budgets stays so a
 run can re-derive provenance. The command excludes text over either budget.
-Opus may drop facts to shorten these fields but may invent none.
+gemini-4-argon may drop facts to shorten these fields but may invent none.
 
 Work orders, schemas, and the rule catalog live under
 `~/.cache/incident-retro/prose/<slug>/`, keyed by `meta.slug`. Replies and
-logs (`reply.jsonl`, the `claude -p` event stream) stay in each round's
+logs (`reply.json`, the `gemini` JSON envelope) stay in each round's
 directory under that lane; the lock records their paths. `prose.lock.json` stays beside `retro.json`; the atomic-write scratch files are
 transient. The retro directory is
 published as a static site.
@@ -367,7 +364,7 @@ To write one field on demand, use `--field`, as in `prose --field meta.title`.
 71 seconds with zero lint findings on a copy of a real retro whose title
 the rollout had left empty.
 
-`--quick` asks Opus only for empty or over-budget headlines and subtitles,
+`--quick` asks gemini-4-argon only for empty or over-budget headlines and subtitles,
 missing short names, the five summary panels, narrative section takeaways within
 `TAKEAWAY_WORDS = 18`, and timeline or cause text over `ENTRY_WORDS = 25`
 or `CAUSE_BODY_WORDS = 90`. Prepare the
@@ -489,7 +486,7 @@ runs the checkout's `sync-index.sh`, which regenerates both index pages' cards
 from every `retro.json`. It commits only the retro directory and the two index pages
 as `incident retros: 📝 <meta.title>`, then pushes with a lease. It opens a ready PR or
 edits the existing PR and marks it ready.
-The PR body contains the summary panels rendered as Markdown with Opus's
+The PR body contains the summary panels rendered as Markdown with gemini-4-argon's
 text verbatim, plus the page URL from `CNAME`.
 
 `publish` merges the PR itself, with the merge method the repository allows,
@@ -540,7 +537,7 @@ Import an existing Google Docs Markdown export into a draft:
 $TOOL import-gdoc <md> [<docs.json>] --out <dir> [--tz <zone>]
 ```
 
-Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer puts the document's own heading into `meta.subtitle` and leaves `meta.title` and `meta.tags` empty, recording that work in the import notes. Leave the title empty and run `prose --field meta.title --field meta.subtitle` to write both through Opus. Supply topical tags yourself. Handles and twins also need completion through `prose`; collect the referenced evidence before continuing at Draft.
+Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer puts the document's own heading into `meta.subtitle` and leaves `meta.title` and `meta.tags` empty, recording that work in the import notes. Leave the title empty and run `prose --field meta.title --field meta.subtitle` to write both through gemini-4-argon. Supply topical tags yourself. Handles and twins also need completion through `prose`; collect the referenced evidence before continuing at Draft.
 
 ## Reference files
 

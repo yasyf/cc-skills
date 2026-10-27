@@ -2755,7 +2755,7 @@ def import_missing(args) -> int:
 
 
 def prose_missing(args) -> int:
-    print("prose: scripts/retro_prose.py is missing; the Opus writing lane ships with it", file=sys.stderr)
+    print("prose: scripts/retro_prose.py is missing; the gemini-4-argon writing lane ships with it", file=sys.stderr)
     return 1
 
 
@@ -2816,7 +2816,7 @@ def main():
     if writer is not None:
         writer.add_prose_parser(sub, sys.modules[__name__])
     else:
-        pr = sub.add_parser("prose", help="write every authored sentence through claude-opus-5-5 (scripts/retro_prose.py)")
+        pr = sub.add_parser("prose", help="write every authored sentence through gemini-4-argon (scripts/retro_prose.py)")
         pr.add_argument("rest", nargs=argparse.REMAINDER)
         pr.set_defaults(fn=prose_missing)
     updater = sibling_module("retro_live")
