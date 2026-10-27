@@ -411,7 +411,7 @@ With `landing.trunk_check` set to the trunk's required status context, such as `
 that context over the trunk's last 50 commits in one GraphQL query and posts the trunk's state on the `dev-red` cci topic
 to root and drive-watchdog. A red run, skipping commits whose check has not finished, names its first red commit, the PR
 its squash subject names, the newest red build and, through `landing.ci_build`, its failed jobs. When a failed job is one
-a PR build of that pipeline also runs, read from the newest open row's finished build, or no PR build reads, the record is
+any open row's finished PR build of that pipeline runs, or no PR build reads, the record is
 an `incident` reading `DEV-RED since <time>: … No PR can land until this is fixed; nothing lands until #<fix> fixes it`.
 When every failed job is one no PR build runs, it is a `report` reading `POST-MERGE-RED since <time>: … Landing continues;
 a fix is owed`. The runner holds no row for either: the queue's required checks hold what cannot land. Either posts
@@ -4438,12 +4438,9 @@ class Landing:
         self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
 
     def landing_steps(self, pipeline: str, rows: dict[str, dict]) -> set[str] | None:
-        """The jobs a PR build of `pipeline` runs, from the newest open row whose head has a finished full build of it; None when no such build reads."""
-        for pr in sorted((pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")), key=int, reverse=True):
-            for url, state, skip in self.ci_builds(rows[pr]["head"]) or []:
-                if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline and (build := self.build(url)):
-                    return {job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script"}
-        return None
+        """Every job any open row's finished full build of `pipeline` runs: a PR build leaves out each unit it did not touch, so one build alone reads a landing job as post-merge. None when no such build reads."""
+        builds = [build for row in rows.values() if row.get("state", "open") == "open" and row.get("head") for url, state, skip in self.ci_builds(row["head"]) or [] if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline and (build := self.build(url))]
+        return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
     def build(self, url: str) -> dict | None:
         """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
