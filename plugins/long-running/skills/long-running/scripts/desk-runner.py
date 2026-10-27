@@ -3316,7 +3316,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), and whose dispatch the runner did not withdraw, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), and whose dispatch the runner did not withdraw, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3326,6 +3326,12 @@ class Runner:
                     for lane in record.get("to") or []:
                         if lane not in (ROOT, "main", "all", RUNNER, ORCA_DESK) and not lane.startswith("peer:"):
                             orders.setdefault(lane, []).append(record)
+            sessions: list[dict] = []
+            if orders:
+                done = self.shell.run(["cci", "who", "--drive", drive, "--json"])
+                if done.code != 0:
+                    raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                sessions = [json.loads(line) for line in done.out.splitlines() if line.strip()]
             for lane, addressed in orders.items():
                 family = {lane} | {record["lane"] for record in records if succeeds(record["lane"], lane)}
                 retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
@@ -3333,19 +3339,14 @@ class Runner:
                 unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
                 if not unanswered or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane):
                     continue
-                sightings: list[datetime] = []
-                for name in sorted(family):
-                    done = self.shell.run(["cci", "who", "--drive", drive, "--lane", name, "--json"])
-                    if done.code != 0:
-                        raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-                    sightings += [actions.parse_stamp(entry["seen_at"]) for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("seen_at")]
+                sightings = [actions.parse_stamp(entry["seen_at"]) for entry in sessions if entry.get("seen_at") and {entry.get("lane"), entry.get("agent_name")} & family]
                 seen = max(sightings, default=None)
                 if seen and now - seen < LANE_SILENT:
                     continue
                 said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"
                 sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
                 orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
-                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; spawn its successor from its brief and handoff")
+                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes")
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
