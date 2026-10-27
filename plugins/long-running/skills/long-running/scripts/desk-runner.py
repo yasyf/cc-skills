@@ -5081,7 +5081,8 @@ class Landing:
 
     def carried_by_fidelity(self, pr: str, sha: str, passes: Callable[[str], bool]) -> bool:
         """Whether a chain of fidelity carries runs from `sha` back to a head that `passes`, such as one whose newest finder verdict is ok (root #139077)."""
-        withdrawn = self.withdrawn_grades()
+        drive = self.runner.config.drive
+        withdrawn = {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
         carries = fidelity_carries([grade for grade in self.grades(pr) if grade["seq"] not in withdrawn])
         seen: set[str] = set()
         frontier = [sha]
@@ -5095,9 +5096,6 @@ class Landing:
                 seen.add(old)
                 frontier.append(old)
         return False
-
-    def withdrawn_grades(self) -> set[int]:
-        return {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
         """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
@@ -5339,7 +5337,8 @@ class Landing:
         moved = [(block, pr, entry) for block, pr, entry in entries if entry["verdict"] == "approved" and pr not in decided]
         if not moved:
             return
-        drive, withdrawn = self.runner.config.drive, self.withdrawn_grades()
+        drive = self.runner.config.drive
+        withdrawn = {seq for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
         reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
         to = ",".join([ROOT, *self.board_lanes])
         for block, pr, entry in moved:

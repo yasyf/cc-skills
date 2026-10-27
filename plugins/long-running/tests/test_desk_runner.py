@@ -3189,7 +3189,7 @@ def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in notes(shell) if post["text"].startswith("TAP-")]
 
 
-@pytest.mark.parametrize("restack", ["head", "fidelity", "chain"])
+@pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain"])
 def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_says_so(shell, config, tmp_path, restack):
     board_surface(config)
     board_lane(config)
@@ -3201,6 +3201,8 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
         seqs = [head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
     elif restack == "fidelity":
         seqs = [grade(shell, "29020", "ok cccc333333 patch-identical to, with no root go at, aaaa111111 (#34700), patch-identical (patch-id 5ebf1cae3e6e).", lane="fidelity-desk")]
+    elif restack == "no new behavior":
+        seqs = [grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay with no new behavior.")]
     else:
         older = head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
         seqs = [grade(shell, "29020", "ok cccc333333 carried from bbbb222222, patch-identical replay onto dev."), older]
@@ -3216,23 +3218,29 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
 
 
 @pytest.mark.parametrize(
-    ("kind", "text"),
+    "said",
     [
-        ("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"),
-        ("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major"),
-        ("fidelity", "ok F307 at cccc333."),
-        ("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload."),
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")],
+        [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff patch-identical"), ("withdraw", "wrong: one commit changed"), ("head", "HEAD #29020 cccc333333 (was aaaa111111): one commit changed in the restack")],
+        [("fidelity", "ok F307 at cccc333.")],
+        [("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")],
     ],
 )
-def test_a_board_tap_never_carries_to_a_fixed_head_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, kind, text):
+def test_a_board_tap_never_carries_to_a_fixed_head_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    if kind == "head":
-        head_record(shell, "29020", text)
-    else:
-        grade(shell, "29020", text)
+    for kind, text in said:
+        if kind == "head":
+            head_record(shell, "29020", text)
+        elif kind == "withdraw":
+            shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
+        else:
+            grade(shell, "29020", text)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"

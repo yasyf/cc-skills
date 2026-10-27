@@ -36,6 +36,7 @@ NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
 CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
+ADDS_BEHAVIOR = re.compile(r"(?<!\bno )\bnew behaviou?r\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -129,16 +130,19 @@ def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
 
 
 def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[tuple[str, str, bool, int]]:
-    """Each move of `pr` from an old head to a new one that a record of `found` states, as `(new, old, patch-identical, seq)`: a `head` record's `<new> (was <old>)`, patch-identical when the rest of its sentence says so, and a fidelity lane's `fidelity: ok <new> carried from <old>` or `patch-identical to <old>` grade, patch-identical when its first sentence says so and it names no new behavior."""
+    """Each move of `pr` from an old head to a new one that a record of `found` states, as `(new, old, patch-identical, seq)`: a `head` record's `<new> (was <old>)`, patch-identical when the words after it, up to the end of its sentence or the next move, say so and name no new behavior, and a fidelity lane's `fidelity: ok <new> carried from <old>` or `patch-identical to <old>` grade, patch-identical when its first sentence says so and it names no new behavior."""
     moves = []
     for record in found:
         if record["drive"] != drive or not about_pr(record, repo, pr):
             continue
         text = record["text"]
         if record["kind"] == "head":
-            moves += [(move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(text[move.start() :], maxsplit=1)[0])), record["seq"]) for move in HEAD_MOVE.finditer(text)]
+            named = list(HEAD_MOVE.finditer(text))
+            for move, after in zip(named, [*named[1:], None], strict=True):
+                said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
+                moves.append((move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said), record["seq"]))
         elif record["kind"] == "review" and record["lane"] in lanes and (carried := CARRIED.match(text)):
-            moves.append((carried[1].lower(), carried[2].lower(), bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(text, maxsplit=1)[0])) and not NEW_BEHAVIOR.search(text), record["seq"]))
+            moves.append((carried[1].lower(), carried[2].lower(), bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(text, maxsplit=1)[0])) and not ADDS_BEHAVIOR.search(text), record["seq"]))
     return moves
 
 
