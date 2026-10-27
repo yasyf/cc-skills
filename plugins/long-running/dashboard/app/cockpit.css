@@ -493,3 +493,9 @@ body:has(.ck) { background: #080a0d; }
 .ck .plusn { position: absolute; z-index: 3; top: calc(50% - 50px); left: calc(50% + 26px); padding: 2px 7px; border-radius: 999px; background: var(--done); color: #04150d; font-size: 11px; font-weight: 800; box-shadow: 0 0 12px rgba(61,220,151,.6); }
 @media (max-width: 759px) { .ck .plusn { top: 0; left: calc(50% + 18px); } }
 .ck .dot.out { opacity: .12; animation: none; transform: scale(.85); }
+@media (max-width: 759px) {
+  .ck .dock .cta .acts { flex-wrap: nowrap; gap: 6px; }
+  .ck .dock .cta .acts .btn { white-space: nowrap; height: 32px; padding: 0 10px; font-size: 12.5px; }
+  .ck .dock .cta .tx b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ck .trk { grid-template-columns: 14px 76px minmax(0, 1fr) auto 32px 12px; }
+}
