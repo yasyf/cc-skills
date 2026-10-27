@@ -85,7 +85,7 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
         return None
     with PendingPrompts.mutate(evt) as pending:
-        pending.prompts.append({"digest": digest_of(evt), "session": evt.session_id, "source": "prompt", "text": evt.user_prompt or ""})
+        pending.prompts.append({"digest": digest_of(evt), "submitted": datetime.now(UTC).strftime(STAMP), "session": evt.session_id, "source": "prompt", "text": evt.user_prompt or ""})
     return None
 
 
@@ -205,6 +205,16 @@ def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
     return found
 
 
+def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
+    if "at" in prompt:
+        return prompt
+    if (key := folded(prompt.get("stamp", prompt["text"]))) in seen:
+        return prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)}
+    if ending and "submitted" in prompt:
+        return prompt | {"at": prompt["submitted"]}
+    return prompt
+
+
 def capture(prompt: dict) -> dict:
     kept = {key: prompt[key] for key in ("relayed_from", "answer") if key in prompt}
     return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
@@ -232,10 +242,7 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
         return None
     with PendingPrompts.mutate(evt) as pending:
         seen = stamps(evt)
-        pending.prompts = [
-            prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt.get("stamp", prompt["text"]))) in seen else prompt
-            for prompt in pending.prompts
-        ]
+        pending.prompts = [stamped(prompt, seen, evt.event == Event.Stop) for prompt in pending.prompts]
         try:
             pending.prompts = [with_answer(evt, prompt) for prompt in pending.prompts]
         except READ_ERRORS as error:

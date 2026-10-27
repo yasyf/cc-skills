@@ -1521,7 +1521,10 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(read)
         return 1
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
-    keys = re.findall(r"^### (\S+) \|", fresh, re.MULTILINE)
+    posted = datetime.fromisoformat(read.record["at"])
+    later = {digest for digest, capture in captures(loaded.state).items() if captured_at(capture["at"]) > posted}
+    rows = loaded.rulings()
+    keys = [key for key in re.findall(r"^### (\S+) \|", fresh, re.MULTILINE) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
     lines = read.body.splitlines()
     warnings = [f"READBACK-ROW-MISSING {key}: no read-back line names it" for key in keys if not any(key in line for line in lines if not line.startswith("### "))]
     root = args.root or args.repo
@@ -2420,7 +2423,7 @@ def build_parser() -> argparse.ArgumentParser:
     swept_verb.add_argument("--root", metavar="DIR")
     swept_verb.add_argument("--diff", metavar="FILE")
     swept_verb.add_argument("--plan", metavar="PATH")
-    readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request")
+    readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request; a row or capture the owner said after the read-back was posted is out of its scope")
     readback.add_argument("--lane", required=True)
     readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
     readback.add_argument("--plan", metavar="PATH")

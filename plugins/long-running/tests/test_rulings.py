@@ -1468,7 +1468,7 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     def read_back(*lines: str, lane: str = "lane-a") -> RegisterShell:
         body = tmp_path / "readback.md"
         body.write_text("\n".join(lines) + "\n")
-        records = [{"seq": 501, "kind": "contract", "lane": lane, "text": "read-back"}, {"seq": 500, "kind": "contract", "lane": lane, "text": "read-back", "refs": {"path": str(body)}}]
+        records = [{"seq": 501, "kind": "contract", "lane": lane, "text": "read-back", "at": AT}, {"seq": 500, "kind": "contract", "lane": lane, "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
         return RegisterShell(seeded(package), records=records)
 
     marked = [f"{hit} - keep: the line states the ban" for hit in hits]
@@ -1500,7 +1500,7 @@ def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_ro
     hits = [f"{line} - keep: the line states the ban" for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
     body = tmp_path / "readback.md"
     body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", f"slice-hash: {stamp}", "rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone", *hits]) + "\n")
-    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}}]
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
     added = seeded(package) | {"rule/fffffff": {"kind": "pick", "status": "in-force", "global": "no", "words": "Name the lane on every card.", "answer": '["fffffff"]', "steps": '["1.9"]', "lanes": '["all"]', "paths": "none"}}
     _, grown = ran(capsys, RegisterShell(added), "slice", "--lane", "lane-a", "--step", "1.9")
 
@@ -1510,6 +1510,25 @@ def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_ro
         "WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it",
         f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 5 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
     ]
+
+
+@pytest.mark.parametrize(("posted", "warned"), [("2026-10-23T13:00:00Z", True), ("2026-10-23T12:00:00Z", False)])
+def test_a_read_back_answers_only_for_rows_the_owner_said_before_it_was_posted(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, posted: str, warned: bool
+) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    stamp = rulings.SLICE_HASH.search(sliced)["hash"]
+    hits = [f"{line} - keep: the line states the ban" for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
+    body = tmp_path / "readback.md"
+    body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", f"slice-hash: {stamp}", "rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone", *hits]) + "\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": posted}]
+    captured(state, capture("f", "Name the lane on every card."))
+    added = seeded(package) | {"rule/fffffff": {"kind": "pick", "status": "in-force", "global": "no", "words": "Name the lane on every card.", "answer": '["fffffff"]', "steps": '["1.9"]', "lanes": '["all"]', "paths": "none", "proof": f"proof:prompt:{'f' * 16}"}}
+
+    code, out = ran(capsys, RegisterShell(added, records=records), "readback", "--lane", "lane-a", "--contract", "500")
+
+    assert code == 0
+    assert ("WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it" in out.splitlines()) is warned
 
 
 def test_pr_block_quotes_the_owners_sentence_for_each_matched_row(home: Path, package: Path, state: Path, capsys) -> None:
@@ -1951,4 +1970,3 @@ def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
     diff = rulings.parse_diff(SYMBOL_DIFF)
     assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
     assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
-
