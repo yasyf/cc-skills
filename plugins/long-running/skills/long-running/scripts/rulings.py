@@ -199,6 +199,7 @@ RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
 WORD_RUN = re.compile(r"[\w-]+")
+FACTS_VERSION = 2
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -526,6 +527,10 @@ class Diff:
         return frozenset(token for _, _, text in self.added for token in IDENTIFIER.findall(text))
 
     @cached_property
+    def code_identifiers(self) -> frozenset[str]:
+        return frozenset(token for added, _ in self.code.values() for text in added for token in IDENTIFIER.findall(text))
+
+    @cached_property
     def code(self) -> dict[str, tuple[list[str], list[str]]]:
         """Each changed file that is neither a test nor prose, with its added and removed lines."""
         found: dict[str, tuple[list[str], list[str]]] = {}
@@ -830,11 +835,12 @@ def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tupl
 
 
 def symbol_hit(symbol: str, diff: Diff) -> bool:
-    """Whether `symbol`'s last part names an added line; for one word run, the diff's word index answers exactly."""
+    """Whether `symbol`'s last part appears, exactly as written, on an added line of a file that is neither a test nor prose; a symbol is an identifier, so `retire` never matches `Retire`, `retired`, or a word in a doc."""
     name = symbol.rsplit(".", 1)[-1]
-    if WORD_RUN.fullmatch(name):
-        return not absent(name, diff)
-    return any(name_pattern(name).search(text) for _, _, text in diff.added)
+    if IDENTIFIER.fullmatch(name):
+        return name in diff.code_identifiers
+    exact = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])")
+    return any(exact.search(text) for added, _ in diff.code.values() for text in added)
 
 
 def touched(fields: dict[str, str], diff: Diff) -> bool:
@@ -1777,7 +1783,8 @@ class Findings:
         try:
             return load()
         except READ_ERRORS as error:
-            self.blockers.append(f"BLOCKER {what}: {' '.join(str(error).split())[:CCI_TEXT]}")
+            said = f"{error.stderr or ''} {error}" if isinstance(error, subprocess.CalledProcessError) else str(error)
+            self.blockers.append(f"BLOCKER {what}: {' '.join(said.split())[:CCI_TEXT]}")
             return None
 
 
@@ -1953,7 +1960,7 @@ def decided(body: str, answers: set[str] | None) -> list[str]:
 def diff_facts(loaded: Register, head: Head, base: str) -> dict[str, list]:
     """What `head`'s diff alone decides against the register's rows: the rows it touches, the reserved rows it hits, and the lines naming a scope row. A copy of thousands of files takes seconds a pass to read, so the facts are kept per head, base, diff and set of rows, and reread only when one of them changes."""
     rulings = loaded.rulings()
-    digest = hashlib.sha256(json.dumps([head.repo, head.number, head.sha, base, rulings, head.diff.fingerprint], sort_keys=True).encode()).hexdigest()[:24]
+    digest = hashlib.sha256(json.dumps([FACTS_VERSION, head.repo, head.number, head.sha, base, rulings, head.diff.fingerprint], sort_keys=True).encode()).hexdigest()[:24]
     kept = loaded.state / "check-pr" / f"{digest}.json"
     if kept.is_file():
         return json.loads(kept.read_text())
