@@ -269,13 +269,20 @@ function showOnly(label, numbers) {
   if (route().screen !== 'overview') location.hash = '#/';
   render();
 }
+const SAID = { head: 'Pushed a new version', report: 'Reported', state: 'Posted its status', blocker: 'Reported a blocker', ask: 'Asked a question', review: 'Reviewed', go: 'Got the go to land', opened: 'Opened a pull request', landed: 'Landed', defect: 'Reported a tool problem', answer: 'Answered', decide: 'Decided', incident: 'Raised an incident', 'fix-live': 'Put a fix live' };
+function lastWord(w) {
+  const r = state.model.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || new Date(b.at) > new Date(a.at) ? b : a), null);
+  const prs = w.prs.slice(0, 2).map((n) => `<a href="${prHref(n)}">#${n} ${esc(shortName(n) ?? plainTitle(n))}</a>`).join(', ');
+  return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>worker ${esc(w.lane)}${r ? ` · <a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
+}
 function stepCard(s) {
   const t = tally(s.prs);
-  const ws = state.model.workers.filter((w) => w.step === s.id);
+  const ws = state.model.workers.filter((w) => w.step === s.id && w.live);
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
-    <dl class="facts"><dt>Desk note, ${clock(state.model.steps_at)}</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
-    ${s.prs.length ? `<div class="sc-counts"><b>${t.landed}</b> landed · <b>${t.queued}</b> queued · <b>${t.you}</b> your tap · ${t.total} in all</div><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}</em></a></li>`).join('')}</ul>` : ''}
-    ${ws.length ? `<div class="wlist">${ws.map((w) => `<div class="wrow">${workerStrip(w)}<b>${esc(w.lane)}</b><span class="dim">${agoWords(w.at)}</span>${w.prs.map((n) => prLink(n)).join(' ')}</div>`).join('')}</div>` : ''}</section>`;
+    <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
+    ${ws.length ? `<h4 class="sc-h">Who is on it</h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker is on this step right now.</p>'}
+    ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}</em></a></li>`).join('')}</ul>` : ''}
+    <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
 }
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);
