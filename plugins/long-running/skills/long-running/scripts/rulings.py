@@ -7,6 +7,7 @@
     rulings.py classify     (--program SLUG | --drive ID) [--answer ID] [CLASSIFICATION...]
     rulings.py implications (--program SLUG | --drive ID) KEY
     rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
+    rulings.py amend        (--program SLUG | --drive ID) KEY [--answer ID ...] [--implication N --text TEXT]
     rulings.py round        (--program SLUG | --drive ID)
     rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
@@ -49,6 +50,9 @@ round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue hol
 ``confirm`` ticks or strikes a row's implications from a tap or reply on the row's card, or from a later owner chat
 capture ``classify`` already put on that row as a repeat, with the capture's words as the proof. ``--implication`` adds the narrowed line
 that replaces the one line ``--strike`` names, in that line's direction.
+
+``amend`` links answer ids to a row and rewrites one implication's text, keeping its state and proof; each edit lands on
+the row's ``amends`` list with its time and, for an implication, the text it replaced.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. The register is read
@@ -1366,6 +1370,30 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     return 0
 
 
+def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (args.implication is None) != (args.text is None):
+        print("AMEND-USAGE: --implication and --text go together")
+        return 2
+    with writing(args, shell) as loaded:
+        fields = loaded.row(args.key)
+        answers = listed(fields.get("answer"))
+        added = [found for identity in args.answer if (found := ccn(loaded.shell, loaded.repo, "answer", "show", identity)["id"]) not in answers]
+        implications = listed(fields.get("implications"))
+        edits = [{"at": stamp(), "answer": added}] if added else []
+        if args.implication is not None:
+            if not (named := [item for item in implications if item["n"] == args.implication]):
+                print(f"NO-IMPLICATION {args.key}: it carries no implication {args.implication}")
+                return 1
+            edits.append({"at": stamp(), "implication": args.implication, "was": named[0]["text"], "now": args.text})
+            named[0]["text"] = args.text
+        if not edits:
+            print(f"{args.key} already carries every answer named")
+            return 0
+        loaded.write(args.key, answer=answers + added, implications=implications, amends=listed(fields.get("amends")) + edits)
+        print("\n".join(implication_lines(loaded.rows[args.key])))
+    return 0
+
+
 def plan_path(args: argparse.Namespace, loaded: Register) -> Path | None:
     return loaded.plan(args.plan)
 
@@ -2198,6 +2226,11 @@ def build_parser() -> argparse.ArgumentParser:
     confirm.add_argument("--tick", metavar="N,...|all")
     confirm.add_argument("--strike", metavar="N,...")
     confirm.add_argument("--implication", metavar="TEXT", help="the narrowed line that replaces the one line --strike names")
+    amend = verb("amend", cmd_amend, "link answer ids to a row or rewrite one implication's text, each edit recorded on the row's amends")
+    amend.add_argument("key")
+    amend.add_argument("--answer", action="append", default=[], metavar="ID")
+    amend.add_argument("--implication", type=int, metavar="N")
+    amend.add_argument("--text", metavar="TEXT", help="the implication's new text")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
     sliced = verb("slice", cmd_slice, "print the rows a lane, the root, or a head's grade must carry, verbatim")
     sliced.add_argument("--lane")

@@ -1685,6 +1685,19 @@ def test_confirm_takes_an_owner_answer_classified_onto_the_row_or_cited_by_its_i
     assert json.loads(cited.rows["rule/aaaaaaa"]["implications"])[1]["state"] == "ticked"
 
 
+def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_the_row(home: Path, package: Path, state: Path, capsys) -> None:
+    shell = RegisterShell(seeded(package), answers=[ROUND_TWO])
+    was = json.loads(shell.rows["rule/aaaaaaa"]["implications"])[1]["text"]
+
+    code, _ = ran(capsys, shell, "amend", "rule/aaaaaaa", "--answer", "5eed0c0", "--implication", "2", "--text", "Relay cleanup lives in the journal crate.")
+
+    row = shell.rows["rule/aaaaaaa"]
+    assert code == 0
+    assert ROUND_TWO["id"] in json.loads(row["answer"])
+    assert json.loads(row["implications"])[1]["text"] == "Relay cleanup lives in the journal crate."
+    assert [(edit.get("answer"), edit.get("implication"), edit.get("was")) for edit in json.loads(row["amends"])] == [([ROUND_TWO["id"]], None, None), (None, 2, was)]
+
+
 def test_confirm_refuses_an_owner_answer_the_row_never_cites_and_the_rows_own_source(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     unrelated = dict(ROUND_TWO, id="0dd0c0de" + "0" * 32)
     shell = RegisterShell(seeded(package), answers=[ROUND_TWO, unrelated])
