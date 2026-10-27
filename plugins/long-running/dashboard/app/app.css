@@ -225,7 +225,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 }
 .prose td.num, .prose th.num { text-align: right; }
 .rellist { list-style: none; margin: 0; padding: 4px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
-.relrow { display: grid; grid-template-columns: 34px 84px minmax(0, 1fr) minmax(0, 1.4fr) 140px; gap: 12px; align-items: baseline; padding: 10px 0; cursor: pointer; }
+.relrow { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1.4fr) 140px; gap: 12px; align-items: baseline; padding: 10px 0; cursor: pointer; }
 .relrow + .relrow { border-top: 1px solid var(--line); } .relrow:hover { background: var(--surface-2); }
 .relrow .rw { font-weight: 700; color: var(--ink-3); } .relrow.blocked .rw, .relrow.blocked b { color: var(--bad); } .relrow.out .rw { color: var(--ok); }
 .relrow .rn { font-weight: 650; } .relrow .rn em { font-style: normal; font-weight: 500; color: var(--ink-3); } .relrow .rs { color: var(--ink-2); } .relrow .ro { color: var(--ink-3); font-size: 12.5px; text-align: right; }

@@ -68,8 +68,16 @@ function prLink(n) {
   const s = prState(n);
   return `<a class="prc ${s}" href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[s]}">${s === 'landed' ? '✓' : s === 'closed' ? '' : `<i class="lt ${s}"></i>`}#${n}</a>`;
 }
+function words(text) {
+  const rels = state.model?.now?.releases ?? [];
+  return String(text ?? '').replace(/\bR(\d{1,2})\b ?/g, (all, n, at, whole) => {
+    const r = rels.find((x) => x.id === `R${n}`);
+    if (!r) return all;
+    return whole.startsWith(r.name, at + all.length) ? '' : `the “${r.name}” release${all.endsWith(' ') ? ' ' : ''}`;
+  });
+}
 function inline(md) {
-  return esc(md)
+  return esc(words(md))
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -270,13 +278,13 @@ function statusScreen() {
   const pill = { done: 'ok', out: 'ok', failing: 'bad', held: 'warn', blocked: 'bad', you: 'warn' };
   const relRows = rels.map((r, i) => {
     const [tone, word] = releaseWord(rels, i);
-    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: `${r.id} ${r.name}`, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
+    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: r.name, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
   });
   const stepRows = m.steps.map((s) => row({ id: s.id, tone: s.tone, pill: pill[s.tone] ?? '', word: TONE_SAY[s.tone] ?? s.tone, name: s.title, delivers: s.delivers, state: s.state, blocker: s.blocker, doing: s.unblocking ?? s.next, wrong: s.went_wrong, prs: s.prs.map((p) => p.number ?? p), open: `<button class="btn" data-track="${esc(s.id)}">Open the step ›</button>` }));
   const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
-  const q = (key, keep) => `<section class="card stanswer"><h3>${esc(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
+  const q = (key, keep) => `<section class="card stanswer"><h3>${inline(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
   return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
-    ${(() => { const r = rels.find((x) => !RELEASED.test(x.state)); return r ? `<p class="stwait">${releaseWait(r) || `${esc(r.id)} waits on nothing open`}</p>` : ''; })()}
+    ${(() => { const r = rels.find((x) => !RELEASED.test(x.state)); return r ? `<p class="stwait">${releaseWait(r) || `${esc(r.name)} waits on nothing open`}</p>` : ''; })()}
     <div class="stanswers">${q('track')}${q('release', (l) => !/^R\d+ /.test(l.text))}</div>
     <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
     <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
@@ -398,9 +406,9 @@ function releases() {
   const row = (x, i) => {
     const [cls, word] = releaseWord(rels, i);
     const open = m.drive.prs.filter((e) => x.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]).length;
-    return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><b>${esc(x.id)}</b><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${esc(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
+    return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${inline(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
   };
-  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><div class="ck">${routeStrip()}</div><ol class="rellist">${rels.map(row).join('')}</ol>
+  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><ol class="rellist">${rels.map(row).join('')}</ol>
     <details class="reldoc" data-id="rel-doc"${state.open.has('rel-doc') ? ' open' : ''}><summary class="sec">The full release plan ${r.updated ? `<span class="dim">revised ${clock(r.updated)}</span>` : ''}</summary><div class="prose">${markdown(r.markdown)}</div></details>`;
 }
 

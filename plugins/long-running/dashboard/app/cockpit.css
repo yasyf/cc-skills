@@ -631,3 +631,7 @@ body:has(.ck.ov) .top .tabs { display: none; }
 .relwait .wi { color: var(--ink); } .relwait .wi small { font-size: inherit; color: var(--ink3); } .relwait .wi.failing small { color: var(--bad); } .relwait .wi.you small { color: var(--you); }
 .relwait:hover .wi { text-decoration: underline dotted; }
 .stwait { margin: 0 0 12px; font-size: 14px; }
+.ck .tonight { grid-template-columns: minmax(0, 1fr) auto; }
+.ck .tonight .tn-wait { grid-column: 1; font-size: 13px; color: var(--ink2); } .ck .tonight .tn-wait b { color: var(--ink); }
+.ck .tonight .planlink { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line2); font-size: 12.5px; font-weight: 650; white-space: nowrap; } .ck .tonight .planlink small { font-weight: 500; color: var(--ink3); }
+.ck .tn-wait .relwait { color: var(--ink2); text-decoration: none; } .ck .tn-wait .relwait b { color: var(--ink); }
