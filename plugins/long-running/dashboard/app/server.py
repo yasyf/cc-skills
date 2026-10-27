@@ -774,7 +774,12 @@ class Drive:
             self.slow_at = time.monotonic()
         with self.lock:
             records = list(self.records)
-        lanes = cci("lanes", drive=self.config["drive"])
+        try:
+            lanes = cci("lanes", drive=self.config["drive"])
+            self.errors.pop("lanes", None)
+        except OSError as error:
+            lanes = self.model.get("lanes", [])
+            self.errors["lanes"] = f"the cci daemon at {CCI} did not answer ({error}); workers are as of the last answer"
         return {
             **self.slow,
             "title": self.config["title"],
