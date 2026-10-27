@@ -847,7 +847,8 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
 def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
     if not (match := ledger.PR_KEY.fullmatch(args.pr)):
         raise SystemExit(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N")
-    return match["repo"] or ledger.origin_repo(shell, Path(args.repo)), match["pr"]
+    named = REPO_NAME.fullmatch(args.repo) and not Path(args.repo).exists()
+    return match["repo"] or (args.repo if named else ledger.origin_repo(shell, Path(args.repo))), match["pr"]
 
 
 def absent(name: str, diff: Diff) -> bool:
@@ -2475,8 +2476,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if REPO_NAME.fullmatch(args.repo) and not Path(args.repo).exists():
-        raise SystemExit(f"--repo takes the checkout path, not {args.repo!r}; name the repository in --pr {args.repo}#N")
     if not (args.program or args.drive):
         args.drive = drive.current_drive() or args.error("one of the arguments --program --drive is required")
     return args.handler(args, shell or ledger.Shell())

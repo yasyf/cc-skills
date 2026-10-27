@@ -1319,8 +1319,9 @@ def test_the_required_slice_compares_against_the_base_branch_the_pr_names(home: 
     assert "rule/bbbbbbb" in required(out)
 
 
-def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_names(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
-    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--pr", "acme/app#12", "--head", "cafef00d", "--repo", "acme/app")
+@pytest.mark.parametrize("pr", ["acme/app#12", "12"])
+def test_the_required_slice_reads_the_drive_register_whatever_repo_the_caller_names(home: Path, package: Path, state: Path, registered: Path, capsys, pr: str) -> None:
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--pr", pr, "--head", "cafef00d", "--repo", "acme/app")
 
     assert code == 0
     assert "rule/aaaaaaa" in required(out)
@@ -1951,7 +1952,3 @@ def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
     assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
     assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
 
-
-def test_a_repository_name_as_repo_names_the_pr_form_instead_of_a_traceback() -> None:
-    with pytest.raises(SystemExit, match=r"^--repo takes the checkout path, not 'Forge-AI/monorepo'; name the repository in --pr Forge-AI/monorepo#N$"):
-        rulings.main(["slice", "--program", "brook", "--repo", "Forge-AI/monorepo", "--required", "--pr", "43368", "--head", "abc1234"])
