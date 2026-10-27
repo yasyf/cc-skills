@@ -276,6 +276,7 @@ function statusScreen() {
   const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
   const q = (key, keep) => `<section class="card stanswer"><h3>${esc(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
   return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
+    ${(() => { const r = rels.find((x) => !RELEASED.test(x.state)); return r ? `<p class="stwait">${releaseWait(r) || `${esc(r.id)} waits on nothing open`}</p>` : ''; })()}
     <div class="stanswers">${q('track')}${q('release', (l) => !/^R\d+ /.test(l.text))}</div>
     <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
     <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
@@ -382,7 +383,9 @@ function mergeCard() {
   const merge = state.model.board.merge;
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3>${merge.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${esc(merge.summary)}</b></p>
+  const waiting = state.model.board.rows.filter((row) => verdictState(row) === 'you').length;
+  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
+    ${merge.summary ? `<details data-id="merge-note"${state.open.has('merge-note') ? ' open' : ''}><summary>The board's note</summary><p>${inline(merge.summary)}</p></details>` : ''}
     <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
     ${merge.pages.map((md) => markdown(md)).join('')}</div>`;
 }

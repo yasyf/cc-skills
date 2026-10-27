@@ -179,10 +179,17 @@ function tracks() {
     ${done || later ? `<button class="fold" data-unfold>${ov.unfold ? 'Fold done and later steps' : `${done ? `✓ ${done} done` : ''}${done && later ? ' · ' : ''}${later ? `⚑ ${later} later` : ''}`}</button>` : ''}</section>`;
 }
 function releaseWait(r) {
+  const m = state.model;
   const open = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))].filter((n) => prState(n) !== 'landed');
-  if (!open.length) return null;
-  const red = open.filter((n) => prState(n) === 'failing');
-  return { word: `waits on ${plural(open.length, 'pull request')}${red.length ? `, ${red.length} red` : ''}`, detail: open.map((n) => `#${n} ${shortName(n) ?? plainTitle(n)}: ${STATE_WORD[prState(n)]}${driveEntry(n)?.step ? ` (${state.model.steps.find((x) => x.id === driveEntry(n).step)?.label ?? ''} step)` : ''}`).join('\n'), red: red.length > 0 };
+  if (!open.length) return '';
+  const said = { failing: 'own tests failing', queued: 'approved, waiting to land', you: 'waiting on your tap', held: 'held', doing: 'being worked on', waiting: 'waiting its turn' };
+  const items = open.map((n) => {
+    const t = truth(n);
+    const step = m.steps.find((s) => s.id === t.step);
+    const why = [`#${n} ${shortName(n) ?? plainTitle(n)}: ${STATE_WORD[prState(n)]}`, t.blocker && `Blocked by ${t.blocker}`, t.owner && `${workerName(t.owner)}${t.next ? `: ${t.next}` : ''}`].filter(Boolean).join('\n');
+    return `<span class="wi ${prState(n)}" title="${esc(why)}">${esc(step?.label ?? shortName(n) ?? plainTitle(n))} <small>(${said[prState(n)] ?? STATE_WORD[prState(n)]})</small></span>`;
+  });
+  return `<a class="relwait" href="#/status/${esc(r.id)}"><b>${esc(r.id)} waits on:</b> ${items.join(', ')}</a>`;
 }
 function dock() {
   const need = state.model.needs.length;
@@ -230,12 +237,9 @@ function routeStrip() {
   const rels = m.now.releases ?? [];
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
-  const rel = (r, i) => {
-    const wait = i === at ? releaseWait(r) : null;
-    return `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(wait ? `${r.id} ${wait.word}:\n${wait.detail}` : `${r.id} ${r.name}: ${r.state}`)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span>${wait ? `<span class="why${wait.red ? ' bad' : ''}">${esc(wait.word)}</span>` : ''}</span>`;
-  };
+  const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span></span>`;
   return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
-    <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(cur.state)}` : 'Every release is out'}</div>
+    <div class="route-now">${cur ? releaseWait(cur) || `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(firstSentences(cur.state, 160))}` : 'Every release is out'}</div>
     <button class="planlink" data-plan="releases">Release plan${m.releases.updated ? `<small>revised ${clock(m.releases.updated)}</small>` : ''}<span>Open ›</span></button></section>`;
 }
 function workerTile(w, title) {
