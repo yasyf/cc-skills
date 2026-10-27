@@ -137,11 +137,13 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
     running = plugin_manifest()["version"]
     if os.environ.get(CALLER_VERSION_ENV) != running and (install := newest_install()) and behind(running, install["version"]):
-        fresh = Path(install["installPath"]) / Path(__file__).resolve().parent.relative_to(PLUGIN) / Path(script).name
-        os.execv(sys.executable, [sys.executable, str(fresh), *sys.argv[1:]])
+        manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"
+        if manifest.is_file() and behind(running, load(manifest)["version"]):
+            fresh = manifest.parents[1] / Path(__file__).resolve().parent.relative_to(PLUGIN) / Path(script).resolve().name
+            os.execv(sys.executable, [sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
 
 
