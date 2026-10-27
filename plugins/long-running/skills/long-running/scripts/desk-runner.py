@@ -5875,9 +5875,10 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM)."""
+        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM). It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not self.no_go or (statuses := self.pr_statuses()) is None:
             return
+        self.gos = None
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted(self.no_go - covered, key=int) if pr in statuses and open_rows[pr].get("head")}

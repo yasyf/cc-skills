@@ -3098,6 +3098,25 @@ def stack_named(shell: FakeShell) -> set[str]:
     return {pr for call in shell.calls if Path(call[0]).name == "stack-enqueue" for pr in itertools.takewhile(str.isdigit, call[1:])}
 
 
+def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config, tmp_path, monkeypatch):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    run = shell.run
+
+    def tapped_mid_pass(argv, stdin=None, env=None):
+        if argv[:4] == ["ccx", "vcs", "pr", "status"] and not any(record["kind"] == "go" for record in shell.records):
+            merge_go(shell, "29020", "merge #29020 at cccc333")
+        return run(argv, stdin, env)
+
+    monkeypatch.setattr(shell, "run", tapped_mid_pass)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")] == []
+
+
 def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go_names_the_head(shell, config, tmp_path):
     board_surface(config)
     lone_green_pr(shell)
