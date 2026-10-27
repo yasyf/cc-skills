@@ -563,10 +563,10 @@ For the cci cutover, the root adds `drive` to the runner config, confirms
 
 To upgrade a running desk without a signal, run `desk-runner.py handoff --desk orca
 --config "$CONFIG"`, or `--desk landing` for the landing desk, from the Run's bound
-terminal. `handoff` reads that
-desk's heartbeat, `orca-runner.heartbeat.json` or `landing-runner.heartbeat.json` beside
-the desk inbox, and writes its pid to `$CONFIG.stop`. That runner finishes its pass,
-writes its exit mark by removing `$CONFIG.stop`, and exits 0. Only then does `handoff`
+terminal. Every runner holds `$CONFIG.<desk>.lock` for its life, and a second
+`run` on the same config and desk refuses to start. `handoff` reads the lock's holder
+and writes its pid to `$CONFIG.stop`. That runner finishes its pass, removes
+`$CONFIG.stop`, and exits 0. Only once it has exited does `handoff`
 start the next runner itself, on the newest installed plugin with the same config and
 desk, its output appended to `<desk>-runner.log` in the drive's state directory, so one
 process per desk runs at every moment and a rotation is one command.

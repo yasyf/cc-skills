@@ -448,8 +448,10 @@ plugin version the runner runs. A runner behind the version `installed_plugins.j
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the end
-of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. It waits up to 20 minutes
-for the exit mark, as long as a slow pass takes; past that it starts nothing and logs `HANDOFF-STALLED` to root. `drive.py digest`
+of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
+`<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
+that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit; past that it starts nothing and logs
+`HANDOFF-STALLED` to root with the pid. `drive.py digest`
 prints each desk's running and installed versions.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
 per board round, however many cards join it; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
@@ -459,6 +461,7 @@ round, foundational rows first.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import itertools
 import json
@@ -472,6 +475,7 @@ import threading
 import time
 import traceback
 from collections import Counter
+from contextlib import contextmanager
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -1608,24 +1612,35 @@ class Runner:
             self.shell.sleep(WAKE_SECONDS)
         return self.stop_requested()
 
-    @staticmethod
-    def alive(pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        return True
+    @contextmanager
+    def desk_lock(self, desk: str) -> Iterator[int | None]:
+        """Hold the lock one runner of `desk` on this config holds for its life while the block runs, yielding None when this process took it and the holder's pid when another runner holds it."""
+        with self.config.source.with_name(f"{self.config.source.name}.{desk}.lock").open("a+") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.seek(0)
+                yield int(handle.read().strip() or 0)
+                return
+            handle.truncate(0)
+            handle.write(f"{os.getpid()}\n")
+            handle.flush()
+            yield None
+
+    def desk_holder(self, desk: str) -> int | None:
+        with self.desk_lock(desk) as holder:
+            return holder
 
     def handoff(self, desk: str) -> int:
-        beat = self.config.desk_inbox.parent / HEARTBEATS[desk]
-        pid = json.loads(beat.read_text())["pid"] if beat.is_file() else None
-        if pid is not None and self.alive(pid):
+        """Stop the runner holding `desk`'s lock at the end of its pass, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225)."""
+        pid = self.desk_holder(desk)
+        if pid is not None:
             marker = self.stop_marker()
             marker.write_text(f"{pid}\n")
             deadline = self.now() + HANDOFF_WAIT
-            while marker.exists():
+            while self.desk_holder(desk) == pid:
                 if self.now() >= deadline:
-                    why = f"runner {pid} wrote no exit mark within {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
                     self.escalate(f"handoff:{desk}:{pid}", "HANDOFF-STALLED", "runner", why)
                     self.flush()
                     print(f"desk-runner handoff: {why}", file=sys.stderr)
@@ -6127,8 +6142,12 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     config = Config.load(args.config)
     runner = Runner(shell or Shell(), config, actions.Store(config.store))
     if args.verb == "run":
-        runner.shell.adopt(config.desk_env[args.desk])
-        return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
+        with runner.desk_lock(args.desk) as holder:
+            if holder is not None:
+                print(f"desk-runner run: runner {holder} already runs the {args.desk} desk on {config.source}; `desk-runner.py handoff --config {config.source} --desk {args.desk}` replaces it", file=sys.stderr)
+                return 3
+            runner.shell.adopt(config.desk_env[args.desk])
+            return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
     if args.verb == "show":
         sys.stdout.write(runner.render())
         return 0
