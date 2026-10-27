@@ -243,4 +243,4 @@ def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_
 
     assert advise(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b") == ([lane_landing.HAND_ENQUEUE_WARNING.format(lines=FINDER_PENDING)] if warned else [])
     [call] = calls
-    assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243"]
+    assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243", "--partial"]

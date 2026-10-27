@@ -3,7 +3,7 @@
 
     mq.py --config PATH status
     mq.py --config PATH why PR
-    mq.py --config PATH gate PR...
+    mq.py --config PATH gate PR... [--partial]
     mq.py --config PATH checks
     mq.py --config PATH hold PR --reason R
     mq.py --config PATH lift PR
@@ -67,7 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     dequeue.add_argument("--reason", default="dequeued by hand with mq dequeue")
     recover = verbs.add_parser("recover")
     recover.add_argument("prs", nargs="+")
-    verbs.add_parser("gate").add_argument("prs", nargs="+")
+    gate = verbs.add_parser("gate")
+    gate.add_argument("prs", nargs="+")
+    gate.add_argument("--partial", action="store_true")
     return parser
 
 
@@ -93,7 +95,7 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         print("\n".join(landing.why(args.pr)))
         return 0
     if args.verb == "gate":
-        if lines := landing.hand_enqueue_gate(args.prs):
+        if lines := landing.hand_enqueue_gate(args.prs, args.partial):
             print("\n".join(lines))
         return 1 if lines else 0
     if args.verb == "priority":

@@ -292,9 +292,11 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
 
 
-def enqueued_prs(call: Call) -> list[str]:
-    run = program((call.name, *call.args))
-    return [arg for arg in run[1:] if arg.isdigit()] if not NOT_AN_ENQUEUE & set(run[1:]) else []
+def gate_args(call: Call) -> list[str]:
+    """The `mq.py gate` operands for a `stack-enqueue` call: its PRs and its `--partial`, or none for a call that enqueues nothing."""
+    args = program((call.name, *call.args))[1:]
+    prs = [arg for arg in args if arg.isdigit()]
+    return [*prs, *(["--partial"] if "--partial" in args else [])] if prs and not NOT_AN_ENQUEUE & set(args) else []
 
 
 @on(
@@ -310,13 +312,12 @@ def enqueued_prs(call: Call) -> list[str]:
 def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
-    prs = [pr for call in evt.cmd.calls() if landing_verb(call) == "stack-enqueue" and not outside_drive_repo(evt, call, entry) for pr in enqueued_prs(call)]
-    if not prs or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
+    gates = [args for call in evt.cmd.calls() if landing_verb(call) == "stack-enqueue" and not outside_drive_repo(evt, call, entry) and (args := gate_args(call))]
+    if not gates or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
         return None
-    done = run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *prs], str(evt.cwd))
-    if done is None or done.returncode != 1 or not done.stdout.strip():
-        return None
-    return evt.context(HAND_ENQUEUE_WARNING.format(lines=done.stdout.strip()))
+    runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
+    lines = "\n".join(done.stdout.strip() for done in runs if done is not None and done.returncode == 1 and done.stdout.strip())
+    return evt.context(HAND_ENQUEUE_WARNING.format(lines=lines)) if lines else None
 
 
 def merge_target(call: Call) -> tuple[str, str]:

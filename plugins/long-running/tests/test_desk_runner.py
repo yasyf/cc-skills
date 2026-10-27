@@ -144,6 +144,7 @@ class FakeShell(runner_module.Shell):
         self.reviews: dict[str, dict] = {}
         self.checks: dict[str, list[dict]] = {}
         self.merge_commits: dict[str, str] = {}
+        self.current_heads: dict[str, str] = {}
         self.live: dict[str, dict] = {}
         self.running: list[dict] = []
         self.ancestors: set[tuple[str, str]] = set()
@@ -316,6 +317,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
             assert argv[4:6] == ["--repo", "Forge-AI/monorepo"]
             return runner_module.Done(0, json.dumps(self.reviews[argv[3]]), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".headRefOid":
+            return runner_module.Done(0, f"{self.current_heads[argv[3]]}\n", "") if argv[3] in self.current_heads else runner_module.Done(1, "", "no pull requests found")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
             return runner_module.Done(0, json.dumps({"mergeCommit": {"oid": self.merge_commits[argv[3]]}}), "")
         if argv[:3] == ["gh", "pr", "checks"]:
@@ -4353,18 +4356,23 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
-def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_every_head_it_queues(shell, config, capsys):
+def viewed_heads(shell: FakeShell) -> list[str]:
+    return [call[3] for call in shell.calls if call[:3] == ["gh", "pr", "view"] and call[-1] == ".headRefOid"]
+
+
+@pytest.mark.parametrize(("partial", "graded"), [((), ["29020", "29031"]), (("--partial",), ["29020"])])
+def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_githubs_head_of_every_pr_it_queues(shell, config, capsys, partial, graded):
     two_pr_stack(shell)
     assert mq(shell, config, "gate", "29031") == 0
     assert capsys.readouterr().out == ""
-    shell.rows[0]["head"] = "eeee555555"
+    shell.current_heads["29020"] = "eeee555555"
     grade(shell, "29020", "ok F307 at eeee555.", finder=False)
     posts = len(shell.posts)
-    assert mq(shell, config, "gate", "29031") == 1
+    assert mq(shell, config, "gate", "29020", *partial) == 1
     assert capsys.readouterr().out.splitlines() == [
         "#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
     ]
-    assert len(shell.posts) == posts
+    assert viewed_heads(shell)[-len(graded):] == graded and len(shell.posts) == posts
 
 
 def other_drive_opened(shell: FakeShell, pr: str) -> None:
