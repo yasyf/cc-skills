@@ -356,7 +356,7 @@ function prFacts(n) {
     <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
-    <dt>Who is on it</dt><dd>${owner ? `<button class="linkish" data-worker="${esc(owner)}">${esc(owner)}</button>, ${w?.live ? 'working now' : `last word ${agoWords(ownerAt ?? pr.last_refresh)}`}` : 'No worker named'}</dd>
+    <dt>Who is on it</dt><dd>${owner ? `<button class="linkish" data-worker="${esc(owner)}">${esc(owner)}</button>, ${w?.live ? 'working now' : ownerAt ? `last word ${agoWords(ownerAt)}` : 'no word from it in the last day'}` : 'No worker named'}</dd>
     ${word || status ? `<dt>Where it stands, what is next</dt><dd>${status ? inline(status) : said(word, 260)}${word ? ` <small class="dim">from ${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</dd>` : ''}</dl>`;
 }
 function prSheet() {
@@ -507,7 +507,7 @@ function statusOf(n) {
     ownerOf(n) && `Worker: ${ownerOf(n)}`,
     ...recs.map((r) => `${clock(r.at)} ${r.kind}: ${firstSentences(shortShas(r.text), 400)}`),
   ].filter(Boolean).join('\n');
-  return prStatus(n, `drive-assist:status:${n}:${(pr.head ?? '').slice(0, 7)}:${prState(n)}:${recs[0]?.seq ?? ''}`, facts);
+  return prStatus(n, facts);
 }
 function said(r, max) {
   return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));

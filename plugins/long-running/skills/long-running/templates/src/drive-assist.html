@@ -400,7 +400,8 @@ function plainBatch(){
  }).catch(()=>{}).finally(plainBatch);
 }
 const statusAsked=new Set();
-function prStatus(n,key,facts){
+function prStatus(n,facts){
+ const key=`drive-assist:status:${n}:${aiHash(facts)}`;
  const hit=localStorage.getItem(key);
  if(hit)return hit;
  if(AI.key&&!statusAsked.has(key)){

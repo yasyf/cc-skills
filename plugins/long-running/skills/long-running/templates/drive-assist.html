@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c556d55d1bc0 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:6c857c488b2d — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -630,7 +630,8 @@ function plainBatch(){
  }).catch(()=>{}).finally(plainBatch);
 }
 const statusAsked=new Set();
-function prStatus(n,key,facts){
+function prStatus(n,facts){
+ const key=`drive-assist:status:${n}:${aiHash(facts)}`;
  const hit=localStorage.getItem(key);
  if(hit)return hit;
  if(AI.key&&!statusAsked.has(key)){
