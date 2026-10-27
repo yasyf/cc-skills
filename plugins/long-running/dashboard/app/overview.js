@@ -1,8 +1,9 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {} };
+const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {} };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
+const RELEASED = /^(released|done|live)/i;
 
 function scrubAt() {
   return ov.scrub < 0 ? new Date(Date.now() - PAST_HOURS[-ov.scrub - 1] * 3600 * 1000) : null;
@@ -59,9 +60,11 @@ function stepRow(s) {
   const t = tally(s.prs);
   const ws = liveWorkers(s.id);
   const blocker = s.blocker && !/^(none|nothing)$/i.test(s.blocker) ? s.blocker : '';
+  const count = (v, cls) => `<span class="r-n${v ? ` ${cls}` : ''}">${s.prs.length ? v : ''}</span>`;
   return `<li class="srow tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0">
-    <span class="r-step">${esc(s.label ?? s.title)}${ws.length ? `<i class="pulse" title="${ws.length} at work"></i>` : ''}</span>
+    <span class="r-step">${esc(s.label ?? s.title)}${ws.length ? `<i class="pulse" title="${plural(ws.length, 'worker')} on it now"></i>` : ''}</span>
     <span class="r-prog">${s.prs.length ? `<b>${t.landed}<small>/${t.total}</small></b>${bar(t)}` : ''}</span>
+    ${count(t.queued, 'ok')}${count(t.you, 'you')}
     <span class="r-state">${TONE_WORD[s.tone] ?? esc(s.tone)}</span>
     <span class="r-block">${esc(blocker)}</span>
     <span class="r-next">${esc(s.next)}</span></li>`;
@@ -70,78 +73,113 @@ function unplanned() {
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
   if (!list.length) return '';
   const t = tally(list);
-  return `<li class="srow tn-waiting unplanned" data-track="" tabindex="0"><span class="r-step">Not in a step</span>
+  return `<li class="srow tn-waiting unplanned" data-track="" tabindex="0"><span class="r-step">Other work</span>
     <span class="r-prog"><b>${list.length}<small> open</small></b>${bar(t)}</span>
-    <span class="r-state">${t.you ? 'Needs you' : t.failing ? `${t.failing} failing` : 'Open'}</span><span class="r-block"></span><span class="r-next">Fixes and tooling outside the plan steps</span></li>`;
+    <span class="r-n${t.queued ? ' ok' : ''}">${t.queued}</span><span class="r-n${t.you ? ' you' : ''}">${t.you}</span>
+    <span class="r-state">${t.failing ? `${t.failing} failing` : 'Open'}</span><span class="r-block"></span><span class="r-next">Fixes and tooling outside the plan steps</span></li>`;
 }
 function steps() {
-  const all = state.model.steps;
-  const shown = all.filter((s) => ov.unfold || !['done', 'later'].includes(s.tone));
-  const folded = all.length - shown.length;
-  return `<section class="steps2"><header class="srow head"><span>Step</span><span>Pull requests landed</span><span>State</span><span>What blocks it</span><span>Next</span></header>
-    <ol>${shown.map(stepRow).join('')}${unplanned()}</ol>
-    <footer>${folded || ov.unfold ? `<button class="linkish" data-unfold>${ov.unfold ? 'Hide done and later steps' : `${plural(folded, 'more step')}: ${all.filter((s) => !shown.includes(s)).map((s) => `${esc(s.label)} ${TONE_WORD[s.tone].toLowerCase()}`).join(', ')}`}</button>` : ''}
-    <span class="legend">${['landed', 'queued', 'doing', 'you', 'failing', 'waiting'].map((k) => `<span><i class="sw ${k}"></i>${{ landed: 'landed', queued: 'approved', doing: 'being worked on', you: 'needs you', failing: 'tests failing', waiting: 'waiting' }[k]}</span>`).join('')}</span></footer></section>`;
+  return `<section class="steps2"><header class="srow head"><span>Step</span><span>Landed</span><span title="Approved, waiting to land">Appr.</span><span title="Waiting on your tap">You</span><span>State</span><span>What blocks it</span><span>Next</span></header>
+    <ol>${state.model.steps.map(stepRow).join('')}${unplanned()}</ol>
+    <footer><span class="legend">${['landed', 'queued', 'doing', 'you', 'failing', 'waiting'].map((k) => `<span><i class="sw ${k}"></i>${{ landed: 'landed', queued: 'approved', doing: 'being worked on', you: 'needs you', failing: 'tests failing', waiting: 'waiting' }[k]}</span>`).join('')}</span></footer></section>`;
 }
-function cell(label, value, sub, tone, fill) {
-  return `<div class="cell ${tone}"><small>${label}</small><b>${value}</b>${fill === undefined ? '' : `<span class="tbar"><i style="width:${fill}%"></i></span>`}<span class="sub">${sub}</span></div>`;
-}
-function goal() {
+function lastHour() {
   const m = state.model;
-  const target = m.drive.prs.filter((e) => e.tree === m.tree_names[0]);
-  const t = tally(target);
-  const rels = m.now.releases ?? [];
-  const out = rels.filter((r) => /^(released|done|live)/i.test(r.state)).length;
+  return m.drive.prs.filter((e) => e.state === 'landed' && Date.now() - new Date(m.prs[e.number]?.landed_at ?? 0) < 3600 * 1000);
+}
+function brokeTonight() {
+  const m = state.model;
+  const recs = m.records.filter((r) => ['incident', 'fix-live'].includes(r.kind) && Date.now() - new Date(r.at) < 12 * 3600 * 1000).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const last = recs[recs.length - 1];
+  const failing = tally(m.drive.prs).failing;
+  const red = failing ? ` · ${plural(failing, 'pull request')} failing tests` : '';
+  if (!last) return `Nothing broke${red}`;
+  if (last.kind === 'incident') return `${esc(firstSentences(last.text, 70))}, open since ${clock(last.at)}${red}`;
+  return `${esc(last.text.match(/^FIX-LIVE\s+([^:]+):/)?.[1] ?? firstSentences(last.text, 50))}, fixed ${clock(last.at)}${red}`;
+}
+function proof(p) {
+  return p ? esc(p.state.split(':')[0]) : 'Not checked yet';
+}
+function tile(label, value, sub, cls, href, fill) {
+  return `<a class="tile2 ${cls}" href="${href}"><small>${label}</small><b>${value}</b>${fill === undefined ? '' : `<span class="tbar"><i style="width:${fill}%"></i></span>`}<span class="sub">${sub}</span></a>`;
+}
+function totals() {
+  const m = state.model;
+  const all = tally(m.drive.prs);
+  const t = tally(m.drive.prs.filter((e) => e.tree === m.tree_names[0]));
+  const rels = (m.now.releases ?? []).filter((r) => r.tonight);
+  const out = rels.filter((r) => RELEASED.test(r.state)).length;
+  const next = rels.find((r) => !RELEASED.test(r.state));
+  const hour = lastHour().length;
   const g = m.now.goal ?? {};
-  const proof = (p) => (p ? [esc(p.text), `seen ${clock(p.at)}`] : ['Unknown', 'no proof yet']);
-  const [flag, flagAt] = proof(g.enabled);
-  const [old, oldAt] = proof(g.old_app);
-  return `<section class="goal"><div class="goal-say"><small>Tonight</small><p>Every new-tree change merged and released. The old app stays unchanged; people with the flag get the new app when they update.</p></div>
-    <div class="cells">${cell('New-tree changes merged', `${t.landed}<span>/${t.total}</span>`, `${t.queued} approved, ${t.you} need you`, t.total && t.landed === t.total ? 'ok' : '', pct(t))}
-    ${cell('Releases out', `${out}<span>/${rels.length}</span>`, esc(m.now.release ? m.now.release.state : ''), out ? 'ok' : '', rels.length ? (100 * out) / rels.length : 0)}
-    ${cell('Flag users on the new app', flag, flagAt, g.enabled ? '' : 'unknown')}
-    ${cell('Old app unchanged', old, oldAt, g.old_app ? '' : 'unknown')}</div></section>`;
+  return `<section class="totals">
+    ${tile('New app merged', `${t.landed}<span>/${t.total}</span>`, `${hour ? `+${hour}` : 'None'} landed in the last hour`, 'ok', '#/timeline', pct(t))}
+    ${tile('Approved, landing next', all.queued, 'pull requests across the drive', '', '#/review')}
+    ${tile('Need your tap', all.you, all.you ? 'Open the review list' : 'Nothing waiting on you', all.you ? 'you' : '', '#/review')}
+    ${tile('Released tonight', `${out}<span>/${rels.length}</span>`, next ? `Next: ${esc(next.id)}, ${esc(next.name)}` : 'All out', '', '#/releases', rels.length ? (100 * out) / rels.length : 0)}
+    <a class="tile2 tonight" href="#/releases"><small>Tonight: flag holders get the new app, everyone else keeps the old</small>
+      <ul><li title="${esc(g.old_app?.state ?? '')}"><b>Old app</b><span>${proof(g.old_app)}</span></li><li title="${esc(g.enabled?.state ?? '')}"><b>Flag</b><span>${proof(g.enabled)}</span></li><li><b>Broke</b><span>${brokeTonight()}</span></li></ul></a>
+  </section>`;
 }
-function sinceLook() {
+function track() {
   const m = state.model;
-  const since = new Date(Number(localStorage.getItem('drive-last-look')) || Date.now() - 3600 * 1000);
-  const shipped = m.drive.prs.filter((e) => e.state === 'landed' && new Date(m.prs[e.number]?.landed_at ?? 0) > since);
-  const after = m.records.filter((r) => new Date(r.at) > since);
-  const fixed = after.filter((r) => ['fix-live', 'lift'].includes(r.kind));
-  const broke = after.filter((r) => r.kind === 'incident');
-  const item = (glyph, cls, label, rows, href) => `<a class="si ${cls}" href="${href}"><i>${glyph}</i><b>${label}</b><span>${rows}</span></a>`;
-  return `<section class="since"><small>Since ${clock(since.toISOString())}</small>
-    ${item('✓', 'ok', `${shipped.length} landed`, shipped.slice(0, 4).map((e) => `#${e.number}`).join(' ') || 'nothing yet', '#/timeline')}
-    ${item('▲', 'acc', `${fixed.length} unblocked`, fixed.length ? esc(firstSentences(fixed[fixed.length - 1].text, 60)) : 'nothing', '#/timeline')}
-    ${item('!', broke.length ? 'bad' : '', `${broke.length} new problem${broke.length === 1 ? '' : 's'}`, broke.length ? esc(firstSentences(broke[broke.length - 1].text, 60)) : 'none', '#/timeline')}</section>`;
+  const rels = m.now.releases ?? [];
+  const next = rels.findIndex((r) => !RELEASED.test(r.state));
+  const cur = rels[next];
+  return `<section class="track">
+    <div class="stops">${rels.map((r, i) => `<span class="rstop${i < next || next < 0 ? ' done' : i === next ? ' next' : ''}${r.tonight ? '' : ' after'}" data-release="${esc(r.id)}"><i></i><b>${esc(r.id)}</b><small>${esc(r.name)}</small></span>`).join('')}</div>
+    <p class="at">${cur ? `<b>${esc(cur.id)}, ${esc(cur.name)}:</b> ${esc(cur.state)}` : 'Every release is out'}</p>
+    <button class="planthumb" data-plan><span class="mini">${m.steps.map((s) => `<i class="tn-${s.tone}" style="--w:${Math.max(6, pct(tally(s.prs)))}%"></i>`).join('')}</span><span class="pl"><b>Exact plan</b><small>revised ${m.plan_at ? clock(m.plan_at) : ''}</small></span></button>
+  </section>`;
+}
+function working() {
+  const m = state.model;
+  const live = m.workers.filter((w) => w.live);
+  if (!live.length) return '';
+  const box = (w) => {
+    const step = m.steps.find((s) => s.id === w.step);
+    const pr = w.prs[0];
+    return `<a class="wbox2" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><b>${esc(step?.label ?? 'Tooling')}</b><em>${agoWords(w.at)}</em><span>${pr ? `#${pr} ${esc(shortName(pr) ?? plainTitle(pr))}` : esc(w.lane)}</span><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></a>`;
+  };
+  return `<section class="working"><h4>Working now <span>${plural(live.length, 'worker')}</span></h4><div class="wboxes">${live.slice(0, 6).map(box).join('')}${live.length > 6 ? `<a class="wbox2 more" href="#/workers">+${live.length - 6} more</a>` : ''}</div></section>`;
+}
+function waitingOn() {
+  const items = state.model.now.waiting ?? [];
+  if (!items.length) return '';
+  return `<section class="waiting"><h4>Waiting on</h4><ul>${items.map((w) => `<li><b>${esc(w.what)}</b><span>${[w.owed_by && `owed by ${esc(w.owed_by)}`, w.since && `since ${esc(w.since)}`, w.expected && `expected ${esc(w.expected)}`].filter(Boolean).join(' · ')}</span>${w.unblocks ? `<em>unblocks ${esc(w.unblocks)}</em>` : ''}</li>`).join('')}</ul></section>`;
+}
+function why(item) {
+  if (!item.why) return '';
+  const src = item.source?.href ? ` <a href="${esc(item.source.href)}" target="_blank" rel="noopener">${esc(item.source.label)} ↗</a>` : item.source ? ` <span>${esc(item.source.label)}</span>` : '';
+  return `<p class="why">${esc(item.why)}${src}</p>`;
 }
 function needItem(item) {
-  if (!item) return '<div class="act calm"><span class="big-glyph">✓</span></div>';
+  if (!item) return '<div class="act calm"><span class="what">✓ Nothing needs you right now</span></div>';
   if (item.kind === 'prs' && item.prs.length === 1) {
     const r = item.prs[0];
     const row = boardRow(r.number);
     const busy = pending.number === r.number && !pending.error;
     const failed = pending.number === r.number && pending.error ? `<em class="err">${esc(pending.error)}</em>` : '';
-    return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(shortName(r.number) ?? r.title)}</a>
+    return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(shortName(r.number) ?? r.title)}</a>${why(item)}
       ${ov.noting === `${r.number}@${r.head}` ? `<form class="note" data-note="${r.number}" data-head="${esc(r.head)}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn pri">✓ Approve</button><button type="button" class="btn hold" data-note-hold="${r.number}">‖ Hold</button></form>`
-        : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
+        : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>${busy ? 'Sending…' : `✓ Approve ${esc(r.head.slice(0, 7))}`}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
   }
-  if (item.kind === 'prs') return `<div class="act"><a class="what" href="#/now"><span class="star">★</span><b>${item.prs.length}</b> pull requests need your approval</a><div class="acts"><a class="btn pri" href="#/now">Review ${item.prs.length}</a></div></div>`;
+  if (item.kind === 'prs') return `<div class="act"><a class="what" href="#/review"><span class="star">★</span><b>${item.prs.length}</b> pull requests${item.group ? ` in ${esc(item.group)}` : ''} need your approval</a>${why(item)}<div class="acts"><a class="btn pri" href="#/review">Review ${item.prs.length}</a></div></div>`;
   if (item.kind === 'card') {
     const c = item.card;
     const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
     const failed = ov.answerError ? `<em class="err">${esc(ov.answerError)}</em>` : '';
-    return `<div class="act"><span class="what"><span class="star">?</span>${esc(c.title)}</span>
+    return `<div class="act"><span class="what"><span class="star">?</span>${esc(c.title)}</span>${why(item)}
       <div class="acts">${options.map((o) => `<button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${ov.answering ? ' disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>
       <form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn">${c.choice ? 'Send' : 'Send note'}</button></form>${failed}</div>`;
   }
-  return `<div class="act"><span class="what"><span class="star">!</span>${esc(item.ask.what)}</span><div class="acts">${item.ask.link ? `<a class="btn pri" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : ''}</div></div>`;
+  return `<div class="act"><small class="kick">Reminder</small><span class="what">${esc(item.ask.what)}</span>${why(item)}<div class="acts">${item.ask.link ? `<a class="btn pri" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : ''}</div></div>`;
 }
 function actionCard() {
   const needs = state.model.needs;
   ov.page = Math.min(ov.page, Math.max(0, needs.length - 1));
   const pager = needs.length > 1 ? `<span class="pager">${needs.map((_, i) => `<i class="${i === ov.page ? 'on' : ''}" data-page="${i}"></i>`).join('')}<span>${ov.page + 1}/${needs.length}</span></span>` : '';
-  return `<section class="actcard${needs.length ? '' : ' empty'}" tabindex="-1">${needItem(needs[ov.page])}${pager}</section>`;
+  return `<section class="actcard${needs.length ? '' : ' empty'}${needs[ov.page]?.kind === 'ask' ? ' later' : ''}" tabindex="-1">${needItem(needs[ov.page])}${pager}</section>`;
 }
 function machine(home, title) {
   const parts = state.model.parts.filter((p) => p.home === home);
@@ -171,11 +209,11 @@ function destination() {
   const tools = state.model.drive.prs.filter((e) => e.part === 'tools');
   return `<section class="dest">
     ${machine('cloud', 'Cloud')}
-    <div class="ring-row"><span class="trunk"></span><button class="ring" data-key style="--p:${pct(t)}%"><b>${pct(t)}<small>%</small></b></button>
-      <span class="counts"><b>${t.landed}</b> landed <b>${t.queued}</b> queued <b class="${t.you ? 'you' : ''}">${t.you}</b> your tap</span></div>
+    <div class="ring-row"><button class="ring" data-key style="--p:${pct(t)}%"><b>${pct(t)}<small>%</small></b></button>
+      <span class="counts"><span><b>${t.landed}</b> landed <b>${t.queued}</b> approved <b class="${t.you ? 'you' : ''}">${t.you}</b> your tap</span><small>of all ${t.total} drive pull requests</small></span></div>
     ${machine('mac', 'Mac')}
     <div class="toolsband" data-part="tools"><span class="pn">Tools</span><span class="pls">${lights(tools)}</span></div>
-    ${releaseTrunk()}
+    <p class="endstate">End state: Mac and cloud both run the new tree, chats follow live between them, and the old tree stays until cutover.</p>
   </section>`;
 }
 function overview() {
@@ -184,11 +222,14 @@ function overview() {
   return `<div class="cp">
     ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
     ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
-    ${goal()}
+    ${totals()}
+    ${track()}
     <div class="cp-grid2">
-      <div class="cp-main">${sinceLook()}${steps()}</div>
+      <div class="cp-main">${steps()}</div>
       <aside class="rail">${actionCard()}${destination()}</aside>
     </div>
+    ${working()}
+    ${waitingOn()}
     <div id="tip" class="tip" hidden></div>
   </div>
   ${state.overlay === 'track' ? trackSheet() : ''}
@@ -338,7 +379,7 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.cp, .overlay')) return;
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
-  if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
+  if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'text'; return render(); }
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);

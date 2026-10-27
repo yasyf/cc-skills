@@ -200,3 +200,33 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   .prose tr { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; padding: 6px 4px; }
   .prose td { border: 0; padding: 3px 8px; } .prose td::before { content: attr(data-h); display: block; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
 }
+
+.ngroup { margin-bottom: 16px; }
+.ngroup h3 { margin: 0; font-size: 17px; }
+.nrel { margin: 4px 0 0; color: var(--ink-2); }
+.nwhy { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.nsrc { font-size: 12.5px; font-weight: 650; white-space: nowrap; }
+.nsrc.none { color: var(--warn); }
+.nrows, .nothers { list-style: none; margin: 12px 0 0; padding: 0; }
+.nothers { margin: 0; }
+.nrow { padding: 12px 0; border-top: 1px solid var(--line); }
+.nrow:not(.you) { opacity: .62; }
+.nt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-weight: 650; }
+.nt a { color: var(--ink); }
+.nrow dl { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 12px; margin: 8px 0; font-size: 13px; }
+.nrow dt { color: var(--ink-3); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding-top: 2px; }
+.nrow dd { margin: 0; }
+.nrow .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.nerr { color: var(--bad); font-size: 12.5px; margin-bottom: 6px; }
+.nother { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
+.nother:first-child { border-top: 0; }
+.nmark { font: 750 16px var(--display); color: var(--owner); text-align: center; }
+.nother details { margin-top: 6px; font-size: 13px; }
+.nother summary { cursor: pointer; color: var(--accent); }
+.nfull { white-space: pre-wrap; margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+@media (max-width: 760px) {
+  .nrow dl { grid-template-columns: 1fr; gap: 0; }
+  .nrow dt { padding-top: 6px; }
+  .nother { grid-template-columns: 22px minmax(0, 1fr); }
+  .nother .nsrc { grid-column: 2; }
+}

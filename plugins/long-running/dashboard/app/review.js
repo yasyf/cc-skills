@@ -94,7 +94,7 @@ function decideBar(row, v) {
   if (v === 'approved' || v === 'held') {
     return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared" ${busy ? 'disabled' : ''}>Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
+  return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">${busy ? 'Sending…' : pending.number === row.number && pending.error ? `Retry approve ${head}` : `✓ Approve ${head}`}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
 }
 async function decide(row, verdict, note, advance = true) {
   clearTimeout(pending.advance);

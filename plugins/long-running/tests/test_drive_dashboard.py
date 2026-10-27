@@ -193,14 +193,46 @@ def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
     assert workers[0]["step"] == "journal"
 
 
-def test_his_taps_are_one_need_then_questions_then_required_asks():
-    drive = {"prs": [{"number": 42001, "state": "you"}, {"number": 42002, "state": "queued"}, {"number": 42003, "state": "you"}]}
-    rows = [{"number": n, "head": f"{n}aaaa", "title": f"T{n}", "block": "merge-prs"} for n in (42001, 42002, 42003)]
+def merge_board(*groups):
+    blocks = [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": gid, "title": title, "summary": summary, "prs": prs} for gid, title, summary, prs in groups]}]}]
+    return {"doc": {"blocks": blocks}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}}
 
-    out = needs(drive, rows, [{"id": "card-a"}], [{"what": "Rotate a key"}, {"what": "Resume", "optional": True}])
 
-    assert [item["kind"] for item in out] == ["prs", "card", "ask"]
-    assert [pr["number"] for pr in out[0]["prs"]] == [42001, 42003]
+def board_row(number, state):
+    return {"number": number, "head": f"{number}aaaa", "title": f"T{number}", "change": f"C{number}", "plan": f"P{number}", "risk": f"R{number}", "review": f"V{number}", "blocker": f"B{number}", "md": "M", "state": state}
+
+
+def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
+    store = merge_board(
+        ("tools", "Faster tools", "Four tooling changes; none reaches a user.", [board_row(43243, "approved"), board_row(43246, "you")]),
+        ("done", "All approved", "Nothing left.", [board_row(43300, "approved")]),
+        ("gate", "Release 1 waits on this", "The first release cannot start without it.", [board_row(43258, "you")]),
+    )
+    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+
+    out = needs(rows, [], [], "http://board/p/x")
+
+    assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
+    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "block": "merge-prs", "state": "you"}]
+    assert [row["number"] for row in out[0]["others"]] == [43243]
+    assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
+    assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
+
+
+def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_says_so():
+    record = {"seq": 140321, "lane": "release-plan-2", "at": "2026-10-27T09:16:23Z", "text": "Where is that key kept?"}
+    asks = [{"what": "Say where the key is kept", "why": "The flag read needs it.", "record": record}, {"what": "Rotate a key", "why": "It sat in chat."}, {"what": "Resume", "why": "W", "optional": True}]
+
+    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A"}], asks, "http://board/p/x")
+
+    assert [item["kind"] for item in out] == ["card", "ask", "ask"]
+    assert out[0]["source"] == {"label": "Board card: Pick one", "href": "http://board/p/x"}
+    assert out[0]["why"].endswith("Two ways. Recommended: A.")
+    assert out[1]["source"] == {"label": "Record #140321 from release-plan-2", "href": "/record/140321"}
+    assert out[1]["why"] == "release-plan-2 asked in #140321, due now: The flag read needs it."
+    assert out[1]["ask"]["record"]["text"] == "Where is that key kept?"
+    assert out[2]["source"]["href"] is None
+    assert out[2]["why"].startswith("No drive record asked for this")
 
 
 @pytest.mark.parametrize(

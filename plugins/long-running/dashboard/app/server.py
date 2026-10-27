@@ -32,6 +32,8 @@ TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
+RECORD_ROUTE = re.compile(r"/record/(\d+)")
+ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "block", "state")
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
@@ -182,10 +184,43 @@ def step_rows(steps, drive, workers):
     return rows
 
 
-def needs(drive, rows, cards, asks):
-    by_number = {row["number"]: row for row in rows}
-    waiting = [{"number": e["number"], "head": by_number[e["number"]]["head"], "title": by_number[e["number"]]["title"], "block": by_number[e["number"]]["block"]} for e in drive["prs"] if e["state"] == "you" and e["number"] in by_number]
-    return ([{"kind": "prs", "prs": waiting}] if waiting else []) + [{"kind": "card", "card": card} for card in cards] + [{"kind": "ask", "ask": ask} for ask in asks if not ask.get("optional")]
+def merge_needs(rows, board_url):
+    groups = {}
+    for row in rows:
+        group = groups.setdefault((row["block"], row["group_id"]), {"group": row["group"], "relation": row["group_summary"], "rows": []})
+        group["rows"].append({key: row[key] for key in ROW_FACTS})
+    items = []
+    for group in groups.values():
+        waiting = [row for row in group["rows"] if row["state"] == "you"]
+        if not waiting:
+            continue
+        count = f"{len(waiting)} pull request{'' if len(waiting) == 1 else 's'}"
+        items.append({
+            "kind": "prs",
+            "group": group["group"],
+            "relation": group["relation"],
+            "prs": waiting,
+            "others": [row for row in group["rows"] if row["state"] != "you"],
+            "why": f"The merge board waits on your tap for {count} in “{group['group']}”; each merges only at the commit shown, and it is due now.",
+            "source": {"label": f"Merge board: {group['group']}", "href": board_url},
+        })
+    return items
+
+
+def card_need(card, board_url):
+    recommended = f" Recommended: {card['recommended']}." if card["recommended"] else ""
+    return {"kind": "card", "card": card, "why": f"The drive's board asks you this and it is open now. {card['summary']}{recommended}".strip(), "source": {"label": f"Board card: {card['title']}", "href": board_url}}
+
+
+def ask_need(ask):
+    record = ask.get("record")
+    if not record:
+        return {"kind": "ask", "ask": ask, "why": f"No drive record asked for this; only the progress desk's list carries it. {ask['why']}", "source": {"label": "No record behind this ask", "href": None}}
+    return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": f"Record #{record['seq']} from {record['lane']}", "href": f"/record/{record['seq']}"}}
+
+
+def needs(rows, cards, asks, board_url):
+    return [*merge_needs(rows, board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional"))]
 
 
 def parse_plan(body):
@@ -237,6 +272,11 @@ class Drive:
         if body["kind"] == "choice":
             return self.interact({"type": "choice.selected", "blockId": body["block"], "optionIds": body.get("options", []), **({"other": body["other"]} if body.get("other") else {})})
         return self.interact({"type": "feedback.created", "id": str(uuid.uuid4()), "blockId": body["block"], "text": body["text"]})
+
+    def asked(self, text):
+        lane, kind = ("dashboard-ask-test", "note") if text.startswith("[user-test") else ("dashboard", "owner")
+        run(["cci", "post", "--drive", self.config["drive"], "--lane", lane, "--kind", kind, "--to", "root", "--text", f"Asked on the dashboard: {text}"])
+        return 200, ""
 
     def interact(self, interaction):
         origin, _, subject = self.config["board_url"].partition("/p/")
@@ -405,7 +445,7 @@ class Drive:
             "now": progress.get("now", {}),
             "steps_at": progress["updated"],
             "live": LIVE_SOURCES,
-            "needs": needs(drive, board["rows"], board["cards"], model["story"].get("asks", [])),
+            "needs": needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"]),
         }
 
     def report_defect(self, text):
@@ -434,14 +474,22 @@ class Drive:
         ledger = json.loads(self.ccn("ledger", "show", self.config["ledger"], "--json"))
         prs = {row["key"]: {k: v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
         plan_at, plan = self.read_plan()
+        story = json.loads(Path(self.config["story"]).read_text())
+        for ask in story.get("asks", []):
+            if "seq" in ask:
+                ask["record"] = self.record(ask["seq"])
         return {
             "prs": prs,
             "plan": plan,
             "plan_at": plan_at,
-            "story": json.loads(Path(self.config["story"]).read_text()),
+            "story": story,
             "releases": self.read_doc(self.config["release_doc"]),
             "words": [{"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for a in json.loads(self.ccn("answer", "list", "--label", f"program:{self.config['drive']}", "--json"))],
         }
+
+    def record(self, seq):
+        found = json.loads(run(["cci", "show", str(seq), "--json"]))
+        return {"seq": seq, "lane": found["lane"], "at": found["at"], "text": run(["cci", "show", str(seq)]).partition("\n")[2].strip() or found["text"]}
 
     def facts(self, number):
         head = self.slow.get("prs", {}).get(str(number), {}).get("head")
@@ -474,7 +522,7 @@ class Drive:
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
-                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
+                        rows.append({**row, "group": group["title"], "group_id": group["id"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
             if groups:
                 continue
             asks = [child for child in block.get("children", []) if child["type"] in ASKS]
@@ -517,6 +565,11 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps({"url": url}).encode())
             if path == "/ai.json":
                 return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
+            if found := RECORD_ROUTE.fullmatch(path):
+                try:
+                    return self.send(200, "text/plain; charset=utf-8", run(["cci", "show", found[1]]).encode())
+                except subprocess.CalledProcessError as error:
+                    return self.send(502, "text/plain; charset=utf-8", error.stderr.encode())
             if found := PR_ROUTE.fullmatch(path):
                 try:
                     facts = drive.facts(int(found[1]))
@@ -526,13 +579,15 @@ def handler(drive):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path not in ("/api/verdict", "/api/answer"):
+            if self.path not in ("/api/verdict", "/api/answer", "/api/asked"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path == "/api/answer":
                 status, error = drive.answer(body)
+            elif self.path == "/api/asked":
+                status, error = drive.asked(body["text"])
             else:
                 status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())

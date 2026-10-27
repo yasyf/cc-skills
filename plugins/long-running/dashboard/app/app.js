@@ -210,6 +210,41 @@ function timelineScreen() {
     <div class="card"><ul class="tl">${timelineRows(events, true) || '<li class="dim">Nothing yet.</li>'}</ul></div>`;
 }
 
+const FACTS = [['change', 'What changes for a user'], ['plan', 'Against the plan'], ['risk', 'Risk'], ['review', 'Review'], ['blocker', 'What blocks it']];
+function needsTotal() {
+  return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : 1), 0);
+}
+function sourceLink(source) {
+  return source.href ? `<a class="nsrc" href="${esc(source.href)}" target="_blank" rel="noopener">${esc(source.label)} ›</a>` : `<span class="nsrc none">${esc(source.label)}</span>`;
+}
+function needRow(r) {
+  const row = boardRow(r.number);
+  const busy = row?.pending ? ' disabled' : '';
+  const acts = r.state === 'you'
+    ? `<button class="btn pri" data-tap="approved" data-n="${r.number}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${busy}>‖ Hold</button>`
+    : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
+  return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
+    <dl>${FACTS.map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl>
+    ${row?.failed ? `<div class="nerr">${esc(row.failed)}</div>` : ''}<div class="acts">${acts}</div></li>`;
+}
+function needGroup(item) {
+  return `<section class="card ngroup"><h3>${esc(item.group)}</h3><p class="nrel">${esc(item.relation)}</p><p class="nwhy">${esc(item.why)} ${sourceLink(item.source)}</p>
+    <ul class="nrows">${[...item.prs, ...item.others].map(needRow).join('')}</ul></section>`;
+}
+function needOther(item) {
+  const record = item.ask?.record;
+  return `<li class="nother ${item.kind}"><span class="nmark">${item.kind === 'card' ? '?' : '!'}</span><div><div class="nt">${esc(item.kind === 'card' ? item.card.title : item.ask.what)}</div><p class="nwhy">${esc(item.why)}</p>
+    ${record ? `<details data-id="ask-${record.seq}"${state.open.has(`ask-${record.seq}`) ? ' open' : ''}><summary>Full ask from ${esc(record.lane)} at ${clock(record.at)}</summary><div class="nfull">${inline(record.text)}</div></details>` : ''}</div>${sourceLink(item.source)}</li>`;
+}
+function needsScreen() {
+  const items = state.model.needs;
+  const others = items.filter((item) => item.kind !== 'prs');
+  return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
+    ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
+    ${others.length ? `<h2 class="sec">Questions and asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
+    ${items.length ? '' : '<div class="card dim">Nothing needs you right now.</div>'}`;
+}
+
 function releases() {
   const r = state.model.releases;
   return `<div class="prose">${r.updated ? `<p class="dim">Last revised ${clock(r.updated)}</p>` : ''}${markdown(r.markdown)}</div>`;
@@ -230,6 +265,7 @@ async function ask(question) {
   state.chat.push({ role: 'user', content: question }, { role: 'assistant', content: '' });
   state.asking = true;
   render();
+  fetch('/api/asked', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: question }) });
   const answer = state.chat[state.chat.length - 1];
   try {
     answer.content = await assistAsk(question, history, (text) => {
@@ -255,9 +291,9 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsCount()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
+  const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview, now: needsYou, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
+  const screens = { overview, now: needsScreen, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
   const y = window.scrollY;
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
@@ -283,7 +319,15 @@ async function load() {
   state.model = model;
   state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
   state.version = model.version;
-  render();
+  if (state.pressing) state.owed = true;
+  else render();
+}
+document.addEventListener('pointerdown', () => { state.pressing = true; }, true);
+for (const type of ['pointerup', 'pointercancel']) {
+  document.addEventListener(type, () => {
+    state.pressing = false;
+    if (state.owed) { state.owed = false; setTimeout(render); }
+  }, true);
 }
 function connect() {
   const es = new EventSource('/api/stream');
