@@ -672,6 +672,9 @@ ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
+LANE_ORDER_WINDOW = timedelta(hours=2)
+LANE_SILENT = timedelta(minutes=15)
+LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
 HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
@@ -3293,6 +3296,35 @@ class Runner:
         """Hold each incident fix lane's mechanism to `deadlines.pr_silent_minutes`: a MECHANISM or CANDIDATE with no OPENED or BLOCKER since logs one PR-SILENT naming the lane's worktree state, and again every `deadlines.pr_silent_every_minutes` until one lands, the lane ends, or the root answers it."""
         try:
             self.pr_silent_escalate(self.pr_silent_scan())
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+
+    def lanes_gone(self) -> None:
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, once its newest record and `cci who`'s last sight of it are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root spawns a successor that pass (root #147167)."""
+        try:
+            now, drive = self.now(), self.config.drive
+            records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
+            orders: dict[str, list[dict]] = {}
+            for record in records:
+                if record["lane"] == ROOT and record["kind"] in LANE_ORDER_KINDS:
+                    for lane in record.get("to") or []:
+                        if lane not in (ROOT, "main", "all", RUNNER) and not lane.startswith("peer:"):
+                            orders.setdefault(lane, []).append(record)
+            for lane, addressed in orders.items():
+                last = max((record for record in records if record["lane"] == lane), key=lambda record: record["seq"], default=None)
+                unanswered = [order for order in addressed if last is None or order["seq"] > last["seq"]]
+                if not unanswered or last and now - actions.parse_stamp(last["at"]) < LANE_SILENT:
+                    continue
+                done = self.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--json"])
+                if done.code != 0:
+                    raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
+                seen = max((actions.parse_stamp(entry["seen_at"]) for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("seen_at")), default=None)
+                if seen and now - seen < LANE_SILENT:
+                    continue
+                said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"
+                sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
+                orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
+                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; spawn its successor from its brief and handoff")
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
@@ -6275,6 +6307,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.deadlines_orca()
             runner.incident_clock()
             runner.pr_silent()
+            runner.lanes_gone()
             runner.class_unowned()
             runner.in_process()
             runner.cut_clock()
