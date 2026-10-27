@@ -6952,9 +6952,13 @@ def test_a_root_decide_naming_the_lane_stops_its_clock(shell, config, tmp_path, 
     assert clock_lines(shell) == [] and len(launches(shell)) == 1
 
 
-def test_a_root_decision_broadcast_to_the_lane_leaves_its_clock_running(shell, config, tmp_path):
+@pytest.mark.parametrize(
+    ("kind", "to", "text"),
+    [("decision", [LANE, "landing-desk"], "Register classify, 1 rows"), ("decide", ["landing-desk"], f"{LANE}.v2 owns the release incident")],
+)
+def test_a_root_decision_broadcast_or_a_decide_naming_a_dotted_sibling_leaves_the_clock_running(shell, config, tmp_path, kind, to, text):
     clocked_lane(shell, config, tmp_path)
-    cci_record(shell, lane="root", kind="decision", to=[LANE, "landing-desk"], text="Register classify, 1 rows", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="root", kind=kind, to=to, text=text, at=actions.stamp(shell.clock))
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)

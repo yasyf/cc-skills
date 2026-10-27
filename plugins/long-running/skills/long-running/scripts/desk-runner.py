@@ -910,7 +910,7 @@ def class_keys(record: dict) -> set[str]:
 
 def names_lane(record: dict, names: set[str]) -> bool:
     """Whether a record is addressed to one of a lane's names or names one in its text."""
-    return bool(names & set(record.get("to") or [])) or any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", record.get("text") or "") for name in names)
+    return bool(names & set(record.get("to") or [])) or any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-]|\.\w)", record.get("text") or "") for name in names)
 
 
 def lane_aliases(lane: str) -> tuple[str, str]:
