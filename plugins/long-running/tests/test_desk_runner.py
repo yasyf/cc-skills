@@ -6175,20 +6175,19 @@ def test_the_landing_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, 
     assert not runner.stop_marker().exists()
 
 
-def test_handoff_of_the_landing_desk_names_the_landing_runner_and_not_the_orca_runner(shell, config, tmp_path, monkeypatch):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir(exist_ok=True)
-    (inbox / runner_module.HEARTBEATS["orca"]).write_text(json.dumps({"pid": os.getppid()}) + "\n")
-    landing_pass(shell, config)
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+def test_handoff_of_the_landing_desk_waits_for_the_landing_runner_and_not_the_orca_runner(shell, config, tmp_path, monkeypatch):
+    _, orca = live_runner(shell, config, tmp_path, "orca")
+    runner, landing = live_runner(shell, config, tmp_path, "landing")
     named = []
 
-    def exit_mark(seconds):
+    def exits(seconds):
         named.append(runner.stop_marker().read_text().strip())
         runner.stop_marker().unlink()
+        landing.close()
 
-    monkeypatch.setattr(shell, "sleep", exit_mark)
-    assert cli(shell, config, "handoff", "--desk", "landing") == 0
+    monkeypatch.setattr(shell, "sleep", exits)
+    with orca:
+        assert cli(shell, config, "handoff", "--desk", "landing") == 0
     assert named == [str(os.getpid())]
     assert shell.successors == [successor(config, tmp_path, "landing")]
 
