@@ -735,7 +735,7 @@ def failing_checks(contexts: list[dict], repo: str) -> str:
 
 
 def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
-    """Each failing check with `error`, the first error line of its Buildkite job, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails, carries no `error` and is read again on the next refresh (root #148571)."""
+    """Each failing check with `error`, the first error line of its Buildkite job, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries no `error` and is read again on the next refresh (root #148571)."""
     known = {check["url"]: check["error"] for check in json.loads(stored or "[]") if "error" in check}
     enriched = []
     for check in json.loads(checks):
@@ -744,7 +744,7 @@ def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
         elif target := BUILDKITE_URL.match(check["url"]):
             try:
                 check["error"] = resolve_error(shell, target)
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, IndexError):
                 pass
         enriched.append(check)
     return json.dumps(enriched)
