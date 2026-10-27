@@ -46,7 +46,7 @@ SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", 
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css")}
 
 
 def run(argv, cwd=None):
@@ -122,14 +122,20 @@ def part_of(title, parts):
 def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     by_number = {str(row["number"]): row for row in rows}
     active = activity(records, now)
+    by_branch = {pr.get("branch"): number for number, pr in prs.items() if pr.get("state") == "open"}
     listed = []
     for number, pr in sorted(prs.items()):
         if pr.get("state") not in ("open", "landed", None):
             continue
         found = trees.get(number, [])
+        state = pr_state(pr, by_number.get(number), gos.get(int(number)), active.get(number), now)
+        base = by_branch.get(pr.get("base"))
+        if state == "failing" and base and prs[base].get("test_state") == "failure":
+            state = "waiting"
         listed.append({
             "number": int(number),
-            "state": pr_state(pr, by_number.get(number), gos.get(int(number)), active.get(number), now),
+            "state": state,
+            "base": int(base) if base else None,
             "tree": next((name for name in tree_names if name in found), tree_names[-1]),
             "part": part_of(pr.get("title"), parts),
             "step": next((step["id"] for step in steps if int(number) in step["prs"]), None),
@@ -550,7 +556,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css"):
+                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())

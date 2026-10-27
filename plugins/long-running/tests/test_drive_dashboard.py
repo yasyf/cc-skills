@@ -146,6 +146,21 @@ def test_each_pull_request_takes_the_first_state_in_precedence(fields, row_state
     assert listed(ledger(pr42001=fields), rows, {42001: go} if go else {})[42001]["state"] == state
 
 
+@pytest.mark.parametrize(
+    ("base_tests", "state"),
+    [("failure", "waiting"), ("success", "failing")],
+)
+def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_tests, state):
+    prs = ledger(
+        pr42001={"state": "open", "branch": "base", "test_state": base_tests},
+        pr42002={"state": "open", "branch": "child", "base": "base", "test_state": "failure"},
+    )
+
+    light = listed(prs)[42002]
+
+    assert (light["state"], light["base"]) == (state, 42001)
+
+
 def step(prs, lanes=(), tone="later", step_id="s"):
     return {"id": step_id, "title": "T", "state": "S", "tone": tone, "blocker": None, "next": "N", "prs": list(prs), "lanes": list(lanes)}
 

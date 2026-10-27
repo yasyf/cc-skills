@@ -160,8 +160,9 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   .sheet { padding: 16px; } .overlay { padding: 0; } .sheet { border-radius: 0; min-height: 100%; }
   .top { flex-wrap: wrap; height: auto; padding: 8px 14px 0; gap: 6px 12px; }
   .tabs { order: 3; flex-basis: 100%; flex-wrap: wrap; column-gap: 0; }
-  .tab { padding: 7px 8px 8px; font-size: 13.5px; }
-  .wrap { padding: 16px 14px 96px; }
+  .tab { padding: 5px 7px 6px; font-size: 13px; }
+  .fresh { display: none; }
+  .wrap { padding: 10px 12px 96px; }
   .thesis { font-size: 18px; }
   .tl li { grid-template-columns: 52px 12px minmax(0, 1fr); gap: 0 8px; }
   .gap { padding-left: 60px; }
@@ -237,3 +238,9 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .relrow .rw { font-weight: 700; color: var(--ink-3); } .relrow.blocked .rw, .relrow.blocked b { color: var(--bad); } .relrow.out .rw { color: var(--ok); }
 .relrow .rn { font-weight: 650; } .relrow .rn em { font-style: normal; font-weight: 500; color: var(--ink-3); } .relrow .rs { color: var(--ink-2); } .relrow .ro { color: var(--ink-3); font-size: 12.5px; text-align: right; }
 @media (max-width: 760px) { .relrow { grid-template-columns: 30px minmax(0, 1fr) auto; } .relrow .rn { grid-column: 2; grid-row: 1; } .relrow .rw { grid-column: 3; grid-row: 1; } .relrow .rs { grid-column: 2 / -1; } .relrow .ro { display: none; } }
+.nzero { margin-bottom: 12px; } .mergecard details { margin: 8px 0; } .mergecard summary { cursor: pointer; font-weight: 650; color: var(--accent); }
+.relnow { margin: 4px 0 6px; font-size: 15px; font-weight: 600; } .sheet details > summary.sc-h { cursor: pointer; }
+.digest { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin-bottom: 14px; } .digest .kick { grid-column: 1 / -1; }
+.dg h4 { margin: 0 0 4px; font-size: 14px; } .dg h4 b { font: 800 18px var(--display); margin-right: 4px; } .dg.none { opacity: .55; }
+.dg ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 13px; } .dg li { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; } .dg .time { color: var(--ink-3); font-size: 12px; }
+@media (max-width: 760px) { .digest { grid-template-columns: 1fr; } }

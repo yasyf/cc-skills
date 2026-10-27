@@ -91,6 +91,13 @@ function markdown(md) {
       continue;
     }
     if (/^\s*```/.test(line)) { flushTable(); code = []; continue; }
+    const disclose = /^\s*(<details>)?(?:<summary>(.*?)<\/summary>)?(<\/details>)?\s*$/.exec(line);
+    if (disclose && (disclose[1] || disclose[2] !== undefined || disclose[3])) {
+      flushTable();
+      if (list) { out.push(`</${list}>`); list = null; }
+      out.push(`${disclose[1] ? '<details>' : ''}${disclose[2] !== undefined ? `<summary>${inline(disclose[2])}</summary>` : ''}${disclose[3] ? '</details>' : ''}`);
+      continue;
+    }
     if (/^\s*\|/.test(line)) {
       if (list) { out.push(`</${list}>`); list = null; }
       if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
@@ -204,10 +211,26 @@ function workers() {
   return `<h2 class="sec">Workers <span class="pill">${lanes.length}</span>${stalls ? `<span class="pill bad">${stalls} quiet while holding a pull request</span>` : ''}</h2><div class="lives">${lanes.map(liveBox).join('')}</div>`;
 }
 
+function hourDigest() {
+  const m = state.model;
+  const from = Date.now() - 3600 * 1000;
+  const recent = timeline().filter((e) => new Date(e.at) > from);
+  const landed = Object.entries(m.prs).filter(([, pr]) => pr.state === 'landed' && pr.landed_at && new Date(pr.landed_at) > from).sort((a, b) => new Date(b[1].landed_at) - new Date(a[1].landed_at));
+  const said = (kinds) => recent.filter((e) => kinds.includes(e.kind));
+  const line = (e) => `<li><span class="time">${clock(e.at)}</span><span>${inline(firstSentences(e.text, 140))}</span></li>`;
+  const rows = [
+    ['Landed', landed.length, landed.slice(0, 5).map(([n, pr]) => `<li><span class="time">${clock(pr.landed_at)}</span><span>${prLink(n)} ${esc(plainTitle(n))} <em class="dim">${{ 'New tree': 'new app', 'Old tree': 'old app' }[driveEntry(n)?.tree] ?? 'shared'}</em></span></li>`)],
+    ['Unblocked or fixed', said(['fix-live', 'lift', 'go']).length, said(['fix-live', 'lift', 'go']).slice(0, 4).map(line)],
+    ['Newly broke or blocked', said(['incident', 'blocker']).length, said(['incident', 'blocker']).slice(0, 4).map(line)],
+    ['You said', said(['owner']).length, said(['owner']).slice(0, 3).map(line)],
+  ];
+  return `<div class="card digest"><div class="kick muted">Since ${clock(new Date(from).toISOString())}</div>${rows.map(([label, n, items]) => `<section class="dg${n ? '' : ' none'}"><h4><b>${n}</b> ${label}</h4>${items.length ? `<ul>${items.join('')}</ul>` : ''}</section>`).join('')}</div>`;
+}
 function timelineScreen() {
   const filter = TIMELINE_FILTERS.find((f) => f[0] === route().id) ?? TIMELINE_FILTERS[0];
   const events = timeline().filter(filter[2]);
   return `<h2 class="sec">Timeline <span class="dim">last 24 hours, newest first</span></h2>
+    ${filter[0] === 'hour' ? hourDigest() : ''}
     <div class="filters">${TIMELINE_FILTERS.map(([id, label]) => `<button data-filter="${id}" class="${id === filter[0] ? 'on' : ''}">${label}</button>`).join('')}</div>
     <div class="card"><ul class="tl">${timelineRows(events, true) || '<li class="dim">Nothing yet.</li>'}</ul></div>`;
 }
@@ -244,15 +267,16 @@ function needsScreen() {
   return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
     ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
     ${others.length ? `<h2 class="sec">Questions and asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
-    ${items.length ? '' : '<div class="card"><b>Nothing needs your tap right now.</b> When a pull request or a board question waits on you, it shows here and on the Overview.</div>'}
+    ${items.length ? '' : `<div class="card nzero"><b>No decisions now.</b> When a pull request or a question waits on you, it shows here and on the Overview with its buttons.</div>`}
     ${mergeCard()}`;
 }
 function mergeCard() {
   const merge = state.model.board.merge;
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<h2 class="sec">On your merge board <a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Open the board ↗</a></h2>
-    <div class="card prose mergecard"><p><b>${esc(merge.title)}</b></p><p>${esc(merge.summary)}</p>${merge.tables.map(table).join('')}${merge.pages.map((md) => markdown(md)).join('')}</div>`;
+  return `<div class="card prose mergecard"><p class="kick muted">Your merge board says <a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">open it ↗</a></p><p><b>${esc(merge.summary)}</b></p>
+    <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
+    ${merge.pages.map((md) => markdown(md)).join('')}</div>`;
 }
 
 function releases() {

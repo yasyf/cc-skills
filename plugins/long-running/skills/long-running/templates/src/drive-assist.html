@@ -300,7 +300,7 @@ function decorate(r){
  if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
  const main=document.getElementById("main");
  if(r.screen==="overview"&&since)main.insertAdjacentHTML("afterbegin",sinceBanner());
- if(r.screen==="timeline")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
+ if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
  main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
  document.querySelectorAll("[data-ai]").forEach(b=>paintAi(b.dataset.ai));
@@ -382,7 +382,9 @@ function entries(){
  [["","Overview"],["now","Needs you"],["review","Review"],["releases","Releases"],["workers","Workers"],["timeline","Timeline"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
- Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${boardRow(n)?` · ${boardRow(n).group}`:""}${m.prs[n].lane?` · ${m.prs[n].lane}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""}`)});
+ const said={};
+ [...m.board.rows.map(r=>`#${r.number} ${r.title} ${r.change}`),...(m.board.merge?.pages??[]).flatMap(pg=>pg.split("\n"))].forEach(line=>{for(const [,n] of line.matchAll(/#(\d{5})\b/g))said[n]=`${said[n]??""} ${line.replace(/[|*`]/g," ")}`});
+ Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
  [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Stacks","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
  m.plan.forEach((s,i)=>add("Plan steps",String(i+1),s.title,`${s.prs.filter(n=>prState(n)==="landed").length} of ${s.prs.length} landed`,()=>{location.hash="#/";state.overlay="plan";render();setTimeout(()=>document.querySelectorAll(".sheet .pstep")[i]?.scrollIntoView({block:"center"}),50)},s.text));
  m.lanes.slice().sort((a,b)=>new Date(b.at)-new Date(a.at)).forEach(l=>add("Workers","●",l.lane,`${agoWords(l.at)} · ${short(l.text,80)}`,()=>openSheet({kind:"lane",id:l.lane})));
@@ -400,7 +402,7 @@ function results(raw){
  const all=entries();
  let picked;
  if(!q.length)picked=all.filter(e=>["Needs you","Screens"].includes(e.group)).map(e=>({...e,score:1}));
- else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20).map(e=>e.group==="Show only"?{...e,score:e.score+40}:e);
+ else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20).map(e=>e.group==="Show only"||e.group==="Pull requests"?{...e,score:e.score+40}:e);
  const groups={};
  picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
  const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));

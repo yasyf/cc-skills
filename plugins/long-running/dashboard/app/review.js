@@ -186,7 +186,7 @@ function syncReviewEmbed(r) {
       if (embed.number !== number) return;
       code.innerHTML = url
         ? `<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
-        : `<p class="pane-wait bad">cc-review could not open #${number}: ${esc(error)}</p>`;
+        : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>`;
     });
 }
 window.addEventListener('message', (e) => {

@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:1efb539198c8 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:1623882d0d8c — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -48,14 +48,17 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .as-since .aibox { grid-column: 1 / -1; margin: 0; }
 .as-now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
 .as-now-h h1 { margin: 0; font-size: 26px; }
+.as-batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 .as-nl { list-style: none; margin: 0; padding: 0; }
 .as-nl li { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--line); }
 .as-nl li:first-child { border-top: 0; }
+.as-nl .rank { font: 750 15px var(--display); color: var(--ink-3); text-align: center; }
 .as-nl .t { font-weight: 650; }
 .as-nl .t a { color: var(--ink); }
 .as-nl .w { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
 .as-nl .w .ai { font-weight: 650; }
 .as-nl .acts { display: flex; gap: 6px; }
+.as-nl .conf { margin-top: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); }
 .as-nl .done { color: var(--ok); font-weight: 650; }
 .as-bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
 .as-bucket.safe { color: var(--ok); } .as-bucket.read { color: var(--warn); }
@@ -66,6 +69,7 @@ html:not(.ai-on) .ai-only { display: none !important; }
   #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
   .as-since { grid-template-columns: 1fr; }
   .as-nl li { grid-template-columns: 1fr; }
+  .as-nl .rank { display: none; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
@@ -460,6 +464,25 @@ function narration(){
  return aiBox(shown,"The day in five sentences",` <span class="dim">updates as events land</span>`);
 }
 
+const TRIAGE={name:"triage",schema:{type:"object",additionalProperties:false,required:["items"],properties:{items:{type:"array",items:{type:"object",additionalProperties:false,required:["pr","bucket","why","conflict_id","conflict_quote"],properties:{pr:{type:"integer"},bucket:{type:"string",enum:["safe","read"]},why:{type:"string"},conflict_id:{type:"string"},conflict_quote:{type:"string"}}}}}}};
+function triage(){
+ const rows=waiting();
+ if(!rows.length)return null;
+ const input=rows.map(r=>`${r.number}@${r.head}:${state.model.prs[r.number]?.test_state}:${aiHash(rowFacts(r))}`).join(",")+`:${words().length}`;
+ const key=`triage:${aiHash(input)}`;
+ if(ai[key])return ai[key];
+ const hit=aiCacheGet("triage",input);
+ if(hit)return ai[key]={items:hit.items};
+ ai[key]={busy:true};
+ const quotes=words().map(w=>`[${w.id}] ${w.at.slice(0,10)} ${short(w.text,500)}`).join("\n");
+ aiCached("triage",input,()=>aiOnce(compose(`These pull requests wait on the owner's tap. For each, decide:\n- bucket "safe" when tests pass, it matches the plan, its risk is small, and none of his words below conflict with it; otherwise "read".\n- why: at most twelve plain words he should know before tapping.\n- conflict_id and conflict_quote: when one of his recorded words below conflicts with what the pull request does, the id in brackets and an exact quote of at most 25 words copied character for character; otherwise empty strings.\nOrder the items so the tap that unblocks the most work comes first.\n\nWaiting:\n${rows.map(r=>`${rowFacts(r)} Tests: ${state.model.prs[r.number]?.test_state??"unknown"}.`).join("\n")}\n\nHis recorded words:\n${quotes}`),{schema:TRIAGE})).then(out=>{
+  const text=Object.fromEntries(words().map(w=>[w.id,w.text]));
+  out.items.forEach(i=>{if(!i.conflict_quote||!(text[i.conflict_id]??"").includes(i.conflict_quote)){i.conflict_id="";i.conflict_quote=""}});
+  ai[key]={items:out.items};
+ }).catch(e=>{ai[key]={error:e.message}}).finally(()=>{if(route().screen==="now")render()});
+ return ai[key];
+}
+let batching=false;
 async function post(want,verdict){
  const row=boardRow(want.number);
  if(!row||row.head!==want.head||row.block!==want.block||verdictState(row)!=="you")return false;
@@ -473,12 +496,41 @@ async function post(want,verdict){
  }catch(e){row.failed=e.message;return false}
  finally{row.pending=false;render()}
 }
+async function approveAll(wants){
+ batching=true;render();
+ try{for(const w of wants)if(!await post(w,"approved"))break}
+ finally{batching=false;render()}
+}
+function needsCount(){return state.model?.board?waiting().length+openCards().length:0}
+function nowItem(r,i,t){
+ const pr=state.model.prs[r.number]??{};
+ const why=t?.why?`<span class="ai">✦ ${esc(t.why)}</span>`:esc(short(r.change,110));
+ const conflict=t?.conflict_quote?`<div class="conf">Check against your words (${esc(t.conflict_id)}): “${esc(t.conflict_quote)}”</div>`:"";
+ const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}"${r.pending||batching?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${r.pending||batching?" disabled":""}>‖ Hold</button>`;
+ return `<li><span class="rank">${i+1}</span><div><div class="t"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a> ${testPill(pr)}</div><div class="w">${why}</div>${conflict}${r.failed?`<div class="conf">${esc(r.failed)}</div>`:""}</div><div class="acts">${acts}<a class="btn" href="#/review/${r.number}">›</a></div></li>`;
+}
+function needsYou(){
+ const rows=waiting().concat(state.model.board.rows.filter(r=>r.verdict&&r.verdict.at&&Date.now()-new Date(r.verdict.at)<600000&&verdictState(r)!=="you"));
+ const cards=openCards();
+ const t=AI.key?triage():null;
+ const by=Object.fromEntries((t?.items??[]).map((x,i)=>[x.pr,{...x,i}]));
+ const order=r=>by[r.number]?.i??(100+(state.model.prs[r.number]?.test_state==="failure"?50:0)+state.model.plan.findIndex(s=>s.prs.includes(r.number)));
+ rows.sort((a,b)=>order(a)-order(b));
+ const safe=rows.filter(r=>by[r.number]?.bucket==="safe"&&verdictState(r)==="you");
+ const sorted=t?.items?[["safe","Safe to approve together",rows.filter(r=>by[r.number]?.bucket==="safe")],["read","Read before you tap",rows.filter(r=>by[r.number]?.bucket!=="safe")]]:[["","",rows]];
+ const head=`<div class="as-now-h"><h1>Needs you</h1>${waiting().length?`<span class="pill bad">${plural(waiting().length,"tap")}</span>`:""}${cards.length?`<span class="pill owner">${plural(cards.length,"question")}</span>`:""}${t?.busy?'<span class="pill ai-only">✦ sorting by what unblocks the most…</span>':""}${t?.error?`<span class="dim">The assistant could not sort them: ${esc(t.error)}</span>`:""}</div>`;
+ const batch=safe.length>1?`<div class="card aibox as-batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}"${batching?" disabled":""}>✓ Approve all ${safe.length}</button></div>`:"";
+ const lists=sorted.filter(([,,rs])=>rs.length).map(([id,label,rs])=>`${label?`<div class="as-bucket ${id}">${label}</div>`:""}<ul class="as-nl">${rs.map(r=>nowItem(r,rows.indexOf(r),by[r.number])).join("")}</ul>`).join("");
+ const qs=cards.length?`<div class="as-bucket">Questions on the board</div><ul class="as-nl">${cards.map((c,i)=>`<li><span class="rank">${i+1}</span><div><div class="t">${esc(c.title)}</div><div class="w">${c.recommended?`Recommended: <b>${esc(c.recommended)}</b>`:esc(short(c.summary,120))}</div></div><div class="acts"><a class="btn" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Answer ›</a></div></li>`).join("")}</ul>`:"";
+ return `${head}${batch}<div class="card">${lists||'<p class="dim">No taps waiting on you.</p>'}${qs}</div>`;
+}
+
 function decorate(r){
  const top=document.querySelector(".top");
  if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
  const main=document.getElementById("main");
  if(r.screen==="overview"&&since)main.insertAdjacentHTML("afterbegin",sinceBanner());
- if(r.screen==="timeline")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
+ if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
  main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
  document.querySelectorAll("[data-ai]").forEach(b=>paintAi(b.dataset.ai));
@@ -560,7 +612,9 @@ function entries(){
  [["","Overview"],["now","Needs you"],["review","Review"],["releases","Releases"],["workers","Workers"],["timeline","Timeline"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
- Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${boardRow(n)?` · ${boardRow(n).group}`:""}${m.prs[n].lane?` · ${m.prs[n].lane}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""}`)});
+ const said={};
+ [...m.board.rows.map(r=>`#${r.number} ${r.title} ${r.change}`),...(m.board.merge?.pages??[]).flatMap(pg=>pg.split("\n"))].forEach(line=>{for(const [,n] of line.matchAll(/#(\d{5})\b/g))said[n]=`${said[n]??""} ${line.replace(/[|*`]/g," ")}`});
+ Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
  [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Stacks","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
  m.plan.forEach((s,i)=>add("Plan steps",String(i+1),s.title,`${s.prs.filter(n=>prState(n)==="landed").length} of ${s.prs.length} landed`,()=>{location.hash="#/";state.overlay="plan";render();setTimeout(()=>document.querySelectorAll(".sheet .pstep")[i]?.scrollIntoView({block:"center"}),50)},s.text));
  m.lanes.slice().sort((a,b)=>new Date(b.at)-new Date(a.at)).forEach(l=>add("Workers","●",l.lane,`${agoWords(l.at)} · ${short(l.text,80)}`,()=>openSheet({kind:"lane",id:l.lane})));
@@ -578,7 +632,7 @@ function results(raw){
  const all=entries();
  let picked;
  if(!q.length)picked=all.filter(e=>["Needs you","Screens"].includes(e.group)).map(e=>({...e,score:1}));
- else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20).map(e=>e.group==="Show only"?{...e,score:e.score+40}:e);
+ else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20).map(e=>e.group==="Show only"||e.group==="Pull requests"?{...e,score:e.score+40}:e);
  const groups={};
  picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
  const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));
@@ -666,13 +720,14 @@ document.addEventListener("click",e=>{
  const tile=t.closest("[data-since]");if(tile){state.sinceOpen=state.sinceOpen===tile.dataset.since?null:tile.dataset.since;render();return}
  if(t.closest("[data-seen]")){saveSeen();since=null;render();return}
  const want=n=>{const r=boardRow(n);return {block:r.block,number:r.number,head:r.head}};
- const tap=t.closest("[data-tap]");if(tap){post(want(tap.dataset.n),tap.dataset.tap);return}
+ const tap=t.closest("[data-tap]");if(tap&&!batching){post(want(tap.dataset.n),tap.dataset.tap);return}
+ const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("hashchange",closePal);
 try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
-Object.assign(window,{assistAsk,decorate,shortName});
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName});
 })();
 </script>
