@@ -682,6 +682,8 @@ DEAD_LANE = timedelta(minutes=60)
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
 LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
+LANE_SPAWN_GRACE = timedelta(minutes=10)
+LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+):")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 HANDOFF_WAIT = timedelta(minutes=20)
@@ -3316,7 +3318,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW` that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), and whose dispatch the runner did not withdraw, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose dispatch the runner did not withdraw, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3332,14 +3334,21 @@ class Runner:
                 if done.code != 0:
                     raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
                 sessions = [json.loads(line) for line in done.out.splitlines() if line.strip()]
+            reported = {record["seq"]: match[1] for record in records if record["lane"] == RUNNER and (match := LANE_GONE_REPORT.search(record.get("text") or ""))}
+            settled = {reported[seq] for record in records if record["lane"] == ROOT for seq in closes(record) | {record.get("re")} if seq in reported}
             for lane, addressed in orders.items():
+                if lane in settled:
+                    continue
                 family = {lane} | {record["lane"] for record in records if succeeds(record["lane"], lane)}
                 retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
                 last = max((record for record in records if record["lane"] in family), key=lambda record: record["seq"], default=None)
                 unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
-                if not unanswered or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane):
+                if not unanswered or now - actions.parse_stamp(unanswered[0]["at"]) < LANE_SILENT or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane):
                     continue
-                sightings = [actions.parse_stamp(entry["seen_at"]) for entry in sessions if entry.get("seen_at") and {entry.get("lane"), entry.get("agent_name")} & family]
+                found = [entry for entry in sessions if {entry.get("lane"), entry.get("agent_name")} & family]
+                if any(entry.get("announced_at") and now - actions.parse_stamp(entry["announced_at"]) < LANE_SPAWN_GRACE for entry in found):
+                    continue
+                sightings = [actions.parse_stamp(entry["seen_at"]) for entry in found if entry.get("seen_at")]
                 seen = max(sightings, default=None)
                 if seen and now - seen < LANE_SILENT:
                     continue

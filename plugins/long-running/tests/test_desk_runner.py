@@ -139,6 +139,7 @@ class FakeShell(runner_module.Shell):
         self.gone: set[str] = set()
         self.seen: dict[str, str] = {}
         self.seen_as: dict[str, tuple[str, str]] = {}
+        self.announced: dict[str, str] = {}
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
@@ -398,7 +399,7 @@ class FakeShell(runner_module.Shell):
             build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
         if argv == ["cci", "who", "--drive", "d1", "--json"]:
-            return runner_module.Done(0, "".join(json.dumps({"lane": lane, "agent_name": name, "live": True, "seen_at": at}) + "\n" for name, (lane, at) in self.seen_as.items()) + "".join(json.dumps({"lane": lane, "live": True, "seen_at": at}) + "\n" for lane, at in self.seen.items() if lane not in self.gone), "")
+            return runner_module.Done(0, "".join(json.dumps({"lane": lane, "agent_name": name, "live": True, "seen_at": at} | ({"announced_at": self.announced[name]} if name in self.announced else {})) + "\n" for name, (lane, at) in self.seen_as.items()) + "".join(json.dumps({"lane": lane, "live": True, "seen_at": at}) + "\n" for lane, at in self.seen.items() if lane not in self.gone), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
@@ -7109,6 +7110,20 @@ def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, con
     cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
     cci_record(shell, **answer, at=actions.stamp(shell.clock - timedelta(minutes=20)))
     shell.gone |= {"p8-lane", "p8-lane-2"}
+    orca_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+
+
+@pytest.mark.parametrize("why", ["fresh order", "fresh spawn", "resolved report", "answered report"])
+def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_gone(shell, config, tmp_path, why):
+    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=50)))
+    if why.endswith("report"):
+        report = cci_record(shell, lane="desk-runner", kind="report", text="LANE-GONE lane-gone:p8-lane:34700 p8-lane: root #34700 to p8-lane unanswered", at=actions.stamp(shell.clock - timedelta(minutes=45)))
+        cci_record(shell, kind="note", to=["desk-runner"], text="p8-lane is alive", at=actions.stamp(shell.clock - timedelta(minutes=44)), **({"resolves": [report]} if why == "resolved report" else {"re": report}))
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=5 if why == "fresh order" else 30)))
+    if why == "fresh spawn":
+        shell.seen_as["p8-lane"] = ("root", actions.stamp(shell.clock - timedelta(minutes=40)))
+        shell.announced["p8-lane"] = actions.stamp(shell.clock - timedelta(minutes=4))
     orca_pass(shell, config)
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
