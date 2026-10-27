@@ -3036,11 +3036,20 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 When the owner asks for a dashboard, the drive runs the app in `dashboard/app/`:
 `python3 dashboard/app/server.py --config <state dir>/dashboard.json`, where the config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
-story file, keeper lane, host, and port. It serves Overview, Review, Releases, Workers,
-Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board,
-the ledger, and the newest progress doc carrying `## Ordered plan of action`, and it
-makes no GitHub or Buildkite call. A build failure posts one `defect` record to root.
-Its Ask screen needs `CEREBRAS_API_KEY`. The `/live-dashboard` layout below is the
+story file, keeper lane, host, and port. It serves Overview, Needs you, Review, Releases,
+Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the
+board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying
+`## Ordered plan of action`. A build failure posts one `defect` record to root.
+
+The assistant runs in the browser on the design-doc client (`_shared/html/ai-core.js`),
+calling Cerebras `gpt-oss-120b` with the key the server hands out at `/ai.json` from
+`CEREBRAS_API_KEY`; without the key every assistant control stays hidden. Command-K (or
+`/`) jumps to any screen, pull request, stack, plan step, worker, release section, owner
+answer or record, and Tab sends the query to the assistant. Needs you sorts the owner's
+taps into safe-to-approve-together and read-first, flags a tap that conflicts with a
+quoted owner answer, and approves or holds in place. The Overview opens with what changed
+since the owner last looked, the Timeline with the day in five sentences, and every pull
+request and stack offers a plain-words summary. The `/live-dashboard` layout below is the
 older view, kept for drives that do not run the app.
 
 The dashboard is the owner's view, and it answers four questions in this order: what

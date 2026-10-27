@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -15,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 REBUILD_AFTER = 2.0
 SLOW_REFRESH = 300
@@ -26,14 +27,15 @@ PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
-ASK_URL = "https://api.cerebras.ai/v1/chat/completions"
-ASK_MODEL = "gpt-oss-120b"
-ASK_RECORDS = 250
-ASK_CLIP = 300
-ASK_RULES = """You answer the owner's questions about a long-running software drive, using only the drive state below.
-Lead with the answer in one or two plain sentences, then at most five short bullets of evidence.
-Name pull requests as #12345 with what each does in plain words. Times are Pacific, written like 11:42 PM.
-Say "not in the records" when the state does not answer it. Never invent a time, owner, result or plan."""
+AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
+ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
+PR_ROUTE = re.compile(r"/api/pr/(\d+)")
+PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
+STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
+ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
+ACTIVE = dt.timedelta(minutes=30)
+COORDINATORS = re.compile(r"^(root|main)$|desk|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
+PR_MENTION = re.compile(r"#(4\d{4})\b")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css")}
 
 
@@ -64,6 +66,56 @@ def trees(paths, config):
     return found
 
 
+def at(iso):
+    return dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def verdict_state(row):
+    heads = [row["head"][:7], *(sha[:7] for sha in row.get("carried") or [])]
+    verdict = row["verdict"] or {}
+    if verdict.get("verdict", "cleared") != "cleared" and (verdict.get("head") or "")[:7] in heads:
+        return "approved" if verdict["verdict"] == "approved" else "held"
+    return "approved" if (row.get("go_head") or "")[:7] in heads else "you"
+
+
+def activity(records, now):
+    seen = {}
+    for record in records:
+        if COORDINATORS.search(record["lane"]) or now - at(record["at"]) > ACTIVE:
+            continue
+        topic = record.get("topic") or ""
+        for number in {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *PR_MENTION.findall(record["text"])}:
+            if number not in seen or seen[number]["at"] < record["at"]:
+                seen[number] = {"lane": record["lane"], "at": record["at"]}
+    return seen
+
+
+def pr_state(pr, row, active, now):
+    if pr.get("state") == "landed":
+        return "landed"
+    if row and row["state"] == "you":
+        return "you"
+    if pr.get("test_state") == "failure":
+        return "failing"
+    if pr.get("hold_reason") and pr.get("hold_until") and at(pr["hold_until"]) > now:
+        return "held"
+    return "doing" if active or pr.get("test_state") == "pending" else "work"
+
+
+def drive_prs(prs, rows, records, trees, tree_names, now):
+    by_number = {str(row["number"]): row for row in rows}
+    active = activity(records, now)
+    listed = []
+    for number, pr in sorted(prs.items()):
+        if pr.get("state") not in ("open", "landed"):
+            continue
+        found = trees.get(number, [])
+        tree = next((name for name in tree_names if name in found), tree_names[-1])
+        listed.append({"number": int(number), "state": pr_state(pr, by_number.get(number), active.get(number), now), "tree": tree, "worker": active.get(number)})
+    landed = sum(1 for entry in listed if entry["state"] == "landed")
+    return {"prs": listed, "landed": landed, "total": len(listed), "moving": sum(1 for entry in listed if entry["state"] == "doing")}
+
+
 def parse_plan(body):
     if PLAN_HEADING not in body:
         return None
@@ -92,6 +144,9 @@ class Drive:
         self.errors = {}
         self.paths = {}
         self.reported = set()
+        self.pr_facts = {}
+        self.board_seq = None
+        self.board_raw = None
 
     def review_url(self, number):
         cwd = self.reviews / str(number)
@@ -205,19 +260,37 @@ class Drive:
                 self.version += 1
                 self.changed.notify_all()
 
-    def check_gos(self, records):
+    def check_gos(self, rows, records):
         gos = {}
         for record in records:
             if record["kind"] == "go" and (found := GO.match(record["text"])):
                 gos[int(found[1])] = found[2]
-        for row in self.slow["board"]["rows"]:
+        for row in rows:
             row["go_head"] = gos.get(row["number"])
-            verdict = row["verdict"] or {}
-            stored = verdict.get("verdict") == "approved" and row["head"].startswith(verdict.get("head", "")[:7] or "-")
+            stored = verdict_state({**row, "go_head": None}) == "approved"
+            row["state"] = verdict_state(row)
             key = (row["number"], row["head"])
-            if row["go_head"] and row["head"].startswith(row["go_head"][:7]) and not stored and key not in self.reported:
+            if row["state"] == "approved" and not stored and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+
+    def board(self):
+        subject = self.config["board_url"].rsplit("/p/", 1)[1]
+        with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
+            seq = store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
+        if seq != self.board_seq:
+            self.board_raw = run(["cc-present", "outcomes", "--session", self.config["board_session"]])
+            self.board_seq = seq
+        return self.read_board(json.loads(self.board_raw))
+
+    def live(self, model):
+        board = self.board()
+        records = model.get("records", [])
+        self.check_gos(board["rows"], records)
+        now = dt.datetime.now(dt.timezone.utc)
+        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), now)
+        waiting = sum(1 for row in board["rows"] if row["state"] == "you")
+        return {**model, "board": board, "drive": drive, "needs": {"taps": waiting, "questions": len(board["cards"])}}
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", "root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
@@ -229,7 +302,6 @@ class Drive:
         with self.lock:
             records = list(self.records)
         lanes = cci("lanes", drive=self.config["drive"])
-        self.check_gos(records)
         return {
             **self.slow,
             "title": self.config["title"],
@@ -245,16 +317,23 @@ class Drive:
     def read_slow(self):
         ledger = json.loads(self.ccn("ledger", "show", self.config["ledger"], "--json"))
         prs = {row["key"]: {k: v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
-        board = json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]]))
         plan_at, plan = self.read_plan()
         return {
             "prs": prs,
             "plan": plan,
             "plan_at": plan_at,
-            "board": self.read_board(board),
             "story": json.loads(Path(self.config["story"]).read_text()),
             "releases": self.read_doc(self.config["release_doc"]),
+            "words": [{"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for a in json.loads(self.ccn("answer", "list", "--label", f"program:{self.config['drive']}", "--json"))],
         }
+
+    def facts(self, number):
+        head = self.slow.get("prs", {}).get(str(number), {}).get("head")
+        if head and self.pr_facts.get(number, {}).get("head", "").startswith(head):
+            return self.pr_facts[number]
+        facts = json.loads(run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS]))
+        self.pr_facts[number] = facts
+        return facts
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
@@ -268,42 +347,28 @@ class Drive:
         return {"markdown": markdown, "updated": next((row.split(": ", 1)[1] for row in meta.splitlines() if row.startswith("updated: ")), None)}
 
     def read_board(self, board):
-        verdicts = board["interactions"]["triage"]
+        interactions = board["interactions"]
+        verdicts = interactions["triage"]
+        retired = set(board.get("retired") or [])
         rows, cards = [], []
         for block in board["doc"]["blocks"]:
-            if block["type"] != "card":
+            if block["type"] != "card" or block["id"] in retired:
                 continue
             groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
                         rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
-            if not groups and block.get("status") == "open":
-                choice = next((child for child in block.get("children", []) if child["type"] == "choice"), None)
-                recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
-                answered = bool(choice and board["interactions"]["choices"].get(choice["id"]))
-                cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "answered": answered})
-        return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
-
-
-def ask_context(model):
-    rows = [{k: row.get(k) for k in ("number", "title", "group", "change", "plan", "risk", "review", "blocker", "head", "verdict")} for row in model["board"]["rows"]]
-    prs = {n: {k: pr.get(k) for k in ("title", "state", "test_state", "landed_at", "hold_reason", "base", "lane")} for n, pr in model["prs"].items() if pr.get("state")}
-    records = [f'{r["at"]} {r["kind"]} {r["lane"]}: {r["text"][:ASK_CLIP]}' for r in model["records"][-ASK_RECORDS:]]
-    state = {"now": model["story"], "plan_of_action": model["plan"], "merge_board_rows": rows, "open_owner_cards": model["board"]["cards"], "pull_requests": prs}
-    return f"Drive state as JSON:\n{json.dumps(state, default=str)}\n\nRecent drive records, oldest first (UTC times):\n" + "\n".join(records)
-
-
-def ask(model, question, history):
-    messages = [{"role": "system", "content": ASK_RULES}, {"role": "user", "content": ask_context(model)}, *history[-6:], {"role": "user", "content": question}]
-    request = urllib.request.Request(ASK_URL, data=json.dumps({"model": ASK_MODEL, "messages": messages, "stream": True}).encode(), headers={"Authorization": f"Bearer {os.environ['CEREBRAS_API_KEY']}", "Content-Type": "application/json", "User-Agent": "drive-dashboard"})
-    with urllib.request.urlopen(request, timeout=300) as response:
-        for line in response:
-            if not line.startswith(b"data: ") or line.strip() == b"data: [DONE]":
+            if groups:
                 continue
-            delta = json.loads(line[6:])["choices"][0]["delta"].get("content")
-            if delta:
-                yield delta
+            asks = [child for child in block.get("children", []) if child["type"] in ASKS]
+            answered = any(interactions[ASKS[child["type"]]].get(child["id"]) for child in asks) or any(interactions["feedback"].get(child["id"]) for child in [block, *block.get("children", [])])
+            if answered or not (asks or block.get("status") == "open"):
+                continue
+            choice = next((child for child in asks if child["type"] == "choice"), None)
+            recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
+            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended})
+        return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
 
 
 def handler(drive):
@@ -319,11 +384,12 @@ def handler(drive):
                 if name == "index.html":
                     for asset in ("app.js", "app.css", "review.js", "review.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
+                    body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 with drive.lock:
-                    body = json.dumps({"version": drive.version, **drive.model}).encode()
-                return self.send(200, "application/json", body)
+                    model = {"version": drive.version, **drive.model}
+                return self.send(200, "application/json", json.dumps(drive.live(model) if "prs" in model else model).encode())
             if path == "/api/stream":
                 return self.stream()
             if found := REVIEW_ROUTE.fullmatch(path):
@@ -332,30 +398,24 @@ def handler(drive):
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
                 return self.send(200, "application/json", json.dumps({"url": url}).encode())
+            if path == "/ai.json":
+                return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
+            if found := PR_ROUTE.fullmatch(path):
+                try:
+                    facts = drive.facts(int(found[1]))
+                except subprocess.CalledProcessError as error:
+                    return self.send(502, "application/json", json.dumps({"error": error.stderr.strip()}).encode())
+                return self.send(200, "application/json", json.dumps(facts).encode())
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path not in ("/api/ask", "/api/verdict"):
+            if self.path != "/api/verdict":
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            if self.path == "/api/verdict":
-                status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
-                return self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
-            with drive.lock:
-                model = drive.model
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            try:
-                for delta in ask(model, body["question"], body.get("history", [])):
-                    self.wfile.write(f"event: token\ndata: {json.dumps(delta)}\n\n".encode())
-                    self.wfile.flush()
-                self.wfile.write(b"event: done\ndata: {}\n\n")
-            except OSError as error:
-                self.wfile.write(f"event: failed\ndata: {json.dumps(str(error))}\n\n".encode())
+            status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
+            self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
 
         def send(self, status, kind, body):
             self.send_response(status)

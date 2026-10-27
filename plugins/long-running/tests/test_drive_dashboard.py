@@ -1,5 +1,10 @@
+import datetime as dt
+
 import pytest
-from server import Drive, parse_plan, plan_prs
+from server import Drive, drive_prs, parse_plan, plan_prs, verdict_state
+
+NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
+TREES = ["New tree", "Old tree", "Shared"]
 
 DOC = """id: a5262e7
 updated: 2026-10-27T06:30:00Z
@@ -51,3 +56,69 @@ def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     rows = Drive({"board_url": "http://board/p/x"}, None).read_board(board)["rows"]
     assert rows[0]["block"] == "merge-prs"
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
+
+
+def card(block_id, *children, status=None):
+    return {"id": block_id, "type": "card", **({"status": status} if status else {}), "children": [{"id": child_id, "type": kind} for kind, child_id in children]}
+
+
+def board(*cards, retired=(), **answers):
+    interactions = {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}
+    for kind, entries in answers.items():
+        interactions[kind] = entries
+    return {"doc": {"blocks": list(cards)}, "interactions": interactions, "retired": list(retired)}
+
+
+@pytest.mark.parametrize(
+    ("store", "open_ids"),
+    [
+        (board(card("ask", ("choice", "pick"))), ["ask"]),
+        (board(card("ask", ("choice", "pick")), choices={"pick": {"optionIds": ["a"]}}), []),
+        (board(card("ask", ("choice", "pick")), choices={"pick": {"optionIds": [], "other": "both views"}}), []),
+        (board(card("plan", ("approval", "ok")), decisions={"ok": {"verdict": "approved"}}), []),
+        (board(card("shots", ("image", "phone"), status="open")), ["shots"]),
+        (board(card("shots", ("image", "phone"), status="open"), feedback={"shots": [{"text": "evolutionary"}]}), []),
+        (board(card("ask", ("choice", "pick")), retired=["ask"]), []),
+        (board(card("notes", ("markdown", "body"))), []),
+    ],
+)
+def test_a_question_he_answered_leaves_the_board_count(store, open_ids):
+    assert [c["id"] for c in Drive({"board_url": "http://board/p/x"}, None).read_board(store)["cards"]] == open_ids
+
+
+@pytest.mark.parametrize(
+    ("row", "state"),
+    [
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "bbbbbbb"}}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "aaaaaaa"}, "carried": ["aaaaaaa9"]}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "aaaaaaa"}}, "you"),
+        ({"head": "bbbbbbb1", "verdict": None, "go_head": "bbbbbbb"}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "rejected", "head": "bbbbbbb"}}, "held"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "cleared"}, "go_head": "aaaaaaa"}, "you"),
+    ],
+)
+def test_a_tap_at_the_head_or_a_carried_head_is_not_waiting_on_him(row, state):
+    assert verdict_state(row) == state
+
+
+def test_the_ring_counts_exactly_the_green_squares():
+    prs = {
+        "42001": {"state": "landed"},
+        "42002": {"state": "landed"},
+        "42003": {"state": "landed"},
+        "42004": {"state": "open", "test_state": "failure"},
+        "42005": {"state": "open"},
+        "42006": {"state": "closed-without-squash"},
+        "42007": {"state": None},
+    }
+    trees = {"42001": ["Old tree", "New tree"], "42002": ["Shared"], "42004": ["Old tree"]}
+    records = [{"lane": "p8a-step7", "at": "2026-10-27T07:50:00Z", "text": "pushed #42005", "topic": ""}]
+
+    drive = drive_prs(prs, [], records, trees, TREES, NOW)
+
+    squares = drive["prs"]
+    assert drive["landed"] == sum(1 for square in squares if square["state"] == "landed") == 3
+    assert drive["total"] == len(squares) == 5
+    assert [square["tree"] for square in squares] == ["New tree", "Shared", "Shared", "Old tree", "Shared"]
+    assert {square["number"]: square["state"] for square in squares}[42005] == "doing"
+    assert drive["moving"] == 1
