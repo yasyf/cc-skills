@@ -5308,6 +5308,20 @@ def test_a_green_head_a_go_names_that_enqueues_escalates_nothing(shell, config, 
     assert unqueued(shell) == []
 
 
+def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    go = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    [queued] = [post for post in shell.posts if post["text"].startswith("QUEUED")]
+    assert queued["kind"] == "report" and queued["to"].startswith("root") and queued["text"].startswith(f"QUEUED #33001 at aaaa111111 (go #{go}): the landing runner put it in the merge queue at ")
+    shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
+    assert landed["kind"] == "landed" and landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue, which the landing runner entered at ")
+
+
 def test_an_incident_fix_graded_by_both_within_thirty_minutes_escalates_nothing(shell, config, tmp_path):
     incident_pr(shell)
     landing_pass(shell, config)

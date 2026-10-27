@@ -5414,8 +5414,20 @@ class Landing:
         if outcome in BELIEVED_QUEUED and "hold" in self.checks and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
+        if outcome in BELIEVED_QUEUED:
+            self.post_record("report", f"queued:{key}", self.queue_audience(prefix, rows), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last)
+
+    def queue_line(self, heads: dict[str, str]) -> str:
+        """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
+        return ", ".join(f"#{pr} at {sha[:10]} ({self.go_named(pr, sha)})" for pr, sha in heads.items())
+
+    def go_named(self, pr: str, head: str) -> str:
+        return f"go #{gos[0]['seq']}" if (gos := self.head_gos(pr, head)) else "no go at this head"
+
+    def queue_audience(self, prefix: list[str], rows: dict[str, dict]) -> str:
+        return ",".join(dict.fromkeys([ROOT, *filter(None, (rows.get(pr, {}).get("lane") for pr in prefix))]))
 
     def moved_in_queue(self, heads: dict[str, str]) -> list[str]:
         """Once the queue accepts an enqueue, read each member's head again and post one note to the root and the fidelity lanes for each that moved since the gate graded it, naming the head the queue took, so that head is graded where it sits (root #144463). Returns the notes."""
@@ -5527,6 +5539,9 @@ class Landing:
                 continue
             receipt = {"landed": {pr: rows[pr].get("landed_sha", "") for pr in prefix}, "at": self.book.stamp()}
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.verify(key, receipt))
+            landed = ", ".join(f"#{pr} as {sha[:10]}" for pr, sha in receipt["landed"].items())
+            text = f"LANDED {landed}: through the merge queue, which the landing runner entered at {pacific(actions.parse_stamp(action.started_at or action.accepted_at))} with {self.queue_line(enqueued_heads(action.action_id))}"
+            self.post_record("landed", f"landed:{action.action_id}", self.queue_audience(prefix, rows), text, prefix[-1])
         for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
             top = action.target.split(",")[-1]
             self.restack(top, rows)
