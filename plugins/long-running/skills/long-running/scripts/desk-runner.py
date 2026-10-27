@@ -4041,7 +4041,7 @@ class Landing:
         self.labels_read: dict[str, bool] = {}
         self.row_heads: dict[str, str] = {}
         self.ledger_rows: dict[str, dict] = {}
-        self.builds_read: dict[str, list[tuple[str, bool]]] = {}
+        self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
         self.builds: dict[str, dict] = {}
         self.full_runs_read: dict[str, list[dict]] = {}
         self.grading = False
@@ -4339,7 +4339,7 @@ class Landing:
                 self.enqueue()
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
-        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
+        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
         if (statuses := self.pr_statuses()) is None:
             return []
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -4347,9 +4347,9 @@ class Landing:
         def landable(pr: str) -> bool:
             verdict = statuses.get(pr, {}).get("verdict", "")
             causes = set(verdict.removeprefix("blocked:").split(",")) - {"queue-unknown"} if verdict.startswith("blocked:") else set() if verdict == LANDABLE else {verdict}
-            if "ci-unproven" in causes and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
+            if causes == {"ci-unproven"} and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
                 causes.discard("ci-unproven")
-            elif "ci-unproven" in causes:
+            elif causes == {"ci-unproven"}:
                 self.unproven_why[pr] = why
             return not causes
 
@@ -4527,14 +4527,15 @@ class Landing:
         return url
 
     def ci_builds(self, sha: str) -> list[tuple[str, str, bool | None]] | None:
-        """Each Buildkite build GitHub's combined status names at `sha`: its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
-        if sha not in self.builds_read:
+        """Each Buildkite build GitHub's combined status names at `sha`, read again once the copy kept across passes is `BODY_MAX_AGE` old, so a head waiting on its proof costs one status read per interval, not per pass (root #146561): its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
+        now = self.runner.now()
+        if not (kept := self.builds_read.get(sha)) or now - kept[0] >= BODY_MAX_AGE:
             done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
             if done.code != 0:
                 return None
             statuses = json.loads(done.out)["statuses"]
-            self.builds_read[sha] = [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])]
-        return self.builds_read[sha]
+            self.builds_read[sha] = (now, [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])])
+        return self.builds_read[sha][1]
 
     def watch_trunk(self, rows: dict[str, dict]) -> None:
         """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. It bars nothing: the queue's own required checks hold what cannot land, and a hold here would freeze the queue."""
@@ -6187,7 +6188,7 @@ class Landing:
         )
 
     def gate_pass(self) -> None:
-        self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}
+        self.sessions, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why = None, False, None, None, None, set(), {}
         if self.quota_low():
