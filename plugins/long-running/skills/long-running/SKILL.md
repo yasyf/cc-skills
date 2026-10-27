@@ -3157,6 +3157,10 @@ The owner set the app's bar, and every revision is graded against it:
 - Text comes on demand: Command-K jumps anywhere, and a client-side Cerebras assistant
   says what changed since he looked, what needs him, and what any PR or stack does.
 - Phone and desktop both work.
+- It moves live. Every state it can read locally (the board store's taps and questions,
+  cci heads, gos, landings and lane state, the ledger) reaches the page within seconds
+  over server-sent events with no API call; GitHub is read only for CI and review state,
+  cached, on a floor.
 
 Every revision of a surface he will use, this app, a board layout, or any other page,
 goes through a `user-test` lane briefed from `reference/user-test-brief.md` before he
