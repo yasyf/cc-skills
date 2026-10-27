@@ -655,6 +655,27 @@ def test_the_record_stream_clears_its_failure_once_it_reconnects(monkeypatch):
     assert "records" not in drive.errors
 
 
+
+def test_a_board_event_rebuilds_the_model_without_rereading_the_slow_sources(monkeypatch):
+    drive = Drive({"board_session": "s"}, None)
+    drive.slow_at = 123.0
+    drive.dirty_at = 0.0
+
+    class Stop(Exception):
+        pass
+
+    class Watch:
+        stdout = iter(['{"type":"choice.selected"}\n'])
+
+        def wait(self):
+            raise Stop
+
+    monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: Watch())
+    with pytest.raises(Stop):
+        drive.follow_board()
+    assert drive.slow_at == 123.0
+    assert drive.dirty_at
+
 def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments(tmp_path):
     assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")
     assistant.queues[7] = queue.Queue()
