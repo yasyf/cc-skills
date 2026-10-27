@@ -4023,6 +4023,17 @@ def test_a_fidelity_carry_carries_the_earlier_heads_finder_ok(shell, config, tmp
     assert any("FINDER-PENDING #29020" in blocker["text"] for blocker in blockers(shell)) is not enqueued
 
 
+def test_a_withdrawn_fidelity_carry_carries_no_finder_ok(shell, config, tmp_path):
+    lone_green_pr(shell)
+    carry = grade(shell, "29020", "ok cccc333 carried from bbbb222 (#137368).", finder=False)
+    shell.records.append({"seq": carry + 1, "drive": "d1", "lane": "fidelity-desk", "kind": "withdraw", "to": ["root"], "refs": {"prs": [29020]}, "re": carry, "text": "withdraw: the carry misread the range-diff", "at": actions.stamp(shell.clock)})
+    finder_verdict(shell, "29020", "ok bbbb222 no findings")
+    shell.diffs["bbbb222"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open\n"
+    shell.diffs["cccc333333"] = "diff --git a/sealed.rs b/sealed.rs\n+vfs_lazy::open_read_only\n"
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
 def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)

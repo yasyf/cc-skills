@@ -4629,7 +4629,9 @@ class Landing:
 
     def finder_carried_by_fidelity(self, records: list[dict], pr: str, sha: str) -> bool:
         """Whether a chain of fidelity carries runs from `sha` back to a head whose newest finder verdict is ok (root #139077)."""
-        carries = fidelity_carries(self.grades(pr))
+        drive = self.runner.config.drive
+        withdrawn = {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
+        carries = fidelity_carries([grade for grade in self.grades(pr) if grade["seq"] not in withdrawn])
         seen: set[str] = set()
         frontier = [sha]
         while frontier:
