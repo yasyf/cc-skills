@@ -185,7 +185,7 @@ and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
 
 | Minutes since launch | Missing | The runner |
 |---|---|---|
-| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status, or a `report` or `incident` that starts `MECHANISM` | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
+| `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status, or a record of any kind whose text says mechanism | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
 | `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
 | `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` or `incident` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
 
@@ -197,7 +197,8 @@ with the fallback brief's path, and launches nothing more for it.
 A later milestone counts for the earlier ones, so an opened PR also settles the
 mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
 at a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, at a `fix-live:`
-status, or when the dispatch settles. A record posted before the launch does not count.
+status, at a root `decide` addressed to the lane or naming it, or when the dispatch
+settles. A record posted before the launch does not count.
 
 ```text
 INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min
@@ -207,7 +208,8 @@ The fallback is `<lane>-opus` on opus xhigh in Claude fast mode, launched on the
 as an `--owner-directed` launch. Its brief is the lane's own brief, unchanged, under
 a header that says why the clock started it, that it works in parallel and the first
 PR wins, and that it posts on cci as `<lane>-opus` and addresses `<lane>` and root.
-The runner attaches that brief to the briefs log as `<lane>-opus.full.md`. A `-opus`
+The runner attaches that brief to the briefs log as `<lane>-opus.full.md` and writes
+it to `<state>/briefs/<lane>-opus.full.md`, the path its lines name. A `-opus`
 lane is clocked and gets no fallback of its own. A lane whose `<lane>-opus` already
 has a live dispatch or a launch in flight gets no second, and the line says so.
 `show` prints each clocked lane's minutes and milestones.

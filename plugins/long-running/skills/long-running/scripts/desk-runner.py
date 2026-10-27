@@ -90,14 +90,16 @@ an `incident=`, unless the launch's own role or that brief names a role other th
 `incident`, or the lane's name has an `evidence`, `proof`, `closeout`, `desk`, or `audit` part;
 `desk-launch.py incident` launches its evidence lane with `role=evidence`. Each pass
 reads the lane's own cci records of kind `mechanism`, `opened`, `ready`, `fix-live`,
-`not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `MECHANISM`
-or `READY`, and its `mechanism:`, `ready:`, and `fix-live:` Run statuses. A lane's records
+`not-ours`, `stopped`, and `stand-down`, a `report` or `incident` that starts `READY`, a
+record of any kind whose text says mechanism, and its `mechanism:`, `ready:`, and
+`fix-live:` Run statuses. A lane's records
 count under `<name>` and `<name>-fix` alike, since the desk launches `<name>-fix` and its
 lane may post as `<name>`. With no mechanism at
 `deadlines.incident_mechanism_minutes` (default 10), or no PR at
 `deadlines.incident_pr_minutes` (default 15), the runner launches `<lane>-opus` once per
 launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
-fallback header it attaches to the briefs log as `<lane>-opus.full.md`, and logs
+fallback header it attaches to the briefs log as `<lane>-opus.full.md` and writes to
+`<state>/briefs/<lane>-opus.full.md`, the path the blocker names, and logs
 `INCIDENT-CLOCK <lane> mechanism` or `INCIDENT-CLOCK <lane> pr`. With no `ready` at
 `deadlines.incident_ready_minutes` (default 20) it logs `INCIDENT-CLOCK <lane> ready`,
 naming the missing milestones and the minutes each phase took. A later milestone counts
@@ -110,8 +112,8 @@ the fallback brief, for the root to start `<lane>-opus` in its own session as a
 `long-running:lane-ship` Agent. A fix lane gets one Opus fallback: a lane an incident
 executor adopted gets none from the clock while that executor's own Opus backup is launching
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
-stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, or when the dispatch
-settles, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
+stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, at a root `decide`
+addressed to the lane or naming it, or when the dispatch settles, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
 incident reached, a clocked fix lane sharing the lane's incident name, its name less `-opus`, `-case<n>`, and its last
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
@@ -153,8 +155,10 @@ its PRs' head branches: path, branch, dirty files, commits ahead of `origin/dev`
 state, and PR, or `no worktree found for lane <lane>`. It is a blocker and never deferred.
 `show` lists each lane whose mechanism waits as `pr-silent <lane>: …` with its `drive.py lane-status` command.
 A class record, a lane's `incident` record or any record, such as a `state`, whose text starts
-`CLASS` or `NEW CLASS`, that names an incident tag or topic and has no later root `go`, `decide`, or `decision` naming one of
-them `deadlines.pr_silent_minutes` after it logs one `CLASS-UNOWNED <class>` blocker per class.
+`CLASS` or `NEW CLASS`, that declares a class, by its topic or an incident tag in its `CLASS` line or a leading `[TAG]`,
+and has no later root `go`, `decide`, or `decision` naming one of them `deadlines.pr_silent_minutes` after it logs one
+`CLASS-UNOWNED <class>` blocker per class. A tag elsewhere in the text, such as a step label or a hash in an evidence
+line, declares no class.
 A launch, from the inbox or the `launch` verb, whose lane shares an incident key with a live lane,
 or whose brief names the PR a live lane's branch carries, is refused with `LAUNCH-DUPLICATE` naming
 that lane and its lane status when that lane has commits ahead or a pushed branch; `NOW` and
@@ -677,6 +681,8 @@ INCIDENT_ENDS = ("not-ours", STAND_DOWN)
 STOPPED = "stopped"
 TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
 TEXT_MARK_KINDS = ("report", "incident")
+SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
+CLOCK_DECIDE = "decide"
 FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
@@ -685,6 +691,7 @@ CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
 CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
+CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS\b[^\n]*|\[[^\]\n]+\])")
 FIX_GO_KINDS = frozenset({"go", "decide", "decision"})
 FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
 UNPUSHED = frozenset({"not pushed", "no origin branch"})
@@ -888,10 +895,23 @@ def handed_back(message: dict) -> bool:
 
 
 def clock_mark(record: dict) -> str:
-    """The incident clock milestone a lane's cci record marks, or empty: its kind, or `mechanism` or `ready` for a `report` or `incident` whose text starts MECHANISM or READY."""
-    if record["kind"] in TEXT_MARK_KINDS:
-        return mark["mark"].lower() if (mark := TEXT_MARK.match(record["text"])) else ""
-    return record["kind"] if record["kind"] in (*CLOCK_MILESTONES, *CLOCK_ENDS) else ""
+    """The incident clock milestone a lane's cci record marks, or empty: its kind, `ready` for a `report` or `incident` whose text starts READY, or `mechanism` for a record of any kind whose text says mechanism."""
+    if record["kind"] in (*CLOCK_MILESTONES, *CLOCK_ENDS):
+        return record["kind"]
+    if record["kind"] in TEXT_MARK_KINDS and (mark := TEXT_MARK.match(record["text"])):
+        return mark["mark"].lower()
+    return "mechanism" if SAYS_MECHANISM.search(record.get("text") or "") else ""
+
+
+def class_keys(record: dict) -> set[str]:
+    """The class a record declares: its topic, and the incident tags in its header, the `CLASS` or `NEW CLASS` line or a leading `[TAG]`; tags anywhere else in its text are evidence, never a class."""
+    header = CLASS_HEADER.match(record.get("text") or "")
+    return cci.incident_keys({"topic": record.get("topic"), "text": header.group(0) if header else ""})
+
+
+def names_lane(record: dict, names: set[str]) -> bool:
+    """Whether a record is addressed to one of a lane's names or names one in its text."""
+    return bool(names & set(record.get("to") or [])) or any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-]|\.\w)", record.get("text") or "") for name in names)
 
 
 def lane_aliases(lane: str) -> tuple[str, str]:
@@ -1954,13 +1974,16 @@ class Runner:
         return self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
 
     def attach_brief(self, lane: str, render: Callable[[str], str], entry: str) -> tuple[Path | None, str]:
-        """Attach the brief `render` writes for the resolved briefs log to that log as `<lane>.full.md`; its path, or why it has none."""
+        """Attach the brief `render` writes for the resolved briefs log to that log as `<lane>.full.md`, and write it to `<state>/briefs/<lane>.full.md`; that path, or why it has none."""
         if failure := self.resolve_briefs_log():
             return None, f"the briefs log did not resolve: {failure}"
-        if failure := self.attach(f"{lane}.full.md", render(self.config.briefs_log), entry):
+        text = render(self.config.briefs_log)
+        if failure := self.attach(f"{lane}.full.md", text, entry):
             return None, f"the brief did not attach: {failure}"
-        brief = self.attachment(f"{lane}.full.md")
-        return (brief, "") if brief else (None, "the attached brief has no path")
+        brief = self.config.desk_inbox.parent.parent / "briefs" / f"{lane}.full.md"
+        brief.parent.mkdir(parents=True, exist_ok=True)
+        brief.write_text(text)
+        return brief, ""
 
     def unfixed(self, lane: str, message: dict) -> None:
         """Launch an incident lane for each case an incident fix lane's `ready:` or `fix-live:` report names as `UNFIXED <lane>: <case>`, up to `incident.case_lanes` per incident, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Every other new case goes to the root as one `DECIDE` carrying a launch line per case: each past the cap, each from a case lane, since case lanes are one generation, and each from a lane whose report or newest mechanism says its cause is UNKNOWN. A report from a lane the root withdrew, or after its incident ended, launches nothing and goes to the root as one line."""
@@ -2043,7 +2066,7 @@ class Runner:
         if UNKNOWN_CAUSE.search(f"{message.get('subject') or ''}\n{message.get('body') or ''}"):
             return f"its report {message['id']} says the cause is UNKNOWN"
         launched = actions.parse_stamp(launch.verification_receipt["at"])
-        marks = [(record["at"], f"#{record['seq']}", record["text"]) for record in self.lane_records(lane, "mechanism", *TEXT_MARK_KINDS) if clock_mark(record) == "mechanism"]
+        marks = [(record["at"], f"#{record['seq']}", record["text"]) for record in self.lane_records(lane) if clock_mark(record) == "mechanism"]
         statuses = self.book.load(lane_container(lane)).facts.get(MILESTONE_STATUSES) or {}
         marks += [(status["at"], f"its status {msg}", path.read_text()) for msg, status in statuses.items() if status["name"] == "mechanism" and (path := self.message_file(msg)).is_file()]
         newest = max((mark for mark in marks if actions.parse_stamp(mark[0]) >= launched), key=lambda mark: actions.parse_stamp(mark[0]), default=None)
@@ -2103,10 +2126,10 @@ class Runner:
         return " ".join(sorted(prs)) or "none opened yet"
 
     def lane_records(self, lane: str, *kinds: str) -> list[dict]:
-        """A lane's own cci records of these kinds on this drive, under either of its `lane_aliases`; `cci tail` also returns the caller's peer mail, which is dropped."""
+        """A lane's own cci records of these kinds, or of every kind when none is named, on this drive, under either of its `lane_aliases`; `cci tail` also returns the caller's peer mail, which is dropped."""
         names = lane_aliases(lane)
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in names for arg in ("--lane", name)), *(f"--kind={kind}" for kind in kinds))
-        return [record for record in posted if record["drive"] == self.config.drive and record["lane"] in names and record["kind"] in kinds]
+        return [record for record in posted if record["drive"] == self.config.drive and record["lane"] in names and (not kinds or record["kind"] in kinds)]
 
     def holds(self, slug: str) -> list[actions.Action]:
         return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
@@ -3069,11 +3092,17 @@ class Runner:
             else:
                 try:
                     stood_down = self.stood_down(lane, launched)
+                    decided = self.decided(lane, launched)
                     clock["reached"] = self.reached(container, lane, launched)
                 except CciTailFailed as failure:
                     self.tail_failed(failure)
                     continue
-                clock["ended"] = f"{WITHDRAWN} by {stood_down}" if stood_down else next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
+                if stood_down:
+                    clock["ended"] = f"{WITHDRAWN} by {stood_down}"
+                elif decided:
+                    clock["ended"] = f"decided by {decided}"
+                else:
+                    clock["ended"] = next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
                 if not clock["ended"]:
                     self.overrun(lane, launch, launched, clock["reached"])
             if clock != kept:
@@ -3081,7 +3110,7 @@ class Runner:
 
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
         """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run. Any milestone a sibling lane on the same incident reached counts as this lane's mechanism, so the PR and ready thresholds stay the lane's own."""
-        marks = [(mark, record["at"]) for record in self.lane_records(lane, *CLOCK_MILESTONES, *CLOCK_ENDS, *TEXT_MARK_KINDS) if (mark := clock_mark(record))]
+        marks = [(mark, record["at"]) for record in self.lane_records(lane) if (mark := clock_mark(record))]
         marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
         marks += [("mechanism", at) for at in self.sibling_milestones(lane)]
         reached: dict[str, str] = {}
@@ -3095,6 +3124,12 @@ class Runner:
         names = set(lane_aliases(lane))
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
+
+    def decided(self, lane: str, launched: datetime) -> str:
+        """The root's `decide` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty."""
+        names = set(lane_aliases(lane))
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_DECIDE}")
+        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and record["kind"] == CLOCK_DECIDE and names_lane(record, names) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def incident_keys(self, lane: str, launch: actions.Action) -> set[str]:
         """What names the incident a fix lane works: its `incident_name`, the incident slug its launch carries, and its brief's `incident=` annotations."""
@@ -3122,7 +3157,7 @@ class Runner:
         if not siblings:
             return []
         names = {name for sibling in siblings for name in lane_aliases(sibling)}
-        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*CLOCK_MILESTONES, *TEXT_MARK_KINDS)))
+        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
         stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
         for sibling in siblings:
             if lane_container(sibling) in self.book.store.ids():
@@ -3192,7 +3227,7 @@ class Runner:
         for record in records:
             if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
-            if not (keys := cci.incident_keys(record)):
+            if not (keys := class_keys(record)):
                 continue
             label = min(keys)
             log = f"escalation:{CLASS_UNOWNED}:{label}"

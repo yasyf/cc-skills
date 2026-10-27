@@ -122,7 +122,6 @@ class FakeShell(runner_module.Shell):
         self.entries: list[str] = []
         self.attach_error = ""
         self.attach_code = 1
-        self.unresolved: set[str] = set()
         self.logs: dict[str, str] = {"briefs1": "briefs: d1"}
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
@@ -445,7 +444,7 @@ class FakeShell(runner_module.Shell):
 
     def ccn(self, argv: list[str]) -> runner_module.Done:
         if argv[:2] == ["attachment", "path"] and argv[2] in self.logs:
-            path = None if argv[3] in self.unresolved else self.attachments.get(argv[3])
+            path = self.attachments.get(argv[3])
             return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[3]}")
         if argv[:2] == ["log", "append"] and argv[2] in self.logs:
             return self.append(argv[3:])
@@ -6329,6 +6328,8 @@ def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(
         ("report", "NEW CLASS SAND-5A uploads fail on retry", "launch inc-sand-evidence to collect SAND-5A logs", 11, True),
         ("report", "NEW CLASS SAND-5A uploads fail on retry", "", 5, False),
         ("report", "SAND-5A uploads fail on retry", "", 11, False),
+        ("incident", "[SAND-5A] uploads fail on retry", "", 11, True),
+        ("incident", "STEP1+2: sand/latest.json is 5273 bytes, SHA256 3588023a49a1516e, and SAND-5A logs match", "", 11, False),
     ],
 )
 def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, go, minutes, unowned):
@@ -6749,7 +6750,7 @@ def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_brie
     orca_pass(shell, config)
     shell.launch("dd-7-fix", "ctx_n")
     orca_pass(shell, config)
-    brief = shell.attachments["dd-7-fix.full.md"]
+    brief = written(tmp_path, "dd-7-fix")
     assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-7-fix", "incident", "xhigh", str(brief)]]
     assert f"ccn -R {tmp_path / 'checkout'} attachment path b2 dd-7-evidence.md" in brief.read_text()
     lines = escalations(shell)
@@ -6778,8 +6779,8 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     orca_pass(shell, config)
     shell.launch("dd-312516332-fix", "ctx_n")
     orca_pass(shell, config)
-    brief = shell.attachments["dd-312516332-fix.full.md"]
-    assert brief.parent == tmp_path / "lfs"
+    brief = written(tmp_path, "dd-312516332-fix")
+    assert brief.parent == tmp_path / "briefs" and brief.read_text() == shell.attachments["dd-312516332-fix.full.md"].read_text()
     assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-312516332-fix", "incident", "xhigh", str(brief)]]
     assert shell.entries == ["INCIDENT dd-312516332: fix brief for dd-312516332-fix: Datadog OK -> Alert Run assignment starved https://app.datadoghq.com/monitors/312516332"]
     text = brief.read_text()
@@ -6855,7 +6856,7 @@ def test_an_alert_brief_names_its_monitor_for_later_dedupe(shell, config, tmp_pa
     orca_pass(shell, config)
     desk_inbox(tmp_path, ROOT_ALERT)
     orca_pass(shell, config)
-    assert "ccx: lane=alerts-api-0305-fix role=incident effort=xhigh incident=327967001\n" in shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+    assert "ccx: lane=alerts-api-0305-fix role=incident effort=xhigh incident=327967001\n" in written(tmp_path, "alerts-api-0305-fix").read_text()
 
 
 def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, config, tmp_path):
@@ -6893,7 +6894,7 @@ def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(
     orca_pass(shell, config)
     desk_inbox(tmp_path, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:02 :: Datadog OK -> Alert again")
     orca_pass(shell, config)
-    brief = shell.attachments["dd-7-fix.full.md"]
+    brief = written(tmp_path, "dd-7-fix")
     assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "incident", "xhigh", str(brief)]]
     assert brief != last and "Datadog OK -> Alert again" in brief.read_text()
 
@@ -6918,14 +6919,8 @@ def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, 
     assert line.endswith("| dd-9-fix not launched: the brief did not attach: ccn exited -9")
 
 
-def test_an_incident_whose_attached_brief_has_no_path_launches_nothing(shell, config, tmp_path):
-    shell.unresolved.add("dd-10-fix.full.md")
-    orca_pass(shell, config)
-    desk_inbox(tmp_path, "R43 orca-desk: incident dd-10 https://app.datadoghq.com/monitors/10 reported=11:02 :: Datadog OK -> Alert")
-    orca_pass(shell, config)
-    assert launches(shell) == []
-    [line] = escalations(shell)
-    assert line.endswith("| dd-10-fix not launched: the attached brief has no path")
+def written(tmp_path: Path, lane: str) -> Path:
+    return tmp_path / "briefs" / f"{lane}.full.md"
 
 
 def clocked_lane(shell: FakeShell, config: Path, tmp_path: Path, lane: str = LANE, model: str = "incident", header: str = "") -> Path:
@@ -6971,7 +6966,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     orca_pass(shell, config)
     orca_pass(shell, config)
     backup = f"{LANE}-opus"
-    fallback = shell.attachments[f"{backup}.full.md"]
+    fallback = written(tmp_path, f"{backup}")
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], [str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]]
     assert shell.spawned_env["orca-launch.sh"]["ORCA_LAUNCH_CLAUDE_ARGS"] == runner_module.CLAUDE_FAST_MODE
     launch = json.loads(incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].target)
@@ -6997,7 +6992,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     assert len(launches(shell)) == 2 and len(shell.entries) == 1
 
 
-@pytest.mark.parametrize("source", ["status", "cci", "base-name"])
+@pytest.mark.parametrize("source", ["status", "cci", "base-name", "any-kind-text"])
 def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shell, config, tmp_path, capsys, source):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
@@ -7005,6 +7000,8 @@ def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shel
         shell.receive({"subject": "mechanism: wrong selector", "from_handle": f"term_ctx_{LANE}"})
     elif source == "base-name":
         lane_record(shell, LANE.removesuffix("-fix"), "incident", text="MECHANISM d121062c confirmed")
+    elif source == "any-kind-text":
+        lane_record(shell, LANE, "state", text="Found the mechanism: the release smoke reads a missing next.json")
     else:
         lane_record(shell, LANE, "mechanism")
     orca_pass(shell, config)
@@ -7017,6 +7014,34 @@ def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shel
     assert "- incident clock [11 min of 20] launched 11:00; mechanism +4 min\n" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("addressed", [True, False])
+def test_a_root_decide_naming_the_lane_stops_its_clock(shell, config, tmp_path, addressed):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    if addressed:
+        cci_record(shell, lane="root", kind="decide", to=[LANE], text="hold the forward edit until the bucket owner answers", at=actions.stamp(shell.clock))
+    else:
+        cci_record(shell, lane="root", kind="decide", to=["landing-desk"], text=f"{LANE} owns the release incident; no fallback", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    shell.sleep(16 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
+@pytest.mark.parametrize(
+    ("kind", "to", "text"),
+    [("decision", [LANE, "landing-desk"], "Register classify, 1 rows"), ("decide", ["landing-desk"], f"{LANE}.v2 owns the release incident")],
+)
+def test_a_root_decision_broadcast_or_a_decide_naming_a_dotted_sibling_leaves_the_clock_running(shell, config, tmp_path, kind, to, text):
+    clocked_lane(shell, config, tmp_path)
+    cci_record(shell, lane="root", kind=kind, to=to, text=text, at=actions.stamp(shell.clock))
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(":")[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism"]
+
+
 def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
@@ -7024,7 +7049,7 @@ def test_a_mechanism_with_no_pr_launches_the_fallback_at_the_pr_threshold(shell,
     shell.sleep(11 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
-    fallback = shell.attachments[f"{LANE}-opus.full.md"]
+    fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
         f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to mechanism 4 min, mechanism to now 11 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
     ]
@@ -7543,7 +7568,7 @@ def test_an_opus_fallback_whose_orca_launch_fails_once_is_launched_once_more(she
     shell.launch_line = f"{backup} ready task=task_1 dispatch=ctx_opus terminal=term_ctx_opus worktree=/w\n"
     for _ in range(2):
         orca_pass(shell, config)
-    fallback = shell.attachments[f"{backup}.full.md"]
+    fallback = written(tmp_path, f"{backup}")
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)], *[[str(runner_module.LAUNCHER), backup, "opus", "xhigh", str(fallback)]] * 2]
     tries = incident(tmp_path, f"desk-lane-{backup}").actions
     assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "verified")]
@@ -7557,7 +7582,7 @@ def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shel
     for _ in range(4):
         orca_pass(shell, config)
     backup = f"{LANE}-opus"
-    fallback = shell.attachments[f"{backup}.full.md"]
+    fallback = written(tmp_path, f"{backup}")
     assert len(launches(shell)) == 1
     tries = incident(tmp_path, f"desk-lane-{backup}").actions
     assert [(key, action.status) for key, action in tries.items()] == [(f"incident-clock:ctx_{LANE}", "failed"), (f"incident-clock:ctx_{LANE}:retry", "failed")]
@@ -7629,7 +7654,7 @@ def test_each_case_an_incident_lane_reports_unfixed_launches_an_incident_lane_in
     unfixed_report(shell, LANE, kind, *CASES)
     orca_pass(shell, config)
     lanes = [f"{LANE}-case1", f"{LANE}-case2"]
-    briefs = [shell.attachments[f"{lane}.full.md"] for lane in lanes]
+    briefs = [written(tmp_path, f"{lane}") for lane in lanes]
     assert launches(shell)[1:] == [[str(runner_module.LAUNCHER), lane, "incident", "xhigh", str(path)] for lane, path in zip(lanes, briefs, strict=True)]
     for lane, path, case in zip(lanes, briefs, CASES, strict=True):
         text = path.read_text()
@@ -7689,12 +7714,12 @@ def test_a_case_lanes_new_case_reaches_the_root_with_its_launch_line_and_its_own
     message = unfixed_report(shell, case, "ready", *CASES)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, case]
-    brief = shell.attachments[f"{LANE}-case2.full.md"]
+    brief = written(tmp_path, f"{LANE}-case2")
     line = f"orca-desk: launch {LANE}-case2 NOW incident xhigh brief={brief}"
     assert [line for line in escalations(shell) if line.startswith(("DECIDE ", "UNFIXED "))] == [
         f"DECIDE unfixed:{message['id']} {case}: a case lane reports new cases, past the one-generation cap: {CASES[1]} | to launch its lane, post `{line}`"
     ]
-    assert f"`{case}` works from the brief at {shell.attachments[f'{case}.full.md']}." in brief.read_text()
+    assert f"`{case}` works from the brief at {written(tmp_path, f'{case}')}." in brief.read_text()
     desk_inbox(tmp_path, f"R40 {line}")
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, case, f"{LANE}-case2"]
@@ -7874,7 +7899,7 @@ def test_an_incident_launches_two_case_lanes_and_puts_the_rest_to_the_root_in_on
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-case1", f"{LANE}-case2"]
     assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == cases[:2]
-    offers = [f"{case} | to launch its lane, post `orca-desk: launch {LANE}-case{n} NOW incident xhigh brief={shell.attachments[f'{LANE}-case{n}.full.md']}`" for n, case in zip((3, 4, 5), cases[2:], strict=True)]
+    offers = [f"{case} | to launch its lane, post `orca-desk: launch {LANE}-case{n} NOW incident xhigh brief={written(tmp_path, f'{LANE}-case{n}')}`" for n, case in zip((3, 4, 5), cases[2:], strict=True)]
     assert [line for line in escalations(shell) if line.startswith("DECIDE ")] == [f"DECIDE unfixed:{message['id']} {LANE}: past the cap of 2 case lanes per incident: {'; '.join(offers)}"]
 
 
@@ -7918,7 +7943,7 @@ def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(sh
     orca_pass(shell, config)
     shell.launch("runner-refusing-1841-fix", "ctx_n")
     orca_pass(shell, config)
-    brief = shell.attachments["runner-refusing-1841-fix.full.md"]
+    brief = written(tmp_path, "runner-refusing-1841-fix")
     assert launches(shell) == [[str(runner_module.LAUNCHER), "runner-refusing-1841-fix", "incident", "xhigh", str(brief)]]
     assert "  - Reported 18:41 PT. The bar is fixed and live within 20 minutes of the\n    report, by 19:01 PT;" in brief.read_text()
 
@@ -7975,7 +8000,7 @@ def test_a_record_that_does_not_give_the_incident_away_leaves_its_launch_alone(s
     orca_pass(shell, config)
     shell.launch("dd-7-fix", "ctx_n")
     orca_pass(shell, config)
-    brief = shell.attachments["dd-7-fix.full.md"]
+    brief = written(tmp_path, "dd-7-fix")
     assert launches(shell) == [[str(runner_module.LAUNCHER), "dd-7-fix", "incident", "xhigh", str(brief)]]
     assert not [line for line in escalations(shell) if line.startswith("INCIDENT-OWNED ")]
 
@@ -8047,7 +8072,7 @@ def test_an_alert_fix_brief_is_sliced_for_the_incident_before_it_attaches(shell,
     orca_pass(shell, config)
     desk_inbox(tmp_path, ROOT_ALERT)
     orca_pass(shell, config)
-    text = shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+    text = written(tmp_path, "alerts-api-0305-fix").read_text()
     assert text.endswith("\nRegister slice: lane=alerts-api-0305-fix step=incident\n")
     assert [[call[0], call[5]] for call in shell.refreshes] == [["slice", "--refresh"]]
 
@@ -8056,7 +8081,7 @@ def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_fiel
     orca_pass(shell, config)
     desk_inbox(tmp_path, ROOT_ALERT)
     orca_pass(shell, config)
-    text = shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+    text = written(tmp_path, "alerts-api-0305-fix").read_text()
     assert "Before READY, reproduce the reporter's own case" in text
     assert "A fix proven only on a synthetic or neighbouring case is not" in text
     assert "`UNFIXED alerts-api-0305-fix: none`" in text and "{" not in text
