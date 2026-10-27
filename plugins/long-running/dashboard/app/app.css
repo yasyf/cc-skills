@@ -116,6 +116,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .d.landed { background: var(--ok); border-color: var(--ok); }
 .d.you { border-color: var(--amber); background: var(--amber); }
 .d.failing { border-color: var(--bad); background: var(--bad); }
+.d.doing { background: var(--accent); }
 .d.held { border-color: var(--ink-3); border-style: dotted; }
 .legend .d { width: 9px; height: 9px; margin-right: 4px; vertical-align: -1px; }
 .lives { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }

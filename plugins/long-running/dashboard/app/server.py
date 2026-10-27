@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -30,6 +31,11 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
+STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
+ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
+ACTIVE = dt.timedelta(minutes=30)
+COORDINATORS = re.compile(r"^(root|main)$|desk|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
+PR_MENTION = re.compile(r"#(4\d{4})\b")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css")}
 
 
@@ -51,30 +57,6 @@ def plan_prs(text):
     return list(dict.fromkeys(numbers))
 
 
-QUESTIONS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
-
-
-def read_board(board, url, gos):
-    interactions = board["interactions"]
-    rows, cards = [], []
-    for block in board["doc"]["blocks"]:
-        if block["type"] != "card":
-            continue
-        children = block.get("children", [])
-        for child in children:
-            if child["type"] != "pr-groups":
-                continue
-            verdicts = interactions["triage"].get(child["id"], {})
-            for group in child["groups"]:
-                for row in group["prs"]:
-                    rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(str(row["number"])), "go_head": gos.get(row["number"])})
-        questions = [child for child in children if child["type"] in QUESTIONS]
-        if questions and not all(interactions[QUESTIONS[child["type"]]].get(child["id"]) for child in questions):
-            recommended = next((option["label"] for child in questions for option in child.get("options", []) if option.get("recommended")), None)
-            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "answered": False})
-    return {"rows": rows, "cards": cards, "url": url}
-
-
 def trees(paths, config):
     found = []
     for path in paths:
@@ -82,6 +64,56 @@ def trees(paths, config):
         if tree not in found:
             found.append(tree)
     return found
+
+
+def at(iso):
+    return dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def verdict_state(row):
+    heads = [row["head"][:7], *(sha[:7] for sha in row.get("carried") or [])]
+    verdict = row["verdict"] or {}
+    if verdict.get("verdict", "cleared") != "cleared" and (verdict.get("head") or "")[:7] in heads:
+        return "approved" if verdict["verdict"] == "approved" else "held"
+    return "approved" if (row.get("go_head") or "")[:7] in heads else "you"
+
+
+def activity(records, now):
+    seen = {}
+    for record in records:
+        if COORDINATORS.search(record["lane"]) or now - at(record["at"]) > ACTIVE:
+            continue
+        topic = record.get("topic") or ""
+        for number in {*([topic] if re.fullmatch(r"\d{5}", topic) else []), *PR_MENTION.findall(record["text"])}:
+            if number not in seen or seen[number]["at"] < record["at"]:
+                seen[number] = {"lane": record["lane"], "at": record["at"]}
+    return seen
+
+
+def pr_state(pr, row, active, now):
+    if pr.get("state") == "landed":
+        return "landed"
+    if row and row["state"] == "you":
+        return "you"
+    if pr.get("test_state") == "failure":
+        return "failing"
+    if pr.get("hold_reason") and pr.get("hold_until") and at(pr["hold_until"]) > now:
+        return "held"
+    return "doing" if active or pr.get("test_state") == "pending" else "work"
+
+
+def drive_prs(prs, rows, records, trees, tree_names, now):
+    by_number = {str(row["number"]): row for row in rows}
+    active = activity(records, now)
+    listed = []
+    for number, pr in sorted(prs.items()):
+        if pr.get("state") not in ("open", "landed"):
+            continue
+        found = trees.get(number, [])
+        tree = next((name for name in tree_names if name in found), tree_names[-1])
+        listed.append({"number": int(number), "state": pr_state(pr, by_number.get(number), active.get(number), now), "tree": tree, "worker": active.get(number)})
+    landed = sum(1 for entry in listed if entry["state"] == "landed")
+    return {"prs": listed, "landed": landed, "total": len(listed), "moving": sum(1 for entry in listed if entry["state"] == "doing")}
 
 
 def parse_plan(body):
@@ -112,8 +144,9 @@ class Drive:
         self.errors = {}
         self.paths = {}
         self.reported = set()
-        self.gos = {}
         self.pr_facts = {}
+        self.board_seq = None
+        self.board_raw = None
 
     def review_url(self, number):
         cwd = self.reviews / str(number)
@@ -227,20 +260,37 @@ class Drive:
                 self.version += 1
                 self.changed.notify_all()
 
-    def live_board(self):
-        return read_board(json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]])), self.config["board_url"], self.gos)
-
-    def check_gos(self, records):
-        self.gos = {int(found[1]): found[2] for record in records if record["kind"] == "go" and (found := GO.match(record["text"]))}
-        board = self.live_board()
-        for row in board["rows"]:
-            verdict = row["verdict"] or {}
-            stored = verdict.get("verdict") == "approved" and row["head"].startswith(verdict.get("head", "")[:7] or "-")
+    def check_gos(self, rows, records):
+        gos = {}
+        for record in records:
+            if record["kind"] == "go" and (found := GO.match(record["text"])):
+                gos[int(found[1])] = found[2]
+        for row in rows:
+            row["go_head"] = gos.get(row["number"])
+            stored = verdict_state({**row, "go_head": None}) == "approved"
+            row["state"] = verdict_state(row)
             key = (row["number"], row["head"])
-            if row["go_head"] and row["head"].startswith(row["go_head"][:7]) and not stored and key not in self.reported:
+            if row["state"] == "approved" and not stored and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
-        return board
+
+    def board(self):
+        subject = self.config["board_url"].rsplit("/p/", 1)[1]
+        with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
+            seq = store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
+        if seq != self.board_seq:
+            self.board_raw = run(["cc-present", "outcomes", "--session", self.config["board_session"]])
+            self.board_seq = seq
+        return self.read_board(json.loads(self.board_raw))
+
+    def live(self, model):
+        board = self.board()
+        records = model.get("records", [])
+        self.check_gos(board["rows"], records)
+        now = dt.datetime.now(dt.timezone.utc)
+        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), now)
+        waiting = sum(1 for row in board["rows"] if row["state"] == "you")
+        return {**model, "board": board, "drive": drive, "needs": {"taps": waiting, "questions": len(board["cards"])}}
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", "root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
@@ -252,12 +302,10 @@ class Drive:
         with self.lock:
             records = list(self.records)
         lanes = cci("lanes", drive=self.config["drive"])
-        board = self.check_gos(records)
         return {
             **self.slow,
             "title": self.config["title"],
             "repo": self.config["repo"],
-            "board": board,
             "records": records[-1500:],
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
@@ -298,6 +346,30 @@ class Drive:
         meta, _, markdown = body.partition("\n\n")
         return {"markdown": markdown, "updated": next((row.split(": ", 1)[1] for row in meta.splitlines() if row.startswith("updated: ")), None)}
 
+    def read_board(self, board):
+        interactions = board["interactions"]
+        verdicts = interactions["triage"]
+        retired = set(board.get("retired") or [])
+        rows, cards = [], []
+        for block in board["doc"]["blocks"]:
+            if block["type"] != "card" or block["id"] in retired:
+                continue
+            groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
+            for child in groups:
+                for group in child["groups"]:
+                    for row in group["prs"]:
+                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
+            if groups:
+                continue
+            asks = [child for child in block.get("children", []) if child["type"] in ASKS]
+            answered = any(interactions[ASKS[child["type"]]].get(child["id"]) for child in asks) or any(interactions["feedback"].get(child["id"]) for child in [block, *block.get("children", [])])
+            if answered or not (asks or block.get("status") == "open"):
+                continue
+            choice = next((child for child in asks if child["type"] == "choice"), None)
+            recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
+            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended})
+        return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
+
 
 def handler(drive):
     class Handler(BaseHTTPRequestHandler):
@@ -317,10 +389,7 @@ def handler(drive):
             if path == "/api/model":
                 with drive.lock:
                     model = {"version": drive.version, **drive.model}
-                if model.get("prs"):
-                    model["board"] = drive.live_board()
-                body = json.dumps(model).encode()
-                return self.send(200, "application/json", body)
+                return self.send(200, "application/json", json.dumps(drive.live(model) if "prs" in model else model).encode())
             if path == "/api/stream":
                 return self.stream()
             if found := REVIEW_ROUTE.fullmatch(path):

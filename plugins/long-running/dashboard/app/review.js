@@ -85,6 +85,7 @@ async function decide(row, verdict, note) {
     return render();
   }
   row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note };
+  row.state = verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held';
   pending.number = null;
   const next = verdict === 'cleared' ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const from = location.hash;

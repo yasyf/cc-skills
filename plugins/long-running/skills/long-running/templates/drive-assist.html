@@ -327,7 +327,7 @@ let sheet=null,since=null,seenAt=Date.now();
 const short=(s,n)=>{const t=String(s??"").replace(/\s+/g," ").trim();return t.length<=n?t:t.slice(0,t.lastIndexOf(" ",n))+"…"};
 const words=()=>state.model.words??[];
 const waiting=()=>state.model.board.rows.filter(r=>verdictState(r)==="you");
-const openCards=()=>state.model.board.cards.filter(c=>!c.answered);
+const openCards=()=>state.model.board.cards;
 function digest(){
  const m=state.model;
  const rows=m.board.rows.map(r=>({pr:r.number,title:r.title,stack:r.group,change:r.change,plan:r.plan,risk:r.risk,review:r.review,blocker:r.blocker,head:r.head,status:STATE_WORD[prState(r.number)]}));

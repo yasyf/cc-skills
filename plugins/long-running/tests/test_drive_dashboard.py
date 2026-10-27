@@ -1,5 +1,10 @@
+import datetime as dt
+
 import pytest
-from server import Drive, parse_plan, plan_prs
+from server import Drive, drive_prs, parse_plan, plan_prs, verdict_state
+
+NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
+TREES = ["New tree", "Old tree", "Shared"]
 
 DOC = """id: a5262e7
 updated: 2026-10-27T06:30:00Z
@@ -53,60 +58,67 @@ def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
 
-def card(card_id, *children):
-    return {"id": card_id, "type": "card", "title": card_id, "children": list(children)}
+def card(block_id, *children, status=None):
+    return {"id": block_id, "type": "card", **({"status": status} if status else {}), "children": [{"id": child_id, "type": kind} for kind, child_id in children]}
 
 
-def board(blocks, **interactions):
-    return {"doc": {"blocks": blocks}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, **interactions}}
+def board(*cards, retired=(), **answers):
+    interactions = {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}
+    for kind, entries in answers.items():
+        interactions[kind] = entries
+    return {"doc": {"blocks": list(cards)}, "interactions": interactions, "retired": list(retired)}
 
 
-def test_read_board_counts_only_unanswered_questions():
-    blocks = [
-        card("answered-approval", {"id": "a1", "type": "approval"}),
-        card("open-choice", {"id": "c1", "type": "choice", "options": [{"label": "Yes", "recommended": True}]}),
-        card("screenshots-only", {"id": "i1", "type": "image"}),
-    ]
-    cards = read_board(board(blocks, decisions={"a1": {"verdict": "approved"}}), "url", {})["cards"]
-    assert [(c["id"], c["recommended"]) for c in cards] == [("open-choice", "Yes")]
+@pytest.mark.parametrize(
+    ("store", "open_ids"),
+    [
+        (board(card("ask", ("choice", "pick"))), ["ask"]),
+        (board(card("ask", ("choice", "pick")), choices={"pick": {"optionIds": ["a"]}}), []),
+        (board(card("ask", ("choice", "pick")), choices={"pick": {"optionIds": [], "other": "both views"}}), []),
+        (board(card("plan", ("approval", "ok")), decisions={"ok": {"verdict": "approved"}}), []),
+        (board(card("shots", ("image", "phone"), status="open")), ["shots"]),
+        (board(card("shots", ("image", "phone"), status="open"), feedback={"shots": [{"text": "evolutionary"}]}), []),
+        (board(card("ask", ("choice", "pick")), retired=["ask"]), []),
+        (board(card("notes", ("markdown", "body"))), []),
+    ],
+)
+def test_a_question_he_answered_leaves_the_board_count(store, open_ids):
+    assert [c["id"] for c in Drive({"board_url": "http://board/p/x"}, None).read_board(store)["cards"]] == open_ids
 
 
-def test_read_board_reads_verdicts_by_number_and_root_gos():
-    groups = {"id": "merge-prs", "type": "pr-groups", "groups": [{"title": "G", "prs": [{"number": 41, "head": "abc1234"}, {"number": 42, "head": "def5678"}]}]}
-    rows = read_board(board([card("merge", groups)], triage={"merge-prs": {"41": {"verdict": "approved", "head": "abc1234"}}}), "url", {42: "def5678"})["rows"]
-    assert [(r["number"], (r["verdict"] or {}).get("verdict"), r["go_head"]) for r in rows] == [(41, "approved", None), (42, None, "def5678")]
+@pytest.mark.parametrize(
+    ("row", "state"),
+    [
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "bbbbbbb"}}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "aaaaaaa"}, "carried": ["aaaaaaa9"]}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "approved", "head": "aaaaaaa"}}, "you"),
+        ({"head": "bbbbbbb1", "verdict": None, "go_head": "bbbbbbb"}, "approved"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "rejected", "head": "bbbbbbb"}}, "held"),
+        ({"head": "bbbbbbb1", "verdict": {"verdict": "cleared"}, "go_head": "aaaaaaa"}, "you"),
+    ],
+)
+def test_a_tap_at_the_head_or_a_carried_head_is_not_waiting_on_him(row, state):
+    assert verdict_state(row) == state
 
 
-OVERVIEW = """
-const vm = require('vm');
-const fs = require('fs');
-const noop = () => {};
-const ctx = { console, Intl, Date, Math, JSON, Set, Map, Object, Array, String, Number, RegExp, Boolean, Promise, setInterval: noop,
-  document: { addEventListener: noop, querySelector: () => ({}) }, window: { addEventListener: noop, scrollY: 0, scrollTo: noop }, location: { hash: '' } };
-vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.state = state; globalThis.overview = overview;', ctx);
-ctx.state.model = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
-ctx.state.version = 1;
-const html = ctx.overview();
-const landed = Number(/data-landed="(\\d+)"/.exec(html)[1]);
-const total = Number(/data-total="(\\d+)"/.exec(html)[1]);
-console.log(JSON.stringify({ landed, total, green: (html.match(/<a class="sq landed"/g) || []).length, squares: (html.match(/<a class="sq /g) || []).length }));
-"""
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
-def test_overview_ring_counts_the_green_squares(tmp_path):
+def test_the_ring_counts_exactly_the_green_squares():
     prs = {
-        "1": {"title": "sand: a", "state": "landed", "head": "a"},
-        "2": {"title": "sand: b", "state": "landed", "head": "b"},
-        "3": {"title": "api: c", "state": "open", "head": "c"},
-        "4": {"title": "api: d", "state": "landed", "head": "d"},
-        "5": {"title": "ci: tooling", "state": "landed", "head": "e"},
+        "42001": {"state": "landed"},
+        "42002": {"state": "landed"},
+        "42003": {"state": "landed"},
+        "42004": {"state": "open", "test_state": "failure"},
+        "42005": {"state": "open"},
+        "42006": {"state": "closed-without-squash"},
+        "42007": {"state": None},
     }
-    trees = {"1": ["New tree", "Old tree"], "2": ["Old tree"], "3": ["Shared"], "4": ["Shared"], "5": ["Shared"]}
-    model = {"prs": prs, "trees": trees, "tree_names": ["New tree", "Old tree", "Shared"], "plan": [], "records": [], "lanes": [], "repo": "o/r",
-             "board": {"rows": [], "cards": [], "url": "u"}, "releases": {"markdown": ""}, "story": {}}
-    (tmp_path / "model.json").write_text(json.dumps(model))
-    (tmp_path / "run.js").write_text(OVERVIEW)
-    out = json.loads(subprocess.run(["node", str(tmp_path / "run.js"), str(APP / "app.js"), str(tmp_path / "model.json")], capture_output=True, text=True, check=True).stdout)
-    assert out == {"landed": 3, "total": 4, "green": 3, "squares": 4}
+    trees = {"42001": ["Old tree", "New tree"], "42002": ["Shared"], "42004": ["Old tree"]}
+    records = [{"lane": "p8a-step7", "at": "2026-10-27T07:50:00Z", "text": "pushed #42005", "topic": ""}]
+
+    drive = drive_prs(prs, [], records, trees, TREES, NOW)
+
+    squares = drive["prs"]
+    assert drive["landed"] == sum(1 for square in squares if square["state"] == "landed") == 3
+    assert drive["total"] == len(squares) == 5
+    assert [square["tree"] for square in squares] == ["New tree", "Shared", "Shared", "Old tree", "Shared"]
+    assert {square["number"]: square["state"] for square in squares}[42005] == "doing"
+    assert drive["moving"] == 1

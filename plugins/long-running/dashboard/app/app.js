@@ -16,7 +16,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, tree: 'new', overlay: null, activity: {}, activityAt: -1 };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, tree: 'new', overlay: null };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -51,23 +51,16 @@ function boardRow(n) {
   return state.model.board.rows.find((r) => r.number === Number(n));
 }
 function verdictState(row) {
-  const v = row.verdict;
-  const atHead = (sha) => Boolean(sha) && sha.slice(0, 7) === row.head.slice(0, 7);
-  if (v && v.verdict !== 'cleared' && atHead(v.head)) return v.verdict === 'approved' ? 'approved' : 'held';
-  return atHead(row.go_head) ? 'approved' : 'you';
+  return row.state;
+}
+function driveEntry(n) {
+  return state.drive.get(Number(n));
 }
 function prState(n) {
-  const pr = state.model.prs[n];
-  if (pr?.state === 'landed') return 'landed';
-  if (pr?.state === 'closed-without-squash') return 'closed';
-  const row = boardRow(n);
-  if (row && verdictState(row) === 'you') return 'you';
-  if (pr?.test_state === 'failure') return 'failing';
-  if (pr?.hold_reason && pr.hold_until && new Date(pr.hold_until) > new Date()) return 'held';
-  return 'work';
+  return driveEntry(n)?.state ?? 'closed';
 }
-const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', failing: 'Tests failing', held: 'Held', work: 'On its way' };
-const STATE_TONE = { landed: 'ok', closed: '', you: 'bad', failing: 'bad', held: 'warn', work: 'acc' };
+const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', failing: 'Tests failing', held: 'Held', doing: 'Being worked on', work: 'Queued' };
+const STATE_TONE = { landed: 'ok', closed: '', you: 'bad', failing: 'bad', held: 'warn', doing: 'acc', work: '' };
 function prHref(n) {
   return boardRow(n) ? `#/review/${n}` : `https://github.com/${state.model.repo}/pull/${n}`;
 }
@@ -152,51 +145,33 @@ function dots(numbers) {
 }
 function partOf(n) {
   const scope = (state.model.prs[n]?.title ?? '').split(':')[0];
-  for (const [zone, scopes] of SCOPES) if (scopes[scope]) return [zone, scopes[scope]];
-  return null;
+  for (const scopes of SCOPES.map((s) => s[1])) if (scopes[scope]) return scopes[scope];
+  return 'Other';
 }
-function liveNumbers() {
-  return Object.keys(state.model.prs).filter((n) => ['open', 'landed'].includes(state.model.prs[n].state));
+function inDrive(numbers) {
+  return numbers.filter((n) => state.drive.has(Number(n)));
 }
 const RANK = { landed: 0, doing: 1, work: 2, you: 3, failing: 4, held: 5, closed: 6 };
 function prRank(n) {
-  return RANK[heat(n)];
+  return RANK[prState(n)];
 }
-function activity() {
-  if (state.activityAt === state.version) return state.activity;
-  const since = Date.now() - 30 * 60 * 1000;
-  const seen = {};
-  for (const r of [...state.model.records, ...state.model.lanes]) {
-    if (COORDINATORS.test(r.lane) || new Date(r.at) < since) continue;
-    const numbers = new Set([...(/^\d{5}$/.test(r.topic ?? '') ? [r.topic] : []), ...[...r.text.matchAll(/#(4\d{4})\b/g)].map((m) => m[1])]);
-    for (const n of numbers) if (!seen[n] || seen[n].at < r.at) seen[n] = { lane: r.lane, at: r.at };
-  }
-  state.activity = seen;
-  state.activityAt = state.version;
-  return seen;
-}
-const COORDINATORS = /^(root|main)$|desk|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post/;
-function heat(n) {
-  const s = prState(n);
-  if (s !== 'work') return s;
-  return activity()[n] || state.model.prs[n]?.test_state === 'pending' ? 'doing' : 'work';
-}
-const HEAT_WORD = { landed: 'landed', doing: 'being worked on now', work: 'queued', you: 'waiting on you', failing: 'tests failing', held: 'held', closed: 'closed' };
 function square(n) {
-  const h = heat(n);
-  return `<a class="sq ${h}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${HEAT_WORD[h]}"></a>`;
+  const s = prState(n);
+  return `<a class="sq ${s}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[s]}"></a>`;
 }
 function workersOn(numbers) {
-  const set = new Set(numbers.map(String));
   const since = Date.now() - 20 * 60 * 1000;
   const lanes = new Map();
-  for (const [n, a] of Object.entries(activity())) if (set.has(n) && new Date(a.at) > since) lanes.set(a.lane, n);
+  for (const n of numbers) {
+    const worker = driveEntry(n)?.worker;
+    if (worker && new Date(worker.at) > since) lanes.set(worker.lane, n);
+  }
   const bots = [...lanes.entries()].map(([lane, n]) => `<a class="bot" href="${prHref(n)}" title="${esc(lane)} is on #${n} ${esc(plainTitle(n))}"><i></i>${esc(lane)}</a>`);
   return bots.slice(0, 3).join('') + (bots.length > 3 ? `<span class="bot more">+${bots.length - 3}</span>` : '');
 }
 function tile(name, numbers) {
   const sorted = numbers.sort((a, b) => prRank(a) - prRank(b));
-  const done = sorted.filter((n) => heat(n) === 'landed').length;
+  const done = sorted.filter((n) => prState(n) === 'landed').length;
   const pct = Math.round((100 * done) / sorted.length);
   const grow = Math.max(1, Math.round(Math.sqrt(sorted.length) * 10));
   return `<div class="ptile${pct === 100 ? ' complete' : ''}" style="flex-grow:${grow}" data-tile="${esc(name)}" data-nums="${sorted.join(',')}">
@@ -204,27 +179,18 @@ function tile(name, numbers) {
     <div class="mosaic">${sorted.map(square).join('')}</div>
     <div class="bots">${workersOn(sorted)}</div></div>`;
 }
-function primaryTree(n) {
-  const touched = state.model.trees[n] ?? [];
-  return state.model.tree_names.find((tree) => touched.includes(tree));
-}
-function scopeNumbers() {
-  return liveNumbers().filter((n) => partOf(n) && primaryTree(n));
-}
 function stage() {
-  const numbers = scopeNumbers();
   const [target, ...rest] = state.model.tree_names;
   const trees = [...rest, target];
   const lanes = trees.map((tree) => {
     const parts = new Map();
-    for (const n of numbers) {
-      if (primaryTree(n) !== tree) continue;
-      const part = partOf(n)[1];
+    for (const { number: n } of state.model.drive.prs.filter((e) => e.tree === tree)) {
+      const part = partOf(n);
       if (!parts.has(part)) parts.set(part, []);
       parts.get(part).push(n);
     }
     const all = [...parts.values()].flat();
-    const done = all.filter((n) => heat(n) === 'landed').length;
+    const done = all.filter((n) => prState(n) === 'landed').length;
     const key = tree.split(' ')[0].toLowerCase();
     return `<section class="lane lane-${key}${state.tree === key ? ' picked' : ''}"><header><span class="lane-name">${esc(TREE_SHORT[tree] ?? tree)}</span><span class="lane-pct">${all.length ? Math.round((100 * done) / all.length) : 0}%</span></header>
       <div class="ptiles">${[...parts.entries()].sort((a, b) => b[1].length - a[1].length).map(([name, nums]) => tile(name, nums)).join('')}</div></section>`;
@@ -234,10 +200,10 @@ function stage() {
 const TREE_SHORT = { 'Old tree': 'Old tree · retires at cutover', Shared: 'Shared code', 'New tree': 'New tree · the end state' };
 function journey() {
   const steps = state.model.plan;
-  let here = steps.findIndex((s) => s.prs.some((n) => !['landed', 'closed'].includes(prState(n))));
+  let here = steps.findIndex((s) => inDrive(s.prs).some((n) => prState(n) !== 'landed'));
   if (here < 0) here = steps.length;
   return `<ol class="journey">${steps.map((s, i) => {
-    const nums = s.prs.filter((n) => prState(n) !== 'closed');
+    const nums = inDrive(s.prs);
     const done = nums.filter((n) => prState(n) === 'landed').length;
     const pct = nums.length ? (100 * done) / nums.length : i < here ? 100 : 0;
     const label = s.title.split(/[,(;]/)[0].split(' ').slice(0, 4).join(' ');
@@ -256,20 +222,17 @@ function ticker() {
 }
 function tileSheet() {
   const { name, nums } = state.tileOpen;
-  const act = activity();
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>${esc(name)}</h2>
-    <ul class="prlist">${nums.map((n) => `<li><a href="${prHref(n)}">${square(n)}<b>#${n}</b><span>${esc(plainTitle(n))}</span><em>${HEAT_WORD[heat(n)]}${act[n] ? ` · ${esc(act[n].lane)}` : ''}</em></a></li>`).join('')}</ul></div></div>`;
+    <ul class="prlist">${nums.map((n) => `<li><a href="${prHref(n)}">${square(n)}<b>#${n}</b><span>${esc(plainTitle(n))}</span><em>${STATE_WORD[prState(n)]}${driveEntry(n)?.worker ? ` · ${esc(driveEntry(n).worker.lane)}` : ''}</em></a></li>`).join('')}</ul></div></div>`;
 }
 function overview() {
   const m = state.model;
-  const all = scopeNumbers();
-  const landed = all.filter((n) => heat(n) === 'landed').length;
-  const doing = all.filter((n) => heat(n) === 'doing').length;
-  const needs = m.board.rows.filter((r) => verdictState(r) === 'you').length + m.board.cards.filter((c) => !c.answered).length;
-  const pct = all.length ? Math.round((100 * landed) / all.length) : 0;
+  const { landed, total, moving: doing } = m.drive;
+  const needs = m.needs.taps + m.needs.questions;
+  const pct = total ? Math.round((100 * landed) / total) : 0;
   return `<div class="ov">
   <section class="hero">
-    <div class="big" data-landed="${landed}" data-total="${all.length}" title="${landed} of ${all.length} pull requests have landed"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab">landed<br><b>${doing}</b> moving now</span></div>
+    <div class="big" title="${landed} of ${total} pull requests in the drive have landed"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab">landed<br><b>${doing}</b> moving now</span></div>
     ${journey()}
     ${needs ? `<a class="needs" href="#/now"><b>${needs}</b><span>need you</span></a>` : '<span class="needs calm"><b>✓</b><span>nothing needs you</span></span>'}
   </section>
@@ -294,7 +257,7 @@ function workingNow() {
 }
 function planSteps(full) {
   return state.model.plan.map((s, i) => {
-    const nums = s.prs.filter((n) => prState(n) !== 'closed').sort((a, b) => prRank(a) - prRank(b));
+    const nums = inDrive(s.prs).sort((a, b) => prRank(a) - prRank(b));
     const done = nums.filter((n) => prState(n) === 'landed').length;
     return `<li id="pstep-${i}" class="pstep${nums.length && done === nums.length ? ' done' : ''}"><span class="n">${i + 1}</span><div><div class="pt">${esc(s.title)}${nums.length ? `<span class="dim num"> ${done} of ${nums.length} landed</span>` : ''}</div>${nums.length ? dots(nums) : ''}${full && s.text ? `<p>${inline(s.text)}</p>` : ''}</div></li>`;
   }).join('');
@@ -392,6 +355,7 @@ async function load() {
   const model = await res.json();
   if (!model.prs) return setTimeout(load, 1000);
   state.model = model;
+  state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
   state.version = model.version;
   render();
 }
