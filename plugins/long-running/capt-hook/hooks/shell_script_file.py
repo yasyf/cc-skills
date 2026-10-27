@@ -4,8 +4,8 @@ from captain_hook import Allow, Event, Input, Warn, warn_command
 
 from .pr_body_frozen import DRIVE, InDrive
 
-UNPARSED_SHELL = r"(?:\A|[;&|(]\s*)(?:for\s+\w+\s+in\b|while\b|until\b)[^\n]*?;\s*do\b|\$\{[(=]|(?:\A|[;&|{]\s*):\s*>|\btypeset\s+-A\b"
-HEREDOC_SCRIPT = "cat > /tmp/r.zsh <<'EOF'\nfor k in A B; do echo $k; done\nEOF\nzsh /tmp/r.zsh"
+UNPARSED_SHELL = r"\A(?![\s\S]*<<)[\s\S]*?(?:(?:\A|[;&|(]\s*)(?:for\s+\w+\s+in\b|while\b|until\b)[^\n]*?;\s*do\b|\$\{[(=]|(?:\A|[;&|{]\s*):\s*>|\btypeset\s+-A\b)"
+HEREDOC_SCRIPT = "cat > /tmp/r.zsh <<'EOF'\ntypeset -A N\nfor k in A B; do N[$k]=${(P)k}; done\n: > /tmp/out\nEOF\nzsh /tmp/r.zsh"
 
 warn_command(
     UNPARSED_SHELL,
