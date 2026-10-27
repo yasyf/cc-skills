@@ -3072,11 +3072,15 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    assert escalations(shell) == [ungone_parent("29101", "ffff666666", "#29100 at eeee555555")]
+    assert escalations(shell) == [ungone_parents("29100", "#29101 at ffff666666", "#29100 at eeee555555")]
 
 
-def ungone_parent(pr: str, head: str, parents: str) -> str:
-    return f"#{pr} {head}: a root go names this head, but it is stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+def ungone_parents(bottom: str, heads: str, parents: str) -> str:
+    return f"stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+
+
+def notes(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["kind"] == "note"]
 
 
 def two_pr_stack(shell: FakeShell) -> None:
@@ -3105,7 +3109,7 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
     root_go(shell, passing, shell.now())
     landing_pass(shell, config)
     assert stack_named(shell) == set() and shell.enqueues() == []
-    assert ungone_parent("29031", "dddd444444", "#29020 at cccc333333") in [post_body(post) for post in blockers(shell) if post["to"] == "root"]
+    assert ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333") in [post_body(post) for post in notes(shell) if post["to"] == "root"]
     merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
@@ -3119,7 +3123,23 @@ def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whate
     shell.rows[0] = dict(shell.rows[0], head="eeee555555", reported_head="eeee555555")
     shell.gates["29031"] = [gate("#29020 GREEN eeee555555 graphite READY", "#29031 GREEN dddd444444 graphite READY", would="#29020 #29031")]
     landing_pass(shell, config)
-    assert [post_body(post) for post in blockers(shell) if post["to"] == "root"] == [ungone_parent("29031", "dddd444444", "#29020 at cccc333333")]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
+
+
+def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_for_the_stack(shell, config, tmp_path):
+    board_surface(config)
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29031", "lane": LANE, "branch": "a/2", "base": "a/1", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "29042", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+        {"pr": "29053", "lane": LANE, "branch": "a/4", "base": "a/3", "head": "ffff666666", "state": "open", "reported_head": "ffff666666"},
+    ]
+    for pr, head in (("29042", "eeee555"), ("29053", "ffff666")):
+        merge_go(shell, pr, f"merge #{pr} at {head}")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29042 at eeee555555 and #29053 at ffff666666", "#29020 at cccc333333 and #29031 at dddd444444")]
+    assert not [post for post in blockers(shell) if post["to"] == "root" and "root gos name" in post_body(post)]
 
 
 def test_a_withdrawn_root_go_lets_nothing_merge(shell, config, tmp_path):

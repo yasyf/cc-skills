@@ -4073,16 +4073,24 @@ class Landing:
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def refuse_ungone_parents(self, rows: dict[str, dict]) -> None:
-        """Post one blocker to the root for each open row a root `go` names at its head that is stacked on a row `unpassed` keeps out, again only when that set of parents changes, never for a head that moves: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
+        """Post one note to the root per stack holding rows a root `go` names at their heads above rows `unpassed` keeps out, again only when that stack's set of parents without a go changes, never for a head that moves: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
-        for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
-            if pr in self.no_go or not (parents := sorted(downstack(open_rows, pr) & self.no_go, key=int)):
+        stacks: dict[str, tuple[list[str], set[str]]] = {}
+        for pr in sorted(open_rows, key=int):
+            if pr in self.no_go or not (parents := downstack(open_rows, pr) & self.no_go):
                 continue
-            key = f"go-parent:{pr}:" + ",".join(parents)
+            bottom = next(below for below in downstack(open_rows, pr) if downstack(open_rows, below) == {below})
+            gone, waiting = stacks.setdefault(bottom, ([], set()))
+            gone.append(pr)
+            waiting.update(parents)
+        for bottom, (gone, waiting) in stacks.items():
+            parents = sorted(waiting, key=int)
+            key = f"go-parents:{bottom}:" + ",".join(parents)
             if self.book.known(LANDING, key):
                 continue
             named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
-            self.post_blocker(key, ROOT, f"#{pr} {row['head'][:10]}: a root go names this head, but it is stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", pr)
+            heads = " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in gone)
+            self.post_record("note", key, ROOT, f"stack of #{bottom}: root gos name {heads}, stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", bottom)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
