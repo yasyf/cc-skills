@@ -15,7 +15,7 @@ Codex reads neither the hooks nor the register, so the prompt carries everything
 
 - The head: repository, PR number, full head sha, base branch, and the command
   that prints its diff.
-- Every row `rulings.py slice --pr <n> --head <sha> --base <base> --repo <owner/name> --required`
+- Every row `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required`
   prints (every global, pending, and matched row), each with its key, the owner's
   words verbatim, its implications with their `removes` or `permits` mark and
   status, and its names. Paste them as the register holds them, never summarized.

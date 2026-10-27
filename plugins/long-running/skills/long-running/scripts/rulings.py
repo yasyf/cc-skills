@@ -166,6 +166,7 @@ PLACEMENT = re.compile(
 DIGEST_PROOF = re.compile(r"proof:[\w-]+:([0-9a-f]{16})\b")
 DIGEST_CHARS = 16
 OWNER_ANSWER = "from:owner"
+REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 OWNER_SOURCES = frozenset({OWNER_ANSWER, "slack:owner-words"})
 STRUCK_SPAN = re.compile(r"~~.+?~~")
 STRUCK_MARK = re.compile(r"\[STRUCK\b[^\]]*\]?")
@@ -846,7 +847,8 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
 def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:
     if not (match := ledger.PR_KEY.fullmatch(args.pr)):
         raise SystemExit(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N")
-    return match["repo"] or ledger.origin_repo(shell, Path(args.repo)), match["pr"]
+    named = REPO_NAME.fullmatch(args.repo) and not Path(args.repo).exists()
+    return match["repo"] or (args.repo if named else ledger.origin_repo(shell, Path(args.repo))), match["pr"]
 
 
 def absent(name: str, diff: Diff) -> bool:
