@@ -26,7 +26,8 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
               `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
     approved  a `go` from root, or from a lane the config's `landing.go_lanes` names, names the PR at its head, no root `withdraw` closes that go, and the board
               records no approval for the row at that head, so the row asks a tap he already gave;
-              `cc-present verdict import` at the head, or dropping the row, clears it
+              listing his approved head in the row's `carried` list (root #139021), `cc-present verdict
+              import` at the head, or dropping the row clears it
     re-ask    the board records his approval at another head, and no root go, decide or decision record
               names the PR at this head saying it re-asks or is new content (root #138721): until root
               rules replay or new content the row sits in Being fixed or checked
@@ -156,6 +157,7 @@ class Row:
     facts: dict[str, str]
     words: str = ""
     group: str = ""
+    carried: tuple[str, ...] = ()
     required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -208,7 +210,7 @@ def rows_of(block: dict) -> list[Row]:
     for block_id, group, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
         words = "\n".join([pr.get("title", ""), pr.get("md", ""), *facts.values()])
-        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, PR_FIELDS))
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, tuple(pr.get("carried") or ()), PR_FIELDS))
     return rows
 
 
@@ -388,9 +390,10 @@ def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -
 def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dict]) -> list[str]:
     if at_head(entry, "rejected", row.head):
         return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
-    if gos and not at_head(entry, "approved", row.head):
-        return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"]
-    if entry is not None and entry.get("verdict") == "approved" and not at_head(entry, "approved", row.head) and not reasked(rulings, row):
+    carried = entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and any(grades.names_head(sha, entry["head"]) for sha in row.carried)
+    if gos and not at_head(entry, "approved", row.head) and not carried:
+        return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]}, and neither a board approval there nor his approved head in its carried list backs it; add {entry['head'] if entry and entry.get('verdict') == 'approved' and entry.get('head') else 'his approved head'} to carried, import the verdict, or drop the row"]
+    if entry is not None and entry.get("verdict") == "approved" and not at_head(entry, "approved", row.head) and not carried and not reasked(rulings, row):
         return [f"re-ask: he approved it at {entry['head']}, and no root record rules {row.head[:7]} replay or new content; it waits in Being fixed or checked"]
     return []
 
