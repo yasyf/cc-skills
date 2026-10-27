@@ -206,7 +206,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
 - Fix or accept each reviewer-bot finding with the risk
-  named, and run one finder pass over your diff before you call a PR done.
+  named. Post a `head` record for every push: the desk runner's finder reads that
+  head and posts its `finder:` record to you; fix or rebut each major before you call
+  a PR done. On a drive whose runner has no finder, run one finder pass yourself.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
 auth or approval gate, or two failed approaches. Ask with 2-4 options.

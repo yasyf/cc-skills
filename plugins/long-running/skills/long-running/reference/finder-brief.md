@@ -5,9 +5,11 @@ standard tier, run through `Skill(codex)` with its finder recipe
 (`codex-ask --schema findings`). The finder looks for defects in the diff, the way
 any finder does, and it also reads the head against the same rows the
 [fidelity desks](fidelity-desk-brief.md) read, returning one verdict per row. A
-row it finds `missing` is a major. The lane that owns the head runs the pass,
-posts its record, and fixes or rebuts each major in the PR; the landing desk reads
-the record.
+row it finds `missing` is a major. With a `finder` object in `runner.json`, the orca
+desk runner runs the pass on every `head` record and posts its record under lane
+`finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md); without one, the lane
+that owns the head runs it by hand. The lane fixes or rebuts each major in the PR; the
+landing desk reads the record.
 
 ## What the finder receives
 
