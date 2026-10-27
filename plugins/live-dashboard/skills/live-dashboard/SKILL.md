@@ -29,8 +29,8 @@ live-dashboard start --dir ~/.claude/scratch/bot-test/dashboard
 
 `init` copies a preset into `layout.yaml` and writes a minimal `context.json` when none
 exists. `start` prints the link to give the owner; it is the tailnet URL when Tailscale
-runs. A long-running drive needs none of this: `drive.py` writes `context.json`, and
-the drive's hooks seed `layout.yaml` from the `drive` preset and start the server.
+runs. A long-running drive runs none of this: it starts long-running's own drive
+dashboard app from its first plan, as that skill's Drive dashboard section says.
 
 ## Commands
 

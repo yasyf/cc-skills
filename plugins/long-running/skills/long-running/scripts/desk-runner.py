@@ -403,7 +403,7 @@ contains the head: a build at the stack's tip, or one a `full run green <build>:
 names over the last two days. With `landing.ci_grade` set to a command that starts one full build of `{commit}` on
 `{branch}` in `{pipeline}` and prints its JSON, a head no tip build covers or is still building gets that build on a
 `ci-grade/<pr>` branch, started once per head, and is GREEN once it passes; a failed start logs `CI-GRADE-FAILED` once
-per head. A `BATCH-POST-OWED` posts once per set of PRs.
+per head.
 With `landing.trunk_check` set to the trunk's required status context, such as `buildkite/test`, every landing pass reads
 that context over the trunk's last 50 commits in one GraphQL query and posts the trunk's state on the `dev-red` cci topic
 to root and drive-watchdog. A red run, skipping commits whose check has not finished, names its first red commit, the PR
@@ -437,8 +437,7 @@ blocker, and a landable head runs the accept checks, whose merge-mode check logs
 no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
-stops naming, and a root `go` never does, whatever it names (C224). A PR that no ledger `progress` entry with
-an artifact lists by `#<n>` in its note still gets its `MERGE-ASK`, and its batch logs one `BATCH-POST-OWED` report for comms (8908f83). A quiet pass writes nothing.
+stops naming, and a root `go` never does, whatever it names (C224). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
@@ -531,6 +530,7 @@ INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMO
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
+GO_TO_QUEUE = timedelta(minutes=5)
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
@@ -4897,16 +4897,6 @@ class Landing:
             return {}
         return {pr: asks[pr] for pr in self.waiting_on_owner(heads, list(asks))}
 
-    def batch_posted(self) -> set[str] | None:
-        """The PRs a recorded batch post lists: the `#<n>` numbers in the note of each ledger `progress` entry carrying an artifact, the post's permalink (8908f83). None when the ledger does not read, which escalates once per error."""
-        done = self.ledger_py("show", "--ledger", self.ledger, "--json")
-        if done.code:
-            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-            self.runner.escalate(f"batch-read:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}", "BATCH-READ-FAILED", "landing", f"the ledger did not read for its batch posts: {last[0]}; the merge cards go out, and no BATCH-POST-OWED is reported until it reads")
-            return None
-        entries = [json.loads(value) for row in json.loads(done.out)["rows"] for name, value in row["fields"].items() if name.startswith("progress_")]
-        return {pr for entry in entries if entry["artifacts"] for pr in re.findall(r"#(\d+)\b", entry["note"])}
-
     def merge_card(self, pr: str, head: str, detail: str) -> str | None:
         """Ask the merge question for `pr` at `head` through `cc-present ask` in the drive root's session, so it lands on the root's board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. The card's Slack ts, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
@@ -4934,19 +4924,11 @@ class Landing:
             return Done(127, "", f"cc-present did not start: {error}")
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
-        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists still gets its card, and the batch logs one `BATCH-POST-OWED` report for comms, since the post is comms under the owner's standing grant and never a merge gate (8908f83, root #138202). A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
+        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
         mode = self.merge_mode
         asking = self.waiting_on_owner(heads, list(waiting))
         if not asking:
             return
-        if (posted := self.batch_posted()) is not None and (owed := [pr for pr in asking if pr not in posted]):
-            self.runner.escalate(
-                f"batch-post:{hashlib.sha1(' '.join(sorted(owed)).encode()).hexdigest()[:12]}",
-                "BATCH-POST-OWED",
-                numbered(owed),
-                f"{numbered(owed)} are ready, and no batch post recorded on the ledger lists them; their merge cards go out anyway (8908f83)"
-                f" | comms posts the batch, then runs `ledger.py progress --ledger {self.ledger} --ask <the ask the batch answers> --note \"{numbered(owed)}\" --artifact <permalink>`",
-            )
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
             waits = f"merge:{pr}:{short}"
@@ -5251,6 +5233,20 @@ class Landing:
                     f"#{pr} merged as an incident fix at {head[:10]} {int(age.total_seconds() // 60)} minutes ago and has no {' and no '.join(owed)} at that head; both grades are owed within 30 minutes of the merge (d968e1d)",
                 )
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
+
+    def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that is still out of the queue five minutes after that go, naming the newest enqueue outcome at that head that kept it out."""
+        queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
+        now = self.runner.now()
+        for pr, row in rows.items():
+            head = row.get("head", "")
+            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head:
+                continue
+            if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
+                continue
+            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-")), key=lambda action: action.accepted_at)
+            why = f"its newest enqueue ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}" if tried else "no enqueue was accepted for it"
+            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}")
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
@@ -5842,7 +5838,7 @@ class Landing:
             "RULING-ASK",
             f"round-{number}",
             f"{len(queued)} ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive {self.runner.config.drive}`:"
-            f" it puts at most ten of them on the live cc-present board as round {number}, foundational rows first, then sends them to Slack in one `cc-present send`, never as an AskUserQuestion or a bare Slack card;"
+            f" it puts at most ten of them on the live cc-present board as round {number}, foundational rows first, never as an AskUserQuestion or a Slack card;"
             " a pick or a note on a ruling there is a capture: Right ticks every line with `rulings.py confirm <key> --tick all --capture <digest>`,"
             " and Some wrong waits for the owner's note naming the lines",
         )
@@ -5885,6 +5881,7 @@ class Landing:
                 self.retry_flakes(rows)
                 self.gate(rows, barred, gone)
                 self.enqueue()
+                self.unqueued_gos(rows, held)
                 self.tell_unpassed(rows, held)
         self.runner.overdue(LANDING, "landing")
 

@@ -293,7 +293,7 @@ class Drive:
         return {**model, "board": board, "drive": drive, "needs": {"taps": waiting, "questions": len(board["cards"])}}
 
     def report_defect(self, text):
-        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", "root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
+        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
 
     def build(self, refresh_slow):
         if refresh_slow or not self.slow:
