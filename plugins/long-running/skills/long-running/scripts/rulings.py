@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """Read and write the owner's rulings: the standing-rules doc and the register ledger.
 
-    rulings.py register     (--program SLUG | --drive ID) [--repo PATH]
-    rulings.py match        (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--exclude ID]... [--repo PATH] < ACTION
-    rulings.py rows         (--program SLUG | --drive ID) [--json]
-    rulings.py classify     (--program SLUG | --drive ID) [--answer ID] [CLASSIFICATION...]
-    rulings.py implications (--program SLUG | --drive ID) KEY
-    rulings.py confirm      (--program SLUG | --drive ID) KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
-    rulings.py amend        (--program SLUG | --drive ID) KEY [--answer ID ...] [--implication N --text TEXT]
-    rulings.py round        (--program SLUG | --drive ID)
-    rulings.py slice        (--program SLUG | --drive ID) (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
-    rulings.py slice        (--program SLUG | --drive ID) --required --pr [OWNER/NAME#]N --head SHA [--base REF]
-    rulings.py sweep        (--program SLUG | --drive ID) [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
-    rulings.py readback     (--program SLUG | --drive ID) --lane NAME --contract SEQ [--root DIR]
-    rulings.py accepted     (--program SLUG | --drive ID) --lane NAME
-    rulings.py pr-block     (--program SLUG | --drive ID) [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
-    rulings.py table        (--program SLUG | --drive ID) [--since-last-update] [--full]
-    rulings.py glossary     (--program SLUG | --drive ID)
-    rulings.py authorize    (--program SLUG | --drive ID) --row KEY (--action TS | --prompt DIGEST)
-    rulings.py status       (--program SLUG | --drive ID) KEY STATE --evidence REF
-    rulings.py anchor       (--program SLUG | --drive ID) KEY [--paths P]... [--symbols S]... [--ops O]...
-    rulings.py names        (--program SLUG | --drive ID) KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
-    rulings.py supersede    (--program SLUG | --drive ID) OLD --by NEW
-    rulings.py check-pr     (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
-    rulings.py grade        (--program SLUG | --drive ID) --pr [OWNER/NAME#]N --head SHA --out FILE [--base REF] [--plan PATH]
+    rulings.py register     [--program SLUG | --drive ID] [--repo PATH]
+    rulings.py match        [--program SLUG | --drive ID] [-k N] [--budget BYTES] [--exclude ID]... [--repo PATH] < ACTION
+    rulings.py rows         [--program SLUG | --drive ID] [--json]
+    rulings.py classify     [--program SLUG | --drive ID] [--answer ID] [CLASSIFICATION...]
+    rulings.py implications [--program SLUG | --drive ID] KEY
+    rulings.py confirm      [--program SLUG | --drive ID] KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
+    rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N --text TEXT]
+    rulings.py round        [--program SLUG | --drive ID]
+    rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
+    rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF]
+    rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
+    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--root DIR]
+    rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
+    rulings.py pr-block     [--program SLUG | --drive ID] [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
+    rulings.py table        [--program SLUG | --drive ID] [--since-last-update] [--full]
+    rulings.py glossary     [--program SLUG | --drive ID]
+    rulings.py authorize    [--program SLUG | --drive ID] --row KEY (--action TS | --prompt DIGEST)
+    rulings.py status       [--program SLUG | --drive ID] KEY STATE --evidence REF
+    rulings.py anchor       [--program SLUG | --drive ID] KEY [--paths P]... [--symbols S]... [--ops O]...
+    rulings.py names        [--program SLUG | --drive ID] KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
+    rulings.py supersede    [--program SLUG | --drive ID] OLD --by NEW
+    rulings.py check-pr     [--program SLUG | --drive ID] --pr [OWNER/NAME#]N --head SHA [--base REF] [--incident] [--plan PATH]
+    rulings.py grade        [--program SLUG | --drive ID] --pr [OWNER/NAME#]N --head SHA --out FILE [--base REF] [--plan PATH]
                             [--ground ID=GROUND,...]... [--not-a-mechanism ID=WHY]... [--missing KEY=WORDS]...
 
 The standing-rules doc is the newest cc-notes doc labelled ``standing-rules:<program>``.
@@ -54,7 +54,9 @@ that replaces the one line ``--strike`` names, in that line's direction.
 the row's ``amends`` list with its time and, for an implication, the text it replaced.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
-resolves the program and the state directory from the drive registry. The register is read
+resolves the program and the state directory from the drive registry. With neither, the drive is the
+session's: the one ``CLAUDE_LONG_RUNNING_DRIVE`` names, else the one whose root sessions hold
+``CLAUDE_CODE_SESSION_ID``; a session in no drive must name one. The register is read
 from the checkout the drive's registry entry names; ``--repo``, which defaults to the current
 directory, names it only when no drive runs the program. ``check-pr`` reads the register only
 through the registry entry and uses ``--repo`` for the PR's own checkout. ``slice --required`` and
@@ -2318,14 +2320,17 @@ def build_parser() -> argparse.ArgumentParser:
     graded.add_argument("--missing", action="append", default=[], metavar="KEY=WORDS")
     for sub in verbs:
         sub.add_argument("--repo", default=".", metavar="PATH")
-        which = sub.add_mutually_exclusive_group(required=True)
+        which = sub.add_mutually_exclusive_group()
         which.add_argument("--program", metavar="SLUG")
         which.add_argument("--drive", metavar="ID")
+        sub.set_defaults(error=sub.error)
     return parser
 
 
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if not (args.program or args.drive):
+        args.drive = drive.current_drive() or args.error("one of the arguments --program --drive is required")
     return args.handler(args, shell or ledger.Shell())
 
 
