@@ -16,7 +16,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false };
+const state = { model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, map: 'part', overlay: null };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -75,9 +75,6 @@ function prHref(n) {
 function prLink(n) {
   const external = !boardRow(n);
   return `<a href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}">#${n}</a>`;
-}
-function squares(numbers) {
-  return `<span class="sqs">${numbers.map((n) => `<a class="sq ${prState(n)}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}"></a>`).join('')}</span>`;
 }
 function inline(md) {
   return esc(md)
@@ -151,112 +148,106 @@ function timelineRows(events, gaps) {
   return out.join('');
 }
 
-function needsAttention() {
-  const m = state.model;
-  const items = [];
-  const waiting = new Map();
-  for (const row of m.board.rows) {
-    if (verdictState(row) !== 'you') continue;
-    if (!waiting.has(row.group)) waiting.set(row.group, []);
-    waiting.get(row.group).push(row);
-  }
-  for (const [group, rows] of waiting) {
-    items.push({
-      id: `tap-${group}`,
-      what: `Approve or hold ${plural(rows.length, 'pull request')}`,
-      why: `${group}. ${rows[0].group_summary}`,
-      cue: 'Review',
-      body: `<ul>${rows.map((r) => `<li><a href="#/review/${r.number}"><b>#${r.number}</b> ${esc(r.title)}</a></li>`).join('')}</ul>`,
-    });
-  }
-  for (const card of m.board.cards.filter((c) => !c.answered)) {
-    items.push({
-      id: `card-${card.id}`,
-      what: card.title,
-      why: card.summary,
-      cue: 'Answer',
-      body: `${card.recommended ? `<p>Recommended: <b>${esc(card.recommended)}</b></p>` : ''}<p><a class="btn" href="${esc(m.board.url)}" target="_blank" rel="noopener">Answer on the board</a></p>`,
-    });
-  }
-  for (const ask of m.story.asks.filter((a) => !a.optional)) {
-    items.push({ id: `ask-${ask.what}`, what: ask.what, why: ask.why, cue: 'Do', body: ask.link ? `<p><a href="${esc(ask.link)}" target="_blank" rel="noopener">${esc(ask.link_text ?? 'Open')}</a></p>` : '' });
-  }
-  return items;
-}
-function attnCard(item, i) {
-  const open = state.open.has(item.id) ? ' open' : '';
-  return `<details data-id="${esc(item.id)}"${open}><summary><span class="no">${i + 1}</span><span class="cue">${item.cue} ›</span>
-    <span class="what">${esc(item.what)}</span><span class="why">${inline(item.why)}</span></summary>${item.body}</details>`;
-}
-
 function planNumbers() {
   return [...new Set(state.model.plan.flatMap((s) => s.prs))].filter((n) => prState(n) !== 'closed');
 }
-function mapCard() {
-  const clusters = SCOPES.map(([title, scopes]) => {
-    const nodes = new Map();
-    for (const [n, pr] of Object.entries(state.model.prs)) {
-      const scope = (pr.title ?? '').split(':')[0];
-      const name = scopes[scope];
-      if (!name || pr.state === 'closed-without-squash' || !pr.state) continue;
-      if (!nodes.has(name)) nodes.set(name, { landed: 0, open: 0, failing: 0, you: 0 });
-      const node = nodes.get(name);
-      const s = prState(n);
-      if (s === 'landed') node.landed++;
-      else node.open++;
-      if (s === 'failing') node.failing++;
-      if (s === 'you') node.you++;
-    }
-    const html = [...nodes.entries()].sort((a, b) => b[1].failing - a[1].failing || b[1].open - a[1].open).map(([name, c]) => {
-      const total = c.landed + c.open;
-      const tone = c.failing ? 'bad' : c.open ? 'work' : 'ok';
-      return `<div class="node ${tone}" title="${c.landed} landed, ${c.open} open, ${c.failing} with failing tests, ${c.you} waiting on you"><span class="name">${esc(name)}</span>
-        <span class="dim num">${c.landed} of ${total} landed</span>${c.failing ? `<span class="badge" title="pull requests with failing tests">${c.failing}</span>` : '<span></span>'}
-        <span class="bar"><i style="width:${(100 * c.landed) / total}%;background:var(--ok)"></i><i style="width:${(100 * (c.open - c.failing)) / total}%;background:var(--accent)"></i><i style="width:${(100 * c.failing) / total}%;background:var(--bad)"></i></span></div>`;
-    }).join('');
-    return `<div><h3>${title}</h3>${html}</div>`;
-  });
-  return `<div class="card"><div class="kick muted" style="margin-bottom:10px">Where the work is · landed of all pull requests, red badges count failing tests</div><div class="map">${clusters.join('')}</div></div>`;
+function dots(numbers) {
+  return `<span class="dots">${numbers.map((n) => `<a class="d ${prState(n)}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}"></a>`).join('')}</span>`;
 }
-
+function partOf(n) {
+  const scope = (state.model.prs[n]?.title ?? '').split(':')[0];
+  for (const [zone, scopes] of SCOPES) if (scopes[scope]) return [zone, scopes[scope]];
+  return null;
+}
+function liveNumbers() {
+  return Object.keys(state.model.prs).filter((n) => ['open', 'landed'].includes(state.model.prs[n].state));
+}
+function partBoxes(numbers) {
+  const parts = new Map();
+  for (const n of numbers) {
+    const part = partOf(n);
+    if (!part) continue;
+    if (!parts.has(part[1])) parts.set(part[1], []);
+    parts.get(part[1]).push(n);
+  }
+  return [...parts.entries()].sort((a, b) => b[1].length - a[1].length).map(([name, nums]) => {
+    const done = nums.filter((n) => prState(n) === 'landed').length;
+    return `<div class="part"><div class="part-h"><b>${esc(name)}</b><span class="num">${Math.round((100 * done) / nums.length)}%</span></div>${dots(nums.sort((a, b) => prRank(a) - prRank(b)))}</div>`;
+  }).join('');
+}
+const RANK = { landed: 0, work: 1, you: 2, failing: 3, held: 4, closed: 5 };
+function prRank(n) {
+  return RANK[prState(n)];
+}
+function endState() {
+  const numbers = liveNumbers();
+  const view = state.map;
+  let body;
+  if (view === 'tree') {
+    const columns = state.model.tree_names.map((tree) => {
+      const nums = numbers.filter((n) => (state.model.trees[n] ?? []).includes(tree));
+      return `<div class="zone tree-${tree.split(' ')[0].toLowerCase()}"><div class="zone-h">${esc(tree)}<span class="dim">${TREE_NOTE[tree] ?? ''}</span></div>${partBoxes(nums) || '<div class="dim">Reading each pull request\'s files…</div>'}</div>`;
+    });
+    const unread = numbers.filter((n) => !state.model.trees[n]).length;
+    body = `<div class="zones three">${columns.join('<div class="arrow">→</div>')}</div>${unread ? `<div class="dim">${unread} pull requests not read yet; they appear as their files are read.</div>` : ''}`;
+  } else {
+    body = `<div class="zones">${SCOPES.map(([zone, scopes]) => `<div class="zone"><div class="zone-h">${zone}</div>${partBoxes(numbers.filter((n) => partOf(n)?.[0] === zone))}</div>`).join('<div class="arrow">⇄</div>')}</div>`;
+  }
+  return `<div class="card endstate"><div class="es-h"><div><div class="kick">The end state</div><div class="es-t">${view === 'tree' ? 'At cutover the new tree replaces the old one; shared code serves both until then.' : 'Every Mac runs the new build against the new cloud services. Each dot is one pull request.'}</div></div>
+    <div class="seg"><button data-map="part" class="${view === 'tree' ? '' : 'on'}">By part</button><button data-map="tree" class="${view === 'tree' ? 'on' : ''}">Old and new tree</button></div></div>${body}
+    <div class="legend"><span><i class="d landed"></i>landed</span><span><i class="d work"></i>on its way</span><span><i class="d you"></i>waiting on you</span><span><i class="d failing"></i>tests failing</span><span><i class="d held"></i>held</span></div></div>`;
+}
+const TREE_NOTE = { 'New tree': 'what every Mac runs after cutover', 'Old tree': 'keeps working until cutover, then deleted', Shared: 'cloud and app code both trees use' };
+function donut(numbers) {
+  const counts = ['landed', 'work', 'you', 'failing', 'held'].map((k) => [k, numbers.filter((n) => prState(n) === k).length]);
+  const total = numbers.length || 1;
+  let offset = 0;
+  const arcs = counts.map(([k, c]) => {
+    const len = (c / total) * 100;
+    const arc = `<circle class="arc ${k}" r="15.915" cx="20" cy="20" stroke-dasharray="${len} ${100 - len}" stroke-dashoffset="${25 - offset}"></circle>`;
+    offset += len;
+    return arc;
+  });
+  return `<svg viewBox="0 0 40 40" class="donut"><circle class="arc track" r="15.915" cx="20" cy="20"></circle>${arcs.join('')}</svg>`;
+}
+function liveBox(l) {
+  const n = /^\d{5}$/.test(l.topic ?? '') ? l.topic : /#(4\d{4})\b/.exec(l.text)?.[1];
+  const what = n ? `<a href="${prHref(n)}"><span class="d ${prState(n)}"></span> #${n} ${esc(plainTitle(n))}</a>` : esc(firstSentences(l.text, 70));
+  return `<div class="live${l.stall ? ' stall' : ''}"><div class="live-h"><i class="${l.stall ? 'still' : 'pulse'}"></i><b>${esc(l.lane)}</b><span class="dim">${agoWords(l.at)}</span></div><div class="live-t">${what}</div></div>`;
+}
+function workingNow() {
+  const since = Date.now() - 20 * 60 * 1000;
+  const lanes = state.model.lanes.filter((l) => new Date(l.at) > since && l.lane !== 'root').sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 8);
+  return lanes.map(liveBox).join('') || '<div class="dim">No worker has written in the last 20 minutes.</div>';
+}
+function planSteps(full) {
+  return state.model.plan.map((s, i) => {
+    const nums = s.prs.filter((n) => prState(n) !== 'closed').sort((a, b) => prRank(a) - prRank(b));
+    const done = nums.filter((n) => prState(n) === 'landed').length;
+    return `<li class="pstep${nums.length && done === nums.length ? ' done' : ''}"><span class="n">${i + 1}</span><div><div class="pt">${esc(s.title)}${nums.length ? `<span class="dim num"> ${done} of ${nums.length} landed</span>` : ''}</div>${nums.length ? dots(nums) : ''}${full && s.text ? `<p>${inline(s.text)}</p>` : ''}</div></li>`;
+  }).join('');
+}
 function overview() {
   const m = state.model;
   const all = planNumbers();
   const landed = all.filter((n) => prState(n) === 'landed').length;
-  const attention = needsAttention();
-  const events = timeline().filter(TIMELINE_FILTERS[0][2]).slice(0, 8);
-  const lanes = activeLanes();
-  const stalls = lanes.filter((l) => l.stall);
-  const steps = m.plan.map((s, i) => {
-    const nums = s.prs.filter((n) => prState(n) !== 'closed');
-    const done = nums.filter((n) => prState(n) === 'landed').length;
-    const id = `step-${i}`;
-    const open = state.open.has(id);
-    return `<div class="step" data-toggle="${id}"><span class="n">${i + 1}</span><span class="t">${esc(s.title)}</span><span class="c">${nums.length ? `${done} of ${nums.length} landed` : ''}</span>
-      ${nums.length ? squares(nums) : ''}${open ? `<div class="step-detail">${inline(s.text || s.title)}</div>` : ''}</div>`;
-  }).join('');
+  const waiting = m.board.rows.filter((r) => verdictState(r) === 'you').length;
+  const cards = m.board.cards.filter((c) => !c.answered).length;
   return `
-  <section class="hero">
-    <div class="card">
-      <div class="kick">What the rebuild delivers</div>
-      <p class="thesis">${esc(m.story.now)}</p>
-      <div class="score">
-        <div class="big">${landed}<small> / ${all.length}</small></div>
-        <div><div style="font-weight:650">pull requests in the plan have landed</div><div class="next"><span class="pill acc">Next: ${esc(m.story.release.what)}</span><a href="#/releases">Release plan ›</a></div></div>
-      </div>
-      <div class="kick muted" style="margin-top:18px">Plan of action, in order${m.plan_at ? ` · revised ${clock(m.plan_at)}` : ''}</div>
-      <div class="steps">${steps}</div>
-      <div class="legend"><span><i class="sq landed"></i>landed</span><span><i class="sq"></i>on its way</span><span><i class="sq you"></i>waiting on you</span><span><i class="sq failing"></i>tests failing</span><span><i class="sq held"></i>held</span></div>
+  <section class="glance">
+    ${endState()}
+    <div class="card prog">
+      <div class="kick">Progress</div>
+      <div class="ring">${donut(all)}<div class="ring-n"><b>${landed}</b><span>of ${all.length} landed</span></div></div>
+      <div class="kv"><a href="#/review" class="${waiting ? 'hot' : ''}"><b>${waiting}</b> waiting on your tap</a><a href="${esc(m.board.url)}" target="_blank" rel="noopener" class="${cards ? 'hot' : ''}"><b>${cards}</b> questions on the board</a></div>
+      <div class="nextrel"><div class="kick muted">Next release</div>${esc(m.story.release.what)}<a href="#/releases"> Release plan ›</a></div>
     </div>
-    ${mapCard()}
   </section>
-  <h2 class="sec">Needs your attention ${attention.length ? `<span class="pill bad">${attention.length}</span>` : '<span class="pill ok">Nothing</span>'}<a href="#/review">All pull requests ›</a></h2>
-  <div class="attn">${attention.slice(0, 3).map(attnCard).join('') || '<div class="dim">Nothing waits on you.</div>'}</div>
-  ${attention.length > 3 ? `<details class="more-attn" data-id="attn-more"${state.open.has('attn-more') ? ' open' : ''}><summary class="dim">${attention.length - 3} more</summary><div class="attn" style="margin-top:10px">${attention.slice(3).map((it, i) => attnCard(it, i + 3)).join('')}</div></details>` : ''}
-  <section class="two">
-    <div><h2 class="sec">Latest <a href="#/timeline">Timeline ›</a></h2><div class="card"><ul class="tl">${timelineRows(events, false)}</ul></div></div>
-    <div><h2 class="sec">Workers ${stalls.length ? `<span class="pill bad">${stalls.length} quiet</span>` : ''}<a href="#/workers">All workers ›</a></h2><div class="card"><ul class="lanes">${lanes.slice(0, 7).map(laneRow).join('')}</ul></div></div>
-  </section>`;
+  <h2 class="sec">Working now <span class="dim">each box is a worker that wrote in the last 20 minutes</span><a href="#/workers">All workers ›</a></h2>
+  <div class="lives">${workingNow()}</div>
+  <h2 class="sec">The plan, in order <span class="dim">${m.plan_at ? `revised ${clock(m.plan_at)}` : ''}</span><a href="#" data-overlay="plan">Open the full plan ⤢</a></h2>
+  <div class="card planprev" data-overlay="plan"><ol class="psteps">${planSteps(false)}</ol></div>
+  ${state.overlay === 'plan' ? `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>The plan of action, in order</h2><ol class="psteps">${planSteps(true)}</ol><h2>The release plan</h2><div class="prose">${markdown(m.releases.markdown)}</div></div></div>` : ''}`;
 }
 
 function activeLanes() {
@@ -268,13 +259,10 @@ function activeLanes() {
     .map((l) => ({ ...l, holds: holds[l.lane] ?? 0, stall: Boolean(holds[l.lane]) && minutesSince(l.at) >= STALL_MIN }))
     .sort((a, b) => b.stall - a.stall || new Date(b.at) - new Date(a.at));
 }
-function laneRow(l) {
-  return `<li><span class="name">${esc(l.lane)}${l.holds ? ` <span class="pill">${plural(l.holds, 'open pull request')}</span>` : ''}</span><span class="ago${l.stall ? ' stall' : ''}">${l.stall ? 'quiet ' : ''}${agoWords(l.at)}</span><span class="say">${esc(firstSentences(l.text, 200))}</span></li>`;
-}
 function workers() {
   const lanes = activeLanes();
-  return `<h2 class="sec">Workers <span class="pill">${lanes.length} active in the last 3 hours or holding a pull request</span>${lanes.some((l) => l.stall) ? `<span class="pill bad">${lanes.filter((l) => l.stall).length} quiet over ${STALL_MIN} min</span>` : ''}</h2>
-    <div class="card"><ul class="lanes">${lanes.map(laneRow).join('')}</ul></div>`;
+  const stalls = lanes.filter((l) => l.stall).length;
+  return `<h2 class="sec">Workers <span class="pill">${lanes.length}</span>${stalls ? `<span class="pill bad">${stalls} quiet while holding a pull request</span>` : ''}</h2><div class="lives">${lanes.map(liveBox).join('')}</div>`;
 }
 
 function timelineScreen() {
@@ -383,6 +371,12 @@ document.addEventListener('click', (e) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     render();
   }
+  const map = e.target.closest('[data-map]');
+  if (map) { state.map = map.dataset.map; render(); }
+  const close = e.target.closest('[data-close]');
+  if (close && (e.target === close || close.matches('button'))) { state.overlay = null; render(); return; }
+  const overlay = e.target.closest('[data-overlay]');
+  if (overlay && !e.target.closest('a.d')) { e.preventDefault(); state.overlay = overlay.dataset.overlay; render(); }
   const suggestion = e.target.closest('[data-ask]');
   if (suggestion) ask(suggestion.dataset.ask);
   const filter = e.target.closest('[data-filter]');
@@ -394,6 +388,7 @@ document.addEventListener('submit', (e) => {
   ask(e.target.q.value);
 });
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.overlay) { state.overlay = null; render(); }
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });

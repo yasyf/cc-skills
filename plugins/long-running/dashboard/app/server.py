@@ -50,6 +50,15 @@ def plan_prs(text):
     return list(dict.fromkeys(numbers))
 
 
+def trees(paths, config):
+    found = []
+    for path in paths:
+        tree = next(tree["name"] for tree in config if path.startswith(tuple(tree["prefixes"])) or not tree["prefixes"])
+        if tree not in found:
+            found.append(tree)
+    return found
+
+
 def parse_plan(body):
     if PLAN_HEADING not in body:
         return None
@@ -75,6 +84,7 @@ class Drive:
         self.slow_at = 0.0
         self.dirty_at = time.monotonic()
         self.errors = {}
+        self.paths = {}
 
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
@@ -114,6 +124,30 @@ class Drive:
                 self.touch(slow=True)
             watch.wait()
             time.sleep(5)
+
+    def follow_paths(self):
+        cache_file = Path(self.config["paths_cache"])
+        cache = json.loads(cache_file.read_text()) if cache_file.exists() else {}
+        while True:
+            with self.lock:
+                prs = dict(self.slow.get("prs", {}))
+            stale = [(n, pr["head"]) for n, pr in prs.items() if pr.get("head") and pr.get("state") in ("open", "landed") and cache.get(n, {}).get("head") != pr["head"]]
+            for number, head in stale:
+                try:
+                    paths = run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}/files", "--paginate", "--jq", ".[].filename"]).split()
+                except subprocess.CalledProcessError as error:
+                    self.errors["paths"] = f"#{number}: {error.stderr.strip()[:200]}"
+                    continue
+                cache[number] = {"head": head, "trees": trees(paths, self.config["trees"])}
+                cache_file.write_text(json.dumps(cache))
+                with self.lock:
+                    self.paths = dict(cache)
+                time.sleep(0.5)
+            with self.lock:
+                self.paths = dict(cache)
+            if stale:
+                self.touch()
+            time.sleep(60)
 
     def touch(self, slow=False):
         with self.lock:
@@ -161,6 +195,8 @@ class Drive:
             "title": self.config["title"],
             "repo": self.config["repo"],
             "records": records[-1500:],
+            "trees": {n: entry["trees"] for n, entry in self.paths.items()},
+            "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "errors": dict(self.errors),
@@ -308,7 +344,7 @@ def main():
     config = json.loads(args.config.read_text())
     drive = Drive(config)
     after = drive.load_records()
-    for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.rebuild_loop, ())):
+    for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True
