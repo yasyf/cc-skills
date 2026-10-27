@@ -9169,3 +9169,24 @@ def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
     landing.watch_trunk(OPEN_ROWS)
 
     assert trunk_posts(shell) == [("report", "root,drive-watchdog", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]
+
+
+@pytest.mark.parametrize(
+    ("argv", "family"),
+    [
+        ([sys.executable, "/plugin/scripts/ledger.py", "-C", "/drive/checkout", "refresh", "--repo", "Forge-AI/monorepo"], "ledger.py refresh"),
+        (["/drive/checkout/.agents/skills/submit-pr/scripts/stack-enqueue", "43052", "--check", "--partial"], "stack-enqueue --check"),
+        (["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json", "42580", "42587"], "ccx vcs pr status"),
+        (["gh", "api", "repos/Forge-AI/monorepo/compare/a~14...a", "-H", "Accept: application/vnd.github.diff"], "gh api"),
+        (["git", "-C", "/drive/checkout", "merge", "-q", "--ff-only", "FETCH_HEAD"], "git merge"),
+    ],
+)
+def test_a_pass_cost_groups_each_command_by_its_program_and_verbs(argv, family):
+    assert runner_module.command_family(argv) == family
+
+
+def test_a_pass_cost_lists_the_costliest_families_and_starts_over():
+    shell = runner_module.Shell()
+    shell.spent = runner_module.Counter({"ledger.py refresh": 55.2, "stack-enqueue --check": 120.4, "cci tail": 1.0})
+    assert shell.pass_cost() == "stack-enqueue --check 120s, ledger.py refresh 55s, cci tail 1s"
+    assert shell.pass_cost() == ""

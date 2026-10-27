@@ -793,6 +793,21 @@ def time_bound(argv: list[str]) -> float:
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
 
 
+def command_family(argv: list[str]) -> str:
+    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--check` when it carries one: what a pass's cost line groups by."""
+    words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
+    verbs: list[str] = []
+    for word in words[1:]:
+        if word.startswith("-") or "/" in word or word.isdigit():
+            if verbs:
+                break
+            continue
+        verbs.append(word)
+        if len(verbs) == 3:
+            break
+    return " ".join([Path(words[0]).name, *verbs, *(["--check"] if "--check" in words else [])])
+
+
 def command_name(argv: list[str]) -> str:
     words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
     return " ".join(Path(word).name if word.startswith("/") else word for word in words)[:120]
@@ -810,10 +825,13 @@ class Shell:
     """
 
     in_progress: dict[int, tuple[str, float]] = {}
+    spent: Counter[str] = Counter()
+    spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
         timeout = time_bound(argv)
-        self.in_progress[threading.get_ident()] = (command_name(argv), time.monotonic())
+        started = time.monotonic()
+        self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
@@ -825,7 +843,15 @@ class Shell:
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
         finally:
             self.in_progress.pop(threading.get_ident(), None)
+            with self.spending:
+                self.spent[command_family(argv)] += time.monotonic() - started
         return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def pass_cost(self) -> str:
+        """The seconds this pass's commands spent, the eight costliest families first, summed over parallel workers; the tally starts over."""
+        with self.spending:
+            costliest, self.spent = self.spent.most_common(8), Counter()
+        return ", ".join(f"{family} {seconds:.0f}s" for family, seconds in costliest)
 
     def in_flight(self) -> tuple[str, float] | None:
         """The longest-running command in flight and how many seconds it has run."""
@@ -6100,6 +6126,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 return 1
         behind = runner.stale()
         runner.flush()
+        print(f"PASS landing {runner.passes['landing'] + 1} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
             return 0
