@@ -47,7 +47,7 @@ NODE_SCHEMA = {
         "id": {"type": "string"},
         "text": {"type": "string", "description": "what is stuck or what must happen, at most 10 words"},
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
-        "how": {"type": "string", "description": "how it is being unblocked and the next step, at most 12 words; empty for done"},
+        "how": {"type": "string", "description": "who acts next and what they do, at most 12 words, such as 'The cloud runs worker rebuilds the fix, then the review rechecks'"},
         "item": {"type": "string", "description": "the work item id fixing it, or empty"},
         "since": {"type": "string", "description": "Pacific clock time it got stuck, such as 11:45 AM, or empty"},
     },
@@ -80,7 +80,7 @@ SCHEMA = {
                 "required": ["milestone", "nodes", "edges"],
                 "properties": {
                     "milestone": {"type": "integer", "description": "index into the milestones list"},
-                    "nodes": {"type": "array", "maxItems": 4, "items": NODE_SCHEMA},
+                    "nodes": {"type": "array", "maxItems": 3, "items": NODE_SCHEMA},
                     "edges": {
                         "type": "array",
                         "items": {"type": "object", "additionalProperties": False, "required": ["from", "to"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}}},
@@ -117,6 +117,7 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
+- One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
 - Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
 
@@ -126,7 +127,7 @@ Fields:
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
 - progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
-- paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most four nodes per path; merge small things. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how says how it is being unblocked and the next step; for nobody say who was told and when, and who should assign a worker (the coordinator). item names the work item fixing it.
+- paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most three nodes per path: the biggest things in the way, merged where they share a fix. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how always names who acts next and what they do: a worker named by its work ("the cloud runs worker"), you, the coordinator, the merge process, or the automated review. Never write "not known" in how; when the next step is undecided, say who decides it. For nobody, say "The coordinator assigns a worker" plus when it was raised. A decision the owner already made is done: drop it, and never ask him again for something he approved. item names the work item fixing it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
 - work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work."""
 

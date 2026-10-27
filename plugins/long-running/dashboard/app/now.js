@@ -127,7 +127,7 @@ function node(n, key) {
   const work = n.item && workItem(n.item);
   const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
   return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}</span>${esc(n.text)}
-    ${n.how || n.since ? `<span class="how">${esc(n.how)}${n.since ? `<i> · since ${esc(n.since)}</i>` : ''}</span>` : ''}</${work ? 'a' : 'div'}>`;
+    ${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}</${work ? 'a' : 'div'}>`;
 }
 function cards(paths) {
   const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
