@@ -6,7 +6,9 @@ import re
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
+import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,6 +23,8 @@ PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
+REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
+TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 ASK_URL = "https://api.cerebras.ai/v1/chat/completions"
 ASK_MODEL = "gpt-oss-120b"
 ASK_RECORDS = 250
@@ -29,7 +33,7 @@ ASK_RULES = """You answer the owner's questions about a long-running software dr
 Lead with the answer in one or two plain sentences, then at most five short bullets of evidence.
 Name pull requests as #12345 with what each does in plain words. Times are Pacific, written like 11:42 PM.
 Say "not in the records" when the state does not answer it. Never invent a time, owner, result or plan."""
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css")}
 
 
 def run(argv, cwd=None):
@@ -73,8 +77,9 @@ def parse_plan(body):
 
 
 class Drive:
-    def __init__(self, config):
+    def __init__(self, config, reviews):
         self.config = config
+        self.reviews = reviews
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
@@ -85,6 +90,24 @@ class Drive:
         self.dirty_at = time.monotonic()
         self.errors = {}
         self.paths = {}
+
+    def review_url(self, number):
+        cwd = self.reviews / str(number)
+        cwd.mkdir(parents=True, exist_ok=True)
+        return TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--cwd", str(cwd)]))[1]
+
+    def decide(self, block, number, verdict, head, note):
+        origin, _, subject = self.config["board_url"].partition("/p/")
+        entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
+        interaction = {"type": "triage.decided", "blockId": block, "verdicts": {str(number): entry}}
+        request = urllib.request.Request(f"{origin}/api/interactions", method="POST", headers={"Content-Type": "application/json"}, data=json.dumps({"subject": subject, "nonce": str(uuid.uuid4()), "interaction": interaction}).encode())
+        try:
+            with urllib.request.urlopen(request, timeout=15):
+                pass
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode().strip()
+        self.touch(slow=True)
+        return 200, ""
 
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
@@ -237,7 +260,7 @@ class Drive:
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
-                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(f"pr-{row['number']}")})
+                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
             if not groups and block.get("status") == "open":
                 choice = next((child for child in block.get("children", []) if child["type"] == "choice"), None)
                 recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)
@@ -277,7 +300,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js"):
+                    for asset in ("app.js", "app.css", "review.js", "review.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
@@ -286,12 +309,21 @@ def handler(drive):
                 return self.send(200, "application/json", body)
             if path == "/api/stream":
                 return self.stream()
+            if found := REVIEW_ROUTE.fullmatch(path):
+                try:
+                    url = drive.review_url(int(found[1]))
+                except subprocess.CalledProcessError as error:
+                    return self.send(502, "application/json", json.dumps({"error": (error.stderr or error.stdout).strip()}).encode())
+                return self.send(200, "application/json", json.dumps({"url": url}).encode())
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path != "/api/ask":
+            if self.path not in ("/api/ask", "/api/verdict"):
                 return self.send(404, "text/plain", b"not found")
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if self.path == "/api/verdict":
+                status, error = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
+                return self.send(status, "application/json", json.dumps({"error": error} if error else {}).encode())
             with drive.lock:
                 model = drive.model
             self.send_response(200)
@@ -342,7 +374,7 @@ def main():
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    drive = Drive(config)
+    drive = Drive(config, args.config.parent / "reviews")
     after = drive.load_records()
     for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
