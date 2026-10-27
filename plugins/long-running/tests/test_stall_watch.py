@@ -252,11 +252,11 @@ def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_
 @pytest.mark.parametrize(
     ("answer", "step"),
     [
-        ({"fix": True}, "his tap at 0123456 keeps over a review fix (rule 399b5fa): root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix"),
-        ({}, "re-ask the owner at abc1234; it adds new behavior beyond the tapped change"),
+        ({"fix": True}, "his tap at 0123456 keeps over a fix with no new behavior (rule 399b5fa): root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix"),
+        ({}, "re-ask the owner at abc1234 unless a record shows it adds no new behavior"),
     ],
 )
-def test_a_tap_at_an_earlier_head_keeps_over_a_review_fix_and_only_new_behavior_re_asks_the_owner(config, answer, step):
+def test_a_tap_at_an_earlier_head_keeps_over_a_fix_with_no_new_behavior_and_only_new_behavior_re_asks_the_owner(config, answer, step):
     fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, fixed)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
@@ -278,7 +278,7 @@ def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_nex
 
     assert len(shell.prompts) == 2
     assert shell.post("carry:101:abc1234")["to"] == "root,fidelity-desk@d1"
-    assert "if it is a patch-identical restack; if it adds only a review fix, his tap keeps (rule 399b5fa) and root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
+    assert "if it is a patch-identical restack; if it adds no new behavior, his tap keeps (rule 399b5fa) and root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
 
 
 def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_named_wait_holds_off_its_stall(config, tmp_path):

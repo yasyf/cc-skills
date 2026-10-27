@@ -23,8 +23,9 @@ its ledger row names, it finds:
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               and the board holds no row or card for it at that head
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
-              one, and the board holds no row for it at this head; a head that adds only a review
-              fix keeps his tap (rule 399b5fa) and waits on root's go, and only new behavior re-asks
+              one, and the board holds no row for it at this head; a head that adds no new behavior,
+              such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
+              go, and only new behavior, or records that do not say, re-asks
 
 and, across the drive:
 
@@ -36,7 +37,7 @@ and, across the drive:
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 15, lane 30, ask 15. Two questions need judgment, and one headless Claude call per pass
 (`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
-a patch-identical restack of the tapped one or adds only a review fix, read from its lane's `head` records, and whether a quiet
+a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
 lane's last record explains its silence and by when it promised its next state. A verdict is kept
 against the records it read, so no question is asked twice; a call that fails leaves each question to
 its mechanical answer.
@@ -124,7 +125,7 @@ SCHEMA = json.dumps(
 )
 PROMPT = """You read coordination records from a multi-agent software drive and answer each question below. It is {now} UTC ({pacific} Pacific).
 
-A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when head adds only review fixes: commits that answer a finding a reviewer, a reviewer bot, the finder, or a red CI build raised on the tapped change, with their tests, and no new behavior of their own; the owner's rule keeps his approval over a review fix. Answer both false when head adds new behavior that is not a review fix, or the records do not say.
+A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when every commit head adds beyond the tapped change adds no new behavior of its own: a fix for a finding a reviewer, a reviewer bot, the finder, or a red CI build raised, a conflict resolution, or their tests; the owner's rule keeps his approval over any change that adds no new behavior. Answer both false when head adds new behavior, or the records do not say what it adds.
 
 A question of kind "silence": a lane has posted nothing for minutes_silent minutes since last_record. Answer promised with the RFC 3339 UTC time by which that record says the lane's next state or result will come, such as "next state by 1:30 PM", "back in 20 minutes", or "ETA 13:05", reading a time with no zone as Pacific and a relative time from last_at; leave promised empty when it names none. Answer explained true only when the record names something the lane waits on that takes this long, such as a CI build, a release, or a long command it runs; a record that reports finished work, asks a question, or says nothing of what comes next is explained false.
 
@@ -505,17 +506,18 @@ class Pass:
         carry_line = f"`fidelity: ok {short(head)} carried from {short(tapped)}`"
 
         go_line = f"`go #{pr} at {short(head)}` naming the fix once fidelity grades it, and the row lists the fix"
+        reask = f"re-ask the owner at {short(head)} unless a record shows it adds no new behavior"
 
         def settle(verdict: dict | None) -> Stall:
             if verdict is None:
-                return Stall(key, "carry", head_at, subject, what, (*fidelity_lanes, ROOT), f"post {carry_line} if it is a patch-identical restack; if it adds only a review fix, his tap keeps (rule 399b5fa) and root posts {go_line}; else root re-asks the owner at {short(head)}", pr)
+                return Stall(key, "carry", head_at, subject, what, (*fidelity_lanes, ROOT), f"post {carry_line} if it is a patch-identical restack; if it adds no new behavior, his tap keeps (rule 399b5fa) and root posts {go_line}; else root re-asks the owner at {short(head)}", pr)
             if verdict.get("restack"):
                 return Stall(key, "carry", head_at, subject, what, tuple(fidelity_lanes), f"post {carry_line}: {clip(verdict['why'])}", pr)
             if verdict.get("fix"):
-                return Stall(key, "carry", head_at, subject, what, (ROOT,), f"his tap at {short(tapped)} keeps over a review fix (rule 399b5fa): root posts {go_line}: {clip(verdict['why'])}", pr)
-            return Stall(key, "carry", head_at, subject, what, (ROOT,), f"re-ask the owner at {short(head)}; it adds new behavior beyond the tapped change: {clip(verdict['why'])}", pr)
+                return Stall(key, "carry", head_at, subject, what, (ROOT,), f"his tap at {short(tapped)} keeps over a fix with no new behavior (rule 399b5fa): root posts {go_line}: {clip(verdict['why'])}", pr)
+            return Stall(key, "carry", head_at, subject, what, (ROOT,), f"{reask}: {clip(verdict['why'])}", pr)
 
-        return Question(f"tap-carry:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
+        return Question(f"tap-keeps:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
 
     def lanes(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question]]:
         if session is None:
