@@ -46,8 +46,9 @@ A PR is `you` when the board holds no approval at its current or carried head an
 cc-present store on every rebuild, and Approve or Note on the dashboard writes the
 board's own `triage.decided` event, so no board page opens.
 
-A step's tone takes the first match over its PRs: all landed, any `you`, any `failing`,
-any `held`, any `doing` or a live worker, any `queued`, otherwise waiting. A worker's
+A step's tone takes the first match over its PRs: done when all landed, then any `you`,
+any `failing`, any `held`, moving for any `doing` or a live worker, queued when every PR
+is landed or queued, otherwise waiting. A worker's
 five-minute box takes the most severe record kind it posted in that window: red for
 `blocker`, `defect`, `incident`; amber for `ask`, `owner`; green for `landed`, `go`,
 `fix-live`; blue for any other; empty when silent.
