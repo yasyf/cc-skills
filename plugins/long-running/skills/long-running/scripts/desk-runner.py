@@ -3900,16 +3900,16 @@ def blocker_key(pr: str, head: str) -> str:
     return f"blocker:{pr}:{head[:10]}"
 
 
-def status_blocker(entry: dict) -> str:
-    """What a `ccx vcs pr status` entry asks its lane to fix, or empty while the PR only waits: a conflict, a restack Graphite asks for, red CI with its failing checks, or requested changes."""
+def status_blocker(entry: dict, red: bool = True) -> str:
+    """What a `ccx vcs pr status` entry asks its lane to fix, or empty while the PR only waits: a conflict, a restack Graphite asks for, red CI with its failing checks unless `red` is False, or requested changes."""
     causes = entry["verdict"].removeprefix("blocked:").split(",")
     said = []
     if "conflict" in causes:
         said.append(CONFLICT_BLOCKER)
     if restack := next((cause for cause in causes if cause.startswith("needs-restack")), ""):
         said.append(f"Graphite reads it as {restack}; run ccx vcs stack submit from the branch's worktree")
-    if "ci-red" in causes:
-        said.append(f"CI is red: {', '.join(entry['ci']['failing'])}")
+    if "ci-red" in causes and red:
+        said.append(f"CI is red: {', '.join(entry['ci'].get('failing') or [entry['ci'].get('rollup', 'red')])}")
     if "changes-requested" in causes:
         said.append(f"changes requested by {', '.join(entry['approval']['changes_requested_by'])}")
     return "; ".join(said)
@@ -4021,6 +4021,7 @@ class Landing:
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
+        self.unproven_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
@@ -4346,8 +4347,10 @@ class Landing:
         def landable(pr: str) -> bool:
             verdict = statuses.get(pr, {}).get("verdict", "")
             causes = set(verdict.removeprefix("blocked:").split(",")) - {"queue-unknown"} if verdict.startswith("blocked:") else set() if verdict == LANDABLE else {verdict}
-            if "ci-unproven" in causes and not self.unproven(pr, open_rows.get(pr, {}).get("head", "")):
+            if "ci-unproven" in causes and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
                 causes.discard("ci-unproven")
+            elif "ci-unproven" in causes:
+                self.unproven_why[pr] = why
             return not causes
 
         def ready(pr: str) -> bool:
@@ -6100,7 +6103,7 @@ class Landing:
         for pr, head in landable.items():
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
-            if (why := status_blocker(entry)) and not ("ci-red" in entry["verdict"] and self.red_by_design(pr)):
+            if why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, ""):
                 key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
                 self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
 
@@ -6186,7 +6189,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked = None, False, None, None, None, set()
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why = None, False, None, None, None, set(), {}
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:
