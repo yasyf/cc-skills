@@ -482,11 +482,11 @@ def test_a_one_tap_claim_over_a_rejected_pr_fails(tmp_path: Path, shell: FakeShe
 def test_a_pr_listed_in_a_markdown_block_after_it_merged_or_closed_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], state: str, failing: int) -> None:
     shell.pull("42740", state=state)
     block = groups(pr_row("42590"))
-    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "**Approved by you and landing.**\n\n- #42740: One writer per run."})
+    block["children"].append({"id": "merge-fixing", "type": "markdown", "md": "**Being fixed or checked.**\n\n- #42740: One writer per run."})
 
     assert gate(tmp_path, shell, block, "--check") == failing
     if failing:
-        assert lines(capsys)[0] == f"merge-approved-landing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-approved-landing"
+        assert lines(capsys)[0] == f"merge-fixing#42740 42740 {HEAD[:7]} listed: the PR is {state.lower()} on GitHub and still listed under merge-fixing"
 
 
 @pytest.mark.parametrize(("md", "failing"), [("Old-path check: pending.", 1), ("Being reworked on your 11:17 PM note.", 1), (f"Being reworked at {HEAD[:7]}.", 1), (f"Was being reworked at {NEW_HEAD[:7]}.", 0), ("Old-path check: clean.", 0)])
