@@ -228,12 +228,24 @@ is above the core count, because an Orca worktree checkout times out under that 
 each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
 incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
 waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
-cci and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
-says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
-repository's worker-launch.sh, on a Sprite instead, never waiting on Mac load. The
-runner counts no Sprites and sets no limit: the provider admits or refuses each one.
-`place=local` keeps a `cpu=high` launch on the Mac. Fable, incident, an incident clock
-fallback, and a `role=desk` or `role=watch` brief stay local whatever the line says. A lane name a Sprite refuses,
+cci and the Run mailbox. A launch whose brief's `ccx:` line says `place=remote`, or omits `place=`, runs
+`orca.sprite.launcher` with `orca.sprite.env`, the repository's `worker-launch.sh`, on a
+Sprite instead, never waiting on Mac load. The runner counts no Sprites and sets no
+limit: the provider admits or refuses each one. `place=local` keeps a launch on the Mac.
+`cpu=high` is still accepted on the `ccx:` line but no longer decides placement: a
+`cpu=high` launch goes to a Sprite unless the line says `place=local`. Fable, incident,
+an incident clock fallback, and a `role=desk` or `role=watch` brief stay local whatever
+the line says. Any other `place=` value, such as `place=orca`, is refused with
+`LAUNCH-FAILED` naming the value and the two valid ones, `place=remote` and
+`place=local`. Without `orca.sprite` (`orca.sprite.launcher`, with `orca.sprite.env`)
+configured, the runner refuses each remote launch with `LAUNCH-FAILED` naming the
+missing `orca.sprite` and the config shape to add, and starts nothing on the Mac. A
+remote launch whose brief outside the `Register slice:` to `slice-hash:` block contains
+an absolute `/Users/` path, a `~/` or `$HOME` path (`~/.claude` among them), or a `cci`
+command invocation is refused with `LAUNCH-FAILED` naming each reference found and the
+remedy, to inline that context with repo-relative paths or mark the brief `place=local`.
+The runner never rewrites or relabels a brief; a refused launch fails at once and starts
+nothing on the Mac or a Sprite. A lane name a Sprite refuses,
 or a Sprite launch whose receipts prove worker-start never ran, a provider refusal
 among them, starts the same launch locally, and the fallback logs `SPRITE-FALLBACK`.
 The proof is read from the brief's `.worker` directory: no `worker-start.json`,
@@ -808,8 +820,11 @@ The brief `{lane}` was launched on follows, unchanged.
 
 {brief}"""
 CCX_KEY = r"^ccx:(?:.*[ \t])?{}(?:\s|$)"
-CPU_HIGH = re.compile(CCX_KEY.format("cpu=high"), re.MULTILINE)
-PLACE = re.compile(CCX_KEY.format("place=(remote|local)"), re.MULTILINE)
+PLACE = re.compile(CCX_KEY.format(r"place=(\S*)"), re.MULTILINE)
+LOCAL, REMOTE, REFUSED = "local", "remote", "refused"
+MAC_ONLY = re.compile(r"(?<![\w./~-])((?:/Users/|~/|\$HOME\b|\$\{HOME\})[^\s`'\"()]*)|(?:^|[`(;&|$])[ \t]*(cci[ \t]+[a-z][\w-]*)", re.MULTILINE)
+REGISTER_SLICE = re.compile(rf"^{SLICE_LINE}.*?^slice-hash: [0-9a-f]{{12}}$", re.MULTILINE | re.DOTALL)
+SPRITE_CONFIG = '"sprite": {"launcher": "<checkout>/.agents/skills/orca/scripts/worker-launch.sh", "env": {"WORKER_CC_REMOTE": "<checkout>/tools/cc-remote/bin/cc-remote", "CC_REMOTE_CONFIG": "<checkout>/tools/cc-remote/config.yaml", "WORKER_REF": "<base ref>"}}'
 STANDING_DESK = re.compile(CCX_KEY.format("role=(?:desk|watch)"), re.MULTILINE)
 SPRITE_LANE = re.compile(r"[a-z0-9][a-z0-9-]{0,54}")
 SPRITE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -834,6 +849,13 @@ class Done:
     code: int
     out: str
     err: str
+
+
+@dataclass(frozen=True)
+class Placement:
+    where: str
+    why: str = ""
+    remedy: str = ""
 
 
 class CciTailFailed(RuntimeError):
@@ -1065,14 +1087,8 @@ def clock_phases(launched: datetime, reached: dict[str, str], now: datetime) -> 
     return ", ".join(f"{start} to {end} {whole_minutes(at, until)} min" for (at, start), (until, end) in itertools.pairwise(points))
 
 
-def sprite_placed(brief: Path) -> bool:
-    if not brief.is_file():
-        return False
-    text = brief.read_text()
-    if STANDING_DESK.search(text):
-        return False
-    placed = PLACE.search(text)
-    return placed[1] == "remote" if placed else bool(CPU_HIGH.search(text))
+def mac_only(text: str) -> list[str]:
+    return list(dict.fromkeys((found[1] or found[2]).rstrip(".,:;") for found in MAC_ONLY.finditer(REGISTER_SLICE.sub("", text))))
 
 
 def sprite_model(model: str) -> str:
@@ -2695,8 +2711,11 @@ class Runner:
         if not self.bound_for_launch():
             self.refuse_launch(container, lane, action, f"an unbound runner: {self.pass_binding['why']}", f"the root launches it by hand with orca-launch.sh, or runs `{self.rebind_command()}` from its own terminal and submits it again under a new key")
             return
-        refusal = self.sprite_refusal(lane, spec)
-        if refusal is not None and (held := self.load_refusal()):
+        placed = self.placement(lane, spec)
+        if placed.where == REFUSED:
+            self.refuse_launch(container, lane, action, placed.why, placed.remedy)
+            return
+        if placed.where == LOCAL and (held := self.load_refusal()):
             self.move_load(held)
             if spec["urgent"]:
                 self.refuse_launch(container, lane, action, held, "the root launches it in-process or once the load is moved")
@@ -2705,11 +2724,11 @@ class Runner:
             return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
-        if refusal is None:
+        if placed.where == REMOTE:
             self.launch_sprite(container, lane, action)
             return
-        if refusal:
-            self.escalate(f"{container}/{action.action_id}:sprite", "SPRITE-FALLBACK", lane, f"{action.action_id} launches locally: {refusal}")
+        if placed.why:
+            self.escalate(f"{container}/{action.action_id}:sprite", "SPRITE-FALLBACK", lane, f"{action.action_id} launches locally: {placed.why}")
         self.launch_local(container, lane, action)
 
     def launch_local(self, container: str, lane: str, action: actions.Action) -> None:
@@ -2722,20 +2741,29 @@ class Runner:
 
     def launch_sprite(self, container: str, lane: str, action: actions.Action) -> None:
         spec = json.loads(action.target)
-        sprite = self.config.sprite or {}
+        sprite = self.config.sprite
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
         env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {})}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)
 
-    def sprite_refusal(self, lane: str, spec: dict) -> str | None:
-        """None when the launch goes to a Sprite; why it stays local otherwise, empty when it was never a Sprite candidate."""
-        if not self.config.sprite or spec["model"] in SPRITE_LOCAL_MODELS or spec.get("fast") or not sprite_placed(Path(spec["brief"])):
-            return ""
+    def placement(self, lane: str, spec: dict) -> Placement:
+        """Where one launch runs: the Mac for Fable, the incident model, an incident clock fallback, a standing desk, or `place=local`; a Sprite for `place=remote` or no `place=`, refused for any other `place=`, for a runner with no `orca.sprite`, or for a brief that names this Mac; the Mac with the reason for a lane name a Sprite refuses."""
+        brief = Path(spec["brief"])
+        text = brief.read_text(errors="replace") if brief.is_file() else ""
+        placed = found[1] if (found := PLACE.search(text)) else REMOTE
+        if spec["model"] in SPRITE_LOCAL_MODELS or spec.get("fast") or STANDING_DESK.search(text) or placed == LOCAL:
+            return Placement(LOCAL)
+        if placed != REMOTE:
+            return Placement(REFUSED, f"`place={placed}` on its brief's `ccx:` line, which is neither `place=remote` nor `place=local`", f"the root writes `place=remote`, `place=local`, or no `place=` on that line of {brief} and submits it again under a new key")
+        if not self.config.sprite:
+            return Placement(REFUSED, f"a Sprite placement with no `orca.sprite` in {self.config.source}", f"the root adds `{SPRITE_CONFIG}` under `orca` there and runs `desk-runner.py handoff --config {self.config.source} --desk orca` so the next runner reads it, or marks the brief `place=local`, and submits it again under a new key")
+        if refs := mac_only(text):
+            return Placement(REFUSED, f"a Sprite placement for a brief that names this Mac: {', '.join(refs)}", f"the root inlines that context in {brief} with repo-relative paths, or marks it `place=local`, and submits it again under a new key")
         if not SPRITE_LANE.fullmatch(lane):
-            return f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes"
-        return None
+            return Placement(LOCAL, f"lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes")
+        return Placement(REMOTE)
 
     def load_refusal(self) -> str:
         """Why no launch may start on the Mac now, or empty while the 1-minute load is at or below the core count."""
@@ -2749,7 +2777,7 @@ class Runner:
         self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
 
     def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
-        """Fail a launch at once that cannot wait: an incident or owner-directed one on load, or any on an unbound runner."""
+        """Fail a launch at once that cannot wait: an incident or owner-directed one on load, any on an unbound runner, or any its placement refuses."""
         key = action.action_id
         text = f"{key} refused on {held}; nothing was launched, and {remedy}"
         if self.book.attempt(container, lambda incident: incident.fail(key, text)):

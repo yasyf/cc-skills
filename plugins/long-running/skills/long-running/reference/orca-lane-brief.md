@@ -238,7 +238,7 @@ Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 
 ```
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
-ccx: role=<role; desk or watch for a standing desk> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role; desk or watch for a standing desk> [place=local] tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
 Change: <the outcome to produce, such as "one failing database never blocks a release", never a design>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
@@ -267,13 +267,23 @@ Orca's task-spec contract requires every spec to include `Target`, `Change`,
 `Constraints`, `Ownership`, and `Observable acceptance`. The shared file supplies the
 long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Finish`.
 
-The `ccx:` line also places the lane. `place=remote` sends it to a Sprite and
-`place=local` keeps it on the Mac; with neither, `cpu=high` sends it to a Sprite and
-any other lane stays local (SKILL.md O16). A lane placed remote gets a brief it can
-run from the Sprite's checkout alone, with no Mac path or Mac-only credential. A
-Sprite has no `cci`, so a remote lane's brief never tells it to read or post the drive's
-bus: it reports through native Orca status, `ask`, and `worker_done` on its Dispatch. A
-standing desk launches locally whatever the line says.
+The `ccx:` line also places the lane. An eligible brief omits `place=`: no `place=`, or
+`place=remote`, sends the lane to a Sprite, and `place=local` keeps it on the Mac
+(SKILL.md O16). `cpu=high` is still accepted on the line but no longer decides
+placement. `place=orca` is not a value; the runner refuses any `place=` value other
+than `place=remote` and `place=local` with `LAUNCH-FAILED`. A lane placed remote gets a
+self-contained brief it can run from the Sprite's checkout or a local fallback worktree
+alone: every needed fact is inlined, all paths are repo-relative, and it uses no
+Mac-only credential. A Sprite has no `cci`, so a remote lane's brief never tells it to
+read or post on `cci` or the ledger, or to use a Mac path: it reports through native
+Orca status, `ask`, and `worker_done` on its Dispatch. The runner never rewrites or
+relabels a brief; it refuses a remote launch with `LAUNCH-FAILED` when `orca.sprite` is
+missing or when the brief outside the `Register slice:` to `slice-hash:` block has an
+absolute `/Users/` path, a `~/` or `$HOME` path (`~/.claude` among them), or a `cci`
+command invocation. A brief for anything Mac-bound says `place=local`: it reads a file,
+worktree, or branch only the Mac has, needs a Mac-only credential, drives something on
+the Mac, or posts on `cci` or the ledger. A standing desk launches locally whatever the
+line says.
 
 ## A standing desk's brief
 
