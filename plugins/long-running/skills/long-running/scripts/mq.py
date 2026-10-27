@@ -110,5 +110,5 @@ def main(argv: list[str] | None = None, shell=None) -> int:
 if __name__ == "__main__":
     import drive
 
-    drive.refuse_stale(__file__)
+    drive.run_installed(__file__)
     sys.exit(main())

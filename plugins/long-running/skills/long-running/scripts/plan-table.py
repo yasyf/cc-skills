@@ -143,5 +143,5 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, now: 
 if __name__ == "__main__":
     import drive
 
-    drive.refuse_stale(__file__)
+    drive.run_installed(__file__)
     raise SystemExit(main())
