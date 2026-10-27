@@ -29,6 +29,7 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
 QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
+CARRIED = re.compile(rf"^{FIDELITY_OK} ([0-9a-f]{{7,40}}) carried from ([0-9a-f]{{7,40}})\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -95,6 +96,29 @@ def go_batch(record: dict) -> set[str]:
     """The PRs a root `go` binds into one enqueue: every PR of its clause and each `#<n>` of the `with` list that follows the clause, or none when it has no `with` list."""
     clause = None if WITHDRAWN.match(record["text"]) else GO_CLAUSE.search(record["text"])
     return set(go_heads(record)) | set(re.findall(r"#(\d+)", clause[2])) if clause and clause[2] else set()
+
+
+def carried_gos(gos: list[dict], grades: list[dict], repo: str) -> list[dict]:
+    """The gos a fidelity desk carries: a root go naming a PR at head G and a `fidelity: ok H carried from G` grade on that PR, a patch-identical replay or a test-only fix, make a go at H, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770). A carried go keeps its source go's seq, time and `with` batch, so it never reads as a newer root decision or frees a PR from its batch."""
+    gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
+    carried: list[dict] = []
+    while fresh := [
+        (pr, found[1].lower(), source)
+        for grade in grades
+        if (found := CARRIED.match(grade["text"]))
+        for pr, _ in repo_prs(grade, repo)
+        if (source := reached(gone, pr, found[2].lower())) and not reached(gone, pr, found[1].lower())
+    ]:
+        for pr, head, source in fresh:
+            bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
+            go = {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go #{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set()}
+            gone[(pr, head)] = go
+            carried.append(go)
+    return carried
+
+
+def reached(gone: dict[tuple[str, str], dict], pr: str, sha: str) -> dict | None:
+    return next((go for (named, head), go in gone.items() if named == pr and names_head(head, sha)), None)
 
 
 def goes(record: dict, pr: str) -> bool:
