@@ -412,7 +412,7 @@ a cci `--to` address such as `peer:<session>`, and `landing.merge_mode`, the own
 re-read on every use. A repository the GitHub account the runner acts as owns, which `gh api user` names, lands once green under every mode (de6c88c). Otherwise,
 under `every`, under `high-risk` for a PR whose changed files a `landing.high_risk_paths` glob names, and in
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
-that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, and enqueues once a root `go` record names each
+that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, which with a blocker to the PR's lane quotes a `title: stale` line from the PR's newest fidelity grade, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
 starts, or carries one: a fidelity desk's `fidelity: ok <head> carried from <earlier head>` on a PR whose go names the earlier head is a go at the new head; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
@@ -536,6 +536,7 @@ FLAKE_RETRY = "flake"
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
 RELAYED_PR = re.compile(r"^(?:blocker|restack):(\d+):")
 RED_BY_DESIGN = re.compile(r"^\W*red by design\b", re.IGNORECASE)
+TITLE_STALE = re.compile(r"\btitle: stale\b[^\n]*", re.IGNORECASE)
 RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:run|build)\b|\bfailing (?:ci )?runs?\b", re.IGNORECASE)
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
@@ -4664,7 +4665,7 @@ class Landing:
         if graded.act:
             self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
-            self.ask_owner(graded.heads, waiting)
+            self.ask_owner(graded.heads, waiting, graded.rows)
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
@@ -4822,8 +4823,8 @@ class Landing:
         except OSError as error:
             return Done(127, "", f"cc-present did not start: {error}")
 
-    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
-        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83)."""
+    def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
+        """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR no recorded batch post lists gets no card: the batch logs one `BATCH-POST-OWED` instead (8908f83). A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
         mode = self.merge_mode
         asking = self.waiting_on_owner(heads, list(waiting))
         if not asking or (posted := self.batch_posted()) is None:
@@ -4850,15 +4851,30 @@ class Landing:
                 where = f"the merge card at ts {ts} in the root's status thread or on its board"
             else:
                 continue
+            stale = self.stale_title(pr)
+            if stale:
+                self.warn_stale_title(pr, heads[pr], rows.get(pr, {}), *stale)
             authorize = "".join(f"; the card quotes {key} and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <the tap's ts>`, since a go never does" for key, _ in reserved)
             self.runner.escalate(
-                f"merge-ask:{pr}@{heads[pr]}{rows_named}",
+                f"merge-ask:{pr}@{heads[pr]}{rows_named}" + (f":title-stale:{stale[0]['seq']}" if stale else ""),
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {heads[pr]} is ready, and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers {where}, waiting on `{waits}`"
+                f"#{pr} {heads[pr]} is ready" + (f", but its newest grade, cci #{stale[0]['seq']}, says `{stale[1]}`, so no go until the lane's title fix posts" if stale else "") + f", and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers {where}, waiting on `{waits}`"
                 f" | Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture,"
                 f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and answer in plain words with `cc-present reply --block {waits} --body <answer>`, which replies on the board and under the Slack card with the link back to it",
             )
+
+    def stale_title(self, pr: str) -> tuple[dict, str] | None:
+        """The newest fidelity grade on `pr` with its `title: stale, <why>` line, when that grade judges the title against the head's commits and finds it stale."""
+        newest = max(self.grades(pr), key=lambda record: record["seq"], default=None)
+        return (newest, found[0]) if newest and (found := TITLE_STALE.search(full_text(newest))) else None
+
+    def warn_stale_title(self, pr: str, head: str, row: dict, grade: dict, line: str) -> None:
+        key = f"title-stale:{pr}@{head}:{grade['seq']}"
+        if self.book.known(LANDING, key):
+            return
+        owner = self.owner(pr, row)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {head}: the newest fidelity grade, cci #{grade['seq']}, says `{line}`; root posts no go until your title fix (root #137006) posts as an APPLIED record", pr)
 
     def admit(self, heads: dict[str, str]) -> set[str]:
         """The PRs in `heads`, a PR to its head, that carry the drive's label on GitHub, each registered under its head branch so the next refresh rows it as ours. GitHub is read once per PR and head in a pass, and again in the next pass for a PR it did not admit; record text never admits a PR."""
