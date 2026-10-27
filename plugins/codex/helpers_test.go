@@ -104,3 +104,19 @@ func TestRunCodexErrnoSplit(t *testing.T) {
 		}
 	})
 }
+
+func TestQuestionPathRefusesOnlyAFileShapedArgument(t *testing.T) {
+	for arg, want := range map[string]bool{
+		"question.md":              true,
+		"briefs/walk1.txt":         true,
+		"./ask":                    true,
+		"why does the cache miss?": false,
+		"review this diff":         false,
+		"summarize":                false,
+		"see a/b.md for context":   false,
+	} {
+		if got := questionPath(arg); got != want {
+			t.Errorf("questionPath(%q) = %v, want %v", arg, got, want)
+		}
+	}
+}

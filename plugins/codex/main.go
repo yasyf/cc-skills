@@ -28,6 +28,8 @@ const (
 	// the detached worker's pid. Past it with no pid the dispatching process died
 	// before recording one, so --await gives up and classify calls the lane died.
 	registerGraceS = 15
+
+	cancelGrace = 10 * time.Second
 )
 
 const (
@@ -37,7 +39,7 @@ const (
 )
 
 const usageStr = "usage: codex-ask [-m sol|luna|astra] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane CONTRACT] [--schema NAME|FILE] " +
-	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
+	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR"
 
 var terminal = []string{"completed", "failed", "no-run"}
 
@@ -62,6 +64,8 @@ func main() {
 		runWorker(args[1])
 	case len(args) == 2 && args[0] == "--detach-middle":
 		detachMiddle(args[1])
+	case len(args) >= 1 && args[0] == "--cancel":
+		cancelMode(argOrEmpty(args, 1))
 	case len(args) >= 1 && args[0] == "--await":
 		awaitMode(argOrEmpty(args, 1))
 	case len(args) >= 1 && args[0] == "--collect":
