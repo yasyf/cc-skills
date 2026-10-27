@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         print("\n".join(landing.why(args.pr)))
         return 0
     if args.verb == "gate":
-        if lines := landing.gate(args.prs):
+        if lines := landing.hand_enqueue_gate(args.prs):
             print("\n".join(lines))
         return 1 if lines else 0
     if args.verb == "priority":

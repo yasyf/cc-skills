@@ -5609,7 +5609,7 @@ class Landing:
             lines.append(f"{name} {state.state} {state.reason}".rstrip())
         return lines
 
-    def gate(self, prs: list[str]) -> list[str]:
+    def hand_enqueue_gate(self, prs: list[str]) -> list[str]:
         """One line per hold or enqueue check that does not pass a head a hand `stack-enqueue` of `prs` puts in the queue, each named PR and the open rows below it at its ledger head, graded as this desk grades its own enqueue, posting nothing (#140584)."""
         rows = self.rows() or {}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
