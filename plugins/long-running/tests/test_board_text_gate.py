@@ -96,19 +96,33 @@ def test_a_reply_in_drive_words_is_refused(root: Root) -> None:
     assert 'a drive word, "lane"' in result.message
 
 
-@pytest.mark.parametrize("source", ["heredoc", "file"])
-def test_a_reply_whose_body_is_substituted_is_graded_on_that_body(root: Root, source: str) -> None:
+@pytest.mark.parametrize(
+    "body_flag",
+    [
+        "--body \"$(cat <<'EOF'\n{body}\nEOF\n)\"",
+        "--body \"$(cat <<-'END-REPLY'\n\t{body}\n\tEND-REPLY\n)\"",
+        "--body \"$(cat 'reply draft.md')\"",
+        "--body=\"$(cat 'reply draft.md')\"",
+        "--body \"$(< 'reply draft.md')\"",
+    ],
+)
+def test_a_reply_whose_body_is_substituted_is_graded_on_that_body(root: Root, body_flag: str) -> None:
     body = "The slice for this lane is done."
-    if source == "heredoc":
-        command = f"cc-present reply --block share-open --body \"$(cat <<'EOF'\n{body}\nEOF\n)\""
-    else:
-        (root.home / "reply.md").write_text(f"{body}\n")
-        command = 'cc-present reply --block share-open --body "$(cat reply.md)"'
+    (root.home / "reply draft.md").write_text(f"{body}\n")
     with stubbed_commands(root.reads()):
-        result = gate.board_text_gate(root.event(PreToolUseEvent, command))
+        result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present reply --block share-open {body_flag.format(body=body)}"))
 
     assert 'the reply on share-open has a drive word, "slice"' in result.message
     assert gate.hashlib.sha256(body.encode()).hexdigest()[:12] in result.message
+
+
+def test_two_replies_on_one_block_are_each_graded_on_their_own_body(root: Root) -> None:
+    command = "cc-present reply --block share-open --body \"$(cat <<'EOF'\nShared.\nEOF\n)\" && cc-present reply --block share-open --body \"$(cat <<'EOF'\nThe slice is done.\nEOF\n)\""
+    with stubbed_commands(root.reads()):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, command))
+
+    assert 'a drive word, "slice"' in result.message
+    assert all(gate.hashlib.sha256(text.encode()).hexdigest()[:12] in result.message for text in ("Shared.", "The slice is done."))
 
 
 def test_a_reply_with_no_body_is_not_graded(root: Root) -> None:
