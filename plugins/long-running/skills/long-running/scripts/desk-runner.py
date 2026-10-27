@@ -790,7 +790,6 @@ WITHDRAWN = "withdrawn"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
-TRUNK_TO = f"{ROOT},{WATCHDOG}"
 
 
 @dataclass
@@ -1625,6 +1624,11 @@ class Runner:
         self.cci_post("blocker", f"{desk} runner pass raised {raised[:240]}; {then}", ROOT, desk, f"pass-raised:{desk}")
         return again
 
+    @property
+    def watchdog(self) -> str:
+        """The drive's own watchdog, by drive, since cci reroutes a bare lane no live thread reads here to the one other drive that has it."""
+        return f"{WATCHDOG}@{self.config.drive}"
+
     def post_alive(self, desk: str) -> None:
         """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is."""
         if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) < ALIVE_EVERY:
@@ -1632,7 +1636,7 @@ class Runner:
         self.alive_posted[desk] = self.now()
         flight = self.shell.in_flight()
         doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
-        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", WATCHDOG, desk, f"alive:{desk}")
+        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}")
 
     def keep_alive(self, desk: str) -> threading.Event:
         """Post the alive record every minute from a daemon thread, whatever the pass is doing, until the returned event is set."""
@@ -4645,7 +4649,7 @@ class Landing:
             return
         if red is None:
             if posted.since:
-                self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", TRUNK_TO, cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
+                self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
             return
         built = BUILD_URL.search(red.build) if "buildkite.com/" in red.build else None
         build = self.build(red.build) if built and self.landing_config.get("ci_build") else None
@@ -4659,11 +4663,11 @@ class Landing:
         if blocking:
             fix = f"nothing lands until #{posted.fix} fixes it" if posted.fix else "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
             text = f"DEV-RED since {since}: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
-            self.runner.cci_post("incident", text, TRUNK_TO, cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
+            self.runner.cci_post("incident", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
             return
         owed = f"#{posted.fix} fixes it" if posted.fix else "name the fix with `cci post --topic dev-red --pr <n>`"
         text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
-        self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
+        self.runner.cci_post("report", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
 
     def trunk_target(self, check: str) -> tuple[dict | None, str]:
         """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
