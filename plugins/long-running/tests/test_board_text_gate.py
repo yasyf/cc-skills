@@ -139,6 +139,14 @@ def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Roo
     assert " --id board_text_gate:" in post
 
 
+def test_a_drive_with_no_landing_runner_skips_the_text_grade(root: Root, posts: Path) -> None:
+    rows = json.dumps({**json.loads(ROWS), "state_dir": str(root.home / "no-runner")})
+    with stubbed_commands(root.reads(rows=rows)):
+        assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}")) is None
+
+    assert not posts.exists()
+
+
 def test_the_recorder_starts_with_each_board_and_once_per_pushed_session(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
     spawned = []
     monkeypatch.setattr(gate.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw["start_new_session"])))

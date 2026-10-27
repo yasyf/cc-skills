@@ -276,8 +276,10 @@ def reviews(drive: str, since: int, flags: list[str]) -> list[dict]:
 
 
 def grades(reads: Reads, register: dict) -> list[re.Match[str]] | None:
-    def load() -> list[re.Match[str]]:
-        runner = json.loads((Path(register["state_dir"]) / "runner.json").read_text())
+    def load() -> list[re.Match[str]] | None:
+        if not (config := Path(register["state_dir"]) / "runner.json").exists():
+            return None
+        runner = json.loads(config.read_text())
         lanes = runner["landing"]["fidelity_lane"]
         flags = [arg for lane in ([lanes] if isinstance(lanes, str) else lanes) for arg in ("--lane", lane)]
         named = set(flags[1::2])
