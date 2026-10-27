@@ -140,6 +140,7 @@ def test_every_drive_pull_request_is_one_light_and_closed_ones_are_none():
         ({"state": "open"}, None, "hhhhhhh", "queued"),
         ({"state": "open"}, None, "aaaaaaa", "waiting"),
         ({"state": "open", "test_state": "pending"}, None, None, "doing"),
+        ({"state": "open", "head": "bbbbbbbb"}, "approved", None, "waiting"),
     ],
 )
 def test_each_pull_request_takes_the_first_state_in_precedence(fields, row_state, go, state):
@@ -161,6 +162,15 @@ def test_a_red_inherited_from_a_failing_base_is_not_the_pull_requests_own(base_t
     light = listed(prs)[42002]
 
     assert (light["state"], light["base"]) == (state, 42001)
+
+
+def test_a_pending_pull_request_on_a_failing_base_keeps_moving():
+    prs = ledger(
+        pr42001={"state": "open", "branch": "base", "test_state": "failure"},
+        pr42002={"state": "open", "branch": "child", "base": "base", "test_state": "pending"},
+    )
+
+    assert listed(prs)[42002]["state"] == "doing"
 
 
 def test_an_approved_pull_request_on_a_failing_base_reads_approved_not_waiting():
@@ -255,13 +265,22 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     )
     rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
 
-    out = needs(rows, [], [], "http://board/p/x")
+    out = needs(rows, [], [], "http://board/p/x", set())
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
     assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "block": "merge-prs", "state": "you"}]
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
+
+
+def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():
+    store = merge_board(("tools", "Faster tools", "Two tooling changes.", [board_row(43246, "you"), board_row(43247, "you")]))
+    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+
+    out = needs(rows, [], [], "http://board/p/x", {43246})
+
+    assert [row["number"] for row in out[0]["prs"]] == [43247]
 
 
 def test_a_merge_card_with_no_rows_waiting_still_reaches_needs_you_as_its_feature_table():
@@ -281,7 +300,7 @@ def test_a_board_row_missing_a_fact_still_reaches_needs_you():
     store = merge_board(("gate", "Release 1 waits on this", "The first release cannot start without it.", [row]))
     rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
 
-    out = needs(rows, [], [], "http://board/p/x")
+    out = needs(rows, [], [], "http://board/p/x", set())
 
     assert out[0]["prs"][0]["number"] == 43250
     assert out[0]["prs"][0]["risk"] is None
@@ -291,7 +310,7 @@ def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_
     record = {"seq": 140321, "lane": "release-plan-2", "at": "2026-10-27T09:16:23Z", "text": "Where is that key kept?"}
     asks = [{"what": "Say where the key is kept", "why": "The flag read needs it.", "record": record}, {"what": "Rotate a key", "why": "It sat in chat."}, {"what": "Resume", "why": "W", "optional": True}]
 
-    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A"}], asks, "http://board/p/x")
+    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A"}], asks, "http://board/p/x", set())
 
     assert [item["kind"] for item in out] == ["card", "ask", "ask"]
     assert out[0]["source"] == {"label": "Board card: Pick one", "href": "http://board/p/x"}

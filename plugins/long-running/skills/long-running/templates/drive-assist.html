@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c812a26c983f — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:54c172dcd180 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -513,7 +513,7 @@ function nowItem(r,i,t){
  const pr=state.model.prs[r.number]??{};
  const why=t?.why?`<span class="ai">✦ ${esc(t.why)}</span>`:esc(short(r.change,110));
  const conflict=t?.conflict_quote?`<div class="conf">Check against your words (${esc(t.conflict_id)}): “${esc(t.conflict_quote)}”</div>`:"";
- const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}"${r.pending||batching?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${r.pending||batching?" disabled":""}>‖ Hold</button>`;
+ const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}"${r.pending||batching?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}"${r.pending||batching?" disabled":""}>‖ Hold</button>`;
  return `<li><span class="rank">${i+1}</span><div><div class="t"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a> ${testPill(pr)}</div><div class="w">${why}</div>${conflict}${r.failed?`<div class="conf">${esc(r.failed)}</div>`:""}</div><div class="acts">${acts}<a class="btn" href="#/review/${r.number}">›</a></div></li>`;
 }
 function needsYou(){
@@ -726,8 +726,8 @@ document.addEventListener("click",e=>{
  const ss=t.closest("[data-sum-stack]");if(ss){openSheet({kind:"stack",id:ss.dataset.sumStack});return}
  const tile=t.closest("[data-since]");if(tile){state.sinceOpen=state.sinceOpen===tile.dataset.since?null:tile.dataset.since;render();return}
  if(t.closest("[data-seen]")){saveSeen();since=null;render();return}
- const want=n=>{const r=boardRow(n);return {block:r.block,number:r.number,head:r.head}};
- const tap=t.closest("[data-tap]");if(tap&&!batching){post(want(tap.dataset.n),tap.dataset.tap);return}
+ const want=(n,head)=>{const r=boardRow(n);return {block:r.block,number:r.number,head}};
+ const tap=t.closest("[data-tap]");if(tap&&!batching){post(want(tap.dataset.n,tap.dataset.head),tap.dataset.tap);return}
  const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });

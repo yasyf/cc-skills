@@ -55,7 +55,7 @@ function lastHour() {
 function brokeTonight() {
   const recs = state.model.records.filter((r) => ['incident', 'fix-live'].includes(r.kind) && Date.now() - new Date(r.at) < 12 * 3600 * 1000).sort((a, b) => new Date(a.at) - new Date(b.at));
   const last = recs[recs.length - 1];
-  if (!last) return `no outage since ${clock(state.model.records.reduce((a, b) => (new Date(b.at) < new Date(a.at) ? b : a)).at)}`;
+  if (!last) return state.model.records.length ? `no outage since ${clock(state.model.records.reduce((a, b) => (new Date(b.at) < new Date(a.at) ? b : a)).at)}` : 'no outage';
   if (last.kind === 'incident') return `<b class="bad">${esc(firstSentences(last.text, 70))}</b>, open since ${clock(last.at)}`;
   const name = last.text.match(/^FIX-LIVE\s+([^:]+):/)?.[1] ?? firstSentences(last.text, 50);
   return `${esc(name)}, fixed ${clock(last.at)}`;
@@ -106,7 +106,7 @@ function tonight() {
   };
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
   const red = tally(m.drive.prs).failing;
-  return `<section class="tonight"><span class="verdict ${verdict[0]}">${verdict[1]}</span>
+  return `<section class="tonight"><span class="verdict ${verdict[0]}">${esc(verdict[1])}</span>
     ${next ? `<button class="tn-now" data-release="${esc(next.id)}"><b>${esc(next.id)} ${esc(next.name)}:</b> ${esc(next.state)}</button>` : '<span class="tn-now">Every release is out</span>'}
     <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag</span></span>
     <div class="tn-old"><span>Everyone else keeps today's app: ${fact(g.old_app, /unchanged|kept|proven/i)}</span><span>Broke tonight: ${brokeTonight()}${red ? ` · <b class="bad">${plural(red, 'pull request')}</b> fail their own tests` : ''}</span></div></section>`;
@@ -164,10 +164,11 @@ function track(s) {
   const m = state.model;
   const t = tally(s.prs);
   const ws = m.workers.filter((w) => w.live && w.step === s.id);
-  return `<div class="trk tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
+  const tone = ov.scrub > 0 && m.steps.indexOf(s) < ov.scrub ? 'done' : s.tone;
+  return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
     <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}</span>
     <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<b class="badge">▶${ws.length}</b>` : ''}</span>
-    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[s.tone] ?? ''}</span><i class="into"></i></div>`;
+    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -326,7 +327,7 @@ function prSheet() {
   const lane = e.worker?.lane ?? m.workers.find((w) => w.prs.includes(Number(n)))?.lane;
   const w = m.workers.find((x) => x.lane === lane);
   const row = boardRow(n);
-  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}, whose tests also fail` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
+  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${prState(e.base) === 'failing' ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
   const approve = e.state === 'you' && row ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
   return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
@@ -353,6 +354,7 @@ function partSheet() {
 function workerSheet() {
   const m = state.model;
   const w = m.workers.find((x) => x.lane === ov.lane) ?? m.desks.find((x) => x.lane === ov.lane);
+  if (!w) return sheet(`<div class="kick">Worker</div><h3>${esc(ov.lane)}</h3><p class="relnow">No word from this worker in the last hour.</p>`, ' small');
   const events = timeline().filter((e) => e.who === w.lane).slice(0, 14);
   const where = m.steps.find((s) => s.id === w.step)?.label;
   return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
@@ -567,7 +569,7 @@ document.addEventListener('click', (e) => {
   const partEl = e.target.closest('[data-part-open], .ck .pl');
   if (partEl) { ov.part = partEl.dataset.partOpen ?? partEl.closest('[data-part]')?.dataset.part; if (ov.part) { state.overlay = 'part'; return render(); } }
   const workerEl = e.target.closest('[data-worker]');
-  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return render(); }
+  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
   if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }

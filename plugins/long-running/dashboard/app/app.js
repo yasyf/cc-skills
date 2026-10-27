@@ -253,7 +253,7 @@ function needRow(r) {
   const row = boardRow(r.number);
   const busy = row?.pending ? ' disabled' : '';
   const acts = r.state === 'you'
-    ? `<button class="btn pri" data-tap="approved" data-n="${r.number}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${busy}>‖ Hold</button>`
+    ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>‖ Hold</button>`
     : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
     <dl>${FACTS.map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl>

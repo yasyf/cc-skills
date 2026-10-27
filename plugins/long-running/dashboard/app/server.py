@@ -104,6 +104,8 @@ def activity(records, now):
 def pr_state(pr, row, go_head, active, now):
     if pr.get("state") == "landed":
         return "landed"
+    if row and pr.get("head") and not pr["head"].startswith(row["head"][:7]):
+        row = None
     if row and row["state"] == "you":
         return "you"
     if pr.get("test_state") == "failure":
@@ -130,7 +132,7 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
             continue
         found = trees.get(number, [])
         base = by_branch.get(pr.get("base"))
-        inherited = base and prs[base].get("test_state") == "failure"
+        inherited = base and pr.get("test_state") == "failure" and prs[base].get("test_state") == "failure"
         state = pr_state({**pr, "test_state": None} if inherited else pr, by_number.get(number), gos.get(int(number)), active.get(number), now)
         listed.append({
             "number": int(number),
@@ -227,8 +229,8 @@ def ask_need(ask):
     return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": f"Record #{record['seq']} from {record['lane']}", "href": f"/record/{record['seq']}"}}
 
 
-def needs(rows, cards, asks, board_url):
-    return [*merge_needs(rows, board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional"))]
+def needs(rows, cards, asks, board_url, landed):
+    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional"))]
 
 
 def parse_plan(body):
@@ -454,7 +456,7 @@ class Drive:
             "now": progress.get("now", {}),
             "steps_at": progress["updated"],
             "live": LIVE_SOURCES,
-            "needs": needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"]),
+            "needs": needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"}),
         }
 
     def report_defect(self, text):
