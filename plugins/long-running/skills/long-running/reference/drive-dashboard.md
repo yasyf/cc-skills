@@ -90,27 +90,46 @@ It writes no counts; the dashboard counts.
 
 ## Layout
 
-The Overview is the Cockpit, an app and not a page of tables. Top to bottom:
+The Overview is the Cockpit, an app and not a page of tables. Every tap acts on the
+picture in place, and only the code review opens a page of its own. It has four bands,
+top to bottom.
 
 1. Tonight. The current release or where it is blocked, and that release's state. New-app
    PRs merged, releases out, and who has the flag. Whether everyone else keeps today's
    app, what broke tonight, and how many PRs fail their own tests.
-2. The destination. The Mac and the cloud are outlines traced green to their landed
-   share. Each part is a cluster with one light per PR, and the old tree sits in an
-   "Old, kept" cluster. The ring sits between them, above the tools runway and the end
-   state in one line.
-3. Readouts. Landed with the last hour's count, in flight with how many are moving, and
-   what needs him. Beside them the amber action card pages `needs[]` with Approve, Note,
-   or the question's options in place; a calm card shows when nothing waits.
-4. The route. Each step is a ring filled to its landed share and toned by its state.
-   R1 to R8 follow, with the plane at the current release and its state underneath. The
-   exact plan's thumbnail sits at the end. A tap on a step, a release, or the thumbnail
-   opens its card or the plan sheet.
-5. Working now. One tile per worker on a PR names the step, what the worker last did and
-   the PR it did it on, and how long it has been on it.
+2. The plan and the destination, side by side on a wide screen.
+   - On the left sit the readouts for landed, in flight and needs you, and the amber
+     action card that pages `needs[]`. Below them is one track per active step, plus a
+     dashed Unplanned track. A track holds the step's lights in state order, the
+     twelve five-minute boxes of each live worker on it, landed over total, and a tone
+     glyph. Done and later steps fold into one line.
+   - In the center, every track runs into the gate of the first release not yet out. Its color
+     comes from live state rather than wording. It is red when a drive-wide stop is set or a PR it
+     waits on is red, amber when one waits on him, green when it is live or cutting.
+   - On the right, the cloud sits above the ring and the Mac below it. Each machine is an outline traced
+     green to its landed share, and each part holds one light per PR. The old tree sits
+     in an "Old, kept" band. A tools runway and a replay axis sit below the machines.
+3. The route shows R1 to R8 and cutover, the current release's state, and the exact
+   plan's thumbnail.
+4. Working now shows one tile per worker on a PR.
 
-The waiting-on list sits below the fold. On a phone the same order stacks, the machines
-one above the other.
+The picture answers each tap in place.
+
+- A count filters the lights to its population, and a second tap or Esc clears it.
+- A light opens a compact sheet for that PR: where it stands, its part, step and
+  worker, and Approve when it waits on him. The review is one level deeper.
+- A part label opens the part's sheet. A worker strip or tile opens that worker's
+  history.
+- A track opens its step card, and the gate or a release opens the release card.
+- A replay tick shows the picture as of that hour, or as if the steps up to that one
+  had landed.
+
+Every `#number` in step, release and plan text renders as a live state chip, so a
+blocker that has since landed reads as landed.
+
+A phone puts the counts, the tracks and the gate first, then the machines one above the
+other. A fixed thumb dock holds the action card, Plan and Jump. Command-K on a phone is
+full screen, with the input at the bottom and a visible Close.
 
 ## Words at rest
 
