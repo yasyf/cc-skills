@@ -565,6 +565,14 @@ def test_a_red_dev_withholds_every_tap_row_but_its_fix_and_banners_the_card(tmp_
     assert [row["number"] for group in pushed["groups"] for row in group["prs"]] == [42591]
 
 
+def test_a_red_dev_with_every_row_withheld_pushes_the_banner_alone(tmp_path: Path, shell: FakeShell) -> None:
+    shell.trunk(RED)
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
+
+    assert shell.pushed[0][1]["children"][0] == {"id": "merge-prs", "type": "markdown", "md": "dev's test build is red since 12:03 AM; nothing lands until its fix lands."}
+
+
 @pytest.mark.parametrize("posted", [[RED, "DEV-GREEN dev's buildkite/test passes again; it was red since 12:03 AM."], ["POST-MERGE-RED since 12:03 AM: dev's buildkite/test fails publish on build 1. Landing continues."]])
 def test_a_green_or_post_merge_red_dev_withholds_nothing(tmp_path: Path, shell: FakeShell, posted: list[str]) -> None:
     shell.trunk(*posted)

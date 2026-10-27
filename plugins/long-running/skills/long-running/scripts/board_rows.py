@@ -573,7 +573,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         trunk = cci.Trunk(False, "", "")
         warnings.append(f"WARN dev's state did not read ({failed}); no row is withheld for a red dev")
     if trunk.blocked:
-        banner = f"dev's test build is red since {trunk.since}; nothing lands until {f'#{trunk.fix}' if trunk.fix else 'its fix'} fixes it."
+        banner = f"dev's test build is red since {trunk.since}; nothing lands until {f'#{trunk.fix} fixes it' if trunk.fix else 'its fix lands'}."
         taps = {row.id for row in rows_of(block)}
         for row in rows:
             if row.id in taps and row.pr != trunk.fix:
@@ -586,7 +586,9 @@ def held_back(node: object, prs: set[str], banner: str) -> object:
     if isinstance(node, dict):
         if node.get("type") == PR_GROUPS:
             groups = [dict(group, prs=[pr for pr in group.get("prs", []) if str(pr["number"]) not in prs]) for group in node.get("groups", [])]
-            return dict(node, prompt=f"{banner} {node.get('prompt', '')}".strip(), groups=[group for group in groups if group["prs"]])
+            if not (kept := [group for group in groups if group["prs"]]):
+                return {"id": node["id"], "type": "markdown", "md": banner}
+            return dict(node, prompt=f"{banner} {node.get('prompt', '')}".strip(), groups=kept)
         if node.get("type") == "triage":
             return dict(node, items=[item for item in node.get("items", []) if not ((named := ROW_ID.match(item.get("id", ""))) and named["pr"] in prs)])
         return {key: held_back(value, prs, banner) for key, value in node.items()}

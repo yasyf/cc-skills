@@ -3870,15 +3870,17 @@ class TrunkRed:
     build: str
 
 
-def trunk_red(history: list[dict], check: str) -> TrunkRed | None:
-    """The trunk's newest unbroken run of failed `check` statuses, newest first, skipping commits whose `check` has not finished: its oldest commit, when that commit landed, the PR its squash subject names, and the newest red build; None when the newest finished `check` passed."""
+def trunk_red(history: list[dict], check: str) -> TrunkRed | None | bool:
+    """The trunk's newest unbroken run of failed `check` statuses, newest first, skipping commits whose `check` has not finished: its oldest commit, when that commit landed, the PR its squash subject names, and the newest red build; None when the newest finished `check` passed, and False when no commit read has finished it."""
     finished = [(commit, context) for commit in history for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES]
+    if not finished:
+        return False
     run = list(itertools.takewhile(lambda pair: pair[1]["state"] != "SUCCESS", finished))
     if not run:
         return None
     first = run[-1][0]
     landed = SQUASHED_PR.search(first["message"].splitlines()[0])
-    return TrunkRed(first["oid"], datetime.fromisoformat(first["committedDate"]), landed[1] if landed else "", run[0][1]["targetUrl"])
+    return TrunkRed(first["oid"], datetime.fromisoformat(first["committedDate"]), landed[1] if landed else "", run[0][1]["targetUrl"] or "")
 
 
 def failed_steps(build: dict) -> list[str]:
@@ -4323,19 +4325,23 @@ class Landing:
         if not (check := self.landing_config.get("trunk_check")):
             return set()
         done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
-        if done.code != 0:
-            last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+        target = (json.loads(done.out)["data"]["repository"]["ref"] or {}).get("target") if done.code == 0 else None
+        if not target:
+            last = ((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]) if done.code else [f"GitHub knows no {TRUNK} branch in {self.repo}"]
             self.runner.escalate(f"trunk-read:{self.runner.now():%Y%m%d%H}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {last[0]}; this pass gates as though {TRUNK} were green")
             return set()
         posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
-        red = trunk_red(json.loads(done.out)["data"]["repository"]["ref"]["target"]["history"]["nodes"], check)
+        red = trunk_red(target["history"]["nodes"], check)
+        if red is False:
+            return set()
         if red is None:
             if posted.since:
                 self.runner.cci_post("report", f"DEV-GREEN {TRUNK}'s {check} passes again; it was red since {posted.since}.", TRUNK_TO, cci.TRUNK_TOPIC, f"dev-green:{self.runner.now():%Y%m%d%H%M}")
             return set()
-        build = self.build(red.build) if self.landing_config.get("ci_build") else None
+        built = BUILD_URL.search(red.build) if "buildkite.com/" in red.build else None
+        build = self.build(red.build) if built and self.landing_config.get("ci_build") else None
         jobs = failed_steps(build) if build else []
-        landing = self.landing_steps(BUILD_URL.search(red.build)["pipeline"], rows) if jobs else None
+        landing = self.landing_steps(built["pipeline"], rows) if jobs else None
         blocking = landing is None or bool(set(jobs) & landing)
         since = red.at.astimezone(PACIFIC).strftime("%-I:%M %p")
         failing = f"fails {', '.join(jobs)} on {red.build}" if jobs else f"is red on {red.build}"
@@ -5832,9 +5838,9 @@ class Landing:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         rows = self.rows()
+        trunk_barred = self.watch_trunk(rows or {})
         if rows is None:
             return
-        trunk_barred = self.watch_trunk(rows)
         if self.status_card:
             self.draw_card(rows)
         entries = holds.read(self.holds)

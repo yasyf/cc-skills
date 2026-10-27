@@ -8948,6 +8948,10 @@ def test_the_trunk_red_run_starts_at_its_oldest_failed_commit_and_skips_unfinish
     assert (red.since[0], red.pr) == (since, pr) if since else red is None
 
 
+def test_a_trunk_whose_check_never_finished_reads_as_unknown_not_green():
+    assert runner_module.trunk_red([trunk_commit("b", "PENDING", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", None, "29018", "2026-10-01T17:40:00Z")], TRUNK_CHECK) is False
+
+
 def test_a_red_trunk_posts_dev_red_every_half_hour_and_bars_every_row_but_its_fix(shell, config, tmp_path):
     landing = trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]

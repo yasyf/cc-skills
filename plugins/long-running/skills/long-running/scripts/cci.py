@@ -92,6 +92,7 @@ def answers_mechanism(record: dict) -> set[str]:
 
 def trunk(records: list[dict]) -> Trunk:
     """The trunk's state from the records on the `dev-red` topic: the landing runner's newest DEV-RED, POST-MERGE-RED, or DEV-GREEN record sets it, and the fix is the PR that the newest record by any other lane names after the runner's last DEV-GREEN, an incident record excepted."""
+    records = [record for record in records if record.get("topic") == TRUNK_TOPIC]
     states = [(record, found) for record in records if record["lane"] == TRUNK_RUNNER and (found := TRUNK_STATE.match(record.get("text") or ""))]
     if not states or states[-1][1]["state"] == "DEV-GREEN":
         return Trunk(False, "", "")

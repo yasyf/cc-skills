@@ -58,7 +58,7 @@ GREEN_EXCEPT_REFUSAL = (
     "`{phrase}` reads as red: a head with a failing required job is not green, however well known the job, and a red trunk is never red by design. {trunk}"
     "Report READY only once every required job on the head passes; a job that fails because dev is red waits for dev's fix."
 )
-TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix} fixes it. "
+TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix}. "
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
@@ -404,13 +404,9 @@ def green_except(call: Call) -> str | None:
     if not run:
         return None
     name, args = Path(run[0]).name, run[1:]
-    if name == "ledger.py" and "report" in args:
-        texts = option(args, "--text")
-    elif name == "cci" and args[:1] == ("post",) and set(option(args, "--kind")) & GRADED_KINDS:
-        texts = option(args, "--text")
-    else:
+    if not (name == "ledger.py" and "report" in args) and not (name == "cci" and args[:1] == ("post",) and set(option(args, "--kind")) & GRADED_KINDS):
         return None
-    return next((found[0] for text in texts if (found := GREEN_EXCEPT.search(text))), None)
+    return next((found[0] for text in args if (found := GREEN_EXCEPT.search(text))), None)
 
 
 def trunk_clause(entry: dict) -> str:
@@ -425,7 +421,7 @@ def trunk_clause(entry: dict) -> str:
         return done.stdout if done.returncode == 0 else ""
 
     trunk = cci.trunk(cci.records(tail, bus_name(entry), f"--topic={cci.TRUNK_TOPIC}"))
-    return TRUNK_BLOCKED.format(since=trunk.since, fix=f"#{trunk.fix}" if trunk.fix else "its fix PR") if trunk.blocked else ""
+    return TRUNK_BLOCKED.format(since=trunk.since, fix=f"#{trunk.fix} fixes it" if trunk.fix else "its fix lands") if trunk.blocked else ""
 
 
 @on(
@@ -436,6 +432,7 @@ def trunk_clause(entry: dict) -> str:
         Input(command="python3 ledger.py -C ~/m report --pr 43163 --text 'READY: green apart from the known publish job'", env=DRIVE_ENV): Block(pattern=r"`green apart from`"),
         Input(command="cci post --drive d --lane root --kind decide --text 'dev is design red; land on'", env=DRIVE_ENV): Block(pattern=r"`design red`"),
         Input(command="cci post --drive d --lane x --kind=report --text='READY #43163: known-red test job only'", env=DRIVE_ENV): Block(pattern=r"`known-red`"),
+        Input(command="cci post --drive d --lane x --kind report 'READY #43163: green except the publish job'", env=DRIVE_ENV): Block(pattern=r"`green except`"),
         Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green on build 82560'", env=DRIVE_ENV): Allow(),
         Input(command="cci post --drive d --lane x --kind note --text 'retro: lanes graded green except the known red by hand'", env=DRIVE_ENV): Allow(),
         Input(command="ledger.py report --pr 43163 --text 'READY CI green except the known red'"): Allow(),
