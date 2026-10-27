@@ -341,7 +341,7 @@ def card_part(child, answer):
 
 
 def needs(rows, cards, asks, board_url, landed):
-    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional"))]
+    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
 def parse_plan(body):

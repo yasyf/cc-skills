@@ -209,7 +209,7 @@ function dock() {
   return `<nav class="dock">${need ? cta(state.model.needs[ov.page]) : '<span class="dcalm">✓ Nothing needs you</span>'}<span class="dbtns"><button class="dbtn" data-plan>⤢ Plan</button><button class="dbtn" data-jump>⌕ Jump</button></span></nav>`;
 }
 function cta(item) {
-  const pager = `<span class="nx">${state.model.needs.length > 1 ? `<span>${ov.page + 1} of ${state.model.needs.length}</span><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}<a class="all" href="#/now">All in Needs you ›</a></span>`;
+  const pager = `<span class="nx">${state.model.needs.length > 1 ? `<button class="pg" data-page="${(ov.page + 1) % state.model.needs.length}" aria-label="Next item">${ov.page + 1} of ${state.model.needs.length} ›</button><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}<a class="all" href="#/now">All in Needs you ›</a></span>`;
   const shell = (icon, kick, head, meta, acts) => `<div class="cta" tabindex="-1"><span class="ic">${icon}</span><span class="tx"><small>${kick}</small><b>${head}</b>${meta ? `<span>${meta}</span>` : ''}<span class="acts">${acts}</span></span>${pager}</div>`;
   const meta = item.why ? `${esc(item.why)}${item.source?.href ? ` · <a href="${esc(item.source.href)}" target="_blank" rel="noopener">${esc(item.source.label)} ↗</a>` : ''}` : '';
   if (item.kind === 'prs' && item.prs.length === 1) {
@@ -231,7 +231,7 @@ function cta(item) {
     const acts = `${options.map((o) => `<button class="btn${o.recommended ? '' : ' ghost'}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${o.recommended ? '★ ' : ''}${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn ghost"${busy}>Send</button></form>${sentNote(block)}`;
     return shell('?', 'A question for you', esc(c.title), meta, acts);
   }
-  return shell('!', 'Reminder', esc(item.ask.what), meta, item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')} ↗</a>` : '');
+  return shell('!', 'Reminder', esc(item.ask.what), meta, item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')} ↗</a>` : `<a class="btn" href="#/now">Open in Needs you ›</a>`);
 }
 function deck() {
   const m = state.model;
@@ -242,7 +242,7 @@ function deck() {
   return `<div class="deck"><div class="readouts">
     <button class="ro ro-done" title="Every pull request of the drive that has merged: new app, old app and shared code" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
     <button class="ro ro-fly" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></button>
-    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap the card to act' : 'nothing to approve'}</em></button></div>
+    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap to see them all' : 'nothing to approve'}</em></button></div>
     ${m.needs.length ? cta(m.needs[ov.page]) : `<a class="calm" href="#/review"><span class="ic">✓</span><span><b>Nothing needs you right now</b><span>Approvals and questions land here with their buttons. Review ›</span></span></a>`}</div>`;
 }
 function routeStrip() {
@@ -251,10 +251,9 @@ function routeStrip() {
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
   const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span></span>`;
-  const rows = planRows();
   return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(cur.state)}` : 'Every release is out'}</div>
-    <button class="thumb" data-plan="releases" aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
+    <button class="planlink" data-plan="releases">Release plan${m.releases.updated ? `<small>revised ${clock(m.releases.updated)}</small>` : ''}<span>Open ›</span></button></section>`;
 }
 function workerTile(w, title) {
   const m = state.model;
@@ -642,7 +641,10 @@ document.addEventListener('click', (e) => {
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
   if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
   const onlyEl = e.target.closest('[data-only]');
+  if (onlyEl?.dataset.only === 'you') return (location.hash = '#/now');
   if (onlyEl) return onlyBy(onlyEl.dataset.only);
+  const cardEl = e.target.closest('.deck .cta');
+  if (cardEl && !e.target.closest('a, button, input, form, [data-page]')) return (location.hash = '#/now');
   const scrubTo = e.target.closest('[data-scrubto]');
   if (scrubTo) return setScrub(Number(scrubTo.dataset.scrubto));
   const partEl = e.target.closest('[data-part-open], .ck .pl');
