@@ -117,7 +117,8 @@ function chart(path, index) {
   const name = state.model.milestones[path.milestone] ?? 'the next milestone';
   const key = `p${index}`;
   const edges = [...path.edges.filter((e) => depth.has(e.from) && depth.has(e.to)).map((e) => [e.from, e.to]), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="--cols:${layers.length}"><svg class="arrows" aria-hidden="true"></svg>
+  const widths = layers.map((d) => `${path.nodes.filter((n) => depth.get(n.id) === d).length}fr`).join(' ');
+  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="grid-template-columns:${widths} 104px"><svg class="arrows" aria-hidden="true"></svg>
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
     <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal">${esc(name)}</div></div></div>`;
 }
@@ -147,8 +148,15 @@ function drawArrows() {
     const lines = JSON.parse(box.dataset.edges).map(([from, to]) => {
       const a = at(from), b = at(to);
       if (!a || !b) return '';
-      const x1 = a.right - origin.left, y1 = a.top + a.height / 2 - origin.top;
       const x2 = b.left - origin.left - 2, y2 = b.top + b.height / 2 - origin.top;
+      const blocked = [...box.querySelectorAll('.nd')].some((n) => { const r = n.getBoundingClientRect(); return r.left > a.right - 1 && r.right < b.left + 1 && r.top < a.bottom && r.bottom > a.top; });
+      if (blocked) {
+        const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
+        const tone = box.querySelector(`[data-node="${CSS.escape(`${box.dataset.path}:${from}`)}"]`).classList[1];
+        const low = Math.max(y1, b.bottom - origin.top) + 9;
+        return `<path class="${tone}" d="M${x1} ${y1} L${x1} ${low - 6} Q${x1} ${low} ${x1 + 6} ${low} L${x2 - 14} ${low} Q${x2 - 8} ${low} ${x2 - 8} ${low - 6} L${x2 - 8} ${y2 + 6} Q${x2 - 8} ${y2} ${x2} ${y2}" marker-end="url(#nw-head-${tone})"/>`;
+      }
+      const x1 = a.right - origin.left, y1 = a.top + a.height / 2 - origin.top;
       const mid = (x1 + x2) / 2;
       const tone = box.querySelector(`[data-node="${CSS.escape(`${box.dataset.path}:${from}`)}"]`).classList[1];
       return `<path class="${tone}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}" marker-end="url(#nw-head-${tone})"/>`;

@@ -66,7 +66,7 @@ body:has(.nw) { background: #080a0d; }
 .nw-calm .ok { color: var(--done); font-weight: 700; }
 
 .nw-chart { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-.nw-path { position: relative; padding: 10px 12px; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)) 108px; gap: 20px; align-items: center; }
+.nw-path { position: relative; padding: 10px 12px 18px; display: grid; gap: 20px; align-items: center; }
 .nw-path svg.arrows { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .nw-path svg path { fill: none; stroke-width: 1.4; }
 .nw-path svg marker path { stroke: none; }
@@ -75,7 +75,8 @@ body:has(.nw) { background: #080a0d; }
 .nw-path svg .nobody { stroke: var(--bad); } .nw-path svg marker .nobody { fill: var(--bad); }
 .nw-path svg .waiting { stroke: var(--ink3); } .nw-path svg marker .waiting { fill: var(--ink3); }
 .nw-path svg .done { stroke: var(--done); } .nw-path svg marker .done { fill: var(--done); }
-.nw-path .layer { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 1; }
+.nw-path .layer { display: flex; gap: 12px; align-items: center; position: relative; z-index: 1; min-width: 0; }
+.nw-path .layer > .nd { flex: 1 1 0; min-width: 0; }
 .nw-path + .nw-path { border-top: 1px solid var(--line); }
 .nw-path .nd { background: var(--panel); border: 1px solid var(--line2); border-radius: 9px; padding: 5px 9px; font-size: 13px; line-height: 1.33; }
 .nw-path .nd .w, .nw-cards .chip { display: block; font-size: 12px; font-weight: 600; color: var(--ink3); margin-bottom: 1px; }
@@ -87,7 +88,7 @@ body:has(.nw) { background: #080a0d; }
 .nw-path .nd.you .w { color: var(--you); }
 .nw-path .nd.nobody .w { color: var(--bad); }
 .nw-path .nd.nobody { border-color: #5a2222; }
-.nw-path .nd.goal { border: 0; background: transparent; font-weight: 600; padding-left: 0; }
+.nw-path .nd.goal { border: 0; background: transparent; font-weight: 600; padding-left: 10px; }
 
 .nw-cards { display: flex; flex-direction: column; gap: 8px; }
 .nw-cards .blk { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink3); border-radius: 12px; padding: 8px 14px; }
