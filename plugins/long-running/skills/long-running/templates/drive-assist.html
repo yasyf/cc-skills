@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:531635fd8807 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:2e00d02977ed — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -617,7 +617,7 @@ const plainWanted=new Set(),plainAsked=new Set();
 function plainWord(record){
  const hit=localStorage.getItem(plainKey(record.seq));
  if(hit)return hit;
- if(AI.key&&!plainAsked.has(record.seq)){plainWanted.add(record);if(plainWanted.size===1)setTimeout(plainBatch,0)}
+ if(AI.key&&!plainAsked.has(record.seq)){plainWanted.add(record);if(plainWanted.size===1)queueMicrotask(plainBatch)}
  return null;
 }
 function plainBatch(){
@@ -627,7 +627,7 @@ function plainBatch(){
  aiOnce(compose(`Rewrite each worker record as one plain sentence of at most 28 words for the owner: what happened to the pull request it names, in words a person using the product understands, then what happens next or who must act. Keep pull request numbers as #NNNNN. No commit hashes, record numbers, lane names, branch names or tool names. Never invent a time, an owner or a next step the record does not give; if it gives no next step, say only what happened.\n\n${batch.map(r=>`${r.seq} | ${clock(r.at)} | ${r.kind} | ${short(r.text,600)}`).join("\n")}`),{schema:PLAIN}).then(out=>{
   out.lines.filter(x=>batch.some(r=>r.seq===x.seq)).forEach(x=>localStorage.setItem(plainKey(x.seq),x.line.trim()));
   render();
- }).catch(()=>{}).finally(()=>{if(plainWanted.size)setTimeout(plainBatch,0)});
+ }).catch(()=>{}).finally(plainBatch);
 }
 function entries(){
  const m=state.model;
