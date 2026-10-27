@@ -5142,7 +5142,7 @@ class Landing:
             found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
-        if not (posted := about_pr("hold")):
+        if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
             return ""
         newest = posted[-1]
         if opened := [record for record in posted if record["status"] == "open"]:

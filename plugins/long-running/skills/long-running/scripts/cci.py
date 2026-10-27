@@ -58,12 +58,12 @@ def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
 
     `cci tail --kind=hold` also returns the caller's peer mail of any kind and drive, which carries no status, so only the drive's hold records count."""
     holds = [record for record in records(run, drive, "--kind=hold") if record["kind"] == "hold" and record["drive"] == drive]
-    return {str(pr): record["seq"] for record in holds if record["status"] == "open" for pr in held_by(record)}
+    return {pr: record["seq"] for record in holds if record["status"] == "open" for pr in held_by(record)}
 
 
-def held_by(record: dict) -> list:
-    """The PRs a hold record holds: the one its text leads with as `hold #<n>`, every later `#<n>` being prose as in the holds file, else every PR its refs name."""
-    return [found[1]] if (found := LEADING_HOLD.match(record["text"])) else record["refs"].get("prs", [])
+def held_by(record: dict) -> list[str]:
+    """The PR numbers a hold record holds: the one its text leads with as `hold #<n>`, every later `#<n>` being prose as in the holds file, else every PR its refs name."""
+    return [found[1]] if (found := LEADING_HOLD.match(record["text"])) else [str(pr).rsplit("#", 1)[-1] for pr in record["refs"].get("prs", [])]
 
 
 def mechanism_mark(record: dict) -> str:

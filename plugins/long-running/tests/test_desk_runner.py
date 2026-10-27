@@ -1932,7 +1932,8 @@ def test_a_hold_record_holds_the_pr_it_leads_with_and_not_the_prs_it_waits_on(sh
     grade_gated_heads_ok(shell)
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [28349, 29020]}, "text": "hold #28349 until #29020 is on dev"})
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [line for line in escalations(shell) if line.startswith("REFUSED ")]
 
 
 def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
