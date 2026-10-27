@@ -809,6 +809,21 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert not list((state / "register").glob("repeat-*.json"))
 
 
+def test_a_repeat_in_a_drive_with_no_landing_runner_writes_its_sweep_hits_and_posts_them_to_no_one(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    captured(state, capture("5", "how many times: no parked worker on relay-server, and no relay hook either"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    entry = {"digest": "5" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker on relay-server, and no relay hook either", "names": ["relay hook"]}
+
+    code, out = classify(tmp_path, capsys, shell, entry)
+
+    assert code == 0, out
+    assert shell.rows["rule/aaaaaaa"]["said"] == "2"
+    assert (state / "sweep" / "repeats" / "rule-aaaaaaa.txt").read_text().startswith("The owner repeated rule/aaaaaaa.")
+    assert sweep_posts(shell, state) == []
+
+
 def test_a_repeat_folds_onto_an_order_row_whose_own_names_and_repeat_words_it_carries(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
