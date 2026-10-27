@@ -3,7 +3,7 @@ const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held'
 const embed = { number: null, head: null, row: false };
 const pending = { number: null, holding: false, error: '', note: '' };
 
-const REVIEW_LISTS = [['', 'Needs you'], ['flight', 'In flight'], ['landed', 'Landed']];
+const REVIEW_LISTS = [['', 'Your merge taps'], ['flight', 'In flight'], ['landed', 'Landed']];
 function reviewList(list = '') {
   const prs = Object.entries(state.model.prs).map(([n, pr]) => ({ n: Number(n), ...pr }));
   const flight = prs.filter((pr) => pr.state === 'open' && !boardRow(pr.n));
@@ -33,7 +33,7 @@ function reviewList(list = '') {
       return `<a class="row ${v}" href="#/review/${r.number}"><span class="title">${esc(r.title)}</span>
         <span class="chips"><span class="pill ${VERDICT_TONE[v]}">${VERDICT_WORD[v]}</span>${testPill(state.model.prs[r.number] ?? {})}<span class="pill">#${r.number}</span></span></a>`;
     }).join('')}</div>`).join('');
-  return `${chips}${html || '<p class="dim">Nothing is waiting for you.</p>'}`;
+  return `${chips}${html || '<p class="dim">No merge waits on your tap.</p>'}`;
 }
 function approvedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;

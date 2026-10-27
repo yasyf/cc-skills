@@ -2,7 +2,7 @@ const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', que
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
 const ATTENTION = ['failing', 'you', 'held', 'doing', 'queued', 'waiting', 'landed'];
-const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {}, embedCard: null };
+const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {}, embedCard: null, sent: new Map() };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 const RELEASED = /^(released|done|live)/i;
 
@@ -71,7 +71,7 @@ function releaseWord(rels, i) {
 }
 function clause(text) {
   const t = String(text ?? '');
-  const i = t.indexOf(':');
+  const i = t.search(/:\s/);
   return i > 0 ? [t.slice(0, i), t.slice(i + 1).trim()] : [t, ''];
 }
 function minutesPast(when) {
@@ -114,7 +114,7 @@ function tonight() {
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
   const target = stop ?? next;
   const rail = rels.map((r, i) => `<button class="mr ${releaseWord(rels, i)[0]}" data-release="${esc(r.id)}" aria-label="${esc(r.id)} ${esc(r.name)}: ${esc(releaseWord(rels, i)[1])}"><i></i><span>${esc(r.id)}</span></button>`).join('');
-  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
+  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0].split(/\.\s/)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
     <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
@@ -142,14 +142,14 @@ function destination() {
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
     <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
-    <div class="runway" data-part="tools"><span class="rl pl">Release and tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
+    <div class="runway" data-part="tools"><span class="rl pl">Tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
     ${replay()}
     <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
     <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-you"></i>you</span></div></div>
   </section>`;
 }
 function replay() {
-  const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h === 24 ? '1 day ago' : h > 24 ? `${h / 24} days ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
+  const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h >= 24 ? `${h / 24}d ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
   return `<div class="replay"><span class="rl">Replay</span><div class="ticks" data-keep-scroll="replay">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
 }
 const ONLY = {
@@ -226,7 +226,9 @@ function cta(item) {
   if (item.kind === 'card') {
     const c = item.card;
     const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
-    const acts = `${options.map((o) => `<button class="btn${o.recommended ? '' : ' ghost'}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${ov.answering ? ' disabled' : ''}>${esc(o.label)}</button>`).join('')}<form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn ghost">Send</button></form>${ov.answerError ? ` <em>${esc(ov.answerError)}</em>` : ''}`;
+    const block = c.choice ?? c.id;
+    const busy = sending(block) ? ' disabled' : '';
+    const acts = `${options.map((o) => `<button class="btn${o.recommended ? '' : ' ghost'}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${o.recommended ? '★ ' : ''}${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn ghost"${busy}>Send</button></form>${sentNote(block)}`;
     return shell('?', 'A question for you', esc(c.title), meta, acts);
   }
   return shell('!', 'Reminder', esc(item.ask.what), meta, item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')} ↗</a>` : '');
@@ -429,15 +431,26 @@ function planSheet() {
     ${tab[ov.planTab] ?? tab.steps}
   </div><aside class="mini">${machine('cloud', 'The cloud')}${machine('mac', 'Your Mac')}<p>Hover a step or a release to light what it changes.</p></aside></div></div></div>`;
 }
-async function answer(body) {
-  ov.answering = true;
-  ov.answerError = '';
+function sending(block) {
+  const sent = ov.sent.get(block);
+  return Boolean(sent && !sent.error);
+}
+function sentNote(block) {
+  const sent = ov.sent.get(block);
+  if (!sent) return '';
+  return sent.error ? `<em class="nsent bad">Not recorded: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Recorded on your board' : 'Sending…'}</em>`;
+}
+async function answer(body, draft) {
+  if (sending(body.block)) return;
+  ov.sent.set(body.block, {});
   render();
-  ov.answerError = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const error = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then((res) => res.json())
-    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server: ${failure.message}`);
-  ov.answering = false;
+    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server (${failure.message})`);
+  ov.sent.set(body.block, error ? { error } : { recorded: true });
+  if (!error && draft) delete ov.drafts[draft];
   render();
+  if (!error) setTimeout(() => { ov.sent.delete(body.block); render(); }, body.kind === 'note' ? 4000 : 30000);
 }
 function noteDecide(form, verdict) {
   const row = boardRow(form.dataset.note);
@@ -678,18 +691,18 @@ document.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = reply.text.value.trim();
     if (!text) return;
-    return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text });
+    return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text }, reply.text.dataset.draft);
   }
   const approval = e.target.closest('[data-approval]');
   if (approval) {
     e.preventDefault();
-    return answer({ kind: 'approval', block: approval.dataset.approval, verdict: e.submitter?.value ?? 'approved', text: approval.text.value.trim() });
+    return answer({ kind: 'approval', block: approval.dataset.approval, verdict: e.submitter?.value ?? 'approved', text: approval.text.value.trim() }, approval.text.dataset.draft);
   }
   const input = e.target.closest('[data-input]');
   if (input) {
     e.preventDefault();
     const text = input.text.value.trim();
-    return text ? answer({ kind: 'input', block: input.dataset.input, text }) : undefined;
+    return text ? answer({ kind: 'input', block: input.dataset.input, text }, input.text.dataset.draft) : undefined;
   }
   const form = e.target.closest('[data-note]');
   if (!form) return;

@@ -54,7 +54,7 @@ body:has(.ck) { background: #080a0d; }
 .ck .gauge b small { font-size: 9px; color: var(--ink2); font-weight: 600; }
 .ck .gauge span { display: none; }
 .ck .runway { position: relative; display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 7px 10px; border-radius: 10px; background: rgba(255,255,255,.015); border: 1px dashed var(--line2); }
-.ck .runway .rl { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); white-space: nowrap; }
+.ck .runway .rl { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); white-space: nowrap; max-width: none; overflow: visible; }
 .ck .runway .lights { display: flex; flex-wrap: wrap; gap: var(--g); }
 .ck .runway .lights .cl { flex-direction: row; align-items: center; gap: 4px; }
 .ck .endline { position: relative; margin-top: 10px; text-align: center; font-size: 12px; color: var(--ink2); line-height: 1.35; }
@@ -230,7 +230,8 @@ body:has(.ck) { background: #080a0d; }
 .ck .calm { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 16px; padding: 14px 20px; border-radius: 18px; background: var(--panel); border: 1px solid rgba(61,220,151,.3); color: var(--ink); }
 .ck .calm .ic { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; background: rgba(61,220,151,.14); color: var(--done); font-size: 24px; font-weight: 800; }
 .ck .calm b { display: block; font-size: 18px; } .ck .calm span { font-size: 13px; color: var(--ink2); } .ck .calm a { color: var(--doing); }
-.ck .cta .acts { display: flex; gap: 8px; margin-top: 6px; } .ck .cta .acts .btn { height: 30px; padding: 0 12px; border-radius: 9px; background: rgba(26,18,5,.88); color: var(--you); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; }
+.ck .cta .acts { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; } .ck .cta .acts .btn { min-height: 30px; padding: 5px 12px; line-height: 1.25; border-radius: 9px; background: rgba(26,18,5,.88); color: var(--you); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; }
+.ck .cta .acts .note { flex: 1 1 100%; } .ck .cta .acts .nsent { flex: 1 1 100%; margin: 0; color: #1a1205; } .ck .cta .acts .btn:disabled { opacity: .55; }
 .ck .cta .acts .btn.ghost { background: rgba(255,255,255,.35); color: #1a1205; }
 .ck .cta { cursor: default; } .ck .cta a { color: inherit; }
 .ck .wp { width: auto; flex: 1 1 0; min-width: 0; cursor: pointer; }
@@ -265,7 +266,7 @@ body:has(.ck) { background: #080a0d; }
 .ck a.ro, .ck a.calm, .ck a.wt { color: var(--ink); } .ck a.ro:hover, .ck a.calm:hover, .ck a.wt:hover { text-decoration: none; }
 .ck .ro-you.zero { background: var(--panel); border-color: var(--line); } .ck .ro-you.zero b { color: var(--done); } .ck .ro-you.zero span i { background: var(--done); box-shadow: none; }
 .ck .cta .pips i { cursor: pointer; } .ck .cta .pips i.on { background: #1a1205; } .ck .cta .pips i:first-child:not(.on) { background: rgba(26,18,5,.35); }
-.ck .cta .note { display: flex; gap: 6px; } .ck .cta .note input { min-width: 0; flex: 1; height: 30px; border-radius: 9px; border: 0; padding: 0 10px; font: 13px var(--sans); }
+.ck .cta .note { display: flex; gap: 6px; } .ck .cta .note input { min-width: 0; flex: 1; height: 30px; border-radius: 9px; border: 0; padding: 0 10px; font: 13px var(--sans); background: rgba(255,255,255,.6); color: #1a1205; } .ck .cta .note input::placeholder { color: rgba(26,18,5,.6); }
 .ck .tonight .bad, .ck .bad { color: var(--bad); }
 .ck .stopband { color: var(--ink); }
 

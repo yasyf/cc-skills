@@ -323,7 +323,7 @@ def ask_need(ask):
     record = ask.get("record")
     if not record:
         return {"kind": "ask", "ask": ask, "why": f"No drive record asked for this; only the progress desk's list carries it. {ask['why']}", "source": {"label": "No record behind this ask", "href": None}}
-    return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": f"Record #{record['seq']} from {record['lane']}", "href": f"/record/{record['seq']}"}}
+    return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": "Open the record", "href": f"/record/{record['seq']}"}}
 
 
 def card_part(child, answer):
@@ -333,7 +333,7 @@ def card_part(child, answer):
     if kind == "display.page":
         return {"kind": "page", "id": child["id"], "md": child.get("md", "")}
     if kind == "choice":
-        options = [{"id": option["id"], "label": option["label"], "hint": option.get("hint", ""), "facts": option.get("facts", []), "recommended": bool(option.get("recommended"))} for option in child.get("options", []) if not OTHER.match(option["label"])]
+        options = [{"id": option["id"], "label": option["label"], "hint": option.get("hint", ""), "facts": option.get("facts", []), "detail": option.get("detail") or {}, "recommended": bool(option.get("recommended"))} for option in child.get("options", []) if not OTHER.match(option["label"])]
         return {"kind": "choice", "id": child["id"], "prompt": child.get("prompt", ""), "options": options, "answer": answer}
     if kind == "approval":
         return {"kind": "approval", "id": child["id"], "prompt": child.get("prompt", ""), "detail": child.get("detail") or {}, "answer": answer}
@@ -646,7 +646,7 @@ class Drive:
                 continue
             groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
             if block["id"] == MERGE_CARD:
-                merge = {"title": block.get("title", ""), "summary": block.get("summary", ""), "tables": [child for child in block.get("children", []) if child["type"] == "table"], "pages": [child["md"] for child in block.get("children", []) if child["type"] == "display.page"]}
+                merge = {"title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [], "tables": [child for child in block.get("children", []) if child["type"] == "table"], "pages": [child["md"] for child in block.get("children", []) if child["type"] == "display.page"]}
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
