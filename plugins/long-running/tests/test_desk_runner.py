@@ -2724,17 +2724,8 @@ def merge_go(shell: FakeShell, pr: str, text: str) -> None:
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text, "at": actions.stamp(shell.clock)})
 
 
-POSTED = {"at": "2026-10-01T18:00:00Z", "note": "#29020 #29031", "artifacts": ["https://example.slack.com/archives/C0/p1"]}
-
-
-def batch_posts(shell: FakeShell, *entries: dict) -> None:
-    fields = {"text": "post each PR batch before its merge cards", "lane": "root"} | {f"progress_{index + 1:06d}": json.dumps(entry) for index, entry in enumerate(entries)}
-    shell.ledger_outs["show"] = (0, json.dumps({"rows": [{"key": "29020", "fields": {"state": "open"}}, {"key": "ask/000007", "fields": fields}]}))
-
-
 def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues_only_once_graded(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     landing_pass(shell, config)
     assert [card["card"]["id"] for card in shell.pr_cards] == ["merge:29020:cccc333"] and shell.enqueues() == []
@@ -2748,7 +2739,6 @@ def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues
 
 def test_a_root_go_whatever_its_leading_words_answers_the_merge_ask_and_show_names_the_key_until_then(shell, config, tmp_path, capsys):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -2769,7 +2759,6 @@ def test_a_root_go_whatever_its_leading_words_answers_the_merge_ask_and_show_nam
 @pytest.mark.parametrize(("graded", "warns"), [("ok F307 at cccc333. title: matches", False), ("ok F307 at cccc333. title: stale, it names the old fix", True)])
 def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_asks(shell, config, tmp_path, graded, warns):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     seq = grade(shell, "29020", graded)
     landing_pass(shell, config)
@@ -2781,7 +2770,6 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
 
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -2978,7 +2966,7 @@ def test_the_landing_pass_logs_one_ruling_ask_per_round_however_many_ruling_card
     landing_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("RULING-ASK")]
     assert line.startswith("RULING-ASK ruling-ask:round-1 round-1: 3 ruling confirmations queue | when the owner can take a round, run `rulings.py round --drive d1`")
-    assert "on the live cc-present board as round 1, foundational rows first, then sends them to Slack in one `cc-present send`, never as an AskUserQuestion or a bare Slack card" in line
+    assert "on the live cc-present board as round 1, foundational rows first, never as an AskUserQuestion or a Slack card" in line
     assert "`rulings.py confirm <key> --tick all --capture <digest>`" in line
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
     rounds = cards / "rounds"
@@ -3014,7 +3002,6 @@ def test_merge_mode_high_risk_enqueues_a_pr_off_the_risk_list_without_asking(she
 
 def test_merge_mode_high_risk_asks_for_a_pr_that_touches_a_migration(shell, config, tmp_path):
     merge_mode(config, "high-risk")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     shell.files["29020"] = ["api/src/routes/runs.ts", "api/migrations/0399_run_owner.sql"]
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -3052,7 +3039,6 @@ def test_checks_wait_for_go_runs_no_gate_until_a_root_go_comes_after_its_sequenc
     raw = json.loads(config.read_text())
     raw["landing"]["checks_wait_for_go"] = 34700
     config.write_text(json.dumps(raw))
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
@@ -3079,7 +3065,6 @@ def stack_named(shell: FakeShell) -> set[str]:
 
 def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go_names_the_head(shell, config, tmp_path):
     board_surface(config)
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     shell.queue["29020"] = "not queued"
     shell.pr_status["29020"] = {"verdict": "landable"}
@@ -3263,7 +3248,6 @@ def test_a_go_a_later_root_record_resolves_or_opens_withdrawn_on_lets_nothing_me
 @pytest.mark.parametrize("mode", ["every", "auto"])
 def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_for_the_authorized_tap(shell, config, tmp_path, mode):
     merge_mode(config, mode)
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.check_pr["29020"] = (1, RESERVED)
@@ -3285,7 +3269,6 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
 
 def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row_and_a_later_go_authorizes_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     merge_go(shell, "29020", "merge #29020 at cccc333")
@@ -3308,7 +3291,6 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
 
 def test_a_go_naming_the_reserved_key_authorizes_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.check_pr["29020"] = (1, RESERVED)
@@ -3324,7 +3306,6 @@ def test_a_go_naming_the_reserved_key_authorizes_nothing(shell, config, tmp_path
 @pytest.mark.parametrize("mode", ["every", "high-risk"])
 def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless_it_touches_a_reserved_row(shell, config, tmp_path, mode):
     merge_mode(config, mode)
-    batch_posts(shell, POSTED)
     shell.viewer = "forge-ai"
     lone_green_pr(shell)
     shell.files["29020"] = ["api/migrations/0399_run_owner.sql"]
@@ -3339,7 +3320,6 @@ def test_a_repository_the_runner_account_owns_enqueues_green_with_no_card_unless
 
 def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_posted_twice(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     landing_pass(shell, config)
@@ -3355,7 +3335,6 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
 
 def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.pr_card_error = "slack: channel_not_found, RequestID: dea32ce6-c6ad-4b7d-91b7-6bc348555b24"
@@ -3372,7 +3351,6 @@ def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell,
 
 def test_a_card_command_that_does_not_start_warns_and_the_desk_keeps_running(shell, config, tmp_path):
     merge_mode(config, "every")
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     shell.pr_card_missing = True
@@ -3387,39 +3365,12 @@ def test_a_card_command_that_does_not_start_warns_and_the_desk_keeps_running(she
 def test_a_drive_with_no_registered_root_session_posts_no_merge_card_and_says_what_to_run(shell, config, tmp_path):
     merge_mode(config, "every")
     (tmp_path / ".claude/long-running/drives/d1.json").unlink()
-    batch_posts(shell, POSTED)
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     landing_pass(shell, config)
     assert shell.enqueues() == [] and shell.pr_cards == []
     [line] = escalations(shell)
     assert line.startswith("MERGE-CARD-FAILED merge-card:unset landing:") and "drive.py start --drive <drive>" in line
-
-
-def test_a_pr_no_batch_post_lists_still_gets_its_merge_ask_and_reports_the_post_owed(shell, config, tmp_path):
-    merge_mode(config, "every")
-    batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    owed, ask = escalations(shell)
-    assert owed.startswith("BATCH-POST-OWED batch-post:") and "#29020 are ready, and no batch post recorded on the ledger lists them; their merge cards go out anyway" in owed
-    assert ask.startswith("MERGE-ASK ")
-
-
-def test_a_batch_post_owed_posts_once_per_set_of_prs_though_a_head_moves(shell, config, tmp_path):
-    merge_mode(config, "every")
-    batch_posts(shell, {"at": "2026-10-01T17:00:00Z", "note": "#29020 drafted, not posted", "artifacts": []})
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    landing_pass(shell, config)
-    shell.rows = [dict(shell.rows[0], head="dddd444444", reported_head="dddd444444")]
-    shell.gates["29020"] = [gate("#29020 GREEN dddd444444 graphite READY", would="#29020")]
-    grade(shell, "29020", "ok dddd444")
-    landing_pass(shell, config)
-    assert [line.split(" ", 1)[0] for line in escalations(shell)].count("BATCH-POST-OWED") == 1
 
 
 SKIP_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"name": ":graphite: Redundant within its stack"}]}
@@ -3572,19 +3523,6 @@ def test_a_full_build_that_does_not_start_escalates_once_per_head_and_is_tried_a
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.grade_starts) == 3
-
-
-def test_a_ledger_that_does_not_read_still_sends_the_merge_ask_and_escalates_once(shell, config, tmp_path):
-    merge_mode(config, "every")
-    shell.ledger_outs["show"] = (1, "ccn: ledger unreachable\n")
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
-    failed, ask = escalations(shell)
-    assert failed.startswith("BATCH-READ-FAILED ") and "the ledger did not read for its batch posts: ccn: ledger unreachable; the merge cards go out" in failed
-    assert ask.startswith("MERGE-ASK ")
 
 
 def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, tmp_path):
@@ -3771,7 +3709,6 @@ def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shel
 def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    batch_posts(shell, POSTED)
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
     landing_of(shell, config, tmp_path).enqueue()
@@ -4792,6 +4729,41 @@ def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalate
     assert [line for line in escalations(shell) if line.startswith("UNGRADED-30")] == [
         f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 {29 + late} minutes ago and has no fidelity ok at that head; both grades are owed within 30 minutes of the merge (d968e1d)"
     ]
+
+
+def gone_green(shell: FakeShell, gate_line: str) -> None:
+    shell.rows = [{"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"}]
+    shell.gates["33001"] = [gate(gate_line, would="#33001" if "GREEN" in gate_line else "")]
+    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
+    grade(shell, "33001", "ok F307 at aaaa111.")
+    merge_go(shell, "33001", "merge #33001 at aaaa111")
+
+
+def unqueued(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("GO-UNQUEUED")]
+
+
+def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalates_once(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.sleep(4 * 60)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    shell.sleep(2 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.startswith("GO-UNQUEUED go-unqueued:33001@aaaa111111 #33001: #33001 is green at aaaa111111 and root go #")
+    assert "yet it is not in the queue after 6 minutes" in line
+
+
+def test_a_green_head_a_go_names_that_enqueues_escalates_nothing(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
+    assert unqueued(shell) == []
 
 
 def test_an_incident_fix_graded_by_both_within_thirty_minutes_escalates_nothing(shell, config, tmp_path):

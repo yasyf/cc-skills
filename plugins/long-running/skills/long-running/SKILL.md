@@ -24,8 +24,10 @@ A single-lane investigation is not this. One question goes to one subagent in di
 The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
 once the drive has a plan; and one priority desk per owner-named #1-priority outcome
-while that outcome is open. The drive dashboard app runs when the owner asks for one
-(see Drive dashboard), and no lane or root watches Slack (owner answer d94db5b). No comms lane
+while that outcome is open. The drive dashboard app runs from the drive's first plan,
+kept by `dashboard-keeper`, and a `user-test` lane plays the owner against every
+revision of a surface he will use (see Drive dashboard). No lane or root watches Slack
+(owner answer d94db5b). No comms lane
 stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once per post
 the owner gave word for, and it ends after that post. The orca desk is the
 `desk-runner.py run --desk orca` process, not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
@@ -592,10 +594,9 @@ Each missed limit posts one blocker to the root:
 INCIDENT-CLOCK <lane> <mechanism|pr|ready>: <what is missing, the minutes each phase took, and what the runner launched>
 ```
 
-The root sends each `INCIDENT-CLOCK` line to the owner as an `incident` status card
-through `cc-slack dm-status --card` in the turn it arrives, ahead of any other work in that
-turn, and ratifies the fallback the line names. Both lanes keep running, and
-the first PR wins. A fix lane gets one Opus fallback. When the incident executor
+The root reports each `INCIDENT-CLOCK` line to the owner in one plain line of its next
+reply, ahead of any other work in that turn, never as a Slack post, and ratifies the
+fallback the line names. Both lanes keep running, and the first PR wins. A fix lane gets one Opus fallback. When the incident executor
 adopted the lane, its 15-minute backup and the clock's `<lane>-opus` each stand
 down while the other is launching or live.
 When the Orca launch of `<lane>-opus` fails, on load or otherwise, the runner launches
@@ -860,11 +861,11 @@ down; a running copy never sees the `SendMessage`.
 opening #28594 29 s after its stand-down (2026-10-01).*
 
 **R19. A settled question is applied, never asked.**
-Before an owner question reaches the cc-present board (`cc-present start --doc`, `push`, `update-block`) and, through `cc-present send`, its Slack card, the root checks each question against the authorities.
+Before an owner question reaches the cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
 First read the owner's plan and every plan it names as source of truth, including each plan's Decisions section and the section the question touches. Then check `ccn answer list --label scope:durable` plus the drive's answer labels. Last check the project's feedback memories.
 A question any of them answers is applied: the root writes the ruling to the lanes (R18) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking.
 
-A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Only after the filter does a question go out: on the board, and during execution also to Slack through `cc-present send` (owner answers 01736af, b4dfb16).
+A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Only after the filter does a question go out, on the board (owner answers 01736af, b4dfb16).
 
 An absolute owner instruction ("nothing is dropped", "every side-feature carries") stays absolute in every brief, ruling, and memory the root writes.
 Never add "unless the owner explicitly drops it" or "or an explicit owner drop": an exit turns the ruling into a decision surface, and audit lanes manufacture questions from it.
@@ -906,7 +907,7 @@ tapped label.
 **R19a. A gate that wants an owner-recorded answer for a settled decision is satisfied the same turn.**
 Some gates accept only an answer the owner recorded, such as `pr-reviews accept --owner-ruling`
 taking a cc-notes answer id. When the plan or a board pick already carries the
-decision, the root asks it that turn as a question card on the board, sent with `cc-present send` (owner answers 01736af, b4dfb16). Otherwise
+decision, the root asks it that turn as a question card on the board (owner answers 01736af, b4dfb16). Otherwise
 it records the plan's decision as the ruling and accepts on the owner's behalf, citing the plan line
 or board pick id in the accept reason. The root never ends a turn waiting for the owner to say "ask",
 and never leaves the PRs behind the gate parked.
@@ -1005,35 +1006,35 @@ instruction in the turn, the root may run itself with the cc-slack tools. The
 permission hook owns that approval check, and no pack hook reroutes an approved root
 write to a lane. `cc-slack dm-status` to the user's own DM stays the root's.
 
-Every update the root sends to that DM is a status card, `slack_dm_status(card)`.
-`drive` is the drive's name and `phase` its current phase. `status` is `incident`
-for an incident, `done` for a landing or release, and `progress` otherwise. A tap on
-a card reaches the root as a directive on its next tool call. The root never parks
-waiting for a tap. Every owner ask the drive blocks on starts on the root's cc-present
-board, except a per-PR merge ask under D3, which is the PR card the landing runner
-posts (abddb9a). The root puts each question card on the board with `cc-present push`
-or `update-block`: the card's id is the question id, its title the question, and its
-one single-select `choice` holds the answers with exactly one `recommended`. Then one
-call sends them all:
+**Slack carries merge cards and nothing else.** The drive writes one kind of Slack
+message: the merge card with Approve and Hold buttons in the owner's DM status thread,
+one card per merge group, posted once and edited in place on every head change and on
+resolution, never re-posted. A tap on that card is a board tap: it records the same
+verdict at the same head as the board row, and a verdict given on the board edits the
+card at once. No lane and not the root writes anything else there or in any channel: no
+status update, per-landing line, ready-to-tap list, batch post, lane report, correction,
+or prose reply in the thread. Status lives on the drive dashboard. Prompt watch's
+`needs_you` card for a dialog only the owner's hands can clear is the one exception. The landing desk's
+redraw of the thread's root card below is an edit, not a post, and stays. A new
+automated poster needs the owner's word first, and a post the owner names goes out
+through `comms-desk` or the R20 Slack lane.
 
-```bash
-cc-present send
-```
-
-It posts every open question card on the board to the status thread as an ask card
-with buttons, edits a card already posted there in place, and links each board card
-to its Slack card, so the first answer on either surface wins (owner answers 01736af,
-b4dfb16, f2029ef). Never an `AskUserQuestion`, and never a question card hand-posted
-with `slack_dm_status`: cc-slack posts one but warns. The lane that asked stops on
-that item until the tap. cc-slack draws the fixed Other and `Explain more` buttons in
-place of Ack and Pause (93037c3), so no card lists either among its answers. An
-`Explain more` tap resolves nothing. The root posts
+Every owner ask the drive blocks on goes on the root's cc-present board, except a
+per-PR merge ask under D3, which is the merge card (abddb9a). The root puts each
+question card on the board with `cc-present push` or `update-block`: the card's id is
+the question id, its title the question, and its one single-select `choice` holds the
+answers with exactly one `recommended`. The dashboard's Needs you lists every open
+card, so nothing about it goes to Slack. Never an `AskUserQuestion`. The lane that
+asked stops on that item until the tap, and the root never parks waiting for it. Each card offers Other and `Explain more`
+(93037c3), so no card lists either among its answers. An `Explain more` tap resolves
+nothing. The root posts
 `cci post --drive <drive> --lane root --kind ask --to root --text "explain more: <card id>"`,
 then answers in plain words with `cc-present reply --block <card id> --body <answer>`,
-which replies on the board and under the Slack card with a link back to it, and the
-lane stays stopped until an answer is tapped. The
-user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
-cannot join.
+and the lane stays stopped until an answer is tapped.
+
+*Prevents the Oct 26 spam: status cards, ready-to-tap lists and lane prose filled the
+owner's DM thread and the team channel until he called all of it spam; only the merge
+buttons were wanted.*
 
 With `landing.status_card` set to `true` in `runner.json`, the landing desk keeps the
 drive's root card current, so the root never writes rollup JSON itself. Each pass that
@@ -1195,6 +1196,13 @@ the channel'.*
   ruling, answer, and `ctx_` ids belong in the ledger and the briefs, never in a
   question to the owner. Before sending, reread each line as someone who has not read
   the drive's inbox, and rename every noun they would not recognize.
+- Every artifact the owner reads has two layers. What renders first is the human layer:
+  a picture, a timeline, a table with toned cells, or at most 40 words, saying what it
+  changes for him, where it stands, and what it needs from him. The agent layer (metric
+  names, commands, record ids, every clause) sits behind a click: a disclosure, a
+  Background section, a linked doc. A markdown table renders as a table, never as pipe
+  text. This binds every board card, merge row, plan and plan preview, release plan, and
+  dashboard screen, and the root reads each one as he will before it goes out.
 
 The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive and
 queues `Next reply to the owner: give times in Pacific with no zone label, never UTC`
@@ -1207,6 +1215,9 @@ reply. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `
 record, that names the PR or routing change an unanswered `AskUserQuestion` or a board
 posted that turn asks about; write it in a later turn, once the owner answers.
 
+*Prevents Oct 27 12:24 AM: a release plan card shipped as a list of metric names, failure
+modes and a raw pipe table, a dump fit for an agent, and he had to ask for a version a
+person can read.*
 *Prevents release-v3, 2026-10-01: the root reported every time to the owner in UTC
 (`17:35Z`) although the owner had asked for Pacific, because the rule lived only as a
 Slack-copy rule; it delegated the owner's 'why did you…' to a lane instead of
@@ -1540,6 +1551,16 @@ An answer covers only the head it names, so a new head asks again. A changed-fil
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.
 
+**Five minutes from go to queue.** A green PR a root `go` names at its head is in the
+merge queue within five minutes of that go. After each enqueue wave the runner logs one
+`GO-UNQUEUED` per head still out, naming the newest enqueue outcome that kept it out, and
+the root clears that one thing in the same turn or spawns the lane that does. A missing
+gate record is never the reason: a fidelity or finder carry at the new head (a restack
+carries its grade, below) is that gate's record there, and nobody re-grades it.
+
+*Prevents Oct 26 11:33 PM: a go'd, approved, all-green PR sat out of the queue for 45
+minutes because no desk checked how long a go had waited.*
+
 With `landing.merge_ask_surface` set to `board`, the root asks every merge question
 on its own board, and under `every` the runner checks only heads a root `go` names.
 It bars every other open PR like a held one: no `stack-enqueue` call, `--check`
@@ -1571,6 +1592,25 @@ cc-present a copy without `textAt`. Owner, 1:55 PM Oct 26: "if theres stale PRs 
 herr why have you kusr been sititg here waiting for me insyea dif oroactively
 sddresijg them, orgsnzijg the bosrd better etc? ficnit sns your toolijg".
 
+The gate is the default on every push of a block the owner taps, and nothing reaches his
+board around it. It also refuses a row that asks a tap he already gave or refused
+(`approved`, `re-ask`, `rejected`), a row no fidelity grade settles (`ungraded`,
+`unsettled`), two rows he would read as one (`alike`), a blocker or one-tap claim over a
+landed or rejected PR, and a landed PR left in any list; the script's docstring lists
+each refusal. A refusal goes to root and the row is fixed before the push, never pushed
+as it stands.
+
+His tap carries. When the change since his approved head is a patch-identical replay or
+a review fix, the root posts `go #<n> at <new head>` naming the fix, and the row lists
+his approved head in `carried` and names the fix in one plain line, so he is never asked
+again. A head that adds behavior asks again, with one line saying what is new. Every
+verdict is read live from the cc-present store (`cc-present outcomes`) and the root's
+`go` records at the moment it is used; no writer, row, card, or dashboard keeps a copy.
+
+*Prevents Oct 26 11:26 PM to 12:15 AM: the board asked three times for taps he had
+already given and once for a head he had rejected, because rows were pushed from a
+cached approved list and a root go at a moved head never reached the row.*
+
 A repository the runner's own GitHub account owns, the login `gh api user` prints,
 lands once green under every merge mode, with no card (de6c88c). A reserved touch
 there still asks.
@@ -1583,13 +1623,6 @@ owner's tap on it is the authorization. After a Merge tap the root runs
 `authorizes:<key>` answer covers the row because `check-pr` then stops naming it.
 A root `go` never covers a reserved row, whatever it names or whenever it was
 posted (C224).
-
-The batch post is comms, never a merge gate (8908f83, root #138202): a PR goes on
-its merge card, and a root go on its head enqueues it, whether or not a batch post
-lists it. Comms posts each batch, then records it with `ledger.py progress --ledger
-<id> --ask <ask> --note "#<n> #<n>" --artifact <permalink>`. A PR that no `progress`
-entry with an artifact lists logs one `BATCH-POST-OWED` report per set of PRs beside
-its `MERGE-ASK`, and a new head on one of them does not post it again.
 
 A red trunk is an incident from its first red build, never a label (owner, 12:06 AM Oct
 27: "this si the kiond of thing that should ahve been caight way earlier but fix it now").
@@ -3048,7 +3081,7 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-When the owner asks for a dashboard, the drive runs the app in `dashboard/app/`:
+From the drive's first plan, the root runs the app in `dashboard/app/`:
 `python3 dashboard/app/server.py --config <state dir>/dashboard.json`, where the config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
 story file, keeper lane, host, and port. It serves Overview, Needs you, Review, Releases,
@@ -3095,6 +3128,35 @@ The drive's pack adds `lr.needs-owner`, `lr.plan-progress`, `lr.inbox-feed`, `lr
 `lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at
 main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
 PR's ledger row.
+
+`dashboard-start.sh <state dir>/dashboard.json` starts the app detached and logs
+beside the config; the root hands the owner its tailnet URL once, and never a cc-present
+board in its place. `dashboard-keeper`, briefed from `reference/dashboard-keeper-brief.md`,
+is the config's keeper lane: it keeps the story file's sentences true, answers each build
+`defect` the app posts, and takes the place of `/live-dashboard`'s `dashboard-curator`.
+
+The owner set the app's bar, and every revision is graded against it:
+
+- A five-second glance tells him how far along the drive is, with nothing to read.
+- The first screen is a picture: the end state, its pieces colored done, doing, or not
+  started; a progress figure; one live box per worker saying what it is doing now; and
+  the exact current plan one click away, full-screen.
+- Needs you lists every tap and card he owes. Approve and Hold act in place, posting the
+  board's own decision event, and never open the board.
+- The PR review screen embeds cc-review for each PR and each stack and cc-present's row,
+  never a link out.
+- Text comes on demand: Command-K jumps anywhere, and a client-side Cerebras assistant
+  says what changed since he looked, what needs him, and what any PR or stack does.
+- Phone and desktop both work.
+
+Every revision of a surface he will use, this app, a board layout, or any other page,
+goes through a `user-test` lane briefed from `reference/user-test-brief.md` before he
+sees it: codex plays him against the live page, at least three rounds, and the card that
+shows him the revision carries the rounds' findings.
+
+*Prevents Oct 26 7:08 PM to Oct 27 12:23 AM: the drive dashboard was a cc-present page
+he had to ask for, rebuilt twice from his corrections, a wall of text at a glance, and
+shown to him untested.*
 
 #### Plan progress
 
@@ -3211,13 +3273,14 @@ so it identifies nothing.
   describes.
 - A question dialog on the coordinator's terminal already waits on the owner there, so
   it raises no record, and `show` still lists it. During execution an owner question
-  goes on the board and to Slack through `cc-present send`, never that dialog (owner answers 01736af, b4dfb16).
+  goes on the board, never that dialog (owner answers 01736af, b4dfb16).
 - Its own approval cannot wake the coordinator. Register one independent agent as its
   supervisor with `drive.py desk --name <lane> --terminal <handle> --supervisor`. The
   coordinator's approval is then a `blocker` to that lane, and the watch types the
   record's line into the supervisor's own terminal with `orca terminal send --enter`.
 - The owner gets a `needs_you` card in the DM status thread of the drive's newest root
-  session, through `cc-slack dm-status`, when no supervisor can take the prompt. That
+  session, through `cc-slack dm-status`, when no supervisor can take the prompt. It is
+  the one Slack write besides the merge card, because only the owner's hands clear it. That
   covers a drive with no supervisor, a supervisor that is itself at a prompt, unknown,
   or unreachable, and a wake Orca refuses. A prompt still open five minutes after the
   supervisor's record gets one too. The card goes out only in a drive whose watch was

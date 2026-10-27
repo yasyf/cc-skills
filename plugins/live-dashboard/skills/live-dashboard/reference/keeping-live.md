@@ -2,8 +2,10 @@
 
 A dashboard goes stale in two ways: its cards stop answering the question the task
 has moved on to, or its items stay open after the work closed them. The owner of the
-task fixes the first by editing the layout as the task changes. On a long-running
-drive, the `dashboard-curator` desk fixes the second.
+task fixes the first by editing the layout as the task changes. The `dashboard-curator`
+desk fixes the second. A long-running drive runs long-running's drive dashboard app
+instead, kept by its `dashboard-keeper` lane from that skill's
+`reference/dashboard-keeper-brief.md`, and needs no curator.
 
 ## Keep the layout honest
 
@@ -43,8 +45,8 @@ state once.
 
 ## The curator desk
 
-On a long-running drive, spawn one `dashboard-curator` as `long-running:lane`, model
-sonnet, effort low, at drive start beside the landing desk. Every 15 minutes it checks
+For a `/live-dashboard` page kept across a long task, spawn one `dashboard-curator` as
+`long-running:lane`, model sonnet, effort low, beside the page's owner. Every 15 minutes it checks
 each open item on the drive dashboard against its sources and closes every item whose
 closing record exists, with one cited cci record per sweep.
 
