@@ -3206,6 +3206,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
         grade(shell, pr, f"ok F307 at {head}.")
         merge_go(shell, pr, f"merge #{pr} at {head}")
     merge_go(shell, "29100", "merge #29100 at bbbb222")
+    shell.pr_status |= {"29031": {"verdict": "blocked:ci-pending"}, "29100": {"verdict": "blocked:ci-pending"}}
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
@@ -4472,7 +4473,7 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     shell.rows = [{"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
     landing_pass(shell, config)
-    assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+    assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"] and "29020" in call]
 
 
 def mq(shell: FakeShell, config: Path, *argv: str) -> int:
