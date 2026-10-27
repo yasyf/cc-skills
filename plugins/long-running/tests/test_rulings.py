@@ -487,8 +487,11 @@ def test_classify_refuses_an_order_for_repeat_or_placement_words(home: Path, pac
     assert shell.writes() == []
 
 
-def test_put_in_with_no_code_object_is_no_placement(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
-    words = "put yourself in the humans shoes"
+@pytest.mark.parametrize(
+    "words",
+    ["put yourself in the humans shoes", "put it in the humans shoes", "make sure the dashboard liv-updates in terms of state it can poll locally"],
+)
+def test_an_idiom_with_no_code_object_is_no_placement(home: Path, package: Path, state: Path, tmp_path: Path, capsys, words: str) -> None:
     captured(state, capture("6", words))
     shell = RegisterShell(seeded(package))
 
