@@ -37,6 +37,7 @@ ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blo
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
+MERGE_CARD = "card-merge-triage"
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
 BOX = dt.timedelta(minutes=5)
@@ -514,11 +515,13 @@ class Drive:
         interactions = board["interactions"]
         verdicts = interactions["triage"]
         retired = set(board.get("retired") or [])
-        rows, cards = [], []
+        rows, cards, merge = [], [], None
         for block in board["doc"]["blocks"]:
             if block["type"] != "card" or block["id"] in retired:
                 continue
             groups = [child for child in block.get("children", []) if child["type"] == "pr-groups"]
+            if block["id"] == MERGE_CARD:
+                merge = {"title": block.get("title", ""), "summary": block.get("summary", ""), "tables": [child for child in block.get("children", []) if child["type"] == "table"], "pages": [child["md"] for child in block.get("children", []) if child["type"] == "display.page"]}
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
@@ -533,7 +536,7 @@ class Drive:
             options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", [])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
             cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "choice": choice and choice["id"], "options": options})
-        return {"rows": rows, "cards": cards, "url": self.config["board_url"]}
+        return {"rows": rows, "cards": cards, "merge": merge, "url": self.config["board_url"]}
 
 
 def handler(drive):

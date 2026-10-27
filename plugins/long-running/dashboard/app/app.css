@@ -230,3 +230,4 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   .nother { grid-template-columns: 22px minmax(0, 1fr); }
   .nother .nsrc { grid-column: 2; }
 }
+.prose td.num, .prose th.num { text-align: right; }

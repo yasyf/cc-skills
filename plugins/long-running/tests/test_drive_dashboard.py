@@ -219,6 +219,17 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
 
 
+def test_a_merge_card_with_no_rows_waiting_still_reaches_needs_you_as_its_feature_table():
+    table = {"id": "merge-fixing", "type": "table", "columns": [{"key": "f", "label": "Feature"}, {"key": "l", "label": "Approved, landing"}], "rows": [{"f": "Release 1 waits on this", "l": "1"}]}
+    page = {"id": "merge-approved-landing", "type": "display.page", "md": "| Feature | Waiting on |"}
+    store = {"doc": {"blocks": [{"id": "card-merge-triage", "type": "card", "title": "Which may merge now?", "summary": "Nothing needs your tap.", "children": [table, page]}]}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}}
+
+    board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
+
+    assert board["rows"] == []
+    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "tables": [table], "pages": ["| Feature | Waiting on |"]}
+
+
 def test_a_board_row_missing_a_fact_still_reaches_needs_you():
     row = board_row(43250, "you")
     del row["risk"], row["review"]

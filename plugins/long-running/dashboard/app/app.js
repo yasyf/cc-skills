@@ -242,7 +242,15 @@ function needsScreen() {
   return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
     ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
     ${others.length ? `<h2 class="sec">Questions and asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
-    ${items.length ? '' : '<div class="card dim">Nothing needs you right now.</div>'}`;
+    ${items.length ? '' : '<div class="card"><b>Nothing needs your tap right now.</b> When a pull request or a board question waits on you, it shows here and on the Overview.</div>'}
+    ${mergeCard()}`;
+}
+function mergeCard() {
+  const merge = state.model.board.merge;
+  if (!merge) return '';
+  const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<h2 class="sec">On your merge board <a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Open the board ↗</a></h2>
+    <div class="card prose mergecard"><p><b>${esc(merge.title)}</b></p><p>${esc(merge.summary)}</p>${merge.tables.map(table).join('')}${merge.pages.map((md) => markdown(md)).join('')}</div>`;
 }
 
 function releases() {
