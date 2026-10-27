@@ -4,13 +4,17 @@
     finder.py DIR
 
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
-this script detached. The job reads the PR through ccx's gateway, writes the head's required register
-rows to `DIR/rows.md` with `rulings.py slice --required`, fills `reference/finder-desk-brief.md`, and
-runs `codex-ask -m <model> --schema findings` in the drive's checkout. A reply that names no verdict
+this script detached. The job reads the PR through ccx's gateway and its base branch's live tip with
+`git ls-remote`, so a stacked head reads against its parent's current head, never an older one GitHub
+still names. A first pass writes the head's required register rows to `DIR/rows.md` with
+`rulings.py slice --required`; a pass over a fixed head, one an earlier finder record read at another
+head, reads only what changed since and no rows (2cc5a1f3). It fills `reference/finder-desk-brief.md`
+and runs `codex-ask -m <model> --schema findings` in the drive's checkout. A reply that names no verdict
 for a row key the slice printed is asked once more; a second such reply fails the job. The verdict is
 posted under lane `finder-desk` as `finder: ok <head> …` or `finder: major <head> <n> open: …`, kind
 `review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>`, and the whole reply on `--path`,
-to the lane that posted the head and every `finder.to` address. A closed PR posts nothing.
+to the lane that posted the head and every `finder.to` address. A closed PR, or one whose head has
+moved past the job's head when the pass starts or ends, posts nothing (root #151269).
 `DIR/result.json` is written last, `{"error": …}` when the job raised, and the runner settles the
 dispatch from it.
 """
@@ -94,16 +98,16 @@ def prior_text(job: dict) -> str:
     )
 
 
-def prompt(job: dict, view: dict, rows: Path, plan: str) -> str:
+def prompt(job: dict, view: dict, tip: str, rows: Path, plan: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
         head=job["head"],
         base=view["baseRefName"],
-        base_oid=view["baseRefOid"],
+        base_oid=tip,
         checkout=job["checkout"],
-        fetch=" ".join(filter(None, [job["head"], view["baseRefOid"], job["since"]])),
-        scope=scope(job, view["baseRefOid"]),
+        fetch=" ".join(filter(None, [job["head"], tip, job["since"]])),
+        scope=scope(job, tip),
         prior=prior_text(job),
         rows=rows,
         plan=plan or "none; the register names no plan",
@@ -133,6 +137,16 @@ def unanswered(keys: list[str], reply: str) -> list[str]:
     return [key for key in keys if key not in reply]
 
 
+def pr_view(shell: Shell, job: dict) -> dict:
+    return json.loads(shell.run(ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body")))
+
+
+def moved(job: dict, view: dict) -> dict | None:
+    if names_head(job["head"], view["headRefOid"]):
+        return None
+    return {"skipped": f"{job['repo']}#{job['pr']} moved past {job['head'][:10]} to {view['headRefOid'][:10]}"}
+
+
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
     argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}", "--path", str(body)]
@@ -143,14 +157,20 @@ def post(shell: Shell, job: dict, text: str, body: Path) -> str:
 def run(directory: Path, shell: Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
     pr = f"{job['repo']}#{job['pr']}"
-    view = json.loads(shell.run(ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,baseRefOid,body")))
+    view = pr_view(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
+    if skipped := moved(job, view):
+        return skipped
+    tip = shell.run(["git", "ls-remote", "origin", f"refs/heads/{view['baseRefName']}"], cwd=Path(job["checkout"])).split()[0]
     rows = directory / "rows.md"
-    rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", job["head"], "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
+    if job["since"]:
+        rows.write_text(f"No rows: the finder read every required row at {job['since'][:10]}, and this pass reads only what changed since.\n")
+    else:
+        rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", job["head"], "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
     keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, rows, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, tip, rows, shell.run(rulings(job, "plan")).strip()))
     reply = ask(shell, job, directory, question, 1)
     if missing := unanswered(keys, reply):
         retry = directory / "question-2.md"
@@ -158,6 +178,8 @@ def run(directory: Path, shell: Shell) -> dict:
         reply = ask(shell, job, directory, retry, 2)
         if missing := unanswered(keys, reply):
             raise JobFailed(f"two replies named no verdict for {', '.join(missing)}")
+    if skipped := moved(job, pr_view(shell, job)):
+        return skipped
     text = record_text(job, view, json.loads(reply)["findings"])
     body = directory / "record.md"
     body.write_text(f"{text}\n\n{reply.strip()}\n")

@@ -10075,6 +10075,15 @@ def test_a_head_a_lane_already_ran_the_finder_on_starts_no_second_pass(shell, co
     assert not shell.finder_jobs
 
 
+def test_a_patch_identical_restack_of_a_head_the_finder_read_starts_no_pass(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    finder_review(shell, "43439", f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link")
+    head_record(shell, "43439", FINDER_HEAD, text=f"HEAD #43439 {FINDER_HEAD} (was {FINDER_OLD}): restack onto dev, range-diff patch-identical (3 commits)")
+    orca_pass(shell, config)
+    assert not shell.finder_jobs
+
+
 def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
     finder_config(config, concurrent=2, model="astra", to=["fidelity-desk"])
     orca_pass(shell, config)

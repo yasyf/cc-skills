@@ -15,6 +15,8 @@ REPO = "Forge-AI/monorepo"
 HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"
 OLD = "a269784e49009c5aa92b2341e08d6945f7ff8e95"
 BASE = "d011466aa1b2c3d4e5f60718293a4b5c6d7e8f90"
+STALE = "c3a3afc0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6"
+NEWER = "9285cd1e2f3a4b5c6d7e8f90a1b2c3d4e5f60718"
 ROWS = (
     f"Required rows for {REPO}#43299 at {HEAD}\n\n## Every global, pending and touched row (2)\n\n"
     "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> it should be a ssql replica that is live streaming, not polled\n\n"
@@ -24,10 +26,11 @@ SWEPT = "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN"):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,)):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
+        self.heads = list(heads)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
 
@@ -35,7 +38,11 @@ class Fake:
         argv = gateway(argv)
         self.calls.append((argv, cwd))
         if argv[:3] == ["gh", "pr", "view"]:
-            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": BASE, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
+            head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
+            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": STALE, "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
+        if argv[:3] == ["git", "ls-remote", "origin"]:
+            assert argv[3] == "refs/heads/dev" and cwd == self.tmp_path / "checkout"
+            return f"{BASE}\trefs/heads/dev\n"
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
             return ROWS if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
         if argv[0] == "codex-ask":
@@ -81,7 +88,7 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}" and post["--path"] == str(directory / "record.md")
     assert post["--text"] == f"finder: ok {HEAD} sol finder over dev...{HEAD[:7]}: no majors"
     assert finder_grade(post["--text"]) == FINDER_PASS and graded_head(post["--text"]) == HEAD
-    assert f"git diff {BASE}...{HEAD}" in (directory / "question-1.md").read_text()
+    assert f"git diff {BASE}...{HEAD}" in (directory / "question-1.md").read_text() and STALE not in (directory / "question-1.md").read_text()
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
 
 
@@ -116,6 +123,8 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     assert f"`git diff {OLD} {HEAD}`" in question and f"`git range-diff {BASE} {OLD} {HEAD}`" in question
     assert "cci #149302 from p8a-step9 at a269784" in question and "walk.go:9 skips the volume link" in question
     assert "/plans/durable/plan/plan.md" in question and str(directory / "rows.md") in question
+    assert (directory / "rows.md").read_text().startswith(f"No rows: the finder read every required row at {OLD[:10]}")
+    assert not [argv for argv, _ in shell.calls if argv[2:3] == ["slice"]]
     [(ask, cwd)] = shell.asks()
     assert ask[:5] == ["codex-ask", "-m", "sol", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
@@ -144,6 +153,15 @@ def test_a_closed_pr_runs_no_finder_and_posts_nothing(tmp_path):
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
     assert result(directory) == {"skipped": f"{REPO}#43299 is closed"}
+
+
+@pytest.mark.parametrize(("heads", "asked"), [((NEWER,), 0), ((HEAD, NEWER), 1)])
+def test_a_head_the_pr_moved_past_before_or_during_the_pass_posts_nothing(tmp_path, heads, asked):
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply(finding("major"))], heads=heads)
+    finder.main([str(directory)], shell)
+    assert len(shell.asks()) == asked and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 moved past {HEAD[:10]} to {NEWER[:10]}"}
 
 
 def test_a_head_record_names_its_commit_field_else_its_first_full_sha_no_was_precedes():

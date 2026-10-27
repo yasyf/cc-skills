@@ -380,10 +380,12 @@ past the saved sequence that names a PR of `finder.repo`, default `landing.repo`
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
 passes (default 2) run at once and the rest wait queued; each PR's newest queued head starts, oldest first, and an older
-queued head of the same PR settles as superseded. A head some lane's `finder:` record already names starts nothing. A pass
+queued head of the same PR settles as superseded. A head some lane's `finder:` record already names starts nothing, nor does
+one that `head` records or fidelity grades call a patch-identical restack of a head a finder record names (root #151269). A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
 `codex-ask -m <finder.model, default sol> --schema findings` in `finder.checkout`, default `landing.checkout`, over
-`<base>...<head>`, or over what changed since the head the PR's newest finder record at another head read, and posts
+`<base tip>...<head>` against the base branch's live tip, or over what changed since the head the PR's newest finder record
+at another head read with no register rows, skips a head the PR has moved past, and posts
 `finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane and each
 `finder.to` address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
 `FINDER-FAILED` once. `show` lists each queued and running pass.
@@ -3907,17 +3909,22 @@ class Runner:
             running += self.start_finder(spec, repo, action)
 
     def start_finder(self, spec: dict, repo: str, action: actions.Action) -> bool:
-        """Settle a head some lane's finder record already names, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read."""
+        """Settle a head some lane's finder record already names, or a patch-identical restack of one, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read."""
         job = json.loads(action.target)
         records = cci.records(self.cci_tail, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
         reviews = finder_records(finder_reviews_in(records, self.config.drive, repo, job["pr"]))
         if answered := newest_finder(reviews, job["head"]):
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
+        landing = self.config.landing or {}
+        graders = landing.get("fidelity_lane", [])
+        moves = head_moves(records, self.config.drive, [graders] if isinstance(graders, str) else list(graders), repo, job["pr"])
+        if read := next((review for review in reversed(reviews) if patch_chain(moves, job["head"], review["head"])), None):
+            self.finder_settled(action.action_id, {"answered": f"a patch-identical restack of {read['head'][:10]}, read in cci #{read['seq']} from {read['lane']}"})
+            return False
         last, prior = finder.since(reviews, records, job["head"])
         directory = self.config.source.parent / finder.LANE / f"{job['pr']}-{job['head'][:12]}"
         directory.mkdir(parents=True, exist_ok=True)
-        landing = self.config.landing or {}
         (directory / finder.JOB).write_text(
             json.dumps(
                 {
