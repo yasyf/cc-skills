@@ -12,9 +12,9 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
 
     stale     its head is not the PR's head on GitHub; the reason names the new head
     old text  its `textAt` is missing or not newer than its head's commit time
-    not open  the PR is closed or merged on GitHub, or a root go, decide or decision record says it
-              is superseded or closed, naming that record's seq, and no later root go names it at
-              its head
+    not open  the PR is closed or merged on GitHub, or a root go, decide or decision record has it
+              as the subject of superseded, closed or landed, or a verb that closes or supersedes
+              it, naming that record's seq, and no later root go names it at its head
     missing   a triage row's label has no words after `#<pr>:`, or a fact in `FIELDS` is absent or
               empty: what it changes for users, how it differs from the plan, its risk, the
               finder's verdict, CI, and what gates its landing; a `pr-groups` row's field in
@@ -228,7 +228,7 @@ def root_rulings(shell: Shell, drive: str) -> list[dict]:
 
 def closes(pr: str, text: str) -> bool:
     verb = rf"\b(?:clos(?:e|es|ed|ing)|supersed(?:es|ing))\s+(?:#\d+(?:\s*,\s*|\s*,?\s+and\s+))*#{pr}\b"
-    ruled = rf"#{pr}\b[^.;:()\n]{{0,40}}?\b(?:superseded|closed)\b"
+    ruled = rf"#{pr}\b(?:\s+\(?[0-9a-f]{{7,40}}\)?)?(?:\s+(?:is|was|now|stays|has\s+been))*\s+(?:superseded|closed|landed)\b"
     return re.search(verb, text, re.IGNORECASE) is not None or re.search(ruled, text, re.IGNORECASE) is not None
 
 
