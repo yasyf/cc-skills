@@ -438,6 +438,13 @@ ending with the exact `landing` members that fix every fault at once.
 
 `deadlines.release_start_minutes` is the step between the blockers D20 posts, 10 by default.
 
+`finder`, optional, turns on the orca desk's finder dispatch, O17. `model` is the
+`codex-ask -m` model, `sol` by default; `concurrent` caps the passes running at once,
+2 by default; `checkout` is the repo checkout codex reads in, `landing.checkout` by
+default; `to` lists cci addresses that get every finder record besides the head's lane;
+`repo` defaults to `landing.repo`; `timeout_minutes`, 60 by default, fails a pass with no
+result. The runner reads the object every pass, so adding or changing it needs no restart.
+
 `orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
 `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
 repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
@@ -514,6 +521,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "enqueue_minutes": 15,
     "release_start_minutes": 10
   },
+  "finder": {"model": "sol", "concurrent": 2},
   "landing": {
     "repo": "Forge-AI/monorepo",
     "ledger": "<ledger id>",
@@ -725,6 +733,19 @@ the orca runner starts `stall_watch.py --config <runner.json>` detached every
 `stall-watch.log` beside `orca.desk_inbox`. It reads the object on every pass, so adding
 it needs no restart. Each stall the pass finds reaches root once as an `urgent`
 `STALL` record naming its owner and next step; SKILL.md "The stall watch" lists the kinds.
+
+**O17. Dispatch a finder on every head.** With `finder` in the config, each pass reads
+the drive's `head` records past its saved sequence and queues one finder pass per PR and
+full head; two records naming one head queue it once. The newest queued head of each PR
+starts at once, beside the fidelity desks, while fewer than `finder.concurrent` run, and
+an older queued head of the same PR settles as superseded. A head some lane's `finder:`
+record already names starts nothing. Each pass runs `finder.py` detached, which runs
+`codex-ask --schema findings` from `reference/finder-desk-brief.md` over `<base>...<head>`,
+or since the head the PR's last finder record read, and posts `finder: ok <head> …` or
+`finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane. A pass
+that fails, or writes no result within `finder.timeout_minutes`, posts one
+`FINDER-FAILED` to the root; the lane then runs that head's pass by hand. `show` lists
+each queued and running pass.
 
 ## Landing passes
 

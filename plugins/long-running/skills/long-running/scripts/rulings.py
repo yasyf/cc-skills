@@ -11,6 +11,7 @@
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF]
+    rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
     rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--root DIR]
     rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
@@ -1462,6 +1463,12 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_plan(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if plan := Register.load(args, shell).plan(None):
+        print(plan)
+    return 0
+
+
 def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     sweeper = Sweeper(loaded, {args.key: loaded.row(args.key)} if args.key else loaded.scope())
@@ -2405,6 +2412,7 @@ def build_parser() -> argparse.ArgumentParser:
     sliced.add_argument("--head", metavar="SHA")
     sliced.add_argument("--base", metavar="REF")
     sliced.add_argument("--plan", metavar="PATH")
+    verb("plan", cmd_plan, "print the plan path the register names, or nothing")
     swept_verb = verb("sweep", cmd_sweep, "grep every scope row's names, or one row's, and print each hit as open, deleted or authorized")
     swept_verb.add_argument("key", nargs="?")
     swept_verb.add_argument("--artifact", action="append", default=[], metavar="PATH")

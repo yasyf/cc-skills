@@ -156,6 +156,7 @@ class FakeShell(runner_module.Shell):
         self.sprite_receipts: dict[str, str] = {}
         self.spawned_env: dict[str, dict] = {}
         self.successors: list[tuple[list[str], Path, bool]] = []
+        self.finder_jobs: list[Path] = []
         self.reexeced: list[list[str]] = []
         self.reviews: dict[str, dict] = {}
         self.checks: dict[str, list[dict]] = {}
@@ -222,6 +223,10 @@ class FakeShell(runner_module.Shell):
             return Process()
         if argv[1:2] == [str(runner_module.STALL_WATCH)]:
             return self.stall_pass
+        if argv[1:2] == [str(runner_module.SCRIPTS / "finder.py")]:
+            assert argv == [sys.executable, str(runner_module.SCRIPTS / "finder.py"), str(out.parent)] and not env
+            self.finder_jobs.append(out.parent)
+            return Process()
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
             attempt = Path(argv[4]).with_suffix(".worker")
@@ -9787,3 +9792,114 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
 
     [(kind, _, text)] = trunk_posts(shell)
     assert kind == "incident" and text.startswith("DEV-RED since 10:50 AM: dev's buildkite/test fails sanddb-http")
+
+
+FINDER_HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"
+FINDER_OLD = "a269784e49009c5aa92b2341e08d6945f7ff8e95"
+
+
+def finder_config(config: Path, **spec) -> None:
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"finder": spec}))
+
+
+def head_record(shell: FakeShell, pr: str, head: str, lane: str = "p8a-step9", **changes) -> int:
+    seq = 149000 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "head", "to": [], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "fields": {"commit": head}, "text": f"HEAD #{pr} {head}", "source": "post", "at": actions.stamp(shell.clock)} | changes)
+    return seq
+
+
+def finder_review(shell: FakeShell, pr: str, text: str, lane: str = "p8a-step6b-creds-6") -> int:
+    seq = 149000 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": text, "source": "post", "at": actions.stamp(shell.clock)})
+    return seq
+
+
+def finder_jobs(shell: FakeShell) -> list[dict]:
+    return [json.loads((directory / "job.json").read_text()) for directory in shell.finder_jobs]
+
+
+def finder_failures(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("FINDER-FAILED")]
+
+
+def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43439", FINDER_HEAD, lane="p8a-step6b-creds-6", fields={}, text=f"#43439 HEAD {FINDER_HEAD} (was {FINDER_OLD}) on #42786")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
+    assert finder_jobs(shell) == [
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
+    ]
+
+
+def test_a_head_a_lane_already_ran_the_finder_on_starts_no_second_pass(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    finder_review(shell, "43439", f"finder: ok {FINDER_HEAD[:7]} lgtm, no findings")
+    orca_pass(shell, config)
+    assert not shell.finder_jobs
+
+
+def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
+    finder_config(config, concurrent=2, model="astra", to=["fidelity-desk"])
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299"]
+    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("fidelity-desk",))}
+    cli(shell, config, "show")
+    shown = capsys.readouterr().out
+    assert f"finder #42784 {heads['42784'][:12]}: queued" in shown and f"finder #43299 {heads['43299'][:12]}: running since" in shown
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {heads['43439']}", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299", "42784"]
+    assert not finder_failures(shell)
+
+
+def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_last_finder_read(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    review = finder_review(shell, "43299", f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link", lane="p8a-step9")
+    head_record(shell, "43299", hashlib.sha1(b"between").hexdigest())
+    head_record(shell, "43299", FINDER_HEAD)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "major", "record": "finder: major", "posted": "#150002"}))
+    orca_pass(shell, config)
+    first, second = finder_jobs(shell)
+    assert (first["head"], first["since"]) == (FINDER_OLD, "")
+    assert (second["head"], second["since"]) == (FINDER_HEAD, FINDER_OLD)
+    assert second["prior"] == {"seq": review, "lane": "p8a-step9", "head": FINDER_OLD[:7], "text": f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link"}
+
+
+def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_escalates_once(shell, config):
+    finder_config(config, timeout_minutes=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    failed, silent = shell.finder_jobs
+    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema findings exited 1: quota exhausted"}))
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=2)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert finder_failures(shell) == [
+        f"FINDER-FAILED finder:43439:{FINDER_HEAD} p8a-step9: #43439 {FINDER_HEAD[:12]}: the finder desk's pass failed: codex-ask -m sol --schema findings exited 1: quota exhausted; its log is {failed / 'job.log'}; the lane runs the pass by hand from reference/finder-brief.md",
+        f"FINDER-FAILED finder:43299:{FINDER_OLD} p8a-step9: #43299 {FINDER_OLD[:12]}: the finder desk's pass failed: no result 2 min after it started; its log is {silent / 'job.log'}; the lane runs the pass by hand from reference/finder-brief.md",
+    ]
+
+
+def test_a_runner_with_no_finder_config_starts_no_finder(shell, config, tmp_path):
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert not shell.finder_jobs and not (tmp_path / "store" / "desk-finder.json").exists()

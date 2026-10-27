@@ -1505,6 +1505,18 @@ any lane, to read `finder: ok`. A head with none, or whose newest is `finder: ma
 gets one `FINDER-PENDING #<n>` blocker per head to its lane. A finder pass answers a
 major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 
+The orca desk runner posts that record itself once `runner.json` carries a `finder`
+object: `{"model": "sol", "concurrent": 2, "checkout": "<repo checkout>", "to": ["<lane>"],
+"timeout_minutes": 60}`, every member optional. On every `head` record it starts one
+codex finder for that PR and head at once, beside the fidelity desks, never after them:
+over `<base>...<head>`, or over what changed since the head the PR's last finder record
+read, from `reference/finder-desk-brief.md`, which forbids any local build or test. It
+posts `finder: ok <head>` or `finder: major <head> <n> open: …` under lane
+`finder-desk` to the head's lane. A head reaches the finder once, a head some lane's
+finder record already names gets no second pass, and the runner holds at most
+`concurrent` passes at once, queueing the rest. A failed pass is one `FINDER-FAILED`
+to root, and the lane runs that head's pass by hand.
+
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
 --pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass and holds no
 head (4236611). Each cause it prints but `RESERVED-NO-ANSWER` is a warning: one cci
