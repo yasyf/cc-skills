@@ -90,7 +90,7 @@ def test_the_reviewed_action_posts_an_owner_record_to_main(tmp_path):
 
 
 def test_quota_reads_bad_under_the_floor(tmp_path):
-    tiles = github.quota(fake(tmp_path, replies={("gh", "api", "rate_limit"): fixture("rate-limit.json")}))
+    tiles = github.quota(fake(tmp_path, replies={(*context.GATEWAY, "api", "rate_limit"): fixture("rate-limit.json")}))
     assert [(tile.label, tile.value, tile.tone) for tile in tiles.tiles] == [("GitHub core", 4990, "ok"), ("GitHub graphql", 420, "bad")]
 
 
@@ -118,8 +118,9 @@ def test_a_refused_quota_rereads_the_free_rate_limit_before_refusing(tmp_path, m
     monkeypatch.setitem(context.QUOTA, "reset_at", NOW + timedelta(hours=1))
     monkeypatch.setitem(context.QUOTA, "probed_at", None)
     limits = {"resources": {"graphql": {"limit": 5000, "remaining": 4900, "reset": int((NOW + timedelta(hours=1)).timestamp())}}}
-    replies = {("gh", "api", "rate_limit"): limits, ("gh", "api", "graphql"): {"data": {"viewer": {"login": "me"}, "rateLimit": {"remaining": 4899, "resetAt": "2026-10-07T02:00:00Z"}}}}
+    replies = {("api", "rate_limit"): limits, ("api", "graphql"): {"data": {"viewer": {"login": "me"}, "rateLimit": {"remaining": 4899, "resetAt": "2026-10-07T02:00:00Z"}}}}
     ctx = context.Context(tmp_path, {}, NOW, 30.0)
-    monkeypatch.setattr(ctx, "run", lambda argv, timeout=None, cwd=None, input=None: json.dumps(next(reply for prefix, reply in replies.items() if tuple(argv[: len(prefix)]) == prefix)))
+    gh_args = lambda argv: tuple(argv[argv.index("--") + 1 :]) if argv[:3] == ["env", "CCX_CALLER=live-dashboard", "ccx"] else ()
+    monkeypatch.setattr(ctx, "run", lambda argv, timeout=None, cwd=None, input=None: json.dumps(next(reply for prefix, reply in replies.items() if gh_args(argv)[: len(prefix)] == prefix)))
     assert ctx.gh_graphql("query { viewer { login } }") == {"viewer": {"login": "me"}}
     assert context.QUOTA["remaining"] == 4899
