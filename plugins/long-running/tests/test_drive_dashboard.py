@@ -255,7 +255,8 @@ def test_a_release_path_with_nothing_held_marks_the_first_unreleased_release():
         ({"state": "open", "mergeable_state": "dirty"}, "you", None, "Your tap on the merge board at hhhhhhh, and p8a-step7 rebases it onto its base."),
         ({"state": "open"}, "approved", "open", "Lands after #42001 lands."),
         ({"state": "open"}, "approved", "landed", "Lands when the merge queue reaches it."),
-        ({"state": "open", "hold_reason": "held for the cutover", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held: held for the cutover."),
+        ({"state": "open", "hold_reason": "held for the cutover", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held by root: held for the cutover."),
+        ({"state": "open", "hold_reason": "root cci hold: landing dependency not live (hold records #134860-#134881, sweep 6:41 PM)", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held by root: landing dependency not live."),
     ],
 )
 def test_every_pull_request_carries_one_next_action_from_its_own_state(fields, row_state, base_state, next_step):
@@ -278,8 +279,8 @@ def test_a_root_hold_is_the_next_action_even_on_a_red_conflicted_pull_request():
 
     lights = listed(prs, holds=hold_reasons([Entry(line) for line in lines], prs))
 
-    assert lights[42900]["next"] == "Held: held for cutover: lands with the reader cutover, not before."
-    assert lights[42901]["next"] == "Held: lane:p8e-desktop-ship-5 desktop waits for the morning."
+    assert lights[42900]["next"] == "Held by root: held for cutover: lands with the reader cutover, not before."
+    assert lights[42901]["next"] == "Held by root: desktop waits for the morning."
     assert lights[42902]["next"] == "Waits its turn in its stack."
 
 
@@ -323,6 +324,14 @@ def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_don
     row = step_rows([{**step([42712, 42714, 43196]), "blocker": "a fix for what the plan check found in #43197"}], drive, [])[0]
 
     assert (row["tone"], row["untracked"]) == ("waiting", [43196, 43197])
+
+
+def test_a_step_the_progress_desk_reads_done_is_done_though_the_ledger_misses_some_of_its_pull_requests():
+    drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}], "tracked": [42712, 42714]}
+
+    row = step_rows([{**step([42712, 42714, 43196, 43197]), "tone": "done"}], drive, [])[0]
+
+    assert (row["tone"], row["untracked"]) == ("done", [43196, 43197])
 
 
 SEQ = itertools.count(140000)
