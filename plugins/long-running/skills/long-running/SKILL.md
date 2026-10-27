@@ -24,8 +24,8 @@ A single-lane investigation is not this. One question goes to one subagent in di
 The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
 once the drive has a plan; and one priority desk per owner-named #1-priority outcome
-while that outcome is open. No dashboard or dashboard curator runs (owner instruction
-of 2026-10-18), and no lane or root watches Slack (owner answer d94db5b). No comms lane
+while that outcome is open. The drive dashboard app runs when the owner asks for one
+(see Drive dashboard), and no lane or root watches Slack (owner answer d94db5b). No comms lane
 stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once per post
 the owner gave word for, and it ends after that post. The orca desk is the
 `desk-runner.py run --desk orca` process, not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
@@ -3033,11 +3033,15 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-No live dashboard runs for the drive, and no curator or poller feeds one (owner
-instruction of 2026-10-18). No hook, handoff, or report starts the server or hands the
-owner a dashboard link. When the owner asks for a dashboard by name, it is a
-`/live-dashboard` dir at `<state dir>/dashboard`, whose `context.json` `drive.py` writes
-on every registry write, and the rest of this section describes it.
+When the owner asks for a dashboard, the drive runs the app in `dashboard/app/`:
+`python3 dashboard/app/server.py --config <state dir>/dashboard.json`, where the config
+names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
+story file, keeper lane, host, and port. It serves Overview, Review, Releases, Workers,
+Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the board,
+the ledger, and the newest progress doc carrying `## Ordered plan of action`, and it
+makes no GitHub or Buildkite call. A build failure posts one `defect` record to root.
+Its Ask screen needs `CEREBRAS_API_KEY`. The `/live-dashboard` layout below is the
+older view, kept for drives that do not run the app.
 
 The dashboard is the owner's view, and it answers four questions in this order: what
 waits on me, what is broken, what is live, and what is in flight. Review comes after

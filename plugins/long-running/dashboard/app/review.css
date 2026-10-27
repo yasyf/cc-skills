@@ -1,0 +1,32 @@
+.review-embed { max-width: 1680px; margin: 0 auto; padding: 0 22px 40px; display: grid; grid-template-columns: minmax(360px, 440px) 1fr; gap: 18px; align-items: start; }
+.review-embed .pane { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.review-embed .verdict { position: sticky; top: 70px; }
+.review-embed .verdict iframe { display: block; width: 100%; height: 560px; border: 0; }
+.review-embed .code iframe { display: block; width: 100%; height: calc(100vh - 96px); border: 0; }
+.review-embed .pane-wait { padding: 24px; margin: 0; }
+.review-embed .pane-wait.bad { color: var(--bad); }
+.review-tabs { display: none; }
+@media (max-width: 1100px) {
+  .review-tabs { display: flex; }
+  .review-embed { grid-template-columns: 1fr; padding: 0 14px 40px; }
+  .review-embed .verdict { position: static; }
+  .review-embed[data-tab="verdict"] .code, .review-embed[data-tab="code"] .verdict { display: none; }
+  .review-embed .code iframe { height: calc(100dvh - 120px); }
+}
+body:has(#embed:not([hidden])) .wrap { max-width: 1680px; padding-bottom: 14px; }
+body:has(#embed:not([hidden])) .foot { display: none; }
+.decide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.decide .btn { min-height: 40px; font-size: 14.5px; }
+.decide .btn.hold { color: var(--warn); }
+.decide .decided { font-weight: 700; }
+.decide .decided.approved { color: var(--ok); }
+.decide .decided.held { color: var(--warn); }
+.hold-form { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
+.hold-form input { flex: 1 1 240px; min-height: 40px; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 14.5px var(--sans); }
+.bar-bottom.decide { display: none; margin: 0; }
+@media (max-width: 760px) {
+  .pr-head + .decide { display: none; }
+  .bar-bottom.decide { display: flex; }
+  .bar-bottom.decide .btn { flex: 1; min-height: 48px; font-size: 16px; }
+  .review-embed { padding-bottom: 96px; }
+}
