@@ -10,7 +10,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import CompactionState
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import CCI_POST, incident_sources, open_incidents, record_text
-from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
+from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
 
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
@@ -325,6 +325,9 @@ def plugin(command: str, *stored: dict, state: list[object] = ACTIVE, **extra: o
         plugin("claude plugin update codex@skills", SAND_NOT_MIGRATED): Allow(),
         plugin("claude plugin marketplace update skills", SAND_NOT_MIGRATED): Allow(),
         Input(command="claude plugin update long-running@skills", commands=incident_sources(SAND_NOT_MIGRATED)): Allow(),
+        Input(command="claude plugin update long-running@skills", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,))): Warn(),
+        Input(command="claude plugin update long-running@skills", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,), closeout=(INCIDENT_CLOSED,))): Allow(),
+        Input(command="desk-runner.py handoff --desk landing", state=ACTIVE, commands=incident_sources(posted=(BARE_INCIDENT,), closeout=(EARLIER_CLOSEOUT,))): Warn(),
     },
 )
 def no_tooling_change_during_an_incident(evt: BaseHookEvent) -> HookResult | None:
