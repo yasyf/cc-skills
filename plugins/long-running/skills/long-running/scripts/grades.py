@@ -26,7 +26,6 @@ GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
-PRECONDITION_MET = re.compile(r"\s*precondition-met\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+)#\d+)*)", re.IGNORECASE)
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 
 
@@ -101,12 +100,6 @@ def full_text(record: dict) -> str:
     """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text."""
     spilled = Path(record.get("refs", {}).get("path") or "")
     return spilled.read_text() if spilled.is_file() else record["text"]
-
-
-def met_prs(record: dict) -> set[str]:
-    """The PRs whose landing precondition a root `decide` says holds: only the `#<n>` list of the `precondition-met` clause the record opens with."""
-    clause = PRECONDITION_MET.match(record["text"])
-    return set(re.findall(r"#(\d+)", clause[1])) if clause else set()
 
 
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
