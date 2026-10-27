@@ -396,7 +396,10 @@ With `landing.ci_build` set to a command that prints one Buildkite build's JSON,
 "Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
 that would enqueue, with everything above it. It is GREEN again once a passed build with no skip job runs on a commit that
 contains the head: a build at the stack's tip, or one a `full run green <build>: #<pr>` note or report from the PR's lane
-names over the last two days. A `BATCH-POST-OWED` posts once per set of PRs.
+names over the last two days. With `landing.ci_grade` set to a command that starts one full build of `{commit}` on
+`{branch}` in `{pipeline}` and prints its JSON, a head no tip build covers or is still building gets that build on a
+`ci-grade/<pr>` branch, started once per head, and is GREEN once it passes; a failed start logs `CI-GRADE-FAILED` once
+per head. A `BATCH-POST-OWED` posts once per set of PRs.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
 checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
 among every missing member.
@@ -555,7 +558,9 @@ FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<i
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
 CONFLICT_BLOCKER = "GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"
 REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
-BUILD_NUMBER = re.compile(r"/builds/\d+")
+BUILDS_PATH = re.compile(r"/builds/\d+")
+GRADE_BRANCH = "ci-grade/"
+GRADE_KEY = "ci-grade:"
 FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
 FULL_RUN_WINDOW = timedelta(days=2)
 RELEASE_POLL = timedelta(seconds=15)
@@ -971,6 +976,24 @@ def release_build_argv(checkout: Path, template: str, build: str) -> list[str] |
         return None
     first, *rest = (word.format(**values) for word in shlex.split(template))
     return [str(checkout / first), *rest]
+
+
+def grade_argv(checkout: Path, template: str, values: dict[str, str]) -> list[str]:
+    """`landing.ci_grade` for one head, its first word relative to the landing checkout, each `{name}` of `values` replaced in place so a JSON body in the template keeps its own braces."""
+    words = shlex.split(template)
+    for name, value in values.items():
+        words = [word.replace(f"{{{name}}}", value) for word in words]
+    return [str(checkout / words[0]), *words[1:]]
+
+
+def started_build_url(out: str) -> str:
+    """The `web_url` of the build a `landing.ci_grade` command printed, or empty when its output names no Buildkite build."""
+    try:
+        build = json.loads(out)
+    except ValueError:
+        return ""
+    url = build.get("web_url") if isinstance(build, dict) else None
+    return url if isinstance(url, str) and BUILD_URL.search(url) else ""
 
 
 def parse_until(text: str) -> datetime | None:
@@ -3835,6 +3858,8 @@ class Landing:
         self.builds_read: dict[str, list[tuple[str, bool]]] = {}
         self.builds: dict[str, dict] = {}
         self.full_runs_read: dict[str, list[dict]] = {}
+        self.grading = False
+        self.grade_tried: set[str] = set()
         self.stacks: dict[str, set[str]] = {}
         self.no_go: set[str] = set()
         self.started = self.book.stamp()
@@ -4141,12 +4166,35 @@ class Landing:
             return ""
         pipeline = BUILD_URL.search(skipped[0])["pipeline"]
         child = self.deferred_child(pr)
-        tip = [url for url, state, skip in (self.ci_builds(child["head"]) or []) if state == "success" and skip is False and BUILD_URL.search(url)["pipeline"] == pipeline] if child and child.get("head") else []
-        reported = [BUILD_NUMBER.sub(f"/builds/{number}", skipped[0]) for number in self.reported_full_runs(pr)]
-        if any(self.passes_over(url, sha) for url in [*tip, *reported]):
+        tip = [(url, state) for url, state, skip in (self.ci_builds(child["head"]) or []) if skip is False and BUILD_URL.search(url)["pipeline"] == pipeline] if child and child.get("head") else []
+        reported = [BUILDS_PATH.sub(f"/builds/{number}", skipped[0]) for number in self.reported_full_runs(pr)]
+        graded = [started.target] if (started := self.book.known(LANDING, f"{GRADE_KEY}{sha}")) else []
+        if any(self.passes_over(url, sha) for url in [*(url for url, state in tip if state == "success"), *reported, *graded]):
             return ""
         named = f"child #{child['pr']} {child.get('state', 'open')}" if child else "no child in the ledger"
+        if not graded and self.grading and not any(state == "pending" for _, state in tip) and (url := self.grade(pr, sha, pipeline)):
+            graded = [url]
+        if graded:
+            return f"unproven: redundant skip, {named}, so full build {graded[0]} grades {sha[:10]}; it is GREEN once that build passes."
         return f"unproven: redundant skip, {named}, so no full test build proves {sha[:10]}. Run a full build on the stack's tip or post `full run green <build>: #{pr}` once one containing this head passes."
+
+    def grade(self, pr: str, sha: str, pipeline: str) -> str:
+        """Start one full `pipeline` build at `sha` through `landing.ci_grade` on a `ci-grade/<pr>` branch, which has no open PR for the Graphite optimizer to call redundant, and book its URL; empty when `ci_grade` is unset, the head was tried this pass, or the start fails, which escalates once per head."""
+        if not (template := self.landing_config.get("ci_grade")) or sha in self.grade_tried:
+            return ""
+        self.grade_tried.add(sha)
+        branch = f"{GRADE_BRANCH}{pr}"
+        done = self.shell.run(["gh", "api", "-X", "PATCH", f"repos/{self.repo}/git/refs/heads/{branch}", "-f", f"sha={sha}", "-F", "force=true"])
+        if done.code != 0:
+            done = self.shell.run(["gh", "api", "-X", "POST", f"repos/{self.repo}/git/refs", "-f", f"ref=refs/heads/{branch}", "-f", f"sha={sha}"])
+        if done.code == 0:
+            done = self.shell.run(grade_argv(self.checkout, template, {"commit": sha, "branch": branch, "pipeline": pipeline, "pr": pr}))
+        url = started_build_url(done.out) if done.code == 0 else ""
+        if not url:
+            self.runner.escalate(f"ci-grade:{pr}@{sha}", "CI-GRADE-FAILED", f"#{pr}", f"could not start a full {pipeline} build at {sha[:10]} on {branch}: {(done.err or done.out).strip()[:200]}")
+            return ""
+        self.book.accept(LANDING, f"{GRADE_KEY}{sha}", "ci-grade", url, "runner", None)
+        return url
 
     def ci_builds(self, sha: str) -> list[tuple[str, str, bool | None]] | None:
         """Each Buildkite build GitHub's combined status names at `sha`: its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
@@ -5535,6 +5583,7 @@ class Landing:
 
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read = {}, {}, {}, {}, {}, {}
+        self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews = None, False, None
         if self.quota_low():
             return

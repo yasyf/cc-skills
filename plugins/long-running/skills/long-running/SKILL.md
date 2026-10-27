@@ -1597,6 +1597,16 @@ the PR's lane names in a `full run green <build>: #<pr> #<pr>` note or report. A
 build at the head itself always wins: the head reads `unproven: its own build <url>
 failed` until it passes.
 
+With `landing.ci_grade` also set, no lane hand-rolls that full build. When no build at the
+tip covers the head and none is still running there, the runner points a `ci-grade/<pr>`
+branch at the head, which has no open PR for the optimizer to skip, and runs the command
+once per head with `{commit}`, `{branch}`, `{pipeline}` and `{pr}` filled in. The command
+starts one build and prints its JSON, as in
+`"ci_grade": "tools/ci bk api -X POST -d '{\"commit\":\"{commit}\",\"branch\":\"{branch}\",\"ignore_pipeline_branch_filters\":true}' /pipelines/{pipeline}/builds"`.
+The head reads `unproven: redundant skip, ..., so full build <url> grades <sha>` until
+that build passes. A start that fails logs one `CI-GRADE-FAILED` per head and is
+tried again next pass.
+
 Incident fixes still land by plain squash under every mode, and a `checks_wait_for_go`
 pause never stops them. An approved, green fix merges once the holds file, read again
 just before `gh pr merge`, holds no line over it and `check-pr --incident` names none of
