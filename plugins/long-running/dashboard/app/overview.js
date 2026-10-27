@@ -121,7 +121,7 @@ function totals() {
   const verdict = rels.length && out === rels.length ? ['ok', 'Released'] : next && /^(waits? on|blocked)/i.test(next.state) ? ['bad', `Blocked at ${next.id}`] : ['', 'Moving'];
   return `<section class="totals">
     ${tile('New app merged', `${t.landed}<span>/${t.total}</span>`, `${t.queued} approved, landing next`, 'ok', '#/timeline', pct(t))}
-    ${tile('Landed in the last hour', hour.length, hour.length ? hour.slice(0, 2).map((e) => esc(shortName(e.number) ?? plainTitle(e.number))).join(' · ') : 'Nothing landed', '', '#/timeline')}
+    ${tile('Landed in the last hour', hour.length, hour.length ? hour.slice(0, 2).map((e) => esc(shortName(e.number) ?? plainTitle(e.number))).join(' · ') : 'Nothing landed', '', '#/timeline/hour')}
     ${tile('Need your tap', all.you, all.you ? 'Open the review list' : 'Nothing waiting on you', all.you ? 'you' : '', all.you ? '#/review' : '#/now')}
     ${tile('Released tonight', `${out}<span>/${rels.length}</span>`, next ? `Next: ${esc(next.id)}, ${esc(next.name)}` : 'All out', '', '#/releases', rels.length ? (100 * out) / rels.length : 0)}
     <a class="tile2 tonight" href="#/releases"><small><span class="verdict ${verdict[0]}">${verdict[1]}</span>Tonight: flag holders get the new app, everyone else keeps the old</small>

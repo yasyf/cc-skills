@@ -3,8 +3,10 @@ const STALL_MIN = 45;
 const LATE_MS = 3 * 60 * 1000;
 const clockFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, hour: 'numeric', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, weekday: 'short' });
+const KEY_EVENT = (e) => ['owner', 'go', 'landed', 'release', 'incident', 'fix-live', 'hold', 'lift'].includes(e.kind) || (e.kind === 'report' && /READY/.test(e.raw));
 const TIMELINE_FILTERS = [
-  ['key', 'Key events', (e) => ['owner', 'go', 'landed', 'release', 'incident', 'fix-live', 'hold', 'lift'].includes(e.kind) || (e.kind === 'report' && /READY/.test(e.raw))],
+  ['key', 'Key events', KEY_EVENT],
+  ['hour', 'Last hour', (e) => KEY_EVENT(e) && Date.now() - new Date(e.at) < 3600 * 1000],
   ['owner', 'You said', (e) => e.kind === 'owner'],
   ['go', 'Approvals and landings', (e) => e.kind === 'go' || e.kind === 'landed'],
   ['incident', 'Releases and incidents', (e) => ['release', 'incident', 'fix-live', 'mechanism'].includes(e.kind)],
@@ -12,7 +14,7 @@ const TIMELINE_FILTERS = [
 ];
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), filter: 'key', seen: new Set(), chat: [], asking: false, overlay: null };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, overlay: null };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -203,7 +205,7 @@ function workers() {
 }
 
 function timelineScreen() {
-  const filter = TIMELINE_FILTERS.find((f) => f[0] === state.filter) ?? TIMELINE_FILTERS[0];
+  const filter = TIMELINE_FILTERS.find((f) => f[0] === route().id) ?? TIMELINE_FILTERS[0];
   const events = timeline().filter(filter[2]);
   return `<h2 class="sec">Timeline <span class="dim">last 24 hours, newest first</span></h2>
     <div class="filters">${TIMELINE_FILTERS.map(([id, label]) => `<button data-filter="${id}" class="${id === filter[0] ? 'on' : ''}">${label}</button>`).join('')}</div>
@@ -371,7 +373,7 @@ document.addEventListener('click', (e) => {
   const suggestion = e.target.closest('[data-ask]');
   if (suggestion) ask(suggestion.dataset.ask);
   const filter = e.target.closest('[data-filter]');
-  if (filter) { state.filter = filter.dataset.filter; render(); }
+  if (filter) location.hash = `#/timeline/${filter.dataset.filter}`;
 });
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'ask') return;
