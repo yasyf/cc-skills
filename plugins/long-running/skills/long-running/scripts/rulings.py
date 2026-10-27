@@ -909,10 +909,20 @@ def one_edit(word: str, target: str) -> bool:
     return len(longer) - len(shorter) == 1 and any(longer[:index] + longer[index + 1 :] == shorter for index in range(len(longer)))
 
 
+def quoting_rows(loaded: Register, span: str) -> list[str]:
+    quote = folded(span)
+    return [
+        key
+        for key, fields in loaded.rulings().items()
+        if fields.get("status") != "pending-owner"
+        and (quote == folded(key) or any(quote in said for said in said_words(fields)) or any(quote == folded(name) for name in names_of(fields)))
+    ]
+
+
 def repeat_markers(loaded: Register, words: str) -> list[str]:
     found = [match.group(0) for match in REPEAT_MARKERS.finditer(words)]
     found += [match.group(0) for match in AND_AGAIN.finditer(words) if one_edit(match.group(1).lower(), "again")]
-    return found + [f'a quoted sentence "{span}"' for span in quoted(words)]
+    return found + [f'a quoted sentence "{span}" from {", ".join(keys)}' for span in quoted(words) if (keys := quoting_rows(loaded, span))]
 
 
 def specific(name: str) -> bool:
@@ -1800,12 +1810,16 @@ def folded(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def said_words(fields: dict[str, str]) -> list[str]:
+    return [folded(words) for words in (fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in listed(fields.get("repeats")))) if words]
+
+
 def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
     repeats = listed(fields.get("repeats"))
     answers = {str(answer)[:SHORT] for answer in [*listed(fields.get("answer")), *(found for repeat in repeats for found in repeat_answers(repeat))]}
     if key not in line and not answers & {token[:SHORT] for token in CITED.findall(line)}:
         return False
-    said = [folded(words) for words in (fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in repeats)) if words]
+    said = said_words(fields)
     spans = [span for span in QUOTED.finditer(line) if len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
     return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
 
