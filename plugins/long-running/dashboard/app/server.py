@@ -123,7 +123,7 @@ def part_of(title, parts):
 def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     by_number = {str(row["number"]): row for row in rows}
     active = activity(records, now)
-    by_branch = {pr.get("branch"): number for number, pr in prs.items() if pr.get("state") == "open"}
+    by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
     listed = []
     for number, pr in sorted(prs.items()):
         if pr.get("state") not in ("open", "landed", None):
