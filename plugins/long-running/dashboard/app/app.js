@@ -295,32 +295,15 @@ async function ask(question) {
   render();
   const answer = state.chat[state.chat.length - 1];
   try {
-    await streamAnswer(question, history, answer);
+    answer.content = await assistAsk(question, history, (text) => {
+      answer.content = text;
+      if (route().screen === 'ask') $('#main .chat').innerHTML = chatTurns();
+    });
   } catch (error) {
     answer.content += `\n\nThe answer stopped: ${error.message}`;
   } finally {
     state.asking = false;
     render();
-  }
-}
-async function streamAnswer(question, history, answer) {
-  const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }) });
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\n\n');
-    buffer = events.pop();
-    for (const event of events) {
-      const kind = /^event: (\w+)/m.exec(event)?.[1];
-      const data = /^data: (.*)$/m.exec(event)?.[1];
-      if (kind === 'token') answer.content += JSON.parse(data);
-      if (kind === 'failed') answer.content += `\n\nThe answer stopped: ${JSON.parse(data)}`;
-    }
-    if (route().screen === 'ask') $('#main .chat').innerHTML = chatTurns();
   }
 }
 
@@ -335,11 +318,12 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
+  const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsCount()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
+  const screens = { overview, now: needsYou, review: () => (r.id ? reviewPR(r.id, r.tab) : reviewList()), releases, workers, timeline: timelineScreen, ask: askScreen };
   const y = window.scrollY;
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  decorate(r);
   window.scrollTo(0, y);
   syncReviewEmbed(r);
   state.seen = new Set(timeline().map((e) => e.id));

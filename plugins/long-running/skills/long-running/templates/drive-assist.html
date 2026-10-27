@@ -1,0 +1,666 @@
+<style>
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:35a8d92c1f76 — do not edit; edit the source and rerun -->
+.kbtn + .fresh { margin-left: 0; }
+.kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
+.kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
+.kbtn:hover { color: var(--ink); border-color: var(--ink-3); }
+.ai { color: var(--owner); }
+html:not(.ai-on) .ai-only { display: none !important; }
+#pal { position: fixed; inset: 0; z-index: 80; background: rgba(10,14,17,.5); display: flex; justify-content: center; align-items: start; padding: 10vh 14px 14px; }
+#pal[hidden], #ash[hidden] { display: none; }
+#pal .box { width: min(680px, 100%); max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
+#pal input { border: 0; outline: 0; padding: 18px 20px; font: 500 18px var(--sans); background: transparent; color: var(--ink); border-bottom: 1px solid var(--line); }
+#pal .list { overflow-y: auto; padding: 6px 0 10px; }
+#pal .gh { padding: 10px 20px 4px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+#pal .it { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; padding: 8px 20px; cursor: pointer; }
+#pal .it .l { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pal .it .s { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pal .it .h { font-size: 11.5px; color: var(--ink-3); }
+#pal .it.on { background: var(--accent-soft); }
+#pal .it mark { background: none; color: var(--accent); font-weight: 750; }
+#pal .ic { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; background: var(--surface-2); color: var(--ink-2); }
+#pal .ans { padding: 14px 20px 16px; border-bottom: 1px solid var(--line); background: var(--owner-soft); max-height: 40vh; overflow-y: auto; }
+#pal .ans p { margin: 0 0 8px; } #pal .ans ul { margin: 0; padding-left: 18px; }
+#pal .foot { display: flex; gap: 14px; padding: 8px 20px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-3); }
+#pal .foot kbd { font: 600 10.5px var(--mono); padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; }
+#ash { position: fixed; z-index: 70; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); background: var(--surface); border-left: 1px solid var(--line); box-shadow: -18px 0 40px -18px rgba(0,0,0,.35); overflow-y: auto; padding: 18px 22px 40px; }
+#ash h2 { margin: 6px 0 4px; font-size: 20px; }
+#ash .x { float: right; }
+#ash .rec { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+#ash .rec .dim { display: block; }
+#ash blockquote { margin: 10px 0; padding: 10px 14px; border-left: 3px solid var(--owner); background: var(--owner-soft); border-radius: 0 10px 10px 0; white-space: pre-wrap; }
+.aibox { margin: 12px 0; padding: 12px 14px; border-radius: 12px; background: var(--owner-soft); border: 1px solid color-mix(in srgb, var(--owner) 25%, transparent); }
+.aibox .k { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: var(--owner); display: flex; gap: 8px; align-items: center; }
+.aibox .k .dim { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.aibox p { margin: 6px 0 0; }
+.aibtn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--owner) 35%, transparent); background: var(--owner-soft); color: var(--owner); font: 650 12.5px var(--sans); cursor: pointer; }
+.since { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; margin-bottom: 18px; }
+.since .when { font: 700 15px var(--display); }
+.since .when .dim { display: block; font: 500 12px var(--sans); }
+.tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.tile { min-width: 92px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); cursor: pointer; border: 1px solid transparent; }
+.tile b { display: block; font: 750 24px/1.1 var(--display); }
+.tile span { font-size: 12px; color: var(--ink-2); }
+.tile.ok b { color: var(--ok); } .tile.bad b { color: var(--bad); } .tile.you b { color: var(--amber); } .tile.owner b { color: var(--owner); }
+.tile.on { border-color: var(--ink-3); }
+.since-list { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; }
+.since-list li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.since .aibox { grid-column: 1 / -1; margin: 0; }
+.now-h { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin: 4px 0 14px; }
+.now-h h1 { margin: 0; font-size: 26px; }
+.batch { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.nl { list-style: none; margin: 0; padding: 0; }
+.nl li { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--line); }
+.nl li:first-child { border-top: 0; }
+.nl .rank { font: 750 15px var(--display); color: var(--ink-3); text-align: center; }
+.nl .t { font-weight: 650; }
+.nl .t a { color: var(--ink); }
+.nl .w { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.nl .w .ai { font-weight: 650; }
+.nl .acts { display: flex; gap: 6px; }
+.nl .conf { margin-top: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); }
+.nl .done { color: var(--ok); font-weight: 650; }
+.bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
+.bucket.safe { color: var(--ok); } .bucket.read { color: var(--warn); }
+@media (max-width: 700px) {
+  .kbtn span, .kbtn kbd { display: none; }
+  #pal { padding: 0; align-items: stretch; }
+  #pal .box { max-height: none; border-radius: 0; width: 100%; }
+  #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
+  .since { grid-template-columns: 1fr; }
+  .nl li { grid-template-columns: 1fr; }
+  .nl .rank { display: none; }
+  .nl .acts .btn { flex: 1; }
+}
+</style>
+<div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a pull request, stack, worker, step, or ask a question…" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span class="ai-only"><kbd>⇥</kbd> ask the assistant</span><span><kbd>esc</kbd> close</span></div></div></div>
+<aside id="ash" hidden></aside>
+<script>
+(()=>{
+const META={rev:0};
+const SLUG="drive-dashboard";
+const AI={};
+let aiUsage=null,aiTally=null,aiPrompt=0;
+const RULES="You work inside the owner's dashboard for a long-running software drive. Use only the drive state and tool results you are given. Write for a busy reader at a glance: plain words, short sentences, no jargon, no internal worker names unless asked, no invented terms. Name a pull request as #12345 followed by what it does. Times are Pacific, written like 11:42 PM. Say \"not in the records\" when the state does not answer it. Never invent a time, result, owner word or plan.";
+let aiCtxText=RULES;
+const AI_TOOLS=[{type:"function",function:{name:"search",description:"Search the drive's records, the owner's recorded words, and the pull requests for every query word, ignoring case. Returns up to 20 matches, newest first, each with its time and text.",parameters:{type:"object",properties:{query:{type:"string",description:"One to three distinctive words, a pull request number, or a worker name."}},required:["query"]}}}];
+// @requires
+// @defines $,URL_ATTR,el,esc,fmt,railLink,reduced,safeUrl,scrub
+const $=s=>document.querySelector(s);
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e};
+const fmt=ms=> ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+"s" : ms>=1?(ms%1?ms.toFixed(1):ms)+"ms" : (ms*1000)+"µs";
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const railLink=id=>document.querySelector(`#rail a[href="#${id}"]`);
+const safeUrl=u=>{const m=/^([a-z][a-z0-9+.\-]*):/i.exec(String(u).replace(/[\s\u0000-\u001f]/g,""));return !m||/^https?$/i.test(m[1])};
+const URL_ATTR=/^(href|src|xlink:href)$/i;
+const reduced=()=>matchMedia("(prefers-reduced-motion: reduce)").matches;
+function scrub(root){
+ root.querySelectorAll("*").forEach(n=>{
+  [...n.attributes].forEach(a=>{
+   if(/^on/i.test(a.name))n.removeAttribute(a.name);
+   else if(URL_ATTR.test(a.name)&&!safeUrl(a.value))n.removeAttribute(a.name);
+  });
+ });
+}
+// @requires $
+// @defines AI_CFG_KEY,AI_LOOPBACK,GH_CFG_KEY,aiEndpoint,cfgNormalise,siteCfg,siteConfig
+const AI_CFG_KEY="design-doc-ai";
+const GH_CFG_KEY="design-doc-github";
+const AI_LOOPBACK=/^(localhost|127\.0\.0\.1|\[::1\])$/;
+function aiEndpoint(raw){
+ if(!raw)return null;
+ let u;
+ try{u=new URL(raw)}catch(e){return null}
+ if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
+ return u.href.replace(/\/+$/,"");
+}
+function cfgNormalise(j){
+ if(!j||typeof j!=="object")return {ai:null,github:null,comments:null};
+ const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
+ let ai=null;
+ if(j.disabled===true)ai={disabled:true};
+ else{
+  const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key"),reasoning=s("reasoning");
+  if(endpoint&&model&&key)ai={endpoint,model,key,...(reasoning?{reasoning}:{})};
+ }
+ const g=j.github;
+ const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
+ const c=j.comments&&typeof j.comments==="object"?j.comments:null;
+ const comments=c?{repo:typeof c.repo==="string"&&/^[\w.-]+\/[\w.-]+$/.test(c.repo)?c.repo:null,forbiddenTerms:Array.isArray(c.forbiddenTerms)?c.forbiddenTerms.filter(t=>typeof t==="string"&&t):[]}:null;
+ return {ai,github:token?{token}:null,comments};
+}
+let siteCfg=null;
+function siteConfig(){
+ if(!siteCfg)siteCfg=(async()=>{
+  const out={ai:null,github:null,comments:null};
+  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github;out.comments=out.comments||c.comments};
+  try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
+  try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
+  for(const path of ["../ai.json","ai.json"]){
+   if(out.ai&&out.github&&out.comments)break;
+   let j=null;
+   try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
+   take(cfgNormalise(j));
+  }
+  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github,comments:out.comments};
+ })();
+ return siteCfg;
+}
+// @requires AI,AI_TOOLS,META,SLUG,aiCtxText,aiPrompt,aiReady,$,aiDiagRender,aiTally,aiUsage
+// @defines AI_CTX_BUDGET,AI_EFFORT,AI_EFFORT_LADDER,AI_LAST_TURN,AI_NO_TOOLS,AI_RATE_KEY,AI_RESULT_CAP,AI_RETRY_MSG,AI_ROLES,AI_ROUNDS,AI_RPM,AI_TOOL_BUDGET,AI_VENDOR_KEYS,aiBody,aiBusyNow,aiCacheGet,aiCacheKey,aiCached,aiClean,aiHash,aiNoteUsage,aiOnce,aiPost,aiRecent,aiRetryAfter,aiRetryNote,aiSlot,aiStoreKey,aiStream,aiWait,lowerEffort
+const AI_ROUNDS=10;
+const AI_RESULT_CAP=12000;
+const AI_TOOL_BUDGET=40000;
+const AI_CTX_BUDGET=100000;
+const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
+const AI_EFFORT_LADDER=["high","medium","low"];
+const lowerEffort=e=>{const i=AI_EFFORT_LADDER.indexOf(e);return i<0?null:AI_EFFORT_LADDER[i+1]||null};
+const AI_RETRY_MSG="Thinking again, with less reasoning…";
+const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
+const AI_RPM=30;
+const AI_RATE_KEY="design-doc-ai-rate";
+const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
+function aiWait(ms,signal){
+ return new Promise((resolve,reject)=>{
+  const stop=()=>reject(new DOMException("aborted","AbortError"));
+  if(signal&&signal.aborted)return stop();
+  const onAbort=()=>{clearTimeout(timer);stop()};
+  const timer=setTimeout(()=>{if(signal)signal.removeEventListener("abort",onAbort);resolve()},Math.max(0,ms));
+  if(signal)signal.addEventListener("abort",onAbort,{once:true});
+ });
+}
+function aiRecent(){
+ const now=Date.now();
+ let saved=[];
+ try{saved=JSON.parse(localStorage.getItem(AI_RATE_KEY)||"[]")}catch(e){}
+ return (Array.isArray(saved)?saved:[]).filter(t=>typeof t==="number"&&now-t<60000).sort((a,b)=>a-b);
+}
+async function aiSlot(signal){
+ for(;;){
+  const recent=aiRecent();
+  if(recent.length<AI_RPM){
+   recent.push(Date.now());
+   try{localStorage.setItem(AI_RATE_KEY,JSON.stringify(recent.slice(-AI_RPM)))}catch(e){}
+   return;
+  }
+  await aiWait(60000-(Date.now()-recent[0])+50,signal);
+ }
+}
+function aiRetryAfter(header){
+ if(!header)return null;
+ const raw=String(header).trim();
+ if(/^\d+(\.\d+)?$/.test(raw))return parseFloat(raw)*1000;
+ const at=Date.parse(raw);
+ return isNaN(at)?null:Math.max(0,at-Date.now());
+}
+async function aiPost(body,signal){
+ let stripped=false;
+ for(let attempt=0;;attempt++){
+  await aiSlot(signal);
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  if(r.status===429&&attempt<3){
+   const wait=aiRetryAfter(r.headers.get("retry-after"));
+   await aiWait(wait==null?2000:wait,signal);
+   continue;
+  }
+  if(!r.ok){
+   const detail=await r.text().catch(()=>"");
+   const blamed=Object.keys(AI_VENDOR_KEYS).filter(k=>k in body&&detail.includes(k));
+   if(r.status<500&&blamed.length&&!stripped){
+    stripped=true;
+    blamed.forEach(k=>{delete body[k];AI[AI_VENDOR_KEYS[k]]=true});
+    continue;
+   }
+   throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
+  }
+  return r;
+ }
+}
+const aiClean=s=>AI.noFormat?s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2060\ufeff]/g,""):s;
+function aiNoteUsage(u){
+ const pd=u.prompt_tokens_details||u.prompt_token_details||{};
+ const cd=u.completion_tokens_details||u.completion_token_details||{};
+ aiUsage={prompt:u.prompt_tokens||0,cached:pd.cached_tokens||0,completion:u.completion_tokens||0,reasoning:cd.reasoning_tokens||0};
+ aiPrompt=aiUsage.prompt;
+ const key="ai:"+SLUG+":tally";
+ const t={calls:0,prompt:0,cached:0,completion:0,reasoning:0};
+ try{Object.assign(t,JSON.parse(sessionStorage.getItem(key)||"{}"))}catch(e){}
+ t.calls++;
+ Object.keys(aiUsage).forEach(k=>{t[k]+=aiUsage[k]});
+ try{sessionStorage.setItem(key,JSON.stringify(t))}catch(e){}
+ aiTally=t;
+ aiDiagRender();
+}
+async function aiStream(body,signal,onText,onReason){
+ const r=await aiPost(Object.assign({},body,{stream:true,stream_options:{include_usage:true}}),signal);
+ const reader=r.body.getReader(),dec=new TextDecoder();
+ let buf="",text="",reasoning="",finish=null;
+ const calls=[];
+ for(;;){
+  const {value,done}=await reader.read();
+  if(done)break;
+  buf+=dec.decode(value,{stream:true});
+  let nl;
+  while((nl=buf.indexOf("\n"))>=0){
+   const line=buf.slice(0,nl).trim();buf=buf.slice(nl+1);
+   if(!line.startsWith("data:"))continue;
+   const data=line.slice(5).trim();
+   if(!data||data==="[DONE]")continue;
+   let j;try{j=JSON.parse(data)}catch(e){continue}
+   const choice=(j.choices||[])[0];
+   if(j.usage)aiNoteUsage(j.usage);
+   if(!choice)continue;
+   if(choice.finish_reason)finish=choice.finish_reason;
+   const d=choice.delta||{};
+   if(d.reasoning){reasoning+=d.reasoning;if(onReason)onReason(reasoning)}
+   if(d.content){text+=d.content;if(onText)onText(aiClean(text))}
+   (d.tool_calls||[]).forEach(tc=>{
+    const ix=tc.index||0;
+    const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
+    if(tc.id)c.id=tc.id;
+    if(tc.function&&tc.function.name)c.name+=tc.function.name;
+    if(tc.function&&tc.function.arguments)c.args+=tc.function.arguments;
+   });
+  }
+ }
+ return {text:aiClean(text),calls:calls.filter(Boolean),reasoning,finish};
+}
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
+function aiBody(kind,schema){
+ const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?16000:6000,temperature:schema?0:0.2};
+ if(!AI.noFormat)body.reasoning_format="parsed";
+ if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
+ return body;
+}
+const AI_NO_TOOLS="Tools are off for this task: write the text only.";
+const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
+let aiBusyNow=null;
+function aiRetryNote(){if(aiBusyNow)aiBusyNow.querySelector(".ai-wait").textContent="Thinking again…"}
+async function aiOnce(compose,opt){
+ const o=opt||{};
+ await aiReady;
+ const messages=compose();
+ let effort=null;
+ for(;;){
+  const body=aiBody(o.kind,o.schema);
+  if(effort)body.reasoning_effort=effort;
+  body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
+  body.tool_choice="none";
+  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
+  let text,finish;
+  if(o.onText&&!o.schema){
+   const res=await aiStream(body,o.signal,o.onText);
+   text=res.text;finish=res.finish;
+  }else{
+   const r=await aiPost(body,o.signal);
+   const j=await r.json();
+   if(j.usage)aiNoteUsage(j.usage);
+   const choice=(j.choices||[])[0]||{};
+   text=aiClean((choice.message||{}).content||"");
+   finish=choice.finish_reason||null;
+  }
+  const lower=lowerEffort(body.reasoning_effort);
+  if(finish==="length"&&!text&&!effort&&lower){effort=lower;aiRetryNote();continue}
+  return o.schema?JSON.parse(text||"{}"):text;
+ }
+}
+const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+function aiCacheGet(feature,input){
+ try{const hit=localStorage.getItem(aiStoreKey(feature,input));return hit?JSON.parse(hit):null}catch(e){return null}
+}
+async function aiCached(feature,input,make){
+ const hit=aiCacheGet(feature,input);
+ if(hit)return hit;
+ const out=await make();
+ try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
+ return out;
+}
+const aiReady=siteConfig().then(c=>{if(c.ai)Object.assign(AI,c.ai);document.documentElement.classList.toggle("ai-on",Boolean(c.ai))});
+function aiDiagRender(){}
+const KEY_KINDS=["owner","go","landed","release","incident","fix-live","hold","lift","blocker"];
+const BIG_KINDS=["owner","release","incident","fix-live","hold"];
+const SEEN_KEY="drive-assist:seen";
+const ai={};
+const pal={i:0,items:[],busy:null};
+let sheet=null,since=null,seenAt=Date.now();
+const short=(s,n)=>{const t=String(s??"").replace(/\s+/g," ").trim();return t.length<=n?t:t.slice(0,t.lastIndexOf(" ",n))+"…"};
+const words=()=>state.model.words??[];
+const waiting=()=>state.model.board.rows.filter(r=>verdictState(r)==="you");
+const openCards=()=>state.model.board.cards.filter(c=>!c.answered);
+function digest(){
+ const m=state.model;
+ const rows=m.board.rows.map(r=>({pr:r.number,title:r.title,stack:r.group,change:r.change,plan:r.plan,risk:r.risk,review:r.review,blocker:r.blocker,head:r.head,status:STATE_WORD[prState(r.number)]}));
+ const plan=m.plan.map((s,i)=>({step:i+1,title:s.title,prs:s.prs.map(n=>`#${n} ${STATE_WORD[prState(n)]}`)}));
+ const records=m.records.slice(-160).map(r=>`${clock(r.at)} ${r.kind} ${r.lane}: ${short(r.text,260)}`);
+ return `${RULES}\n\nThe drive: ${JSON.stringify(m.story)}\n\nPlan of action, in order: ${JSON.stringify(plan)}\n\nPull requests on the merge board: ${JSON.stringify(rows)}\n\nOpen questions for the owner: ${JSON.stringify(openCards().map(c=>({title:c.title,summary:c.summary,recommended:c.recommended})))}\n\nRecent records, oldest first:\n${records.join("\n")}`;
+}
+function compose(task){
+ aiCtxText=digest();
+ return ()=>[{role:"system",content:aiCtxText},{role:"user",content:`It is ${clock(new Date().toISOString())} Pacific.\n\n${task}`}];
+}
+function search(query){
+ const terms=query.toLowerCase().split(/\s+/).filter(Boolean);
+ const hit=t=>{const low=t.toLowerCase();return terms.every(w=>low.includes(w))};
+ const m=state.model;
+ const out=[];
+ m.board.rows.forEach(r=>{const t=`#${r.number} ${r.title}. ${r.change} ${r.plan} ${r.risk} ${r.review} ${r.blocker}`;if(hit(t))out.push(["",`pull request ${t}`])});
+ words().forEach(w=>{if(hit(w.title+" "+w.text))out.push([w.at,`owner words ${w.id}: ${w.text}`])});
+ m.records.forEach(r=>{if(hit(`${r.lane} ${r.kind} ${r.text}`))out.push([r.at,`${r.kind} ${r.lane}: ${r.text}`])});
+ return out.sort((a,b)=>String(b[0]).localeCompare(String(a[0]))).slice(0,20).map(([at,t])=>`${at?clock(at)+" ":""}${short(t,400)}`).join("\n")||"no matches";
+}
+async function assistAsk(question,history,onText){
+ await aiReady;
+ if(!AI.key)throw new Error("the assistant is off: the dashboard server has no CEREBRAS_API_KEY");
+ aiCtxText=digest();
+ const msgs=[{role:"system",content:aiCtxText},...history.slice(-8),{role:"user",content:`It is ${clock(new Date().toISOString())} Pacific.\n\n${question}`}];
+ const signal=new AbortController().signal;
+ for(let round=0;round<AI_ROUNDS;round++){
+  const body=aiBody("chat");
+  if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
+  body.messages=msgs;
+  const res=await aiStream(body,signal,onText);
+  if(!res.calls.length)return res.text;
+  msgs.push({role:"assistant",content:res.text,tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  res.calls.forEach(c=>{let q="";try{q=JSON.parse(c.args||"{}").query||""}catch(e){}msgs.push({role:"tool",tool_call_id:c.id,content:search(q)})});
+ }
+ return "";
+}
+function paintAi(key){
+ const box=document.querySelector(`[data-ai="${CSS.escape(key)}"]`);
+ const a=ai[key];
+ if(!box||!a)return;
+ box.innerHTML=a.error?`<span class="dim">The assistant could not answer: ${esc(a.error)}</span>`:a.text?markdown(a.text):`<span class="dim">Thinking…</span>`;
+}
+function stream(key,task,{fresh=false}={}){
+ const a=ai[key];
+ if(a&&(a.busy||(a.text&&!fresh)))return paintAi(key);
+ const cached=!fresh&&aiCacheGet("text",key);
+ if(cached){ai[key]={text:cached};return paintAi(key)}
+ ai[key]={text:a?.text??"",busy:true};
+ paintAi(key);
+ aiOnce(compose(task),{onText:t=>{ai[key].text=t;paintAi(key)}}).then(t=>{
+  ai[key]={text:t,at:Date.now()};
+  try{localStorage.setItem(aiStoreKey("text",key),JSON.stringify(t))}catch(e){}
+ }).catch(e=>{ai[key]={error:e.message}}).finally(()=>document.querySelector(`[data-ai="${CSS.escape(key)}"]`)?paintAi(key):render());
+}
+const aiBox=(key,label,extra="")=>`<div class="aibox ai-only"><div class="k">✦ ${label}${extra}</div><div data-ai="${esc(key)}">${ai[key]?.text?markdown(ai[key].text):'<span class="dim">Thinking…</span>'}</div></div>`;
+
+async function prFacts(n){
+ const r=await fetch(`/api/pr/${n}`);
+ const j=await r.json();
+ return r.ok?j:{error:j.error};
+}
+function rowFacts(r){
+ return `#${r.number} ${r.title} (stack: ${r.group}). What changes: ${r.change} Against the plan: ${r.plan} Risk: ${r.risk} Review and tests: ${r.review} Blocks landing: ${r.blocker}${r.carried?` Carried: ${r.carried}`:""} Status: ${STATE_WORD[prState(r.number)]}.`;
+}
+const stats=f=>f.error?"(size unknown)":`${f.files} files, +${f.additions} −${f.deletions} lines, ${f.commits} commits. Description: ${short(f.body,1500)}`;
+async function summarizePr(n){
+ const row=boardRow(n);
+ const key=prKey(n);
+ if(ai[key])return;
+ const cached=aiCacheGet("text",key);
+ if(cached){ai[key]={text:cached};return render()}
+ ai[key]={text:"",busy:true};render();
+ const f=await prFacts(n);
+ delete ai[key];
+ stream(key,`Summarize this pull request for the owner deciding whether to approve it: one paragraph, at most four sentences, plain words. Say what changes for a person using the product, how big it is, the main risk, and what still blocks it.\n\n${row?rowFacts(row):`#${n} ${plainTitle(n)}, ${STATE_WORD[prState(n)]}.`}\nSize: ${stats(f)}`);
+}
+async function summarizeStack(group){
+ const rows=state.model.board.rows.filter(r=>r.group===group);
+ const key=stackKey(group);
+ if(ai[key])return;
+ const cached=aiCacheGet("text",key);
+ if(cached){ai[key]={text:cached};return paintAi(key)}
+ ai[key]={text:"",busy:true};
+ const sizes=await Promise.all(rows.map(r=>prFacts(r.number)));
+ delete ai[key];
+ stream(key,`Summarize this stack of pull requests as one change, for the owner: one paragraph, at most five sentences, plain words. Say what the stack delivers together, how its pieces relate and the order they land, its biggest risk, and which pieces wait on him.\n\nStack: ${group}. ${rows[0]?.group_summary??""}\n\n${rows.map((r,i)=>`${rowFacts(r)} Size: ${stats(sizes[i])}`).join("\n\n")}`);
+}
+const prKey=n=>`pr:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
+const stackKey=g=>`stack:${g}:${state.model.board.rows.filter(r=>r.group===g).map(r=>r.head).join(",")}`;
+
+function snapshot(){
+ const m=state.model;
+ return {at:new Date().toISOString(),seq:Math.max(0,...m.records.map(r=>r.seq)),prs:Object.fromEntries(Object.keys(m.prs).map(n=>[n,prState(n)])),cards:openCards().map(c=>c.id)};
+}
+function saveSeen(){if(state.model?.prs)localStorage.setItem(SEEN_KEY,JSON.stringify(snapshot()))}
+function delta(){
+ const m=state.model,p=since;
+ const was=n=>p.prs[n];
+ const prs=Object.keys(m.prs);
+ const landed=prs.filter(n=>prState(n)==="landed"&&was(n)&&was(n)!=="landed");
+ const mine=waiting().map(r=>String(r.number)).filter(n=>was(n)!=="you");
+ const failing=prs.filter(n=>prState(n)==="failing"&&was(n)!=="failing");
+ const questions=openCards().filter(c=>!p.cards.includes(c.id));
+ const events=timeline().filter(e=>BIG_KINDS.includes(e.kind)&&new Date(e.at)>new Date(p.at));
+ return {landed,mine,failing,questions,events};
+}
+function sinceBanner(){
+ if(!since)return "";
+ const d=delta();
+ const tiles=[["landed","ok","landed",d.landed.length],["mine","you","new for you",d.mine.length],["failing","bad","started failing",d.failing.length],["questions","owner","new questions",d.questions.length],["events","","big moments",d.events.length]].filter(t=>t[3]);
+ const open=state.sinceOpen;
+ const list=open==="landed"||open==="mine"||open==="failing"?d[open].map(n=>`<li><a class="d ${prState(n)}" href="${prHref(n)}"></a> ${prLink(n)} ${esc(plainTitle(n))}</li>`).join(""):open==="questions"?d.questions.map(c=>`<li><a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">${esc(c.title)}</a>${c.recommended?` <span class="dim">recommended: ${esc(c.recommended)}</span>`:""}</li>`).join(""):open==="events"?d.events.map(e=>`<li><span class="dim">${clock(e.at)} · ${esc(e.who)}</span> ${inline(short(e.text,200))}</li>`).join(""):"";
+ const facts=[d.landed.length&&`Landed: ${d.landed.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.mine.length&&`Newly waiting on his tap: ${d.mine.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.failing.length&&`Started failing tests: ${d.failing.map(n=>`#${n} ${plainTitle(n)}`).join("; ")}`,d.questions.length&&`New questions for him: ${d.questions.map(c=>c.title).join("; ")}`,...d.events.slice(0,25).map(e=>`${clock(e.at)} ${KIND_WORD[e.kind]??e.kind}: ${short(e.text,200)}`)].filter(Boolean);
+ const key=`since:${aiHash(facts.join("\n"))}`;
+ if(facts.length)queueMicrotask(()=>stream(key,`The owner last looked at ${clock(since.at)}. In two plain sentences, tell him what changed since then that matters to him, most important first. Here is everything that changed:\n${facts.join("\n")}`));
+ return `<div class="card since"><div class="when">Since you looked<span class="dim">${clock(since.at)} · ${agoWords(since.at)}</span></div>
+  <div class="tiles">${tiles.map(([id,tone,label,n])=>`<div class="tile ${tone}${open===id?" on":""}" data-since="${id}"><b>${n}</b><span>${label}</span></div>`).join("")||'<span class="dim">Nothing new.</span>'}</div>
+  <button class="btn" data-seen>Got it</button>${list?`<ul class="since-list">${list}</ul>`:""}${facts.length?aiBox(key,"In short"):""}</div>`;
+}
+
+function narration(){
+ const events=timeline().filter(e=>KEY_KINDS.includes(e.kind)||(e.kind==="report"&&/READY/.test(e.raw))).slice(0,80);
+ const key=`day:${aiHash(events.map(e=>e.id).join(","))}`;
+ if(key!==ai.dayKey&&!ai[ai.dayKey]?.busy&&Date.now()-(ai.dayAt??0)>60000){
+  if(ai[ai.dayKey]?.text)ai.prevDay=ai.dayKey;
+  ai.dayKey=key;ai.dayAt=Date.now();
+  queueMicrotask(()=>stream(key,`Tell the drive's last 24 hours as a story in exactly five plain sentences, oldest to newest, for the owner glancing at his phone: what moved, what landed, what broke, what he decided, and what is next. Key events, newest first:\n${events.map(e=>`${clock(e.at)} ${e.who} · ${KIND_WORD[e.kind]??e.kind}: ${short(e.text,220)}`).join("\n")}`));
+ }
+ const shown=ai[ai.dayKey]?.text||!ai.prevDay?ai.dayKey:ai.prevDay;
+ return aiBox(shown,"The day in five sentences",` <span class="dim">updates as events land</span>`);
+}
+
+const TRIAGE={name:"triage",schema:{type:"object",additionalProperties:false,required:["items"],properties:{items:{type:"array",items:{type:"object",additionalProperties:false,required:["pr","bucket","why","conflict_id","conflict_quote"],properties:{pr:{type:"integer"},bucket:{type:"string",enum:["safe","read"]},why:{type:"string"},conflict_id:{type:"string"},conflict_quote:{type:"string"}}}}}}};
+function triage(){
+ const rows=waiting();
+ if(!rows.length)return null;
+ const input=rows.map(r=>`${r.number}@${r.head}`).join(",");
+ const key=`triage:${aiHash(input)}`;
+ if(ai[key])return ai[key];
+ const hit=aiCacheGet("triage",input);
+ if(hit)return ai[key]={items:hit.items};
+ ai[key]={busy:true};
+ const quotes=words().map(w=>`[${w.id}] ${w.at.slice(0,10)} ${short(w.text,500)}`).join("\n");
+ aiCached("triage",input,()=>aiOnce(compose(`These pull requests wait on the owner's tap. For each, decide:\n- bucket "safe" when tests pass, it matches the plan, its risk is small, and none of his words below conflict with it; otherwise "read".\n- why: at most twelve plain words he should know before tapping.\n- conflict_id and conflict_quote: when one of his recorded words below conflicts with what the pull request does, the id in brackets and an exact quote of at most 25 words copied character for character; otherwise empty strings.\nOrder the items so the tap that unblocks the most work comes first.\n\nWaiting:\n${rows.map(r=>`${rowFacts(r)} Tests: ${state.model.prs[r.number]?.test_state??"unknown"}.`).join("\n")}\n\nHis recorded words:\n${quotes}`),{schema:TRIAGE})).then(out=>{
+  const text=Object.fromEntries(words().map(w=>[w.id,w.text]));
+  out.items.forEach(i=>{if(!i.conflict_quote||!(text[i.conflict_id]??"").includes(i.conflict_quote)){i.conflict_id="";i.conflict_quote=""}});
+  ai[key]={items:out.items};
+ }).catch(e=>{ai[key]={error:e.message}}).finally(()=>{if(route().screen==="now")render()});
+ return ai[key];
+}
+async function post(row,verdict){
+ row.pending=true;render();
+ const r=await fetch("/api/verdict",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({block:row.block,number:row.number,verdict,head:row.head})});
+ const j=await r.json().catch(()=>({error:`came back ${r.status}`}));
+ row.pending=false;
+ if(!r.ok||j.error)row.failed=j.error||`came back ${r.status}`;
+ else row.verdict={verdict,head:row.head,at:new Date().toISOString()};
+ render();
+}
+function needsCount(){return state.model?.board?waiting().length+openCards().length:0}
+function nowItem(r,i,t){
+ const pr=state.model.prs[r.number]??{};
+ const why=t?.why?`<span class="ai">✦ ${esc(t.why)}</span>`:esc(short(r.change,110));
+ const conflict=t?.conflict_quote?`<div class="conf">Check against your words (${esc(t.conflict_id)}): “${esc(t.conflict_quote)}”</div>`:"";
+ const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}"${r.pending?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${r.pending?" disabled":""}>‖ Hold</button>`;
+ return `<li><span class="rank">${i+1}</span><div><div class="t"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a> ${testPill(pr)}</div><div class="w">${why}</div>${conflict}${r.failed?`<div class="conf">${esc(r.failed)}</div>`:""}</div><div class="acts">${acts}<a class="btn" href="#/review/${r.number}">›</a></div></li>`;
+}
+function needsYou(){
+ const rows=waiting().concat(state.model.board.rows.filter(r=>r.verdict&&r.verdict.at&&Date.now()-new Date(r.verdict.at)<600000&&verdictState(r)!=="you"));
+ const cards=openCards();
+ const t=AI.key?triage():null;
+ const by=Object.fromEntries((t?.items??[]).map((x,i)=>[x.pr,{...x,i}]));
+ const order=r=>by[r.number]?.i??(100+(state.model.prs[r.number]?.test_state==="failure"?50:0)+state.model.plan.findIndex(s=>s.prs.includes(r.number)));
+ rows.sort((a,b)=>order(a)-order(b));
+ const safe=rows.filter(r=>by[r.number]?.bucket==="safe"&&verdictState(r)==="you");
+ const sorted=t?.items?[["safe","Safe to approve together",rows.filter(r=>by[r.number]?.bucket==="safe")],["read","Read before you tap",rows.filter(r=>by[r.number]?.bucket!=="safe")]]:[["","",rows]];
+ const head=`<div class="now-h"><h1>Needs you</h1>${waiting().length?`<span class="pill bad">${plural(waiting().length,"tap")}</span>`:""}${cards.length?`<span class="pill owner">${plural(cards.length,"question")}</span>`:""}${t?.busy?'<span class="pill ai-only">✦ sorting by what unblocks the most…</span>':""}${t?.error?`<span class="dim">The assistant could not sort them: ${esc(t.error)}</span>`:""}</div>`;
+ const batch=safe.length>1?`<div class="card aibox batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}">✓ Approve all ${safe.length}</button></div>`:"";
+ const lists=sorted.filter(([,,rs])=>rs.length).map(([id,label,rs])=>`${label?`<div class="bucket ${id}">${label}</div>`:""}<ul class="nl">${rs.map(r=>nowItem(r,rows.indexOf(r),by[r.number])).join("")}</ul>`).join("");
+ const qs=cards.length?`<div class="bucket">Questions on the board</div><ul class="nl">${cards.map((c,i)=>`<li><span class="rank">${i+1}</span><div><div class="t">${esc(c.title)}</div><div class="w">${c.recommended?`Recommended: <b>${esc(c.recommended)}</b>`:esc(short(c.summary,120))}</div></div><div class="acts"><a class="btn" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Answer ›</a></div></li>`).join("")}</ul>`:"";
+ return `${head}${batch}<div class="card">${lists||'<p class="dim">No taps waiting on you.</p>'}${qs}</div>`;
+}
+
+function decorate(r){
+ const top=document.querySelector(".top");
+ if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
+ const main=document.getElementById("main");
+ if(r.screen==="overview"&&since)main.insertAdjacentHTML("afterbegin",sinceBanner());
+ if(r.screen==="timeline")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
+ main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
+ main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
+ document.querySelectorAll("[data-ai]").forEach(b=>paintAi(b.dataset.ai));
+ if(sheet)paintSheet();
+}
+
+function fuzzy(q,text){
+ const t=text.toLowerCase();
+ let score=0;
+ for(const w of q){
+  const at=t.indexOf(w);
+  if(at<0){
+   let j=0,gaps=0;
+   for(const ch of w){const k=t.indexOf(ch,j);if(k<0)return 0;gaps+=k-j;j=k+1}
+   score+=Math.max(1,8-gaps);
+   continue;
+  }
+  score+=20+(at===0||/\W/.test(t[at-1])?15:0)+Math.max(0,10-at/8);
+ }
+ return score;
+}
+function mark(label,q){
+ let out=esc(label);
+ q.filter(w=>w.length>1).forEach(w=>{out=out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")})`,"ig"),"<mark>$1</mark>")});
+ return out;
+}
+function entries(){
+ const m=state.model;
+ const out=[];
+ const add=(group,icon,label,sub,go,hay="")=>out.push({group,icon,label,sub,go,hay:`${label} ${sub} ${hay}`});
+ [["","Overview"],["now","Needs you"],["review","Review"],["releases","Releases"],["workers","Workers"],["timeline","Timeline"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
+ openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
+ Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${boardRow(n)?` · ${boardRow(n).group}`:""}${m.prs[n].lane?` · ${m.prs[n].lane}`:""}`,()=>{const h=prHref(n);h.startsWith("#")?location.hash=h:window.open(h,"_blank")},`${n} ${m.prs[n].title??""}`)});
+ [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Stacks","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
+ m.plan.forEach((s,i)=>add("Plan steps",String(i+1),s.title,`${s.prs.filter(n=>prState(n)==="landed").length} of ${s.prs.length} landed`,()=>{location.hash="#/";state.overlay="plan";render();setTimeout(()=>document.querySelectorAll(".sheet .pstep")[i]?.scrollIntoView({block:"center"}),50)},s.text));
+ m.lanes.slice().sort((a,b)=>new Date(b.at)-new Date(a.at)).forEach(l=>add("Workers","●",l.lane,`${agoWords(l.at)} · ${short(l.text,80)}`,()=>openSheet({kind:"lane",id:l.lane})));
+ m.releases.markdown.split("\n").filter(x=>/^#{1,4}\s/.test(x)).forEach(h=>{const t=h.replace(/^#+\s*/,"");add("Releases","⇡",t,"release plan",()=>{location.hash="#/releases";setTimeout(()=>[...document.querySelectorAll(".prose h2,.prose h3,.prose h4,.prose h5")].find(x=>x.textContent===t)?.scrollIntoView({block:"start"}),50)})});
+ words().forEach(w=>add("Your words","❝",w.title,short(w.text.replace(/^[^"“]*["“]/,""),110),()=>openSheet({kind:"word",id:w.id}),w.text));
+ m.records.slice().reverse().forEach(r=>add("Records","·",short(r.text,110),`${clock(r.at)} · ${r.lane} · ${KIND_WORD[r.kind]??r.kind}`,()=>openSheet({kind:"record",id:r.seq}),r.text));
+ return out;
+}
+const STOP=new Set("a an the is are was were be of to in on at for and or but what why how which who whom when where did does do can could should would will has have had it its me my i we us you your this that these those there any all from with by about".split(" "));
+const QUESTION=/^(what|why|how|which|who|when|where|is|are|did|does|do|can|should|will|has|have|summari[sz]e|explain|tell)\b|\?$/i;
+const CAPS={"Screens":7,"Needs you":6,"Pull requests":8,"Stacks":5,"Plan steps":5,"Workers":5,"Releases":4,"Your words":6,"Records":6};
+function results(raw){
+ const typed=raw.trim().toLowerCase().replace(/^#/,"").replace(/[?.,!]/g,"").split(/\s+/).filter(Boolean);
+ const q=typed.length>1?typed.filter(w=>!STOP.has(w)):typed;
+ const all=entries();
+ let picked;
+ if(!q.length)picked=all.filter(e=>["Needs you","Screens"].includes(e.group)).map(e=>({...e,score:1}));
+ else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20);
+ const groups={};
+ picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
+ const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));
+ if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
+ return {items,q};
+}
+function openPal(){
+ document.getElementById("pal").hidden=false;
+ const input=document.getElementById("pal-q");
+ input.value="";input.focus();
+ document.getElementById("pal-ans").hidden=true;
+ paintPal();
+}
+function closePal(){document.getElementById("pal").hidden=true;pal.busy=null}
+function paintPal(){
+ const {items,q}=results(document.getElementById("pal-q").value);
+ pal.items=items;pal.i=Math.min(pal.i,Math.max(0,items.length-1));
+ let last=null;
+ document.getElementById("pal-list").innerHTML=items.map((e,i)=>{const h=e.group!==last?`<div class="gh">${esc(e.group)}</div>`:"";last=e.group;return `${h}<div class="it${i===pal.i?" on":""}" data-i="${i}"><span class="ic${e.ask?" ai":""}">${e.icon}</span><div style="min-width:0"><div class="l">${mark(e.label,q)}</div>${e.sub?`<div class="s">${esc(e.sub)}</div>`:""}</div><span class="h">${i===pal.i?"↵":""}</span></div>`}).join("")||'<div class="gh">No matches. Press tab to ask the assistant.</div>';
+ document.querySelector("#pal-list .it.on")?.scrollIntoView({block:"nearest"});
+}
+function pick(i){const e=pal.items[i];if(!e)return;if(!e.ask)closePal();e.go()}
+async function askInPal(question){
+ const box=document.getElementById("pal-ans");
+ box.hidden=false;box.innerHTML='<span class="dim">✦ Reading the drive…</span>';
+ const mine=pal.busy={};
+ try{
+  const text=await assistAsk(question,[],t=>{if(pal.busy===mine)box.innerHTML=markdown(t)});
+  if(pal.busy===mine)box.innerHTML=markdown(text)+`<div class="dim" style="margin-top:8px"><a href="#/ask" data-carry="${esc(question)}">Continue in Ask ›</a></div>`;
+ }catch(e){box.innerHTML=`<span class="dim">The assistant could not answer: ${esc(e.message)}</span>`}
+}
+
+function openSheet(s){sheet=s;paintSheet()}
+function paintSheet(){
+ const box=document.getElementById("ash");
+ if(!sheet){box.hidden=true;return}
+ const m=state.model;
+ let html="";
+ if(sheet.kind==="stack"){
+  const rows=m.board.rows.filter(r=>r.group===sheet.id);
+  html=`<div class="kick">Stack</div><h2>${esc(sheet.id)}</h2><p class="dim">${esc(rows[0]?.group_summary??"")}</p>${aiBox(stackKey(sheet.id),"The stack in plain words")}${rows.map(r=>`<div class="rec"><a class="d ${prState(r.number)}" href="${prHref(r.number)}"></a> ${prLink(r.number)} ${esc(r.title)}<span class="dim">${STATE_WORD[prState(r.number)]} · ${esc(short(r.change,120))}</span></div>`).join("")}`;
+  if(!ai[stackKey(sheet.id)])summarizeStack(sheet.id);
+ }else if(sheet.kind==="lane"){
+  const l=m.lanes.find(x=>x.lane===sheet.id);
+  const recs=m.records.filter(r=>r.lane===sheet.id).slice(-8).reverse();
+  const holds=Object.keys(m.prs).filter(n=>m.prs[n].lane===sheet.id&&m.prs[n].state==="open");
+  const key=`lane:${sheet.id}:${recs[0]?.seq??l?.at}`;
+  html=`<div class="kick">Worker</div><h2>${esc(sheet.id)}</h2><p class="dim">last wrote ${l?agoWords(l.at):"not in the last day"}${holds.length?` · holds ${holds.map(n=>prLink(n)).join(" ")}`:""}</p>${aiBox(key,"What it is doing")}${recs.map(r=>`<div class="rec">${inline(short(r.text,300))}<span class="dim">${clock(r.at)} · ${KIND_WORD[r.kind]??r.kind}</span></div>`).join("")}`;
+  if(!ai[key])queueMicrotask(()=>stream(key,`In two plain sentences, say what the worker ${sheet.id} is doing right now and whether it looks stuck, from its latest status line and records. Latest status (${l?clock(l.at):"none"}): ${l?.text??"none"}\nRecords, newest first:\n${recs.map(r=>`${clock(r.at)} ${r.kind}: ${short(r.text,300)}`).join("\n")}`));
+ }else if(sheet.kind==="word"){
+  const w=words().find(x=>x.id===sheet.id);
+  html=`<div class="kick">Your words · ${esc(w.id)}</div><h2>${esc(w.title)}</h2><p class="dim">${clock(w.at)}</p><blockquote>${esc(w.text)}</blockquote>`;
+ }else{
+  const r=m.records.find(x=>x.seq===sheet.id);
+  html=`<div class="kick">${esc(KIND_WORD[r.kind]??r.kind)} · #${r.seq}</div><h2>${esc(r.lane)}</h2><p class="dim">${clock(r.at)}</p><div class="prose">${markdown(r.text)}</div>`;
+ }
+ box.innerHTML=`<button class="btn x" data-unsheet>Close</button>${html}`;
+ box.hidden=false;
+ box.querySelectorAll("[data-ai]").forEach(b=>paintAi(b.dataset.ai));
+}
+
+document.addEventListener("keydown",e=>{
+ const palOpen=!document.getElementById("pal").hidden;
+ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
+ if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
+ if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
+ if(e.key==="Escape"){e.preventDefault();closePal()}
+ else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
+ else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
+ else if(e.key==="Enter"){e.preventDefault();pick(pal.i)}
+ else if(e.key==="Tab"&&AI.key){e.preventDefault();const q=document.getElementById("pal-q").value.trim();if(q)askInPal(q)}
+},true);
+document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
+document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
+document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal")closePal()});
+document.addEventListener("click",e=>{
+ const t=e.target;
+ if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}
+ const sp=t.closest("[data-sum-pr]");if(sp){summarizePr(sp.dataset.sumPr);return}
+ const ss=t.closest("[data-sum-stack]");if(ss){openSheet({kind:"stack",id:ss.dataset.sumStack});return}
+ const tile=t.closest("[data-since]");if(tile){state.sinceOpen=state.sinceOpen===tile.dataset.since?null:tile.dataset.since;render();return}
+ if(t.closest("[data-seen]")){saveSeen();since=null;render();return}
+ const tap=t.closest("[data-tap]");if(tap){post(boardRow(tap.dataset.n),tap.dataset.tap);return}
+ const batch=t.closest("[data-batch]");if(batch){batch.disabled=true;batch.dataset.batch.split(",").reduce((p,n)=>p.then(()=>post(boardRow(n),"approved")),Promise.resolve());return}
+ if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']"))sheet=null;
+});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&Date.now()-seenAt>8000)saveSeen()});
+window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
+window.addEventListener("hashchange",closePal);
+try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate});
+})();
+</script>

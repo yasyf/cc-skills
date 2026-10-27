@@ -10,7 +10,7 @@ function reviewList() {
     groups.get(row.group).push(row);
   }
   const order = { you: 0, held: 1, approved: 2 };
-  const html = [...groups.entries()].map(([group, rows]) => `<div class="group-h">${esc(group)}</div><div class="rows">${rows
+  const html = [...groups.entries()].map(([group, rows]) => `<div class="group-h" data-assist-stack="${esc(group)}">${esc(group)}</div><div class="rows">${rows
     .sort((a, b) => order[verdictState(a)] - order[verdictState(b)])
     .map((r) => {
       const v = verdictState(r);
@@ -39,7 +39,7 @@ function reviewPR(n, tab) {
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
-  return `<div class="pr-head"><div class="kick">${esc(row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(row.title)}</h1>
+  return `<div class="pr-head" data-assist-pr="${n}"><div class="kick">${esc(row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(row.title)}</h1>
     <a class="pill" href="${gh}" target="_blank" rel="noopener">#${n} at ${esc(row.head.slice(0, 7))}</a>${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
