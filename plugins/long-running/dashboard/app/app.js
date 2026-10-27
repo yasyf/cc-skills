@@ -438,6 +438,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
-setInterval(tickFresh, 1000);
-load();
-connect();
+window.addEventListener('DOMContentLoaded', () => {
+  setInterval(tickFresh, 1000);
+  load();
+  connect();
+});
