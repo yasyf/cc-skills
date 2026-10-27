@@ -215,7 +215,7 @@ def run(directory: Path, shell: Shell) -> dict:
         rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, last, new, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, base, own, last, new, rows, shell.run(rulings(job, "plan")).strip()))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
