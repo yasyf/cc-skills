@@ -415,13 +415,15 @@ async function answer(body, draft) {
   if (sending(body.block)) return;
   ov.sent.set(body.block, {});
   render();
-  const error = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const out = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then((res) => res.json())
-    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server (${failure.message})`);
-  ov.sent.set(body.block, error ? { error } : { recorded: true });
-  if (!error && draft) delete ov.drafts[draft];
-  render();
-  if (!error) setTimeout(() => { ov.sent.delete(body.block); render(); }, body.kind === 'note' ? 4000 : 30000);
+    .catch((failure) => ({ error: `could not reach the dashboard server (${failure.message})` }));
+  ov.sent.set(body.block, out.error ? { error: out.error } : { recorded: true });
+  if (out.error) return render();
+  if (draft) delete ov.drafts[draft];
+  setTimeout(() => { ov.sent.delete(body.block); render(); }, body.kind === 'note' ? 4000 : 30000);
+  const answer = { choice: { optionIds: body.options ?? [], other: body.other }, approval: { verdict: body.verdict, note: body.text }, input: { text: body.text } }[body.kind];
+  tapped({ seq: out.seq, block: body.block, ...(answer ? { answer } : { noted: true }) });
 }
 function noteDecide(form, verdict) {
   const row = boardRow(form.dataset.note);
