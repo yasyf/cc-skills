@@ -199,6 +199,7 @@ RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
 WORD_RUN = re.compile(r"[\w-]+")
+FACTS_VERSION = 2
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -1782,7 +1783,7 @@ class Findings:
         try:
             return load()
         except READ_ERRORS as error:
-            said = f"{error} {error.stderr or ''}" if isinstance(error, subprocess.CalledProcessError) else str(error)
+            said = f"{error.stderr or ''} {error}" if isinstance(error, subprocess.CalledProcessError) else str(error)
             self.blockers.append(f"BLOCKER {what}: {' '.join(said.split())[:CCI_TEXT]}")
             return None
 
@@ -1959,7 +1960,7 @@ def decided(body: str, answers: set[str] | None) -> list[str]:
 def diff_facts(loaded: Register, head: Head, base: str) -> dict[str, list]:
     """What `head`'s diff alone decides against the register's rows: the rows it touches, the reserved rows it hits, and the lines naming a scope row. A copy of thousands of files takes seconds a pass to read, so the facts are kept per head, base, diff and set of rows, and reread only when one of them changes."""
     rulings = loaded.rulings()
-    digest = hashlib.sha256(json.dumps([head.repo, head.number, head.sha, base, rulings, head.diff.fingerprint], sort_keys=True).encode()).hexdigest()[:24]
+    digest = hashlib.sha256(json.dumps([FACTS_VERSION, head.repo, head.number, head.sha, base, rulings, head.diff.fingerprint], sort_keys=True).encode()).hexdigest()[:24]
     kept = loaded.state / "check-pr" / f"{digest}.json"
     if kept.is_file():
         return json.loads(kept.read_text())
