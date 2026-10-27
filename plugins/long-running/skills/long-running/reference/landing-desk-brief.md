@@ -82,8 +82,8 @@ finding. No review, no base, and errored reviews fail open. Clean and overridden
 heads pass. Only the queue's `rules-review` check reads the verdict, as its `hold`
 and `fidelity` checks alone read holds and grades, so a hand `gt merge` or a web-UI
 enqueue bypasses all three; `mq.py why <n>` names each first. A hand `stack-enqueue`
-in a drive runs `mq.py gate <n>...` first and is refused while any hold or enqueue
-check fails a head it would queue, the finder at that exact head included.
+in a drive runs `mq.py gate <n>...` first and warns with each hold or enqueue check
+that fails a head it would queue, the finder at that exact head included; clear them first.
 
 Only the root writes override lines in the root inbox, relaying the owner or
 deciding itself:

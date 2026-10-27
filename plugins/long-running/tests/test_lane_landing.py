@@ -235,14 +235,12 @@ def gate_stub(monkeypatch, code: int, out: str) -> list[list[str]]:
     return calls
 
 
-@pytest.mark.parametrize(("code", "out", "refused"), [(1, f"{FINDER_PENDING}\n", True), (0, "", False), (2, "usage: mq.py: invalid choice: 'gate'\n", False)])
-def test_a_landing_desk_hand_enqueue_is_refused_only_when_the_runners_gate_names_a_failing_head(tmp_path, monkeypatch, code, out, refused):
+@pytest.mark.parametrize(("code", "out", "warned"), [(1, f"{FINDER_PENDING}\n", True), (0, "", False), (2, "usage: mq.py: invalid choice: 'gate'\n", False)])
+def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_a_failing_head(tmp_path, monkeypatch, code, out, warned):
     drive_registry(tmp_path, monkeypatch)
     subagent(tmp_path, "alanding-desk-1a2b", name="landing-desk", agentType="long-running:lane")
     calls = gate_stub(monkeypatch, code, out)
 
-    results = merge_results(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b")
-
-    assert [result.message for result in results if result.action == Action.block] == ([lane_landing.HAND_ENQUEUE_REFUSAL.format(lines=FINDER_PENDING)] if refused else [])
+    assert advise(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b") == ([lane_landing.HAND_ENQUEUE_WARNING.format(lines=FINDER_PENDING)] if warned else [])
     [call] = calls
     assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243"]
