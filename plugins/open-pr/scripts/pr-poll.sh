@@ -155,7 +155,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
 
-  Polls every PR_POLL_INTERVAL seconds over REST and prints one CHECK /
+  Polls every PR_POLL_INTERVAL seconds over REST, through ccx's GitHub
+  read gateway (ccx vcs gh), and prints one CHECK /
   REVIEW / COMMENT / QUEUED / UNQUEUED / GREEN line per new event, then DONE
   and exit 0. Exits 3 when another poller holds the state file.
 
@@ -177,12 +178,14 @@ EOF
   exit 2
 }
 
-for dep in gh jq; do
+for dep in ccx jq; do
   command -v "$dep" >/dev/null 2>&1 || {
     echo "pr-poll.sh: $dep is required but not installed" >&2
     exit 1
   }
 done
+
+gh() { CCX_CALLER=pr-poll ccx vcs gh -- "$@"; }
 
 [ $# -eq 3 ] || usage
 REPO=$1

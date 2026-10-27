@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${1:-} ${2:-} ${3:-}" = "vcs gh --" ] || { echo "fake ccx: only 'ccx vcs gh --' is served" >&2; exit 1; }
+shift 3
+exec "$(dirname "$0")/gh" "$@"
