@@ -84,10 +84,33 @@ def board(*cards, retired=(), **answers):
         (board(card("shots", ("image", "phone"), status="open"), feedback={"shots": [{"text": "evolutionary"}]}), []),
         (board(card("ask", ("choice", "pick")), retired=["ask"]), []),
         (board(card("notes", ("markdown", "body"))), []),
+        (board(card("retro", ("choice", "p1"), ("choice", "p2")), choices={"p1": {"optionIds": ["a"]}}), ["retro"]),
+        (board(card("retro", ("choice", "p1"), ("approval", "ok")), choices={"p1": {"optionIds": ["a"]}}, decisions={"ok": {"verdict": "rejected"}}), []),
     ],
 )
 def test_a_question_he_answered_leaves_the_board_count(store, open_ids):
     assert [c["id"] for c in Drive({"board_url": "http://board/p/x"}, None).read_board(store)["cards"]] == open_ids
+
+
+def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
+    retro = card("retro", ("record", "why"), ("choice", "p1"), ("choice", "p2"))
+    retro["children"][1]["options"] = [{"id": "a", "label": "Check first (Recommended)", "recommended": True}, {"id": "o", "label": "Other"}]
+    retro["children"][2]["options"] = [{"id": "b", "label": "Stop on red"}, {"id": "c", "label": "Keep going"}]
+
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(retro, choices={"p1": {"optionIds": ["a"]}}))["cards"][0]
+
+    assert out["choice"] == "p2"
+    assert [o["id"] for o in out["options"]] == ["b", "c"]
+    assert [(part["kind"], part.get("answer")) for part in out["parts"]] == [("record", None), ("choice", {"optionIds": ["a"]}), ("choice", None)]
+    assert [o["id"] for o in out["parts"][1]["options"]] == ["a"]
+    assert out["embed"] is None
+
+
+def test_a_card_with_a_block_the_dashboard_does_not_draw_embeds_the_board_rendering():
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(card("plan", ("table", "rows"), ("choice", "ok"))))["cards"][0]
+
+    assert out["parts"] == []
+    assert out["embed"] == "http://board/p/x?block=plan&theme=dark"
 
 
 @pytest.mark.parametrize(
@@ -390,6 +413,14 @@ def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked(
         "GitHub has not yet rechecked whether it merges cleanly. The merge board said: Nothing; lands on your tap.",
         "B43204",
     ]
+
+
+def test_a_board_blocker_whose_named_pull_requests_all_landed_reads_cleared():
+    rows = [board_row(42786, "you") | {"blocker": "Waits for #42766 to merge first."}, board_row(42787, "you") | {"blocker": "Waits for #42766 and #42770."}]
+
+    out = with_conflicts(rows, {"42766": {"state": "landed"}, "42770": {"state": "open"}})
+
+    assert [row["blocker"] for row in out] == ["Nothing now: #42766 landed.", "Waits for #42766 and #42770."]
 
 
 def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():

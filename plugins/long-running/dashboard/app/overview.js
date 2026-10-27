@@ -2,7 +2,7 @@ const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', que
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
 const ATTENTION = ['failing', 'you', 'held', 'doing', 'queued', 'waiting', 'landed'];
-const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {} };
+const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {}, embedCard: null };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 const RELEASED = /^(released|done|live)/i;
 
@@ -174,7 +174,7 @@ function track(s) {
   return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
     <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</span>
     <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
-    <span class="ct">${t.landed}/${t.total + s.untracked.length}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
+    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -341,7 +341,7 @@ function prFacts(n) {
   const m = state.model;
   const t = truth(n);
   const pr = m.prs[n] ?? {};
-  const step = m.steps.find((s) => s.id === t.step);
+  const step = m.steps.find((s) => s.id === t.step) ?? m.steps.find((s) => s.untracked.includes(Number(n)));
   const part = m.parts.find((p) => p.key === t.part);
   const row = boardRow(n);
   const w = m.workers.find((x) => x.lane === t.owner);
@@ -406,7 +406,7 @@ function planSheet() {
   ].join('');
   const stepCards = m.steps.map((s, i) => {
     const t = tally(s.prs);
-    return `<article class="stc tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${share(s)}"><header><span class="si">${i + 1}</span><b>${esc(s.title)}</b><em>${t.total + s.untracked.length ? `${t.landed}/${t.total + s.untracked.length} landed` : ''}</em></header>
+    return `<article class="stc tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${share(s)}"><header><span class="si">${i + 1}</span><b>${esc(s.title)}</b><em>${t.total ? `${t.landed}/${t.total} landed` : ''}</em></header>
       ${s.prs.length + s.untracked.length ? `<div class="sd">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</div>` : ''}
       <p><em class="tone">${esc(TONE_SAY[s.tone] ?? s.tone)}.</em> ${inline(s.state)}</p>${s.blocker || s.next ? `<p class="dim">${s.blocker ? `Waits on: ${inline(s.blocker)}. ` : ''}${s.next ? `Next: ${inline(s.next)}` : ''}</p>` : ''}</article>`;
   }).join('');
@@ -623,7 +623,7 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts')) return;
+  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts, #cardembed')) return;
   const away = () => (route().screen === 'overview' ? render() : (location.hash = '#/'));
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
@@ -659,6 +659,9 @@ document.addEventListener('click', (e) => {
   if (page) { ov.page = Number(page.dataset.page); ov.noting = null; return render(); }
   const noting = e.target.closest('[data-noting]');
   if (noting) { ov.noting = noting.dataset.noting; ov.note = ''; ov.focusNote = true; return render(); }
+  const opening = e.target.closest('[data-embed-card]');
+  if (opening) { ov.embedCard = opening.dataset.embedCard; return render(); }
+  if (e.target.closest('[data-embed-close]')) { ov.embedCard = null; return render(); }
   const choose = e.target.closest('[data-choose]');
   if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose] });
   const approve = e.target.closest('[data-approve]');
@@ -676,6 +679,17 @@ document.addEventListener('submit', (e) => {
     const text = reply.text.value.trim();
     if (!text) return;
     return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text });
+  }
+  const approval = e.target.closest('[data-approval]');
+  if (approval) {
+    e.preventDefault();
+    return answer({ kind: 'approval', block: approval.dataset.approval, verdict: e.submitter?.value ?? 'approved', text: approval.text.value.trim() });
+  }
+  const input = e.target.closest('[data-input]');
+  if (input) {
+    e.preventDefault();
+    const text = input.text.value.trim();
+    return text ? answer({ kind: 'input', block: input.dataset.input, text }) : undefined;
   }
   const form = e.target.closest('[data-note]');
   if (!form) return;

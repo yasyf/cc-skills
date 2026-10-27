@@ -47,6 +47,8 @@ WAITS = re.compile(r"^(waits? on|blocked)", re.I)
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
+NATIVE = {*ASKS, "record", "display.page"}
+OTHER = re.compile(r"^other\b", re.I)
 MERGE_CARD = "card-merge-triage"
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
@@ -274,6 +276,9 @@ def paths_current(cached, pr):
 def with_conflicts(rows, prs):
     def blocker(row):
         board = row.get("blocker") or ""
+        named = PR_MENTION.findall(board)
+        if named and all(prs.get(n, {}).get("state") == "landed" for n in named):
+            board = f"Nothing now: {', '.join(f'#{n}' for n in named)} landed."
         merge = prs.get(str(row["number"]), {}).get("mergeable_state")
         clear = not board or re.match(r"nothing", board, re.I)
         if merge == "dirty":
@@ -317,6 +322,20 @@ def ask_need(ask):
     if not record:
         return {"kind": "ask", "ask": ask, "why": f"No drive record asked for this; only the progress desk's list carries it. {ask['why']}", "source": {"label": "No record behind this ask", "href": None}}
     return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": f"Record #{record['seq']} from {record['lane']}", "href": f"/record/{record['seq']}"}}
+
+
+def card_part(child, answer):
+    kind = child["type"]
+    if kind == "record":
+        return {"kind": "record", "id": child["id"], "title": child.get("title", ""), "facts": child.get("facts", [])}
+    if kind == "display.page":
+        return {"kind": "page", "id": child["id"], "md": child.get("md", "")}
+    if kind == "choice":
+        options = [{"id": option["id"], "label": option["label"], "hint": option.get("hint", ""), "facts": option.get("facts", []), "recommended": bool(option.get("recommended"))} for option in child.get("options", []) if not OTHER.match(option["label"])]
+        return {"kind": "choice", "id": child["id"], "prompt": child.get("prompt", ""), "multi": bool(child.get("multi")), "options": options, "answer": answer}
+    if kind == "approval":
+        return {"kind": "approval", "id": child["id"], "prompt": child.get("prompt", ""), "detail": child.get("detail") or {}, "answer": answer}
+    return {"kind": "input", "id": child["id"], "label": child.get("label", ""), "placeholder": child.get("placeholder", ""), "answer": answer}
 
 
 def needs(rows, cards, asks, board_url, landed):
@@ -369,6 +388,10 @@ class Drive:
     def answer(self, body):
         if body["kind"] == "choice":
             return self.interact({"type": "choice.selected", "blockId": body["block"], "optionIds": body.get("options", []), **({"other": body["other"]} if body.get("other") else {})})
+        if body["kind"] == "approval":
+            return self.interact({"type": "decision.created", "blockId": body["block"], "verdict": body["verdict"], **({"note": body["text"]} if body.get("text") else {})})
+        if body["kind"] == "input":
+            return self.interact({"type": "input.submitted", "blockId": body["block"], "text": body["text"]})
         return self.interact({"type": "feedback.created", "id": str(uuid.uuid4()), "blockId": body["block"], "text": body["text"]})
 
     def asked(self, text):
@@ -628,14 +651,22 @@ class Drive:
                         rows.append({**row, "group": group["title"], "group_id": group["id"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
             if groups:
                 continue
-            asks = [child for child in block.get("children", []) if child["type"] in ASKS]
-            answered = any(interactions[ASKS[child["type"]]].get(child["id"]) for child in asks) or any(interactions["feedback"].get(child["id"]) for child in [block, *block.get("children", [])])
-            if answered or not (asks or block.get("status") == "open"):
+            children = block.get("children", [])
+            asks = [child for child in children if child["type"] in ASKS]
+            answers = {child["id"]: interactions[ASKS[child["type"]]].get(child["id"]) for child in asks}
+            noted = any(interactions["feedback"].get(child["id"]) for child in [block, *children])
+            if (asks and all(answers.values())) or (not asks and (noted or block.get("status") != "open")):
                 continue
-            choice = next((child for child in asks if child["type"] == "choice"), None)
-            options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", [])]
+            choice = next((child for child in asks if child["type"] == "choice" and not answers[child["id"]]), None)
+            options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", []) if not OTHER.match(option["label"])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
-            cards.append({"id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "recommended": recommended, "choice": choice and choice["id"], "options": options})
+            embed = any(child["type"] not in NATIVE for child in children)
+            cards.append({
+                "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [],
+                "recommended": recommended, "choice": choice and choice["id"], "options": options,
+                "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
+                "embed": f"{self.config['board_url']}?block={block['id']}&theme=dark" if embed else None,
+            })
         return {"rows": rows, "cards": cards, "merge": merge, "url": self.config["board_url"]}
 
 

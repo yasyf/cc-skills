@@ -269,8 +269,10 @@ function needRow(r) {
   const acts = r.state === 'you'
     ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}"${busy}>‖ Hold</button>`
     : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
-  return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
-    <dl>${FACTS.map(([key, label]) => `<dt>${label}</dt><dd${key === 'blocker' && r.blocker && !/^nothing/i.test(r.blocker) ? ' class="bad"' : ''}>${inline(r[key])}</dd>`).join('')}</dl>
+  const stuck = r.blocker && !/^nothing/i.test(r.blocker);
+  return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(shortName(r.number) ?? r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
+    <p class="nline">${inline(r.change)}</p>${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}
+    <details data-id="facts-${r.number}"${state.open.has(`facts-${r.number}`) ? ' open' : ''}><summary>Plan, risk and review</summary><dl>${FACTS.filter(([key]) => key !== 'change' && (key !== 'blocker' || !stuck)).map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl></details>
     ${r.md ? `<details class="nmd" data-id="note-${r.number}"${state.open.has(`note-${r.number}`) ? ' open' : ''}><summary>The board's note</summary><div class="md">${markdown(r.md)}</div></details>` : ''}
     ${row?.failed ? `<div class="nerr">${esc(row.failed)}</div>` : ''}<div class="acts">${acts}</div></li>`;
 }
@@ -283,12 +285,67 @@ function needOther(item) {
   return `<li class="nother ${item.kind}"><span class="nmark">${item.kind === 'card' ? '?' : '!'}</span><div><div class="nt">${esc(item.kind === 'card' ? item.card.title : item.ask.what)}</div><p class="nwhy">${esc(item.why)}</p>
     ${record ? `<details data-id="ask-${record.seq}"${state.open.has(`ask-${record.seq}`) ? ' open' : ''}><summary>Full ask from ${esc(record.lane)} at ${clock(record.at)}</summary><div class="nfull">${inline(record.text)}</div></details>` : ''}</div>${sourceLink(item.source)}</li>`;
 }
+const factGrid = (facts) => facts.length ? `<dl class="bfacts">${facts.map((f) => `<dt>${inline(f.label.replace(/\.$/, ''))}</dt><dd>${inline(f.value)}</dd>`).join('')}</dl>` : '';
+function pickedLabel(part) {
+  const a = part.answer;
+  return [...a.optionIds.map((id) => part.options.find((o) => o.id === id)?.label ?? id), ...(a.other ? [`“${a.other}”`] : [])].join(', ');
+}
+function boardPart(part, card) {
+  const busy = ov.answering ? ' disabled' : '';
+  if (part.kind === 'record') return part.facts.length > 2
+    ? `<details class="brec" data-id="rec-${esc(part.id)}"${state.open.has(`rec-${part.id}`) ? ' open' : ''}><summary><h4>${inline(part.title || 'Background')}</h4><span class="dim">${part.facts.length} facts</span></summary>${factGrid(part.facts)}</details>`
+    : `<section class="brec">${part.title ? `<h4>${inline(part.title)}</h4>` : ''}${factGrid(part.facts)}</section>`;
+  if (part.kind === 'page') return `<section class="brec prose">${markdown(part.md)}</section>`;
+  if (part.kind === 'choice') {
+    if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You picked</span> ${esc(pickedLabel(part))}</section>`;
+    return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts">${part.options.map((o) => `<article class="bopt${o.recommended ? ' rec' : ''}">
+      ${o.recommended ? '<span class="bstamp">★ Recommended</span>' : ''}<b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${factGrid(o.facts)}
+      ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : ''}
+      <button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(part.id)}"${busy}>Pick this</button></article>`).join('')}</div>
+      <form class="note" data-answer="${esc(card.id)}" data-choice="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Something else: write your answer"><button class="btn ghost"${busy}>Send</button></form></section>`;
+  }
+  if (part.kind === 'approval') {
+    if (part.answer) return `<section class="bpick done"><span class="pill ${part.answer.verdict === 'approved' ? 'ok' : 'warn'}">${part.answer.verdict === 'approved' ? '✓ You approved' : '✕ You rejected'}</span>${part.answer.note ? ` “${esc(part.answer.note)}”` : ''}</section>`;
+    const d = part.detail;
+    return `<section class="bpick"><h4>${inline(part.prompt || 'Approve?')}</h4>${d.pros?.length ? `<ul class="pros">${d.pros.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}${d.cons?.length ? `<ul class="cons">${d.cons.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}${d.md ? markdown(d.md) : ''}
+      <form class="note" data-approval="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Note, optional"><button class="btn pri" value="approved"${busy}>✓ Approve</button><button class="btn ghost" value="rejected"${busy}>✕ Reject</button></form></section>`;
+  }
+  if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You answered</span> “${esc(part.answer.text)}”</section>`;
+  return `<section class="bpick"><h4>${inline(part.label)}</h4><form class="note" data-input="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="${esc(part.placeholder || 'Your answer')}"><button class="btn pri"${busy}>Send</button></form></section>`;
+}
+function boardCard(item) {
+  const c = item.card;
+  const body = c.embed
+    ? `<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div>`
+    : c.parts.map((part) => boardPart(part, c)).join('');
+  return `<article class="card bcard" id="card-${esc(c.id)}"><header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>
+    ${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${body}${ov.answerError ? `<div class="nerr">${esc(ov.answerError)}</div>` : ''}</article>`;
+}
+function syncCardEmbed(r) {
+  const host = $('#cardembed');
+  const card = r.screen === 'now' && state.model.board.cards.find((c) => c.id === ov.embedCard && c.embed);
+  host.hidden = !card;
+  if (!card) {
+    ov.embedCard = null;
+    host.replaceChildren();
+    return;
+  }
+  if (host.dataset.card === card.id) return;
+  host.dataset.card = card.id;
+  host.innerHTML = `<header><b>${inline(card.title)}</b><button class="btn ghost" data-embed-close>Close</button></header><iframe title="${esc(card.title)}" src="${esc(card.embed)}"></iframe>`;
+}
+window.addEventListener('message', (e) => {
+  const frame = $('#cardembed iframe');
+  if (e.data?.type === 'cc-present.height' && frame && e.source === frame.contentWindow) frame.style.height = `${e.data.px}px`;
+});
 function needsScreen() {
   const items = state.model.needs;
-  const others = items.filter((item) => item.kind !== 'prs');
+  const cards = items.filter((item) => item.kind === 'card');
+  const others = items.filter((item) => item.kind === 'ask');
   return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
     ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
-    ${others.length ? `<h2 class="sec">Questions and asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
+    ${cards.length ? `<h2 class="sec">Questions on your board <span class="dim">${cards.length} open; a pick here is recorded on the board</span></h2>${cards.map(boardCard).join('')}` : ''}
+    ${others.length ? `<h2 class="sec">Other asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
     ${items.length ? '' : `<div class="card nzero"><b>No decisions now.</b> When a pull request or a question waits on you, it shows here and on the Overview with its buttons.</div>`}
     ${mergeCard()}`;
 }
@@ -376,6 +433,7 @@ function render() {
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   if ($('.overlay.route')) [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] = sheetY;
   syncReviewEmbed(r);
+  syncCardEmbed(r);
   if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
