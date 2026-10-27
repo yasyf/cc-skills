@@ -190,6 +190,8 @@ class FakeShell(runner_module.Shell):
         self.pr_card_missing = False
         self.slack_ts: dict[str, str] = {}
         self.stall_pass = Running()
+        self.board: dict[str, dict[str, dict]] = {}
+        self.carries: list[dict[str, str]] = []
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -259,6 +261,15 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.pr_card_error)
             ts = self.slack_ts.setdefault(card["id"], f"17000000{len(self.slack_ts) + 1:02d}.000100")
             return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
+        if argv[:3] == ["cc-present", "outcomes", "--no-doc"]:
+            assert argv[3:] == ["--session", "s-root"]
+            return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
+        if argv[:3] == ["cc-present", "verdict", "carry"]:
+            carry = dict(zip(argv[3::2], argv[4::2], strict=True))
+            self.carries.append(carry)
+            entry = self.board[carry["--block"]][carry["--row"]]
+            self.board[carry["--block"]][carry["--row"]] = entry | {"head": carry["--head"], "carriedFrom": entry.get("carriedFrom") or entry["head"], "carryNote": carry["--note"]}
+            return runner_module.Done(0, f"{carry['--block']}/{carry['--row']}: approved at {entry['head']} carries to {carry['--head']}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
             return runner_module.Done(0, json.dumps({"title": "Record each run's owner", "author": {"login": "dana"}, "additions": 12, "deletions": 3, "reviewDecision": "APPROVED"}), "")
         if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
@@ -3156,6 +3167,86 @@ def board_surface(config: Path) -> None:
 
 def stack_named(shell: FakeShell) -> set[str]:
     return {pr for call in shell.calls if Path(call[0]).name == "stack-enqueue" for pr in itertools.takewhile(str.isdigit, call[1:])}
+
+
+def board_lane(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher"
+    config.write_text(json.dumps(raw))
+
+
+def tap(shell: FakeShell, pr: str, head: str) -> None:
+    shell.board.setdefault("merge-rows", {})[pr] = {"verdict": "approved", "head": head, "at": "2026-10-01T17:40:00Z"}
+
+
+def head_record(shell: FakeShell, pr: str, text: str) -> int:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "head", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": text, "at": actions.stamp(shell.clock)})
+    return seq
+
+
+def tap_notes(shell: FakeShell) -> list[dict]:
+    return [post for post in notes(shell) if post["text"].startswith("TAP-")]
+
+
+@pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain"])
+def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_says_so(shell, config, tmp_path, restack):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    landing_pass(shell, config)
+    assert shell.carries == [] and tap_notes(shell) == []
+    if restack == "head":
+        seqs = [head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
+    elif restack == "fidelity":
+        seqs = [grade(shell, "29020", "ok cccc333333 patch-identical to, with no root go at, aaaa111111 (#34700), patch-identical (patch-id 5ebf1cae3e6e).", lane="fidelity-desk")]
+    elif restack == "no new behavior":
+        seqs = [grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay with no new behavior.")]
+    else:
+        older = head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
+        seqs = [grade(shell, "29020", "ok cccc333333 carried from bbbb222222, patch-identical replay onto dev."), older]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    cited = ", ".join(f"cci #{seq}" for seq in seqs)
+    assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": f"patch-identical restack, per {cited}"}]
+    assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
+    [note] = tap_notes(shell)
+    assert note["to"] == "root,board-refresher"
+    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, patch-identical per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
+    assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")],
+        [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff patch-identical"), ("withdraw", "wrong: one commit changed"), ("head", "HEAD #29020 cccc333333 (was aaaa111111): one commit changed in the restack")],
+        [("fidelity", "ok F307 at cccc333.")],
+        [("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")],
+    ],
+)
+def test_a_board_tap_never_carries_to_a_fixed_head_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    for kind, text in said:
+        if kind == "head":
+            head_record(shell, "29020", text)
+        elif kind == "withdraw":
+            shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
+        else:
+            grade(shell, "29020", text)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
+    [note] = tap_notes(shell)
+    assert note["to"] == "root,board-refresher"
+    assert note["text"] == "TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows does not carry to cccc333333, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #29020 at cccc333333"
 
 
 def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config, tmp_path, monkeypatch):

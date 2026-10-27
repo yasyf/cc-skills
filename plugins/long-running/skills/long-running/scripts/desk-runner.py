@@ -441,7 +441,13 @@ so it lands on the root's board and in the root's Slack status thread like every
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
-(default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. Under `every` the runner
+(default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. On that surface each pass
+carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
+its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
+call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
+names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to
+the same lanes says the board needs a new row. A board that does not read, or a carry cc-present refuses, logs `TAP-CARRY-FAILED` once per
+cause and tries again next pass. Under `every` the runner
 then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
 blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
@@ -495,6 +501,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import actions
+import board_rows
 import cci
 import drive
 import ghread
@@ -503,7 +510,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, old_app_grades_in, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import QUOTED_BLOCK, QUOTED_SPAN
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import withdraws
@@ -5283,12 +5290,11 @@ class Landing:
         posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
         if posted and posted["question"] == detail:
             return posted["ts"]
-        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.runner.config.drive and entry["sessions"]), None)
-        if not entry:
+        if not (session := self.root_session()):
             self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
-        done = view if view.code else self.ask_card(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)), entry["sessions"][-1])
+        done = view if view.code else self.present(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out))))
         if done.code or not (ts := slack_ts(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
@@ -5297,11 +5303,61 @@ class Landing:
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
 
-    def ask_card(self, card: dict, session: str) -> Done:
+    def root_session(self) -> str | None:
+        """The drive root's newest session in the drive registry, whose board holds the merge cards and rows the owner taps."""
+        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.runner.config.drive and entry["sessions"]), None)
+        return entry["sessions"][-1] if entry else None
+
+    def present(self, argv: list[str], stdin: str | None = None) -> Done:
         try:
-            return self.shell.run(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(card))
+            return self.shell.run(argv, stdin=stdin)
         except OSError as error:
             return Done(127, "", f"cc-present did not start: {error}")
+
+    @property
+    def board_lanes(self) -> list[str]:
+        configured = self.landing_config.get("board_lane", [])
+        return [configured] if isinstance(configured, str) else list(configured)
+
+    def carry_taps(self, rows: dict[str, dict]) -> None:
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row."""
+        if self.landing_config.get("merge_ask_surface", "slack") != "board":
+            return
+        if not (session := self.root_session()):
+            self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
+            return
+        try:
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session]))
+        except board_rows.ReadFailed as failed:
+            self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
+            return
+        heads = {pr: row["head"] for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        entries = [(block, pr, entry) for block, by_row in verdicts.items() for pr, entry in by_row.items() if pr in heads and entry.get("head")]
+        decided = {pr for _, pr, entry in entries if names_head(entry["head"], heads[pr])}
+        moved = [(block, pr, entry) for block, pr, entry in entries if entry["verdict"] == "approved" and pr not in decided]
+        if not moved:
+            return
+        drive = self.runner.config.drive
+        withdrawn = {seq for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
+        reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
+        to = ",".join([ROOT, *self.board_lanes])
+        for block, pr, entry in moved:
+            head, tapped = heads[pr], entry.get("carriedFrom") or entry["head"]
+            moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
+            if chain := patch_chain(moves, head, entry["head"]):
+                self.carry_tap(session, block, pr, tapped, head, chain, to)
+            elif (any(names_head(new, head) for new, *_ in moves) or newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
+                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #{pr} at {head[:10]}", pr)
+
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, chain: list[int], to: str) -> None:
+        cited = ", ".join(f"cci #{seq}" for seq in chain)
+        done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", f"patch-identical restack, per {cited}"])
+        if done.code:
+            why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+            self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
+            return
+        if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
+            self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, patch-identical per {cited}, recorded with cc-present verdict carry; the row asks no new tap", pr)
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
         """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
@@ -6346,6 +6402,7 @@ class Landing:
         unread = self.holds_unread(entries, rows)
         if not rows:
             return
+        self.carry_taps(rows)
         held = self.held(rows) if advanced and not unread else None
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()

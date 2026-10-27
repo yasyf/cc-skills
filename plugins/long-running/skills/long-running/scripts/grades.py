@@ -34,6 +34,9 @@ WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 CARRIED = re.compile(rf"^{FIDELITY_OK} ([0-9a-f]{{7,40}}) (?:carried from|patch-identical to(?:, with no root go at,)?) ([0-9a-f]{{7,40}})\b", re.IGNORECASE)
 NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
 CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
+HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
+PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
+ADDS_BEHAVIOR = re.compile(r"(?<!\bno )\bnew behaviou?r\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -124,6 +127,38 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
 def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
     """Each `(H, G)` a `fidelity: ok H carried from G` grade names, unless it says the change adds new behavior: the desk read H as G's change, so G's finder verdict stands for H (root #139077)."""
     return [(found[1].lower(), found[2].lower()) for grade in grades if (found := CARRIED.match(grade["text"])) and not NEW_BEHAVIOR.search(grade["text"])]
+
+
+def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[tuple[str, str, bool, int]]:
+    """Each move of `pr` from an old head to a new one that a record of `found` states, as `(new, old, patch-identical, seq)`: a `head` record's `<new> (was <old>)`, patch-identical when the words after it, up to the end of its sentence or the next move, say so and name no new behavior, and a fidelity lane's `fidelity: ok <new> carried from <old>` or `patch-identical to <old>` grade, patch-identical when its first sentence says so and it names no new behavior."""
+    moves = []
+    for record in found:
+        if record["drive"] != drive or not about_pr(record, repo, pr):
+            continue
+        text = record["text"]
+        if record["kind"] == "head":
+            named = list(HEAD_MOVE.finditer(text))
+            for move, after in zip(named, [*named[1:], None], strict=True):
+                said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
+                moves.append((move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said), record["seq"]))
+        elif record["kind"] == "review" and record["lane"] in lanes and (carried := CARRIED.match(text)):
+            moves.append((carried[1].lower(), carried[2].lower(), bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(text, maxsplit=1)[0])) and not ADDS_BEHAVIOR.search(text), record["seq"]))
+    return moves
+
+
+def patch_chain(moves: list[tuple[str, str, bool, int]], head: str, tapped: str) -> list[int]:
+    """The seqs of the records whose patch-identical moves of `moves` lead from `tapped` to `head`, newest first, or none when no such chain stands."""
+    frontier, seen = [(head, [])], set()
+    while frontier:
+        at, seqs = frontier.pop()
+        for new, old, identical, seq in moves:
+            if not identical or not names_head(new, at) or old in seen:
+                continue
+            if names_head(old, tapped):
+                return [*seqs, seq]
+            seen.add(old)
+            frontier.append((old, [*seqs, seq]))
+    return []
 
 
 def reached(gone: dict[tuple[str, str], dict], pr: str, sha: str) -> dict | None:

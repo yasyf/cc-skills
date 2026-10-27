@@ -359,9 +359,8 @@ def outcomes_args(session: str | None, command: list[str]) -> list[str]:
     return ["cc-present", "outcomes", "--no-doc", *(["--session", session] if session else [])]
 
 
-def read_verdicts(shell: Shell, argv: list[str]) -> dict[str, dict[str, dict]]:
-    """Each triage or pr-groups block's recorded verdicts, a row id or PR number to its entry of verdict, head and time, from the board's outcomes."""
-    done = shell.run(argv)
+def verdicts_of(done: Done) -> dict[str, dict[str, dict]]:
+    """Each triage or pr-groups block's recorded verdicts, a row id or PR number to its entry of verdict, head and time, from what `cc-present outcomes` printed."""
     start = done.out.find("{")
     if done.code != 0 or start < 0:
         raise ReadFailed(f"cc-present outcomes exited {done.code}: {(done.err or done.out).strip()[:200]}")
@@ -524,7 +523,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         rulings, withdrawn = None, set()
         warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling or a root go at its head, and no renamed row is excused by a re-key")
     try:
-        verdicts = read_verdicts(shell, outcomes)
+        verdicts = verdicts_of(shell.run(outcomes))
     except ReadFailed as failed:
         verdicts = None
         warnings.append(f"WARN the board's verdicts did not read ({failed}); no row is checked for a moved, renamed, rejected or already approved verdict, or a one-tap claim over a rejected PR")
