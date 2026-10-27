@@ -54,7 +54,7 @@ function journey(b) {
   const cur = list.findIndex((s) => s.state === 'next');
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
   return `<div class="nw-panel"><div class="nw-label">${esc(state.model.milestones_label)}</div>
-    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<div class="ms ${s.state}${i === cur ? ' cur' : ''}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</div>`).join('')}</div>
+    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<div class="ms ms-${s.state}${i === cur ? ' cur' : ''}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</div>`).join('')}</div>
     <p class="nw-sent">${esc(b.progress.sentence)}</p><p class="nw-code">${esc(b.progress.code_line)}</p></div>`;
 }
 function compact(b) {
@@ -62,10 +62,10 @@ function compact(b) {
   const live = list.filter((s) => s.state === 'live');
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
-  return `<div class="nw-panel"><div class="nw-seg">${list.map((s) => `<i class="${s.state}" title="${esc(`${s.name}: ${s.label}`)}"></i>`).join('')}</div>
+  return `<div class="nw-panel"><div class="nw-seg">${list.map((s) => `<i class="ms-${s.state}" title="${esc(`${s.name}: ${s.label}`)}"></i>`).join('')}</div>
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
-    ${odd.map((s) => `<p class="nw-line ${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
+    ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
     <p class="nw-code">${esc(b.progress.code_line)} <a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
 }
 
@@ -195,10 +195,14 @@ function storyBody(item) {
     ${hidden ? `<button class="linkish" data-story-more>${hidden} earlier update${hidden === 1 ? '' : 's'} today</button>` : ''}`;
 }
 
+const DIAGRAMS = {
+  'end-state': () => `<h2 class="nw-h">How much of the end state has landed</h2><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>
+    ${state.overlay === 'pr' ? prSheet() : ''}${state.overlay === 'part' ? partSheet() : ''}${state.overlay === 'key' ? keySheet() : ''}`,
+  none: () => '',
+};
 function diagramSlot() {
-  if (view('diagram') !== 'end-state' || !state.model.drive) return '';
-  return `<section class="nw-diagram"><h2 class="nw-h">How much of the end state has landed</h2><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>
-    ${state.overlay === 'pr' ? prSheet() : ''}${state.overlay === 'part' ? partSheet() : ''}${state.overlay === 'key' ? keySheet() : ''}</section>`;
+  const body = DIAGRAMS[view('diagram')]();
+  return body ? `<section class="nw-diagram">${body}</section>` : '';
 }
 
 function mountNow() {

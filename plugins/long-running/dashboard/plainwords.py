@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 
 LIMITS = {"headline": 25, "stuck": 18, "unblock": 16, "node": 14, "title": 8, "latest": 16, "story": 30, "sentence": 40, "line": 20}
-COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "restack", "rebase", "enqueue", "old world", "new world", "cherry-pick")
+COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "old world", "new world")
+GIT_VERBS = ("restack", "rebase", "enqueue", "cherry-pick")
 CHECKS = (
     ("a release or plan code", re.compile(r"\b(?:R\d{1,2}|P\d{1,2}[a-z]?|step \d+[a-z]?)\b")),
     ("a record number", re.compile(r"#1\d{5}\b|\brecords? \d{3,}|\bseq\b", re.I)),
@@ -20,6 +21,7 @@ def violations(text: str, slot: str = "line", lanes: tuple[str, ...] = ()) -> li
     found = [name for name, pattern in CHECKS if pattern.search(text)]
     lowered = text.lower()
     found += [f"the coined word {word!r}" for word in COINED if re.search(rf"\b{re.escape(word)}s?\b", lowered)]
+    found += [f"the git word {word!r}" for word in GIT_VERBS if re.search(rf"\b{re.escape(word)}", lowered)]
     found += [f"the worker name {lane!r}" for lane in lanes if lane and lane.lower() in lowered]
     words = len(text.split())
     if words > LIMITS[slot]:
