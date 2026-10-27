@@ -1930,9 +1930,9 @@ def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
 
 def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, config, tmp_path):
     shell.records = [
-        {"seq": 7, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
-        {"seq": 8, "drive": "d1", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349", "at": "2026-10-01T09:00:00Z"},
-        {"seq": 9, "drive": "d1", "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
+        {"seq": 7, "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "HOLD #29020, do not enqueue"},
+        {"seq": 8, "drive": "d1", "lane": "root", "kind": "hold", "status": "closed", "to": ["root"], "refs": {"prs": [28349]}, "text": "HOLD #28349", "at": "2026-10-01T09:00:00Z"},
+        {"seq": 9, "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"targets": ["sandsql"]}, "text": "hold sandsql"},
     ]
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
@@ -3140,6 +3140,24 @@ def test_a_withdrawn_root_go_lets_nothing_merge(shell, config, tmp_path):
     assert shell.enqueues() == []
 
 
+@pytest.mark.parametrize(
+    "void",
+    [
+        lambda seq: {"kind": "decide", "text": "WITHDRAWN: the go for #29020 at cccc333 named a rebase, not a review fix"},
+        lambda seq: {"kind": "decide", "resolves": seq, "text": "that go was a rebase, not a review fix"},
+        lambda seq: {"kind": "withdraw", "resolves": [seq - 1, seq], "text": "both gos named a rebase"},
+    ],
+)
+def test_a_go_a_later_root_record_resolves_or_opens_withdrawn_on_lets_nothing_merge(shell, config, tmp_path, void):
+    board_surface(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    cci_record(shell, lane="root", to=["desk-runner"], at=actions.stamp(shell.clock), **void(shell.records[-1]["seq"]))
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
 @pytest.mark.parametrize("mode", ["every", "auto"])
 def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_for_the_authorized_tap(shell, config, tmp_path, mode):
     merge_mode(config, mode)
@@ -3625,6 +3643,7 @@ def test_a_quota_under_the_floor_reads_nothing_until_its_reset_and_keeps_the_acc
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
+    shell.calls.clear()
     shell.quota[bucket]["remaining"] = int(shell.quota[bucket]["limit"] * 0.05) - 1
     landing_pass(shell, config)
     landing_pass(shell, config)

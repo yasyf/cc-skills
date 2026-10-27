@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from pathlib import Path
 
 import cci
 
@@ -27,6 +28,7 @@ PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\blands after\b|\b
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 PRECONDITION_MET = re.compile(r"\s*precondition-met\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+)#\d+)*)", re.IGNORECASE)
 PRECONDITION_LIMIT = 300
+WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -88,12 +90,18 @@ def go_heads(record: dict) -> dict[str, str]:
 
 
 def goes(record: dict, pr: str) -> bool:
-    return pr in go_heads(record)
+    return pr in go_heads(record) and pr not in record.get("voided", ())
 
 
 def precondition_sentences(text: str) -> list[str]:
     """Each sentence of `text` that holds a landing back on something outside the PR: `lands only after`, `lands after`, `merge only after`, `do not land until`, or a readers-first line."""
     return [" ".join(sentence.split())[:PRECONDITION_LIMIT] for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
+
+
+def full_text(record: dict) -> str:
+    """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text."""
+    spilled = Path(record.get("refs", {}).get("path") or "")
+    return spilled.read_text() if spilled.is_file() else record["text"]
 
 
 def met_prs(record: dict) -> set[str]:
@@ -104,7 +112,14 @@ def met_prs(record: dict) -> set[str]:
 
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
     """The root `go` records of `gos` whose opening clause names `pr` at `head` by a short sha."""
-    return [record for record in gos if (named := go_heads(record).get(pr)) and names_head(named, head)]
+    return [record for record in gos if (named := go_heads(record).get(pr)) and names_head(named, head) and pr not in record.get("voided", ())]
+
+
+def closes(record: dict) -> set[int]:
+    """The seqs `record` closes: each it resolves, and the one a `withdraw` answers by `--re`."""
+    resolves = record.get("resolves") or []
+    closed = set(resolves) if isinstance(resolves, list) else {resolves}
+    return closed | ({record["re"]} if record["kind"] == "withdraw" and record.get("re") else set())
 
 
 def fidelity_grades(tail: Callable[[list[str]], str], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:

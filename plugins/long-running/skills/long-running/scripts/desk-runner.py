@@ -470,7 +470,8 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, fidelity_grades, finder_records, finder_reviews_in, gone_at, goes, graded_head, met_prs, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, SHORT_SHA, about_pr, closes, fidelity_grades, finder_records, finder_reviews_in, go_heads, gone_at, goes, full_text, graded_head, met_prs, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, precondition_sentences, repo_prs, standing
+from grades import WITHDRAWN as WITHDRAWN_OPENING
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -3866,6 +3867,8 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.pushed: dict[str, str] = {}
+        self.gos: list[dict] | None = None
+        self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
@@ -4631,7 +4634,7 @@ class Landing:
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
             records = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}")
-            self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and not met_prs(record) for sentence in precondition_sentences(record["text"])]
+            self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and about_pr(record, self.repo, pr) and not met_prs(record) for sentence in precondition_sentences(full_text(record))]
         return [("the PR body", sentence) for sentence in self.body_preconditions[(pr, sha)]] + self.said_preconditions[pr]
 
     def precondition_met(self, pr: str, sha: str) -> bool | None:
@@ -4700,11 +4703,16 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive that no root `withdraw` record answers by `--re`."""
-        drive = self.runner.config.drive
-        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go", "--kind=withdraw") if record["lane"] == ROOT and record["drive"] == drive]
-        withdrawn = {record.get("re") for record in records if record["kind"] == "withdraw"}
-        return [record for record in records if record["kind"] == "go" and record["seq"] not in withdrawn]
+        """The root's `go` records on this drive, read once per pass and again before each enqueue wave, without any that a later root record resolves or answers with a `withdraw`. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
+        with self.going:
+            if self.gos is None:
+                drive = self.runner.config.drive
+                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if record["lane"] == ROOT and record["drive"] == drive]
+                later = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
+                closed = {seq for record in later for seq in closes(record)}
+                withdrawals = [record for record in later if WITHDRAWN_OPENING.match(record["text"])]
+                self.gos = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and names_pr(record, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
+            return self.gos
 
     def head_gos(self, pr: str, head: str) -> list[dict]:
         return gone_at(self.root_gos(), pr, head)
@@ -4839,6 +4847,7 @@ class Landing:
         accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
         if not accepted:
             return
+        self.gos = None
         rows = self.rows() or {}
         waves: dict[int, list[actions.Action]] = {}
         for action in accepted:
@@ -5662,7 +5671,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.reported, self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews, self.claims_read = None, False, None, None
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
         if self.quota_low():
             return
         advanced = self.advance()
