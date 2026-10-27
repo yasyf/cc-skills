@@ -104,3 +104,12 @@
 .nw .cursor { display: inline-block; width: 7px; height: 15px; background: var(--accent); margin-left: 3px; vertical-align: -2px; animation: nw-line .9s steps(2) infinite; }
 .nw-diagram { margin-top: 28px; }
 .nw-diagram .ck .hero { max-width: 100%; }
+.nw-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.nw-boxes .bx { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; color: var(--ink); display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.nw-boxes .bx span:last-child { color: var(--ink-2); }
+.nw-parts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 22px; }
+.nw-parts .pt { display: grid; grid-template-columns: 90px 1fr 64px; gap: 8px; align-items: center; font-size: 14px; }
+.nw-parts .bar { height: 8px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+.nw-parts .bar i { display: block; height: 100%; background: var(--ok); }
+.nw-parts .pc { color: var(--ink-2); font-size: 13px; text-align: right; }
+.nw-parts .sub { grid-column: 2 / 4; color: var(--ink-3); font-size: 12.5px; margin-top: -4px; }

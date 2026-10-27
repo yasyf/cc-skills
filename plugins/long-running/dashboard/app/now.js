@@ -1,4 +1,4 @@
-const VIEWS = { progress: 'journey', blockers: 'chart', story: 'column', diagram: 'end-state' };
+const VIEWS = { progress: 'journey', blockers: 'chart', story: 'column', work: 'rows3', diagram: 'end-state' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
@@ -135,7 +135,8 @@ function drawArrows() {
 }
 
 function workList(b) {
-  const rows = b.work.slice(0, 3);
+  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span><span>${esc(w.latest)}</span></a>`).join('')}</div>`;
+  const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
   const more = b.work.length - rows.length;
   if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
   return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/workers">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
@@ -198,6 +199,10 @@ function storyBody(item) {
 const DIAGRAMS = {
   'end-state': () => `<h2 class="nw-h">How much of the end state has landed</h2><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>
     ${state.overlay === 'pr' ? prSheet() : ''}${state.overlay === 'part' ? partSheet() : ''}${state.overlay === 'key' ? keySheet() : ''}`,
+  parts: () => `<h2 class="nw-h">How much of each part has landed</h2><div class="nw-panel nw-parts">${state.model.parts.map((p) => {
+    const t = tally(state.model.drive.prs.filter((e) => e.part === p.key));
+    return `<div class="pt"><b>${esc(p.name)}</b><span class="bar"><i style="width:${pct(t)}%"></i></span><span class="pc">${t.landed} of ${t.total}</span><span class="sub">${esc(p.becomes)}</span></div>`;
+  }).join('')}</div>`,
   none: () => '',
 };
 function diagramSlot() {

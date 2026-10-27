@@ -26,7 +26,7 @@
   {"name": "Test customer teams move to Iris", "release": "R7"},
   {"name": "Everyone on Iris, old code removed", "release": "R8"}
  ],
- "views": {"progress": "journey", "blockers": "chart", "story": "column", "diagram": "end-state"},
+ "views": {"progress": "journey", "blockers": "chart", "story": "column", "work": "rows3", "diagram": "end-state"},
  "brief_dir": "/Users/you/.claude/scratch/your-drive/dashboard/brief",
  "stories_dir": "/Users/you/.claude/scratch/your-drive/dashboard/stories",
  "transcripts": "/Users/you/.claude/projects/-Users-you-code-monorepo/<root session id>/subagents",

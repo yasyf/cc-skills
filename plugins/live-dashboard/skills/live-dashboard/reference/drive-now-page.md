@@ -46,7 +46,8 @@ From top to bottom:
 | `progress` | `journey` names every milestone; `compact` shows a bar of segments, the live count, the next milestone, and anything stuck | `journey` |
 | `blockers` | `chart` draws each path to a milestone with arrows; `cards` shows at most three ranked cards | `chart` |
 | `story` | `column` opens a story in the work column; `page` gives it the whole page under a one-line summary | `column` |
-| `diagram` | `end-state` shows how much of the end state has landed; `none` leaves the slot empty | `end-state` |
+| `work` | `rows3` or `rows5` show that many rows with the latest step; `boxes` shows every piece of work as a small box | `rows3` |
+| `diagram` | `end-state` shows how much of the end state has landed; `parts` shows one bar per part; `none` leaves the slot empty | `end-state` |
 
 ## Add the drive's own diagram
 
