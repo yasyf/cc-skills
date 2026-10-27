@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
 import time
@@ -93,10 +94,14 @@ def test_idle_targets_and_trees_go_and_recent_or_own_ones_stay(tmp_path: Path) -
     ]
     busy_deep = tree(root / "target-deep", 7)
     (busy_deep / "debug" / "deps" / "new.rlib").write_text("y")
+    building = tree(root / "target-building", 7)
+    held = (root / "target-building.lock").open("w")
+    fcntl.flock(held, fcntl.LOCK_SH)
 
     result, _ = run(tmp_path, "true")
+    held.close()
 
     assert result.returncode == 0, result.stderr
     assert [path.exists() for path in stale] == [False, False, False]
-    assert all(path.exists() for path in [*kept, busy_deep])
+    assert all(path.exists() for path in [*kept, busy_deep, building])
     assert f"removing {root / 'target-old'}, idle over 6 h" in result.stderr
