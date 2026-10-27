@@ -2456,6 +2456,48 @@ slowing the critical path. It feeds no dashboard (owner instruction of 2026-10-1
 track from the original plan, what distractions are happening, what excuses are
 being made, and to rectify/course correct those things in real time."*
 
+## The stall watch
+
+`scripts/stall_watch.py` finds work that stopped moving. Add a `stall` object to
+`runner.json`, such as `"stall": {"every_minutes": 5}`, and the orca desk runner starts
+one detached pass every `every_minutes` once the last pass has exited. The runner reads
+the object on every pass, so adding or editing it needs no restart. Each pass logs to
+`stall-watch.log` beside `orca.desk_inbox`.
+
+**S1. Each stall reaches root once, with its owner and next step.** A pass reads the
+drive's cci records, the landing ledger, the holds, the landing desk's store, the root's
+board, and the root's task list. For each stall it posts one `urgent` record from lane
+`stall-watch` to root and the owning lane:
+`STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`. A stall
+posts again only after it clears and comes back.
+
+| Kind | Fires when | Minutes | Owner |
+|---|---|---|---|
+| `go` | a root go names a PR's head, no `QUEUED` record does, and no hold covers a PR below it | 10 | the first PR in the stack, from the bottom, with no go (root), or with a red, conflicting, or unfinished build (its lane), else the landing desk; one record per blocking PR |
+| `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
+| `finder` | a `head` record names the head, and no finder review does | 30 | the PR's lane |
+| `fidelity` | a `head` record names the head, and no fidelity grade does | 30 | `landing.fidelity_lane` |
+| `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head | 15 | `stall.board_lane`, root by default |
+| `carry` | a tap or go names an earlier head, nothing carries it to this head, and the board shows no row at it | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
+| `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
+| `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
+
+**S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
+whether a new head replays the tapped one unchanged, and whether a quiet lane's last
+record explains its silence or promises a time. One `claude -p` call per pass,
+on `claude-sonnet-5-5` at low effort, answers every open question. A verdict is kept
+against the records it read, so no question is asked twice. When the call fails, each
+question takes its mechanical answer.
+
+`stall.minutes` overrides any row's minutes, `stall.window_hours` (default 24) bounds the
+records a pass reads, and `stall.model` names the judge. `stall_watch.py --config
+<runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
+
+*Prevents approvals that never reached the owner's board and finder reviews nobody
+noticed were missing, each found only when the owner asked. The owner ruled on
+2026-10-27: "in general you need to add a watchdog to long-running which runs sonnet and
+looks for stalls."*
+
 ## Desk inboxes
 
 These I-rules apply to the landing desk, priority desks, and shards. The owner ruled:

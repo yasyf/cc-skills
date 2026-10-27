@@ -189,6 +189,7 @@ class FakeShell(runner_module.Shell):
         self.pr_card_error = ""
         self.pr_card_missing = False
         self.slack_ts: dict[str, str] = {}
+        self.stall_pass = Running()
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -219,6 +220,8 @@ class FakeShell(runner_module.Shell):
         if Path(argv[0]).name == "desk-runner.py":
             self.successors.append((list(argv), out, append))
             return Process()
+        if argv[1:2] == [str(runner_module.STALL_WATCH)]:
+            return self.stall_pass
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
             attempt = Path(argv[4]).with_suffix(".worker")
@@ -1267,6 +1270,30 @@ def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell,
     container = incident(tmp_path, f"desk-lane-{LANE}")
     assert container.actions["R638"].status == "verified"
     assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_n"]
+
+
+def test_the_orca_runner_starts_one_stall_pass_at_a_time_on_the_cadence_runner_json_sets(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+
+    def passes() -> int:
+        return sum(call[1:2] == [str(runner_module.STALL_WATCH)] for call in shell.calls)
+
+    runner.stall_watch()
+    assert passes() == 0
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"stall": {"every_minutes": 5}}))
+    runner.stall_watch()
+    runner.stall_watch()
+    assert passes() == 1
+    shell.clock += timedelta(minutes=6)
+    runner.stall_watch()
+    assert passes() == 1
+    shell.stall_pass.code = 0
+    runner.stall_watch()
+    assert passes() == 2
+    shell.clock += timedelta(minutes=3)
+    runner.stall_watch()
+    assert passes() == 2
+    assert [call for call in shell.calls if call[1:2] == [str(runner_module.STALL_WATCH)]][-1] == [sys.executable, str(runner_module.STALL_WATCH), "--config", str(config.resolve())]
 
 
 def launches(shell: FakeShell) -> list[list[str]]:

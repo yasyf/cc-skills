@@ -502,6 +502,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
       }
     }
   },
+  "stall": {"every_minutes": 5},
   "deadlines": {
     "start_minutes": 10,
     "launch_minutes": 15,
@@ -717,6 +718,13 @@ Orca's codex agent on the standard tier. `incident xhigh` uses `gpt-6.1-sol`, a
 `--no-parent` worktree, and a terminal command with
 `--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. An `unsupervised` result escalates; it is not a failed
 launch to repeat. Leave Orca's runtime defaults unchanged.
+
+**O16. Run the stall watch on its cadence.** While `runner.json` holds a `stall` object,
+the orca runner starts `stall_watch.py --config <runner.json>` detached every
+`stall.every_minutes` (default 5), never while the last pass still runs, and logs it to
+`stall-watch.log` beside `orca.desk_inbox`. It reads the object on every pass, so adding
+it needs no restart. Each stall the pass finds reaches root once as an `urgent`
+`STALL` record naming its owner and next step; SKILL.md "The stall watch" lists the kinds.
 
 ## Landing passes
 
