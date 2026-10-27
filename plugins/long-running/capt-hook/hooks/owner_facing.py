@@ -69,6 +69,7 @@ REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Next reply to the owner: give times in Pacific with no zone label, never UTC."
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
+RELEASE_NUMBER = re.compile(r"\b\d{3,}\b|\bv?\d+\.\d+(?:\.\d+)?\b")
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
 PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
@@ -488,6 +489,7 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
             commands=incident_sources(OUTAGE_0820),
         ): Warn(),
         Input(transcript=reply_transcript("The fix lane is building the PR."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
+        Input(transcript=reply_transcript("The release plan is rewritten and now live on the board."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand has not been cut yet; I will cut it next."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Allow(),
         Input(transcript=reply_transcript("sand 1437 is published."), commands=incident_sources(OUTAGE_0820)): Allow(),
     },
@@ -496,7 +498,8 @@ def publish_lines_quote_the_released_record(evt: BaseHookEvent) -> HookResult | 
     if not CompactionState.load(evt).active:
         return None
     reply = last_reply(evt)
-    if PUBLISH_CLAIM.search(reply) and not PUBLISH_PROOF.search(reply) and not read_release_live(evt) and open_incidents(evt):
+    claims = any(PUBLISH_CLAIM.search(sentence) and RELEASE_NUMBER.search(sentence) for sentence in SENTENCE_BREAK.split(reply))
+    if claims and not PUBLISH_PROOF.search(reply) and not read_release_live(evt) and open_incidents(evt):
         return evt.context(PUBLISH_FROM_MEMORY)
     return None
 
