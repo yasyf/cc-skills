@@ -25,7 +25,7 @@ function nowScreen() {
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     <div class="nw-cols">
       <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
       <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
@@ -67,9 +67,9 @@ function journey(b) {
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
   const cur = list.findIndex((s) => s.state === 'next');
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
-  return `<div class="nw-panel"><div class="nw-label">${esc(state.model.milestones_label)}</div>
+  return `<div class="nw-panel">
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<div class="ms ms-${s.state}${i === cur ? ' cur' : ''}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</div>`).join('')}</div>
-    <p class="nw-sent">${esc(b.progress.sentence)}</p><p class="nw-code">${esc(b.progress.code_line)}</p></div>`;
+    <div class="nw-foot"><p class="nw-sent">${esc(b.progress.sentence)}</p><p class="nw-code">${esc(b.progress.code_line)}</p></div></div>`;
 }
 function compact(b) {
   const list = stops(b);

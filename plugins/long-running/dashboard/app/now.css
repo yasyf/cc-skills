@@ -33,7 +33,6 @@ body:has(.nw) { background: #080a0d; }
 .nw .nbtn:disabled { opacity: .55; cursor: default; }
 .nw a.nbtn:hover { text-decoration: none; border-color: var(--ink3); }
 
-.nw-label { color: var(--ink3); font-size: 11.5px; margin-bottom: 8px; }
 .nw-journey { display: grid; grid-template-columns: repeat(var(--n), 1fr); position: relative; margin: 2px 0 8px; }
 .nw-journey::before { content: ""; position: absolute; left: calc(50% / var(--n)); right: calc(50% / var(--n)); top: 7px; height: 2px; background: var(--line2); }
 .nw-journey .fill { position: absolute; left: calc(50% / var(--n)); top: 7px; height: 2px; background: var(--done); }
@@ -138,3 +137,6 @@ body:has(.nw) { background: #080a0d; }
 .nw-parts .bar i { display: block; height: 100%; background: var(--done); }
 .nw-parts .pc { color: var(--ink2); font-size: 12px; text-align: right; }
 .nw-parts .sub { grid-column: 2 / 4; color: var(--ink3); font-size: 12px; margin-top: -4px; }
+.nw-hsub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink3); margin-left: 8px; font-size: 12px; }
+.nw-foot { display: flex; gap: 18px; align-items: baseline; justify-content: space-between; }
+.nw-foot .nw-code { white-space: nowrap; }

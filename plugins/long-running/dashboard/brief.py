@@ -45,9 +45,9 @@ NODE_SCHEMA = {
     "required": ["id", "text", "state", "how", "item", "since"],
     "properties": {
         "id": {"type": "string"},
-        "text": {"type": "string", "description": "what is stuck or what must happen, at most 12 words"},
+        "text": {"type": "string", "description": "what is stuck or what must happen, at most 10 words"},
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
-        "how": {"type": "string", "description": "how it is being unblocked and the next step, at most 14 words; empty for done"},
+        "how": {"type": "string", "description": "how it is being unblocked and the next step, at most 12 words; empty for done"},
         "item": {"type": "string", "description": "the work item id fixing it, or empty"},
         "since": {"type": "string", "description": "Pacific clock time it got stuck, such as 11:45 AM, or empty"},
     },
