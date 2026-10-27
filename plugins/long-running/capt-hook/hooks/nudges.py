@@ -31,7 +31,7 @@ def stopped_lane(evt: BaseHookEvent) -> str | None:
         return None
     if "@" in task_id:
         return task_id.split("@", 1)[0]
-    return next((agent.name for agent in session_tree.subagents(evt) if agent.agent_id == task_id), None)
+    return next((agent.name for agent in session_tree.subagents(evt) if task_id in (agent.agent_id, agent.name)), None)
 
 
 @workflow_state("long_running_nudges")
