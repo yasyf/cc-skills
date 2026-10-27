@@ -2685,6 +2685,18 @@ def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, c
     assert len(shell.enqueues()) == 1 and len(blockers(shell)) == 1
 
 
+@pytest.mark.parametrize(("lane", "lands"), [("root", True), ("p8a-step7", False)])
+def test_a_missing_a_root_record_resolves_is_accepted_and_the_head_enqueues(shell, config, tmp_path, lane, lands):
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    seq = grade(shell, "29020", "missing cccc333 plan names no enum `UNLABELLED`")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    cci_record(shell, lane=lane, kind="decide", resolves=[seq], refs={"prs": [29020]}, at=actions.stamp(shell.now()), text="Accepted at cccc333: a review-tool label, no product path")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == int(lands)
+
+
 def test_an_ungraded_pr_cuts_the_prefix_and_the_graded_pr_below_it_enqueues_alone(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]
