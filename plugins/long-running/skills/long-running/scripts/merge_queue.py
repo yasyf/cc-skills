@@ -24,7 +24,7 @@ from pathlib import Path
 PASS = "pass"
 PENDING = "pending"
 FAIL = "fail"
-CHECKS = ("hold", "rules-review", "rulings", "fidelity", "finder", "merge-mode", "approvals", "required-ci")
+CHECKS = ("hold", "precondition", "rules-review", "rulings", "fidelity", "finder", "merge-mode", "approvals", "required-ci")
 CONFLICT = "conflict"
 OWN_RED = "own-red"
 BATCH_MATE_RED = "batch-mate-red"

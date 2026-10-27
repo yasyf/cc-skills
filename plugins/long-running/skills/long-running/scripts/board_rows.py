@@ -64,7 +64,6 @@ ROW_HEAD = re.compile(r"\bcommit (?P<sha>[0-9a-f]{7,40})\b")
 SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 WORD = re.compile(r"[a-z0-9]+")
 LABEL_NUMBER = re.compile(r"^#\d+:\s*")
-WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
@@ -242,7 +241,7 @@ def closing_ruling(rulings: list[dict], pr: str, head: str) -> dict | None:
     ruling = max((record for record in rulings if closes(pr, record["full"])), key=lambda record: record["seq"], default=None)
     if ruling is None:
         return None
-    revived = [record for record in grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] > ruling["seq"]], pr, head) if not WITHDRAWN.match(record["text"])]
+    revived = [record for record in grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] > ruling["seq"]], pr, head) if not grades.WITHDRAWN.match(record["text"])]
     return None if revived else ruling
 
 
