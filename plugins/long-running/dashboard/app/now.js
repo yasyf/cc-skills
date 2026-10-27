@@ -42,7 +42,25 @@ function band(b) {
   const m = state.model;
   if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
   if (!m.needs.length) return '';
-  return `<div class="nw-band needs">${cta(m.needs[Math.min(ov.page, m.needs.length - 1)])}</div>`;
+  const rows = m.needs.slice(0, 3).map(needLine).join('');
+  const more = m.needs.length - 3;
+  return `<div class="nw-band needs nw-needs"><span class="tag">Needs you</span><div class="rows">${rows}${more > 0 ? `<a class="more" href="#/now">${more} more decision${more === 1 ? '' : 's'} ›</a>` : ''}</div></div>`;
+}
+function needLine(item) {
+  const line = (what, why, acts) => `<div class="nl"><span class="what"><b>${esc(what)}</b>${why ? `<span class="why">${esc(String(why).match(/^.*?[.!?](?=\s|$)/)?.[0] ?? why)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
+  if (item.kind === 'prs' && item.prs.length === 1) {
+    const r = item.prs[0];
+    const busy = pending.number === r.number && !pending.error;
+    return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`);
+  }
+  if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/now">Review them</a>');
+  if (item.kind === 'card') {
+    const c = item.card;
+    const options = [...c.options].sort((a, b) => b.recommended - a.recommended).slice(0, 2);
+    const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
+    return line(c.title, item.why, `${options.map((o) => `<button class="nbtn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<a class="nbtn" href="#/now">Other options</a>`);
+  }
+  return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/now">Details</a>');
 }
 
 function stops(b) {
@@ -94,14 +112,14 @@ function chart(path, index) {
   const name = state.model.milestones[path.milestone] ?? 'the next milestone';
   const key = `p${index}`;
   const edges = [...path.edges.filter((e) => depth.has(e.from) && depth.has(e.to)).map((e) => [e.from, e.to]), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}"><div class="lbl">To ${esc(name)}</div><svg class="arrows" aria-hidden="true"></svg>
+  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="--cols:${layers.length}"><svg class="arrows" aria-hidden="true"></svg>
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
-    <div class="layer"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
+    <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
 }
 function node(n, key) {
   const work = n.item && workItem(n.item);
   return `<div class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><div><span class="w">${NODE_WORD[n.state]}</span>${esc(n.text)}</div>
-    ${n.how ? `<div class="how">${esc(n.how)}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div>` : ''}${n.since ? `<div class="since">since ${esc(n.since)}</div>` : ''}</div>`;
+    ${n.how ? `<div class="how">${esc(n.how)}${n.since ? `<span class="since"> · since ${esc(n.since)}</span>` : ''}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div>` : ''}</div>`;
 }
 function cards(paths) {
   const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
@@ -123,11 +141,11 @@ function drawArrows() {
     const lines = JSON.parse(box.dataset.edges).map(([from, to]) => {
       const a = at(from), b = at(to);
       if (!a || !b) return '';
-      const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
-      const x2 = b.left + b.width / 2 - origin.left, y2 = b.top - origin.top - 2;
-      const mid = (y1 + y2) / 2;
+      const x1 = a.right - origin.left, y1 = a.top + a.height / 2 - origin.top;
+      const x2 = b.left - origin.left - 2, y2 = b.top + b.height / 2 - origin.top;
+      const mid = (x1 + x2) / 2;
       const tone = box.querySelector(`[data-node="${CSS.escape(`${box.dataset.path}:${from}`)}"]`).classList[1];
-      return `<path class="${tone}" d="M${x1} ${y1} C${x1} ${mid} ${x2} ${mid} ${x2} ${y2}" marker-end="url(#nw-head-${tone})"/>`;
+      return `<path class="${tone}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}" marker-end="url(#nw-head-${tone})"/>`;
     }).join('');
     const heads = Object.keys(NODE_WORD).map((tone) => `<marker id="nw-head-${tone}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="${tone}" d="M0 0 L10 5 L0 10 z"/></marker>`).join('');
     svg.innerHTML = `<defs>${heads}</defs>${lines}`;

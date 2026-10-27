@@ -14,6 +14,7 @@ CHECKS = (
     ("a UTC or ISO time", re.compile(r"\bUTC\b|\d{4}-\d{2}-\d{2}T\d{2}|\b\d{1,2}:\d{2}Z\b")),
     ("a raw duration", re.compile(r"\b\d{2,} h \d+ min\b")),
     ("a truncation", re.compile(r"…|\.\.\.$")),
+    ("an unnamed part", re.compile(r"\b(?:first|second|third|other) part\b|\bthe first's\b", re.I)),
 )
 
 

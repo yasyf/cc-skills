@@ -18,6 +18,7 @@ WORDS_WINDOW = dt.timedelta(hours=2)
 TROUBLE_WINDOW = dt.timedelta(hours=3)
 TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "hold", "lift"}
 SUCCESSOR = re.compile(r"-\d+$")
+PR_MENTION = re.compile(r"#(\d{4,6})\b")
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 SLOTS = {
@@ -35,7 +36,7 @@ STOP_SCHEMA = {
     "properties": {
         "state": {"enum": ["live", "progress", "next", "paused", "broken", "not"]},
         "label": {"type": "string", "description": "two to four words, such as Live, Next, Being tested, Stuck in testing, Not started"},
-        "why": {"type": "string", "description": "three to five words of reason for a paused or broken milestone, else empty"},
+        "why": {"type": "string", "description": "at most three words of reason for a paused or broken milestone, else empty"},
     },
 }
 NODE_SCHEMA = {
@@ -116,13 +117,13 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
-- Keep every string from previous_brief whose facts did not change, word for word.
+- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
 
 Fields:
 - headline: one sentence, at most 25 words, that a person could read aloud at standup: where we are, what is next, what is in the way.
 - because: up to three short sentences naming the facts the headline rests on.
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
-- progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is three to five words for paused or broken, else empty.
+- progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
 - progress.code_line: "Code: X of Y changes are merged" style, from code.by_state (landed of tracked).
 - paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most four nodes per path; merge small things. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how says how it is being unblocked and the next step; for nobody say who was told and when, and who should assign a worker (the coordinator). item names the work item fixing it.
@@ -159,6 +160,12 @@ def slot_of(path):
     return SLOTS.get(tuple(path))
 
 
+def named_changes(model):
+    states = {str(e["number"]): e for e in model["drive"]["prs"]}
+    numbers = {n for release in model["now"].get("releases", []) for n in PR_MENTION.findall(f"{release.get('state')} {release.get('blocker')}")}
+    return [{"number": n, "title": model["prs"].get(n, {}).get("title"), "state": states.get(n, {}).get("state"), "next": states.get(n, {}).get("next")} for n in sorted(numbers)]
+
+
 def digest(model, config, previous, now):
     records = model["records"]
     lanes = {r["lane"] for r in records}
@@ -175,6 +182,7 @@ def digest(model, config, previous, now):
         "milestones": [{"name": m["name"], **next((r for r in model["now"].get("releases", []) if r.get("id") == m.get("release")), {})} for m in config["milestones"]],
         "plan_steps": [{k: s.get(k) for k in ("label", "title", "state", "tone", "blocker", "next", "delivers")} | {"pull_requests": [p["number"] if isinstance(p, dict) else p for p in s.get("prs", [])][:8]} for s in model["steps"]],
         "code": {"tracked_changes": len(model["drive"]["prs"]), "by_state": states},
+        "changes_named_by_milestones": named_changes(model),
         "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
         "workers": workers,
         "recent_trouble": trouble,

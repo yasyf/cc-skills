@@ -59,3 +59,7 @@ def test_slots_cover_every_rendered_field():
     assert slot_of(("paths", 0, "nodes", 1, "item")) is None
     assert slot_of(("work", 2, "workers", 0)) is None
     assert slot_of(("progress", "stops", 3, "label")) == "line"
+
+
+def test_an_unnamed_part_fails():
+    assert violations("The first milestone's second part waits on two changes", "headline") == ["an unnamed part"]

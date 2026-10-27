@@ -599,7 +599,7 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts, #cardembed')) return;
+  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts, #cardembed, .nw-needs')) return;
   const away = () => (route().screen === 'overview' ? render() : (location.hash = '#/'));
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
