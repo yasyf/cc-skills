@@ -61,6 +61,7 @@ SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
+SKIPPED = "Warning, nothing was blocked: board_text_gate skipped a reply whose body it could not read."
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
@@ -96,8 +97,8 @@ def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, di
             yield call, values, source, piped
 
 
-def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str | None:
-    """The markdown a reply posts: its literal `--body`, or what a `--body "$(cat <<'EOF' ... EOF)"` heredoc or `--body "$(cat <file>)"` substitutes, as the shell would; None when it has no body."""
+def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str | Path | None:
+    """The markdown a reply posts: its literal `--body`, or what a `--body "$(cat <<'EOF' ... EOF)"` heredoc or `--body "$(cat <file>)"` substitutes, as the shell would; the file's path when it does not exist yet, and None when it has no body."""
     if (body := first(values, "body")) is not None:
         return body
     words = call.source.words
@@ -113,7 +114,8 @@ def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str 
     command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
     match [[word.value for word in found.source.words] for found in command.calls()] if command else []:
         case [["cat", str(path)]]:
-            return Path(str(call.cwd or evt.cwd), Path(path).expanduser()).read_text().rstrip("\n")
+            file = Path(str(call.cwd or evt.cwd), Path(path).expanduser())
+            return file.read_text().rstrip("\n") if file.exists() else file
         case _:
             return None
 
@@ -126,7 +128,7 @@ def parsed(data: bytes) -> tuple[bytes, object]:
     return data, json.loads(data)
 
 
-def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
+def published(evt: BaseHookEvent, reads: Reads, skipped: list[str]) -> list[Published]:
     if evt.tool_name == "ExitPlanMode":
         plan = CompactionState.load(evt).plan_path
         data = reads.read("the plan file", lambda: Path(plan).expanduser().read_bytes()) if plan else None
@@ -136,7 +138,10 @@ def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
         session = first(values, "session") or evt.session_id
         if first(values, "verb") == "reply":
             where = f"the reply on {first(values, 'block')}"
-            if (body := reads.read(f"the body of {where}, command {index}", lambda call=call, values=values: reply_body(evt, call, values))) is not None:
+            body = reads.read(f"the body of {where}, command {index}", lambda call=call, values=values: reply_body(evt, call, values))
+            if isinstance(body, Path):
+                skipped.append(f"{where}: its body file {body} does not exist when the hook runs, so its text went unchecked; write the file in an earlier call or pass --body inline")
+            elif body is not None:
                 found.append(as_text("reply", body.encode(), session, None, where))
             continue
         if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call, source, piped)))):
@@ -399,6 +404,7 @@ def exits(name: str, **extra: object) -> Input:
             pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
         ),
         reply("reply-4ae100d5.redraft.md"): Allow(),
+        posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped a reply[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
         posting(f"cc-present push {board('r3-titles.redraft.json')}"): Warn(pattern=r"no fidelity desk review names"),
         update("clean-card.json", minutes=90): Warn(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
         update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Warn(pattern=r"no hourly sweep pass is logged for brook"),
@@ -448,10 +454,13 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
     reads = Reads(evt, which)
-    items = published(evt, reads)
+    skipped: list[str] = []
+    items = published(evt, reads, skipped)
     problems = [problem for item in items for problem in graded(evt, reads, item)]
     reads.report("board_text_gate")
-    return evt.context(fenced(REFUSAL, problems)) if problems and not reads.failures else None
+    if problems and not reads.failures:
+        return evt.context(fenced(REFUSAL, problems))
+    return evt.context(fenced(SKIPPED, skipped)) if skipped else None
 
 
 @on(
