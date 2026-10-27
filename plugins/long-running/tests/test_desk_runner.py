@@ -269,6 +269,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "\n".join(f"worktree {path}\nHEAD 1a2b3c4\n" + (f"branch refs/heads/{branch}" if branch else "detached") + "\n" for path, branch in self.listed), "")
         if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
             return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
+        if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
+            return runner_module.Done(0, f"{self.trunk[0]['oid']}\trefs/heads/dev\n" if self.trunk else "", "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
@@ -276,7 +278,7 @@ class FakeShell(runner_module.Shell):
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in prs]), "")
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -9398,6 +9400,43 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(she
         ("incident", "root,drive-watchdog", red + "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`."),
         ("incident", "root,drive-watchdog", red + "nothing lands until #29021 fixes it."),
     ]
+
+
+def test_a_settled_trunk_is_read_from_github_again_only_once_ls_remote_shows_it_moved(shell, config, tmp_path):
+    landing = trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    landing.watch_trunk(OPEN_ROWS)
+    landing.watch_trunk(OPEN_ROWS)
+    assert len(graphql_reads(shell)) == 1
+    shell.trunk = [trunk_commit("c", "PENDING", "29020", "2026-10-01T17:55:00Z"), *shell.trunk]
+    landing.watch_trunk(OPEN_ROWS)
+    landing.watch_trunk(OPEN_ROWS)
+    assert len(graphql_reads(shell)) == 2
+    shell.clock += runner_module.TRUNK_REREAD
+    landing.watch_trunk(OPEN_ROWS)
+    assert len(graphql_reads(shell)) == 3
+
+
+def test_a_pr_body_is_read_once_per_five_minutes_across_passes(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    shell.bodies["29020"] = "first"
+    assert [landing.body("29020"), landing.body("29020")] == ["first", "first"]
+    shell.bodies["29020"] = "second"
+    shell.clock += runner_module.BODY_MAX_AGE
+    assert landing.body("29020") == "second"
+    assert len([call for call in shell.calls if call[:3] == ["gh", "pr", "view"] and call[-1] == "body"]) == 2
+
+
+def test_a_tree_the_status_read_calls_unlandable_is_not_checked_and_its_lane_hears_the_status_blocker(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    landing_pass(shell, config)
+    assert checks(shell) == []
+    assert [(post["to"], post_body(post)) for post in blockers(shell) if post["to"] != "root"] == [(LANE, "#29020 cccc333333: CI is red: buildkite/test")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "landable"}
+    landing_pass(shell, config)
+    assert len(checks(shell)) == 1
 
 
 def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
