@@ -159,7 +159,7 @@ function track(s) {
   const t = tally(s.prs);
   const ws = m.workers.filter((w) => w.live && w.step === s.id);
   const tone = ov.scrub > 0 && m.steps.indexOf(s) < ov.scrub ? 'done' : s.tone;
-  return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0" title="${esc(`${s.title}\n${s.state}${s.blocker ? `\nBlocked by ${s.blocker}` : ''}${ws.length ? `\n${plural(ws.length, 'worker')} on it now` : ''}`)}"><span class="nm">${esc(s.label)}</span><span class="sw">${TONE_SAY[tone] ?? ''}</span><span class="ct">${t.total ? `${t.landed} of ${t.total} landed` : ''}</span></div>`;
+  return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0" title="${esc(`${s.title}\n${s.state}${s.blocker ? `\nBlocked by ${s.blocker}` : ''}${ws.length ? `\n${plural(ws.length, 'worker')} on it now` : ''}`)}"><span class="nm">${esc(s.label)}</span><span class="sw">${TONE_SAY[tone] ?? ''}</span><span class="ct">${s.untracked.length ? esc(firstSentences(s.state, 40)) : t.total ? `${t.landed} of ${t.total} landed` : ''}</span></div>`;
 }
 function tracks() {
   const m = state.model;

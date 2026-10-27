@@ -460,7 +460,7 @@ function render() {
   const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
   const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
