@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:dd97bb690579 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:c556d55d1bc0 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -611,24 +611,33 @@ function nameBatch(){
   render();
  }).catch(()=>{}).finally(nameBatch);
 }
-const PLAIN={name:"plain",schema:{type:"object",additionalProperties:false,required:["lines"],properties:{lines:{type:"array",items:{type:"object",additionalProperties:false,required:["id","line"],properties:{id:{type:"integer"},line:{type:"string"}}}}}}};
-const plainKey=(seq,about)=>`drive-assist:plain:${seq}:${about??""}`;
-const plainWanted=new Map(),plainAsked=new Set();
-function plainWord(record,about){
- const key=plainKey(record.seq,about);
- const hit=localStorage.getItem(key);
+const PLAIN={name:"plain",schema:{type:"object",additionalProperties:false,required:["lines"],properties:{lines:{type:"array",items:{type:"object",additionalProperties:false,required:["seq","line"],properties:{seq:{type:"integer"},line:{type:"string"}}}}}}};
+const plainKey=seq=>`drive-assist:plain:${seq}`;
+const plainWanted=new Set(),plainAsked=new Set();
+function plainWord(record){
+ const hit=localStorage.getItem(plainKey(record.seq));
  if(hit)return hit;
- if(AI.key&&!plainAsked.has(key)){plainWanted.set(key,{record,about});if(plainWanted.size===1)queueMicrotask(plainBatch)}
+ if(AI.key&&!plainAsked.has(record.seq)){plainWanted.add(record);if(plainWanted.size===1)queueMicrotask(plainBatch)}
  return null;
 }
 function plainBatch(){
  const batch=[...plainWanted].slice(0,20);
- batch.forEach(([key])=>{plainWanted.delete(key);plainAsked.add(key)});
+ batch.forEach(r=>{plainWanted.delete(r);plainAsked.add(r.seq)});
  if(!batch.length)return;
- aiOnce(compose(`Rewrite each worker record as one plain sentence of at most 28 words for the owner. When a line names a pull request after "about", say only what the record means for that pull request: what happened to it and what happens next or who must act. Otherwise say what happened and what is next. Use words a person using the product understands and keep pull request numbers as #NNNNN. No commit hashes, record numbers, lane names, branch names or tool names. Never invent a time, an owner or a next step the record does not give.\n\n${batch.map(([,{record,about}],i)=>`${i} | ${about?`about #${about} | `:""}${clock(record.at)} | ${record.kind} | ${short(record.text,600)}`).join("\n")}`),{schema:PLAIN}).then(out=>{
-  out.lines.filter(x=>batch[x.id]).forEach(x=>localStorage.setItem(batch[x.id][0],x.line.trim()));
+ aiOnce(compose(`Rewrite each worker record as one plain sentence of at most 28 words for the owner: what happened, in words a person using the product understands, then what happens next or who must act. Keep pull request numbers as #NNNNN. No commit hashes, record numbers, lane names, branch names or tool names. Never invent a time, an owner or a next step the record does not give.\n\n${batch.map(r=>`${r.seq} | ${clock(r.at)} | ${r.kind} | ${short(r.text,600)}`).join("\n")}`),{schema:PLAIN}).then(out=>{
+  out.lines.filter(x=>batch.some(r=>r.seq===x.seq)).forEach(x=>localStorage.setItem(plainKey(x.seq),x.line.trim()));
   render();
  }).catch(()=>{}).finally(plainBatch);
+}
+const statusAsked=new Set();
+function prStatus(n,key,facts){
+ const hit=localStorage.getItem(key);
+ if(hit)return hit;
+ if(AI.key&&!statusAsked.has(key)){
+  statusAsked.add(key);
+  aiOnce(compose(`In at most 40 plain words, say where pull request #${n} stands and what happens next or who must act, using only these facts about it. Lead with its state exactly as given. If its tests fail, name what fails when the facts say. Never say nothing is needed unless it has landed. No commit hashes, record numbers, lane names or tool names.\n\n${facts}`)).then(t=>{localStorage.setItem(key,t.trim());render()}).catch(()=>{});
+ }
+ return null;
 }
 function entries(){
  const m=state.model;
@@ -757,6 +766,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("hashchange",closePal);
 try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
-Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord,prStatus});
 })();
 </script>

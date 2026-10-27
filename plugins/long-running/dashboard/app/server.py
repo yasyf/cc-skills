@@ -36,6 +36,7 @@ PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
+UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
 HELD = re.compile(r"^hold", re.I)
 WAITS = re.compile(r"^(waits? on|blocked)", re.I)
@@ -223,8 +224,14 @@ def release_path(releases):
 def with_conflicts(rows, prs):
     def blocker(row):
         board = row.get("blocker") or ""
-        return CONFLICT if not board or re.match(r"nothing", board, re.I) else f"{CONFLICT} It also waits on: {board}"
-    return [{**row, "blocker": blocker(row)} if prs.get(str(row["number"]), {}).get("mergeable_state") == "dirty" else row for row in rows]
+        merge = prs.get(str(row["number"]), {}).get("mergeable_state")
+        clear = not board or re.match(r"nothing", board, re.I)
+        if merge == "dirty":
+            return CONFLICT if clear else f"{CONFLICT} It also waits on: {board}"
+        if merge == "unknown" and clear:
+            return f"{UNCHECKED} The merge board said: {board}"
+        return board
+    return [{**row, "blocker": blocker(row)} for row in rows]
 
 
 def merge_needs(rows, board_url):

@@ -222,7 +222,7 @@ function cta(item) {
     const stuck = r.blocker && !/^nothing/i.test(r.blocker) ? `<span class="stuck">⚠ ${esc(firstSentences(r.blocker, 80))}</span>` : '';
     return shell('★', stuck ? 'Your tap, then it still waits' : 'Tap to merge', `#${r.number} ${esc(shortName(r.number) ?? r.title)}`, `${stuck}${meta}`, acts);
   }
-  if (item.kind === 'prs') return shell('★', `${item.prs.length} pull requests need your approval`, esc(item.group ?? 'Review them together'), meta, `<a class="btn" href="#/review/${item.prs[0].number}">Review ${item.prs.length} ›</a>`);
+  if (item.kind === 'prs') return shell('★', `${item.prs.length} pull requests need your approval`, esc(item.group ?? 'Review them together'), meta, `<a class="btn" href="#/now">Review ${item.prs.length} ›</a>`);
   if (item.kind === 'card') {
     const c = item.card;
     const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
@@ -343,19 +343,21 @@ function prFacts(n) {
   const pr = m.prs[n] ?? {};
   const step = m.steps.find((s) => s.id === e.step);
   const part = m.parts.find((p) => p.key === e.part);
-  const lane = e.worker?.lane ?? m.workers.find((w) => w.prs.includes(Number(n)))?.lane;
-  const w = m.workers.find((x) => x.lane === lane);
+  const owner = ownerOf(n);
+  const w = m.workers.find((x) => x.lane === owner);
   const row = boardRow(n);
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
   const word = latestOn(n);
+  const status = statusOf(n);
+  const ownerAt = m.records.filter((r) => r.lane === owner).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null)?.at;
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
     <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
-    <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
-    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260, n)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>`;
+    <dt>Who is on it</dt><dd>${owner ? `<button class="linkish" data-worker="${esc(owner)}">${esc(owner)}</button>, ${w?.live ? 'working now' : `last word ${agoWords(ownerAt ?? pr.last_refresh)}`}` : 'No worker named'}</dd>
+    ${word || status ? `<dt>Where it stands, what is next</dt><dd>${status ? inline(status) : said(word, 260)}${word ? ` <small class="dim">from ${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</dd>` : ''}</dl>`;
 }
 function prSheet() {
   const m = state.model;
@@ -484,17 +486,37 @@ function shortShas(text) {
 function ownerOf(n) {
   return driveEntry(n)?.worker?.lane ?? state.model.prs[n]?.lane;
 }
-function latestOn(n) {
+function recordsOn(n) {
   const lanes = [ownerOf(n), state.model.prs[n]?.lane];
-  return state.model.records.filter((r) => r.topic === String(n) || (lanes.includes(r.lane) && r.text.includes(`#${n}`))).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
+  return state.model.records.filter((r) => r.topic === String(n) || (/#(\d{5})/.exec(r.text)?.[1] === String(n) && (lanes.includes(r.lane) || ['go', 'landed', 'blocker', 'hold', 'lift'].includes(r.kind)))).sort((a, b) => b.seq - a.seq);
 }
-function said(r, max, about) {
-  return inline(plainWord(r, about) ?? firstSentences(shortShas(r.text), max));
+function latestOn(n) {
+  return recordsOn(n)[0] ?? null;
+}
+function statusOf(n) {
+  const m = state.model;
+  const pr = m.prs[n] ?? {};
+  const row = boardRow(n);
+  const recs = recordsOn(n).slice(0, 4);
+  const facts = [
+    `State: ${STATE_WORD[prState(n)]}${pr.landed_at ? `, landed ${clock(pr.landed_at)}` : ''}`,
+    `What it changes: ${shortName(n) ?? plainTitle(n)}`,
+    row?.blocker && `What blocks it: ${row.blocker}`,
+    pr.mergeable_state === 'dirty' && 'It conflicts with its base',
+    pr.test_state && `Its own tests: ${pr.test_state}`,
+    ownerOf(n) && `Worker: ${ownerOf(n)}`,
+    ...recs.map((r) => `${clock(r.at)} ${r.kind}: ${firstSentences(shortShas(r.text), 400)}`),
+  ].filter(Boolean).join('\n');
+  return prStatus(n, `drive-assist:status:${n}:${(pr.head ?? '').slice(0, 7)}:${prState(n)}:${recs[0]?.seq ?? ''}`, facts);
+}
+function said(r, max) {
+  return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));
 }
 function ownerLine(n) {
   const lane = ownerOf(n);
   const r = latestOn(n);
-  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker on it'}${r ? `: ${said(r, 160, n)} <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
+  const status = statusOf(n);
+  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker named'}${status ? `: ${inline(status)}` : r ? `: ${said(r, 160)}` : ''}${r ? ` <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
 }
 function redWhy(n) {
   const r = state.model.records.filter((x) => x.kind === 'blocker' && x.text.includes(`#${n} `)).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
@@ -513,12 +535,15 @@ function releaseSheet() {
   const r = rels[i];
   const next = rels.findIndex((x) => !RELEASED.test(x.state));
   const parts = r.parts.map((k) => m.parts.find((p) => p.key === k)).filter(Boolean);
-  const blocking = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))];
+  const named = [...new Set([...r.state.matchAll(/#(\d{5})\b/g)].map((x) => Number(x[1])))];
+  const blocking = named.filter((n) => prState(n) !== 'landed');
+  const cleared = named.filter((n) => prState(n) === 'landed');
   const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0] && !blocking.includes(e.number));
   const row = (n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) }, ownerLine(n));
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
-    <p class="relnow">${inline(r.state)}</p>
-    ${blocking.length ? `<h4 class="sc-h">What it waits on</h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
+    ${blocking.length ? `<h4 class="sc-h">What it waits on <span>${blocking.length}</span></h4><ul class="prlist">${blocking.map(row).join('')}</ul>` : ''}
+    ${cleared.length ? `<p class="dim">Already landed: ${cleared.map(prLink).join(', ')}</p>` : ''}
+    <details class="relstate" data-id="rel-state-${esc(r.id)}"${state.open.has(`rel-state-${r.id}`) ? ' open' : ''}><summary>${inline(firstSentences(r.state, 140))}</summary><p class="relnow">${inline(r.state)}</p></details>
     <dl class="facts"><dt>What reaches people</dt><dd>${esc(planRows().find(([n]) => `R${n}` === r.id)?.[2] ?? '')}</dd><dt>Parts it ships</dt><dd>${parts.map((p) => esc(p.name)).join(' · ')}</dd></dl>
     ${open.length ? `<details data-id="rel-open-${esc(r.id)}"${state.open.has(`rel-open-${r.id}`) ? ' open' : ''}><summary class="sc-h">Other new-app pull requests open in these parts <span>${open.length}</span></summary><ul class="prlist">${[...open].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => prRow(p)).join('')}</ul></details>` : ''}
     <p><button class="linkish" data-plan>Open the full release plan ›</button></p></div></div>`;

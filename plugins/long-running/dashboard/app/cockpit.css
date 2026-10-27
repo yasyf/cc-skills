@@ -426,7 +426,7 @@ body:has(.ck) { background: #080a0d; }
   .ck .gate .gb { flex: 0 0 30px; flex-direction: column; padding: 10px 0; }
   .ck .gate .gb b, .ck .gate .gb small { writing-mode: vertical-rl; transform: rotate(180deg); }
   .ck .gate .trunk { display: block; position: absolute; left: 43px; right: 0; top: 50%; height: 3px; background: var(--g-c); box-shadow: 0 0 10px var(--g-c); }
-  .ck .body .hero { display: flex; flex-direction: column; justify-content: center; }
+  .ck .body .hero { display: flex; flex-direction: column; justify-content: flex-start; align-self: start; position: sticky; top: 12px; }
   .ck .body .machines { flex-direction: column; }
   .ck .body .cloud { order: 0; } .ck .body .link { order: 1; } .ck .body .mac { order: 2; }
   .ck .body .link { width: auto; height: 104px; flex-direction: row; }
@@ -593,3 +593,15 @@ body:has(.ck.ov) .top .tabs { display: none; }
 .ck .wstep { margin-top: 12px; }
 .ck .wstep-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
 .ck .wstep-h .tdots { display: flex; flex-wrap: wrap; gap: 3px; --d: 8px; }
+.relstate { margin: 10px 0; font-size: 13.5px; color: var(--ink2, #9aa3b0); } .relstate summary { cursor: pointer; }
+@media (max-width: 759px) {
+  .ck .left { display: flex; flex-direction: column; gap: 12px; }
+  .ck .left .tracks { order: -1; }
+  .ck .tn-oldapp, .ck .tn-facts > span:nth-child(3) small { display: none; }
+  .ck .tonight { gap: 4px 10px; }
+  .ck .dock { flex-wrap: nowrap; gap: 6px; }
+  .ck .dock .cta { flex: 1 1 auto; min-width: 0; }
+  .ck .dock .dbtns { flex: 0 0 auto; flex-direction: column; gap: 6px; }
+  .ck .dbtn { width: 64px; height: 30px; font-size: 12px; }
+  .wrap:has(> .ck) { padding-bottom: 120px; }
+}

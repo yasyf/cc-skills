@@ -79,7 +79,7 @@ function factTiles(row) {
     ['plan', 'Plan', /^matches/i.test(row.plan) ? 'Matches' : clip(row.plan), /^matches/i.test(row.plan) ? 'ok' : 'warn', row.plan],
     ['risk', 'Risk', clip(row.risk), /^low/i.test(row.risk) ? 'ok' : /^high/i.test(row.risk) ? 'bad' : 'warn', row.risk],
     ['review', 'Review and CI', tests === 'success' ? 'Tests pass' : tests === 'failure' ? 'Tests failing' : tests === 'pending' ? 'Tests running' : clip(row.review), tests === 'failure' || /fail|red/i.test(row.review) ? 'bad' : tests === 'pending' ? 'warn' : 'ok', row.review],
-    ['blocker', 'Blocks landing', /^nothing/i.test(row.blocker) ? 'Nothing' : clip(row.blocker), /^nothing/i.test(row.blocker) ? 'ok' : 'bad', row.blocker],
+    ['blocker', 'Blocks landing', /^nothing/i.test(row.blocker) ? 'Nothing' : clip(row.blocker), /^nothing/i.test(row.blocker) ? 'ok' : /^GitHub has not/.test(row.blocker) ? 'warn' : 'bad', row.blocker],
   ];
   if (row.carried?.length) tiles.push(['carried', 'Earlier tap', `Carries from ${row.carried[0].slice(0, 7)}`, 'ok', `Your verdict at ${row.carried.map((h) => h.slice(0, 7)).join(', ')} still stands for this commit.`]);
   return tiles;
