@@ -62,8 +62,8 @@ GREEN_EXCEPT_REFUSAL = (
 )
 TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix}. "
 HAND_ENQUEUE_WARNING = (
-    "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them:\n{lines}\n"
-    "Clear each line before you enqueue, with a finder or old-app grade naming the head, a fidelity ok, or the owner's go."
+    "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them: {lines}. "
+    "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
@@ -316,7 +316,7 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     if not gates or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
         return None
     runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
-    lines = "\n".join(done.stdout.strip() for done in runs if done is not None and done.returncode == 1 and done.stdout.strip())
+    lines = "; ".join(line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip())
     return evt.context(HAND_ENQUEUE_WARNING.format(lines=lines)) if lines else None
 
 
