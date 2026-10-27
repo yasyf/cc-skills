@@ -8959,6 +8959,7 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(she
     landing.watch_trunk(OPEN_ROWS)
     landing.watch_trunk(OPEN_ROWS)
     shell.clock += timedelta(minutes=30)
+    bus_trunk(shell, "desk-runner", "incident", trunk_posts(shell)[0][2])
     bus_trunk(shell, "fix-dev", "opened", "opened #29021", pr="29021")
     landing.watch_trunk(OPEN_ROWS)
 
