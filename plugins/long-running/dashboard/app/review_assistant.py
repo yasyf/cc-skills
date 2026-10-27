@@ -11,6 +11,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"
 WATCH_BACKOFF = 30
+ATTACH_FOR = 20 * 60
 SERVED = {"ai.request.created", "comment.created"}
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 
@@ -33,6 +34,7 @@ class ReviewAssistant:
         self.model_url = model_url
         self.lock = threading.Lock()
         self.queues = {}
+        self.watching = {}
         self.seen = set()
         self.urls = {}
         self.closed = set()
@@ -48,13 +50,15 @@ class ReviewAssistant:
 
     def attach(self, number):
         with self.lock:
-            if number in self.queues:
-                return
-            self.queues[number] = queue.Queue()
-        threading.Thread(target=self.watch, args=(number,), daemon=True).start()
-        threading.Thread(target=self.serve, args=(number,), daemon=True).start()
+            watching = number in self.watching
+            self.watching[number] = time.monotonic() + ATTACH_FOR
+            if number not in self.queues:
+                self.queues[number] = queue.Queue()
+                threading.Thread(target=self.serve, args=(number,), daemon=True).start()
+        if not watching:
+            threading.Thread(target=self.watch, args=(number,), daemon=True).start()
 
-    def review_url(self, number, head, landed):
+    def review_url(self, number, head, landed, viewing=True):
         with self.lock:
             starting = self.starting.setdefault(number, threading.Lock())
         with starting:
@@ -67,14 +71,11 @@ class ReviewAssistant:
             if landed and url not in self.closed:
                 subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
                 self.closed.add(url)
-            if not landed:
+            if viewing and not landed:
                 self.attach(number)
             return url
 
-    def refresh(self, prs, waiting):
-        for path in (self.reviews / "assisted").iterdir():
-            if path.name.isdigit() and prs.get(path.name, {}).get("state") == "open":
-                self.attach(int(path.name))
+    def refresh(self, waiting):
         for number, head in waiting:
             if (number, head) not in self.urls:
                 self.warming.put((number, head))
@@ -85,18 +86,30 @@ class ReviewAssistant:
             if (number, head) in self.urls:
                 continue
             try:
-                self.review_url(number, head, False)
+                self.review_url(number, head, False, viewing=False)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
                 with (self.reviews / "warm.log").open("a") as log:
                     log.write(f"#{number} at {head}: {failure.stderr}\n")
 
     def watch(self, number):
         while True:
+            with self.lock:
+                if time.monotonic() >= self.watching[number]:
+                    del self.watching[number]
+                    return
             stream = subprocess.Popen(["cc-review", "watch", "--session", self.session(number), "--cwd", str(self.scope(number))], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-            for line in stream.stdout:
-                self.offer(number, json.loads(line))
-            stream.wait()
-            time.sleep(WATCH_BACKOFF)
+            threading.Thread(target=self.relay, args=(number, stream), daemon=True).start()
+            while stream.poll() is None and time.monotonic() < self.watching[number]:
+                time.sleep(5)
+            if stream.poll() is None:
+                stream.terminate()
+                stream.wait()
+            else:
+                time.sleep(WATCH_BACKOFF)
+
+    def relay(self, number, stream):
+        for line in stream.stdout:
+            self.offer(number, json.loads(line))
 
     def offer(self, number, event):
         if event.get("type") not in SERVED:

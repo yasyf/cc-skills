@@ -286,7 +286,7 @@ class Drive:
                 self.dirty_at = 0.0
             try:
                 model = self.build(refresh_slow=stale)
-                self.assistant.refresh(model["prs"], [(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
+                self.assistant.refresh([(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
             except Exception as error:
                 failure = f"{type(error).__name__}: {error}"
                 if self.errors.get("build") != failure:

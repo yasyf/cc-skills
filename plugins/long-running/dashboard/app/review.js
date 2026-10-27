@@ -197,3 +197,7 @@ window.addEventListener('message', (e) => {
   const frame = $('#embed .verdict iframe');
   if (frame && e.source === frame.contentWindow) frame.style.height = `${e.data.px}px`;
 });
+setInterval(() => {
+  const r = route();
+  if (r.screen === 'review' && embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
+}, 5 * 60 * 1000);
