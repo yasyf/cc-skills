@@ -46,6 +46,11 @@ TRUNK_BUILDS=$(dirname "$STATE")/trunk-builds
 HOLD_LIST=${RED_SWEEP_HOLD_LIST:-}
 AGE_MINUTES=${RED_SWEEP_AGE_MINUTES:-20}
 INTERVAL=${RED_SWEEP_INTERVAL:-600}
+export CCX_CALLER=red-sweep
+
+gh_read() {
+  ccx vcs gh --max-age 5m -- "$@"
+}
 
 mkdir -p "$(dirname "$STATE")" "$TRUNK_BUILDS"
 touch "$STATE"
@@ -65,7 +70,7 @@ trunk_failed_steps() {
 }
 
 dev_red() {
-  urls=$(gh api "repos/$REPO/commits/$1/status" --jq '.statuses[] | select(.state == "failure") | .target_url // ""' | sort -u) || return 1
+  urls=$(gh_read api "repos/$REPO/commits/$1/status" --jq '.statuses[] | select(.state == "failure") | .target_url // ""' | sort -u) || return 1
   [ -n "$urls" ] || return 1
   ! printf '%s\n' "$urls" | grep -qv '^https://buildkite\.com/[^/]*/[^/]*/builds/[0-9]' || return 1
   steps=
@@ -87,12 +92,12 @@ check_one() {
   n=$1
   held "$n" && return 0
 
-  pull=$(gh api "repos/$REPO/pulls/$n" --jq '"\(.head.sha)\t\(.mergeable_state)\t\(.updated_at)\t\(.title)"') || return 0
+  pull=$(gh_read api "repos/$REPO/pulls/$n" --jq '"\(.head.sha)\t\(.mergeable_state)\t\(.updated_at)\t\(.title)"') || return 0
   IFS=$(printf '\t') read -r sha state updated title <<EOF
 $pull
 EOF
 
-  status=$(gh api "repos/$REPO/commits/$sha/status" --jq '.state' 2>/dev/null) || status=unknown
+  status=$(gh_read api "repos/$REPO/commits/$sha/status" --jq '.state' 2>/dev/null) || status=unknown
   case "$status/$state" in
     failure/* | */dirty | */unstable | */blocked) ;;
     *) return 0 ;;

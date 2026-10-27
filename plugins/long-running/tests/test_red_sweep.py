@@ -22,6 +22,11 @@ if not os.path.exists(path):
 sys.stdout.write(subprocess.run(["jq", "-r", jq], stdin=open(path), capture_output=True, text=True, check=True).stdout)
 """
 
+CCX = """#!/usr/bin/env python3
+import os, sys
+os.execvp("gh", ["gh", *sys.argv[sys.argv.index("--") + 1 :]])
+"""
+
 BK = """#!/usr/bin/env python3
 import os, re, sys
 state = os.environ["FAKE_STATE"]
@@ -54,7 +59,7 @@ class Forge:
         self.state.mkdir()
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for tool, body in {"gh": GH, "bk": BK, "sleep": SLEEP}.items():
+        for tool, body in {"gh": GH, "ccx": CCX, "bk": BK, "sleep": SLEEP}.items():
             (bin_dir / tool).write_text(body)
             (bin_dir / tool).chmod(0o755)
         self.list = root / "list"

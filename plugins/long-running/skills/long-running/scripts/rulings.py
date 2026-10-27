@@ -98,6 +98,7 @@ from zoneinfo import ZoneInfo
 
 import cci
 import drive
+import ghread
 import testfiles
 import ledger
 
@@ -818,7 +819,7 @@ def root_slice(loaded: Register) -> str:
 
 
 def compare(shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
-    return parse_diff(shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences"]))
+    return parse_diff(shell.run(ghread.read("api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA, "--allow-escape-sequences")))
 
 
 def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
@@ -827,7 +828,7 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
         return compare(shell, repo, base, head)
     git = ["git", "-C", checkout]
     if not FULL_SHA.fullmatch(head):
-        head = shell.run(["gh", "api", f"repos/{repo}/commits/{head}", "--jq", ".sha"]).strip()
+        head = shell.run(ghread.read("api", f"repos/{repo}/commits/{head}", "--jq", ".sha")).strip()
     pinned = f"refs/rulings/{head}-{os.getpid()}"
     shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
     try:
@@ -1446,7 +1447,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if not (args.pr and args.head):
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
-        base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+        base = args.base or json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
         sys.stdout.write(required_slice(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
     elif args.root:
         sys.stdout.write(root_slice(loaded))
@@ -1575,8 +1576,8 @@ def date_of(fields: dict[str, str]) -> str:
 
 def base_of(shell: ledger.Shell, repo: str, number: str | None) -> str:
     if number:
-        return json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
-    return json.loads(shell.run(["gh", "api", f"repos/{repo}"]))["default_branch"]
+        return json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
+    return json.loads(shell.run(ghread.read("api", f"repos/{repo}")))["default_branch"]
 
 
 def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -2209,7 +2210,7 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     findings = Findings([], [])
     repo, number = pull(args, shell)
     loaded = findings.read("the register", lambda: Register.load(args, shell, drive_checkout(args)))
-    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "body,baseRefName,comments"])))
+    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "body,baseRefName,comments"))))
     diff = findings.read(f"the diff of {repo}#{number}", lambda: pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)) if view else None
     if loaded and view and diff:
         comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])
@@ -2314,7 +2315,7 @@ def grade_lines(head7: str, rows: list[tuple[str, dict[str, str]]], misses: list
 def cmd_grade(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     repo, number = pull(args, shell)
-    base = args.base or json.loads(shell.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName"]))["baseRefName"]
+    base = args.base or json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
     diff = pr_diff(args, shell, repo, base, args.head)
     plan_file = plan_path(args, loaded)
     plan = plan_file.read_text().splitlines() if plan_file and plan_file.is_file() else None

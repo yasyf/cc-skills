@@ -12,6 +12,7 @@ from pathlib import Path
 import ledger
 import pytest
 import rulings
+from conftest import gateway
 
 REPO = "/repo"
 REGISTER_ID = "0cf17c9" + "0" * 33
@@ -368,6 +369,7 @@ class RegisterShell(ledger.Shell):
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        argv = gateway(argv)
         self.calls.append(argv)
         match argv:
             case ["ccn", "-R", "/repo", "ledger", "list", "--label", "register", "--label", label, "--json"]:
@@ -1300,7 +1302,7 @@ def test_the_required_slice_prints_every_global_pending_and_touched_row_with_its
 
 class SiblingBase(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        match argv:
+        match gateway(argv):
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "baseRefName"]:
                 return json.dumps({"baseRefName": "lane-b"})
             case ["gh", "api", "repos/acme/app/compare/lane-b...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
@@ -1332,7 +1334,7 @@ FIXTURES_DIFF = (
 
 class LargeDiff(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        match argv:
+        match gateway(argv):
             case ["gh", "api", path, "-H", _, "--allow-escape-sequences"] if "/compare/" in path:
                 raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
             case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"refs/rulings/{FULL_HEAD}-{os.getpid()}...{FULL_HEAD}":

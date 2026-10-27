@@ -331,8 +331,12 @@ which merge mode settles, is a warning, one `note` record per head and set of ca
 prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
-`STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Each pass starts with one free `rate_limit` read of the GitHub App
-installation's quotas through `ccx vcs gh`. With the REST or GraphQL quota under 5% of its limit, the pass reads nothing from GitHub and
+`STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Every GitHub read goes through
+`ccx vcs gh --max-age 5m`, which answers a read made in the last five minutes from ccx's machine-wide cache; the incident squash's
+precondition reads pass `--max-age 0s`, and the trunk's tip is read with `git ls-remote`. Each pass starts with one `ccx vcs auth status --json`
+read of every GitHub quota, the user's and the GitHub App installation's, REST and GraphQL. Any quota with under 1500 calls left posts
+one `urgent` `GITHUB-QUOTA-LOW` to root per reset, naming the calls left, the reset and the five callers that spent the most. With a
+quota of the identity the desk reads through under ccx's 1000-call floor, the pass reads nothing from GitHub and
 logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; accepted enqueues stay accepted and root `go` records
 stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails in a landing pass
 ends that pass before it gates or enqueues further; it logs `CCI-TAIL-FAILED` and the runner keeps running.
@@ -491,6 +495,7 @@ from zoneinfo import ZoneInfo
 import actions
 import cci
 import drive
+import ghread
 import holds
 import inboxes
 import lanes
@@ -518,7 +523,7 @@ RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -649,8 +654,10 @@ TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
-QUOTA_FLOOR = 0.05
+QUOTA_FLOOR = 1000
 QUOTA_RESOURCES = ("core", "graphql")
+QUOTA_URGENT = 1500
+TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 HEARTBEATS = drive.HEARTBEATS
 WATCHDOG = "drive-watchdog"
@@ -813,8 +820,8 @@ def time_bound(argv: list[str]) -> float:
 
 
 def command_family(argv: list[str]) -> str:
-    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--check` when it carries one: what a pass's cost line groups by."""
-    words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
+    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--check` when it carries one: what a pass's cost line groups by. A read through ccx's gateway groups as the `gh` command it runs."""
+    words = argv[1:] if Path(argv[0]).name.startswith("python") else ghread.gh_args(argv)
     verbs: list[str] = []
     for word in words[1:]:
         if word.startswith("-") or "/" in word or word.isdigit():
@@ -3971,9 +3978,37 @@ def heads_query(repo: str, shas: list[str]) -> str:
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
-def trunk_query(repo: str) -> str:
+@dataclass(frozen=True)
+class Pool:
+    name: str
+    limit: int
+    remaining: int
+    reset: datetime
+    callers: list[dict]
+
+    @property
+    def key(self) -> str:
+        return f"{self.name.replace(' ', '-')}:{int(self.reset.timestamp())}"
+
+
+def quota_pools(*identities: dict) -> list[Pool]:
+    """Each REST and GraphQL quota of `identities` once, named by its identity and resource, its callers heaviest first; the user's identity reads and writes alike when no app is installed. The search quota, 30 calls a minute, is no budget the drive spends."""
+    pools = {
+        f"{pool['identity']} {pool['resource']}": Pool(f"{pool['identity']} {pool['resource']}", pool["limit"], pool["remaining"], datetime.fromisoformat(pool["resetAt"]), pool["callers"])
+        for identity in identities
+        for pool in identity["pools"]
+        if pool["resource"] in QUOTA_RESOURCES
+    }
+    return list(pools.values())
+
+
+def kitchen(moment: datetime) -> str:
+    return moment.astimezone(PACIFIC).strftime("%-I:%M %p")
+
+
+def trunk_query(repo: str, tip: str) -> str:
     owner, name = repo.split("/")
-    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ ref(qualifiedName: "refs/heads/{TRUNK}") {{ target {{ ... on Commit {{ history(first: {TRUNK_DEPTH}) {{ nodes {{ oid committedDate message status {{ contexts {{ context state targetUrl }} }} }} }} }} }} }} }} }}'
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ object(expression: "{tip}") {{ ... on Commit {{ history(first: {TRUNK_DEPTH}) {{ nodes {{ oid committedDate message status {{ contexts {{ context state targetUrl }} }} }} }} }} }} }} }}'
 
 
 @dataclass(frozen=True)
@@ -4452,7 +4487,7 @@ class Landing:
         now = self.runner.now()
         if (kept := self.bodies.get(pr)) and now - kept[0] < max_age:
             return kept[1]
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "body", max_age=ghread.CACHED if max_age else ghread.FRESH))
         if done.code != 0:
             return None
         self.bodies[pr] = (now, json.loads(done.out)["body"] or "")
@@ -4575,7 +4610,7 @@ class Landing:
         """Each Buildkite build GitHub's combined status names at `sha`, read again once the copy kept across passes is `BODY_MAX_AGE` old, so a head waiting on its proof costs one status read per interval, not per pass (root #146561): its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
         now = self.runner.now()
         if not (kept := self.builds_read.get(sha)) or now - kept[0] >= BODY_MAX_AGE:
-            done = self.shell.run(["gh", "api", f"repos/{self.repo}/commits/{sha}/status"])
+            done = self.shell.run(ghread.read("api", f"repos/{self.repo}/commits/{sha}/status"))
             if done.code != 0:
                 return None
             statuses = json.loads(done.out)["statuses"]
@@ -4621,10 +4656,12 @@ class Landing:
         listed = self.shell.run(["git", "-C", str(self.checkout), "ls-remote", "origin", f"refs/heads/{TRUNK}"])
         head = listed.out.split()[0] if listed.code == 0 and listed.out.strip() else ""
         now = self.runner.now()
-        if head and (kept := self.trunk_read) and kept[0] == head and (kept[2] or now - kept[1] < TRUNK_REREAD):
+        if not head:
+            return None, (((listed.err or listed.out).strip().splitlines()[-1:] or [f"exit {listed.code}"])[0] if listed.code else f"GitHub knows no {TRUNK} branch in {self.repo}")
+        if (kept := self.trunk_read) and kept[0] == head and (kept[2] or now - kept[1] < TRUNK_REREAD):
             return kept[3], ""
-        done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
-        target = (json.loads(done.out)["data"]["repository"]["ref"] or {}).get("target") if done.code == 0 else None
+        done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={trunk_query(self.repo, head)}"), env={"GH_REPO": self.repo})
+        target = json.loads(done.out)["data"]["repository"]["object"] if done.code == 0 else None
         if not target:
             return None, (((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"])[0] if done.code else f"GitHub knows no {TRUNK} branch in {self.repo}")
         newest = (target["history"]["nodes"] or [{}])[0]
@@ -4676,7 +4713,7 @@ class Landing:
         return found
 
     def contains(self, head: str, sha: str) -> bool:
-        done = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"])
+        done = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"))
         return done.code == 0 and done.out.strip() in ("ahead", "identical")
 
     def deferred_child(self, pr: str) -> dict | None:
@@ -4736,7 +4773,7 @@ class Landing:
     def own_commits(self, pr: str, sha: str) -> int:
         """How many commits `pr` carries at its head `sha`, from GitHub's read of the PR, kept per head once it reads; 0 when GitHub refuses it, and the next use reads again."""
         if (pr, sha) not in self.commit_counts:
-            done = self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".commits"])
+            done = self.shell.run(ghread.read("api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".commits"))
             if done.code != 0 or not done.out.strip().isdigit():
                 return 0
             self.commit_counts[(pr, sha)] = int(done.out)
@@ -4747,7 +4784,7 @@ class Landing:
         if (commits, sha) in self.patch_ids:
             return self.patch_ids[(commits, sha)]
         span = f"{sha}~{commits}...{sha}"
-        diff = self.shell.run(["gh", "api", f"repos/{self.repo}/compare/{span}", "-H", DIFF_MEDIA, ALLOW_ESCAPES])
+        diff = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{span}", "-H", DIFF_MEDIA, ALLOW_ESCAPES))
         if diff.code != 0:
             if escalate and not self.read_only:
                 last = (diff.err or diff.out).strip().splitlines()[-1:] or [f"exit {diff.code}"]
@@ -4771,7 +4808,7 @@ class Landing:
         due = sorted(set(heads) - set(found))
         for start in range(0, len(due), HEADS_PER_QUERY):
             batch = due[start : start + HEADS_PER_QUERY]
-            done = self.shell.run(["gh", "api", "graphql", "-f", f"query={heads_query(self.repo, batch)}"])
+            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={heads_query(self.repo, batch)}"), env={"GH_REPO": self.repo})
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
             commits = json.loads(done.out)["data"]["repository"] if done.code == 0 else {}
             now = self.runner.now()
@@ -4796,21 +4833,24 @@ class Landing:
         self.unread = {}
 
     def quota_low(self) -> bool:
-        """Whether the REST or GraphQL quota of the installation this desk reads GitHub through is under `QUOTA_FLOOR` of its limit, from one `rate_limit` read GitHub does not count. Each quota under the floor logs one `GITHUB-BACKOFF` per reset; a read that fails logs one `QUOTA-READ-FAILED` per hour and reads as not low."""
-        done = self.shell.run(["ccx", "vcs", "gh", "--", "api", "rate_limit"], env={"GH_REPO": self.repo})
+        """Whether a quota of the identity this desk reads GitHub through is under ccx's `QUOTA_FLOOR`, from one `ccx vcs auth status --json` read. Every quota, the user's or the app's, REST or GraphQL, under `QUOTA_URGENT` calls left posts one urgent `GITHUB-QUOTA-LOW` per reset naming its `TOP_CALLERS` heaviest callers; each read quota under the floor logs one `GITHUB-BACKOFF` per reset; a read that fails logs one `QUOTA-READ-FAILED` per hour and reads as not low."""
+        done = self.shell.run(["ccx", "vcs", "auth", "status", self.repo, "--json"])
         if done.code != 0:
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
             self.runner.escalate(f"quota-read:{self.runner.now():%Y%m%d%H}", "QUOTA-READ-FAILED", "landing", f"the GitHub quota read failed: {last[0]}; the pass runs without it")
             return False
-        resources = json.loads(done.out)["resources"]
-        low = {name: resources[name] for name in QUOTA_RESOURCES if resources[name]["remaining"] < resources[name]["limit"] * QUOTA_FLOOR}
-        for name, quota in low.items():
-            reset = pacific(datetime.fromtimestamp(quota["reset"], timezone.utc))
+        [auth] = json.loads(done.out)
+        for pool in quota_pools(auth["reads"], auth["writes"]):
+            if pool.remaining < QUOTA_URGENT:
+                callers = ", ".join(f"{caller['caller']} {caller['requests']}" for caller in pool.callers[:TOP_CALLERS]) or "none recorded"
+                self.runner.escalate(f"github-quota:{pool.key}", "GITHUB-QUOTA-LOW", "github", f"the {pool.name} quota has {pool.remaining} of {pool.limit} calls left and resets at {kitchen(pool.reset)}; top callers: {callers}")
+        low = [pool for pool in quota_pools(auth["reads"]) if pool.remaining < QUOTA_FLOOR]
+        for pool in low:
             self.runner.escalate(
-                f"github-backoff:{name}:{quota['reset']}",
+                f"github-backoff:{pool.key}",
                 "GITHUB-BACKOFF",
                 "landing",
-                f"GitHub's {name} quota has {quota['remaining']} of {quota['limit']} calls left, under the {QUOTA_FLOOR:.0%} floor; the desk reads nothing from GitHub until it resets at {reset}, and accepted enqueues and root go records run after the reset",
+                f"GitHub's {pool.name} quota has {pool.remaining} of {pool.limit} calls left, under ccx's {QUOTA_FLOOR}-call floor; the desk reads nothing from GitHub until it resets at {kitchen(pool.reset)}, and accepted enqueues and root go records run after the reset",
             )
         return bool(low)
 
@@ -5131,7 +5171,7 @@ class Landing:
     def lands_green(self) -> bool:
         """Whether this repository's PRs land once green with no merge card: the GitHub account the runner acts as owns it (de6c88c). A login that does not read is read again on the next use, and the repository follows its merge mode meanwhile."""
         if not self.viewer:
-            done = self.shell.run(["gh", "api", "user", "--jq", ".login"])
+            done = self.shell.run(ghread.read("api", "user", "--jq", ".login"))
             self.viewer = done.out.strip() if done.code == 0 else ""
         return bool(self.viewer) and self.repo.split("/")[0].casefold() == self.viewer.casefold()
 
@@ -5142,7 +5182,7 @@ class Landing:
     def risky_paths(self, pr: str, sha: str) -> list[str] | None:
         """The changed files of `pr` at `sha` that a `landing.high_risk_paths` glob names, read once per head; None when GitHub refuses the read, which escalates once per head."""
         if (pr, sha) not in self.risky:
-            done = self.shell.run(["gh", "api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"])
+            done = self.shell.run(ghread.read("api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"))
             if done.code:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 if not self.read_only:
@@ -5216,7 +5256,7 @@ class Landing:
         if not entry:
             self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
-        view = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS])
+        view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
         done = view if view.code else self.ask_card(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)), entry["sessions"][-1])
         if done.code or not (ts := slack_ts(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
@@ -5286,7 +5326,7 @@ class Landing:
     def read_label(self, pr: str, head: str) -> None:
         """Register `pr` when it carries the drive's label and remember the answer for its head; a failed read is asked again on the next call."""
         label = f"{DRIVE_LABEL}{self.runner.config.drive}"
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "labels,headRefName"])
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "labels,headRefName"))
         if done.code:
             return
         view = json.loads(done.out)
@@ -5398,7 +5438,7 @@ class Landing:
         return why
 
     def label_hold(self, pr: str) -> str:
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "labels"])
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "labels"))
         if done.code != 0:
             return f"GitHub refused the label read: {(done.err or done.out).strip()[:120]}"
         return f"the `{HOLD_LABEL}` label on GitHub" if any(label["name"] == HOLD_LABEL for label in json.loads(done.out)["labels"]) else ""
@@ -5497,7 +5537,7 @@ class Landing:
                 self.squash(pr, open_rows[pr])
 
     def squash(self, pr: str, row: dict) -> None:
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision,headRefOid,state"])
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision,headRefOid,state", max_age=ghread.FRESH))
         if done.code != 0:
             return
         view = json.loads(done.out)
@@ -5506,7 +5546,7 @@ class Landing:
             self.announce(pr, row, key, view["headRefOid"], squashed.response["sha"])
         if view["state"] != "OPEN" or view["reviewDecision"] != "APPROVED" or squashed:
             return
-        checks = self.shell.run(["gh", "pr", "checks", pr, "--repo", self.repo, "--required", "--json", "name,bucket"])
+        checks = self.shell.run(ghread.read("pr", "checks", pr, "--repo", self.repo, "--required", "--json", "name,bucket", max_age=ghread.FRESH))
         try:
             required = json.loads(checks.out)
         except json.JSONDecodeError:
@@ -5531,7 +5571,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.fail(key, why))
             self.runner.escalate(key, "SQUASH-FAILED", f"#{pr}", f"gh pr merge --squash refused the approved, green incident fix at {view['headRefOid'][:10]}: {why}")
             return
-        read = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit"])
+        read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit", max_age=ghread.FRESH))
         commit = ((json.loads(read.out) if read.code == 0 else {}).get("mergeCommit") or {}).get("oid", "")
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"sha": commit, "at": self.book.stamp()}))
         self.announce(pr, row, key, view["headRefOid"], commit)
@@ -5975,7 +6015,7 @@ class Landing:
         ]
 
     def current_head(self, pr: str) -> str:
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid"])
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid"))
         return done.out.strip() if done.code == 0 else ""
 
     def status_lines(self) -> list[str]:

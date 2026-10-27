@@ -137,7 +137,8 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes. Every GitHub read the script makes through ccx is charged to the script's name."""
+    os.environ["CCX_CALLER"] = Path(script).stem
     running = plugin_manifest()["version"]
     if os.environ.get(CALLER_VERSION_ENV) != running and (install := newest_install()) and behind(running, install["version"]):
         manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"

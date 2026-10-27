@@ -9,6 +9,7 @@ import actions
 import incident
 import pytest
 from actions import Incident, StaleGeneration, Store, parse_stamp, stamp
+from conftest import gateway
 from incident import ResponseLost, RouteRefused, Runner, World
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -523,7 +524,8 @@ class Shell(incident.Shell):
         return next(key for key in self.outputs if tuple(argv[: len(key)]) == key or key[-1] in " ".join(argv))
 
     def run(self, argv, cwd=None, env=None):
-        self.calls.append(list(argv))
+        argv = gateway(argv)
+        self.calls.append(argv)
         return self.outputs[self.match(argv)]
 
     def call(self, argv, cwd=None):

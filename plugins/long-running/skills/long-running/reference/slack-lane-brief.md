@@ -50,9 +50,8 @@ Do:
      Never ask "what, if anything, it asks of the root".
   5. Wait for <doing lane name>'s result (cause, PR, ETA) by polling <named disk file
      or bus entry> in a foreground loop. Never end the turn waiting.
-  6. For a PR post, re-read its current state with
-     `gh pr view <n> --json state,reviewDecision,statusCheckRollup` or
-     `ccx vcs pr status <n>` immediately before the copy is written. Write the copy
+  6. For a PR post, re-read its current state with `ccx vcs pr status <n>`
+     immediately before the copy is written. Write the copy
      yourself to the cc-slack skill's brief lines and
      ~/.wlm/profiles/<user>/style-card.md, with every PR and issue as <url|#N> and
      every person as <@U…> from the first draft. Follow "Write a post" in full: plain words for the thread's reader, with every

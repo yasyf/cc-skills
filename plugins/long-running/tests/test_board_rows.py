@@ -7,6 +7,7 @@ from pathlib import Path
 
 import board_rows
 import pytest
+from conftest import gateway
 
 DRIVE = "d1"
 REPO = "Forge-AI/monorepo"
@@ -28,8 +29,10 @@ class FakeShell(board_rows.Shell):
         self.saved: list[str] = []
         self.pushed: list[tuple[list[str], dict]] = []
 
-    def run(self, argv: list[str]) -> board_rows.Done:
+    def run(self, argv: list[str], env: dict[str, str] | None = None) -> board_rows.Done:
+        argv = gateway(argv)
         if argv[:3] == ["gh", "api", "graphql"]:
+            assert env == {"GH_REPO": REPO}
             if self.gh_fails:
                 return board_rows.Done(1, "", "HTTP 502: Bad Gateway")
             query = argv[-1]

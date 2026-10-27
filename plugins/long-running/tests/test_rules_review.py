@@ -8,6 +8,7 @@ from pathlib import Path
 
 import ledger
 import pytest
+from conftest import gateway
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "rules-review.py"
 spec = importlib.util.spec_from_file_location("rules_review", SCRIPT)
@@ -64,7 +65,8 @@ class FakeShell(rules_review.Shell):
             (run_dir / "codex-r-1").write_text(json.dumps(reply))
 
     def run(self, argv, stdin=None):
-        self.calls.append(list(argv))
+        argv = gateway(argv)
+        self.calls.append(argv)
         if argv[:3] == ["ccn", "ledger", "show"]:
             return json.dumps({"rows": [{"key": key, "fields": dict(fields)} for key, fields in self.rows.items()]})
         if argv[:4] == ["ccn", "ledger", "row", "set"]:

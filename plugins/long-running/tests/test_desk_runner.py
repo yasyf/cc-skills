@@ -18,6 +18,7 @@ from pathlib import Path
 import actions
 import mq as mq_module
 import pytest
+from conftest import gateway
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/desk-runner.py"
 spec = importlib.util.spec_from_file_location("desk_runner", SCRIPT)
@@ -26,6 +27,7 @@ sys.modules["desk_runner"] = runner_module
 spec.loader.exec_module(runner_module)
 
 LANE = "api-fix"
+QUOTA_RESET = "2026-10-01T22:00:00Z"
 FORBIDDEN = {"worker-release", "kill", "pkill", "close", "stop", "terminate", "worker-stop"}
 IDLE_PROMPT = ["⏺ Done.", "─" * 80, "❯", "─" * 80, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]
 PICKER = ["─" * 80, " ☐ Rebase", "❯ 1. Rebase now", "  2. Wait", "─" * 80, "Enter to select · ↑/↓ to navigate · Esc to cancel"]
@@ -65,6 +67,15 @@ def cci_names(record: dict, pr: str) -> bool:
     return int(pr) in refs
 
 
+def identity(kind: str, **limits: int) -> dict:
+    pools = [{"identity": kind, "resource": resource, "limit": limit, "remaining": limit, "resetAt": QUOTA_RESET, "readAt": "2026-10-01T17:59:00Z", "callers": []} for resource, limit in limits.items()]
+    return {"kind": kind, "name": kind, "pools": [*pools, {"identity": kind, "resource": "search", "limit": 30, "remaining": 2, "resetAt": QUOTA_RESET, "readAt": "2026-10-01T17:59:00Z", "callers": []}]}
+
+
+def pool(shell: FakeShell, side: str, resource: str) -> dict:
+    return next(entry for entry in shell.auth[side]["pools"] if entry["resource"] == resource)
+
+
 class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
@@ -101,7 +112,8 @@ class FakeShell(runner_module.Shell):
         self.pr_commits: dict[str, int] = {}
         self.files: dict[str, list[str]] = {}
         self.files_error = ""
-        self.quota = {name: {"limit": limit, "remaining": limit, "reset": 1790892000} for name, limit in (("core", 15000), ("graphql", 10000))}
+        self.auth = {"reads": identity("app", core=15000, graphql=10000), "writes": identity("user", core=5000, graphql=5000)}
+        self.raw: list[list[str]] = []
         self.quota_error = ""
         self.status_error = ""
         self.pr_labels: dict[str, list[str]] = {}
@@ -229,7 +241,9 @@ class FakeShell(runner_module.Shell):
         return f"{prefix}_{self.sequence:04d}"
 
     def run(self, argv, stdin=None, env=None):
-        self.calls.append(list(argv))
+        self.raw.append(list(argv))
+        argv = gateway(argv)
+        self.calls.append(argv)
         name = Path(argv[0]).name
         if argv[:2] == ["cc-present", "ask"]:
             if self.pr_card_missing:
@@ -280,11 +294,11 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landed" if self.queue.get(pr) == "landed" else "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
-        if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
-            assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
-            return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
+        if argv[:4] == ["ccx", "vcs", "auth", "status"]:
+            assert argv[4:] == ["Forge-AI/monorepo", "--json"]
+            return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps([{"repo": "forge-ai/monorepo", **self.auth}]), "")
         if argv[:3] == ["gh", "api", "graphql"]:
-            assert argv[3] == "-f" and len(argv) == 5
+            assert argv[3] == "-f" and len(argv) == 5 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return self.graphql(argv[4].removeprefix("query="))
         if argv[:4] == ["gh", "api", "-X", "PATCH"] and argv[4].startswith("repos/Forge-AI/monorepo/git/refs/heads/"):
             branch = argv[4].removeprefix("repos/Forge-AI/monorepo/git/refs/heads/")
@@ -416,8 +430,8 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
-        if 'ref(qualifiedName: "refs/heads/dev")' in query:
-            return runner_module.Done(0, json.dumps({"data": {"repository": {"ref": {"target": {"history": {"nodes": self.trunk}}}}}}), "")
+        if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
+            return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} \} \}', query)
         commits = {alias: {"status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
@@ -3840,22 +3854,51 @@ def test_a_head_is_read_again_only_after_a_minute(shell, config, tmp_path):
 
 
 @pytest.mark.parametrize("bucket", ["core", "graphql"])
-def test_a_quota_under_the_floor_reads_nothing_until_its_reset_and_keeps_the_accepted_enqueue(shell, config, tmp_path, bucket):
+def test_a_read_quota_under_the_gateway_floor_reads_nothing_until_its_reset_and_keeps_the_accepted_enqueue(shell, config, tmp_path, bucket):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.calls.clear()
-    shell.quota[bucket]["remaining"] = int(shell.quota[bucket]["limit"] * 0.05) - 1
+    pool(shell, "reads", bucket)["remaining"] = runner_module.QUOTA_FLOOR - 1
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert github_calls(shell) == []
     [action] = enqueues_of(tmp_path).values()
     assert action.status == "accepted"
-    [backoff] = escalations(shell)
-    assert backoff.startswith(f"GITHUB-BACKOFF github-backoff:{bucket}:1790892000 landing: GitHub's {bucket} quota has")
-    shell.quota[bucket]["remaining"] = shell.quota[bucket]["limit"]
+    assert [line for line in escalations(shell) if line.startswith("GITHUB-BACKOFF")] == [
+        f"GITHUB-BACKOFF github-backoff:app-{bucket}:1790892000 landing: GitHub's app {bucket} quota has 999 of {pool(shell, 'reads', bucket)['limit']} calls left, under ccx's 1000-call floor; the desk reads nothing from GitHub until it resets at 3:00 PM, and accepted enqueues and root go records run after the reset"
+    ]
+    pool(shell, "reads", bucket)["remaining"] = pool(shell, "reads", bucket)["limit"]
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_write_quota_under_the_floor_backs_nothing_off(shell, config):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    pool(shell, "writes", "graphql")["remaining"] = runner_module.QUOTA_FLOOR - 1
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [line for line in escalations(shell) if line.startswith("GITHUB-BACKOFF")]
+
+
+def quota_alerts(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(post["kind"], post["text"]) for post in shell.posts if post["to"] == "root" and post["text"].startswith("GITHUB-QUOTA-LOW")]
+
+
+def test_each_quota_under_1500_posts_one_urgent_alert_per_reset_naming_its_five_heaviest_callers(shell, config):
+    lone_green_pr(shell)
+    graphql = pool(shell, "writes", "graphql")
+    graphql["remaining"] = 1499
+    graphql["callers"] = [{"caller": name, "requests": requests} for name, requests in (("cc-review", 900), ("desk-runner", 300), ("board_rows", 120), ("label-watch", 60), ("ledger", 40), ("rulings", 20))]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert quota_alerts(shell) == [
+        ("urgent", "GITHUB-QUOTA-LOW github-quota:user-graphql:1790892000 github: the user graphql quota has 1499 of 5000 calls left and resets at 3:00 PM; top callers: cc-review 900, desk-runner 300, board_rows 120, label-watch 60, ledger 40"),
+    ]
+    graphql["resetAt"] = "2026-10-01T23:00:00Z"
+    landing_pass(shell, config)
+    assert len(quota_alerts(shell)) == 2 and "resets at 4:00 PM" in quota_alerts(shell)[1][1]
 
 
 def test_a_quota_read_that_fails_is_reported_once_an_hour_and_the_pass_runs(shell, config, tmp_path):
@@ -5014,6 +5057,8 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     landing_pass(shell, config)
     assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", INCIDENT_HEAD]]
     assert shell.enqueues() == [] and not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    squash_reads = [call for call in shell.raw if call[:3] == ["ccx", "vcs", "gh"] and call[-1] in ("reviewDecision,headRefOid,state", "name,bucket", "mergeCommit")]
+    assert {call[-1] for call in squash_reads} == {"reviewDecision,headRefOid,state", "name,bucket", "mergeCommit"} and {tuple(call[3:5]) for call in squash_reads} == {("--max-age", "0s")}
     [landed] = [post for post in shell.posts if post["kind"] == "landed"]
     assert (landed["to"], landed["pr"], landed["id"]) == (f"{INCIDENT_LANE},root", "36650", f"land:36650@{INCIDENT_HEAD}")
     assert landed["text"].startswith("#36650 landed by plain squash as 9a8b7c6d5e: an incident fix, approved and green at ffff666666")
@@ -9617,6 +9662,7 @@ def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
         (["/drive/checkout/.agents/skills/submit-pr/scripts/stack-enqueue", "43052", "--check", "--partial"], "stack-enqueue --check"),
         (["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json", "42580", "42587"], "ccx vcs pr status"),
         (["gh", "api", "repos/Forge-AI/monorepo/compare/a~14...a", "-H", "Accept: application/vnd.github.diff"], "gh api"),
+        (["ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "42580", "--json", "body"], "gh pr view"),
         (["git", "-C", "/drive/checkout", "merge", "-q", "--ff-only", "FETCH_HEAD"], "git merge"),
     ],
 )

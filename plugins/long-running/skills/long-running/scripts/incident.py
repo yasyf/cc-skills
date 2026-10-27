@@ -63,6 +63,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import ghread
 from actions import Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -207,17 +208,17 @@ class GitHub:
         fields = "number state headRefOid url"
         aliases = " ".join(f"p{n}: pullRequest(number: {n}) {{ {fields} }}" for n in numbers)
         query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {aliases} }} }}'
-        data = json.loads(self.shell.run(["gh", "api", "graphql", "-f", f"query={query}"]))["data"]["repository"]
+        data = json.loads(self.shell.run(ghread.read("api", "graphql", "-f", f"query={query}"), env={**os.environ, "GH_REPO": self.repo}))["data"]["repository"]
         return {pr["number"]: {"state": pr["state"], "head": pr["headRefOid"], "url": pr["url"]} for pr in data.values() if pr}
 
     def landed(self, pr: int) -> str | None:
-        view = json.loads(self.shell.run(["gh", "pr", "view", str(pr), "--repo", self.repo, "--json", "state,mergedAt,mergeCommit,closedAt"]))
+        view = json.loads(self.shell.run(ghread.read("pr", "view", str(pr), "--repo", self.repo, "--json", "state,mergedAt,mergeCommit,closedAt")))
         if view["state"] == "MERGED":
             return view["mergeCommit"]["oid"]
         if view["state"] != "CLOSED":
             return None
         since = stamp(parse_stamp(view["closedAt"]) - timedelta(minutes=10))
-        commits = json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}/commits?sha={self.trunk}&since={since}&per_page=100"]))
+        commits = json.loads(self.shell.run(ghread.read("api", f"repos/{self.repo}/commits?sha={self.trunk}&since={since}&per_page=100")))
         suffix = f"(#{pr})"
         return next((commit["sha"] for commit in commits if commit["commit"]["message"].splitlines()[0].endswith(suffix)), None)
 

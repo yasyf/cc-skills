@@ -2762,13 +2762,12 @@ Deletion: a change that deletes a code path, proposed or in a PR, carries its ca
   trace before the root GOs it: every caller of the removed path, each one read, and what
   the path deletes or changes for each (cc-notes 83695d86 is the worked example). The
   fidelity desk grades what the deletion does to each caller, never the diff's shape.
-GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
-  per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
-  `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
-  loop `gh pr view --json statusCheckRollup` or `gh pr checks`. Probe `rateLimit` at most
-  every 5 minutes. Ship only while `rate.remaining` in
-  `~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500; REST
-  `gh api rate_limit` reads stale, so never gate on it.
+GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
+  `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain `gh`.
+  No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes
+  `--max-age 5m`. A `ccx: GitHub rate limit floor:` refusal means stop reading until the
+  reset it names. The desk runner posts an `urgent` record to root when any quota drops
+  under 1500.
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
@@ -2993,23 +2992,24 @@ as starting a second one, and restarting a poller from scratch resets whatever
 backoff it was holding. A 429 or 403 mid-poll gets a fixed wait and a retry, never
 an immediate one and never a fresh loop.
 
-GitHub GraphQL costs 1 point per call, 5000/hr shared by the whole account. Watch a
-PR with `ccx vcs pr watch --state` or REST through
-`gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, never more often than every
-60 s. No `gh pr view --json statusCheckRollup` or `gh pr checks` loops; no `rateLimit`
-probes more often than every five minutes. The shared GitHub budget ran dry at 04:39Z
-on 2026-10-01.
+**GitHub budget.** The gh account's GraphQL and REST hours, and the GitHub App
+installation's, are each shared by every lane, desk, watcher, and daemon on the machine.
+Drive tools read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
+`vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read and `GH_REPO` set on a
+GraphQL read.
+Writes such as a merge, a label, or a comment stay plain `gh`, since ccx refuses them.
+ccx charges each read to `CCX_CALLER`, and `ccx vcs auth status --json` lists every
+quota with the callers that spent it.
 
-**GitHub budget.** GraphQL is one 5000-point hourly budget for the whole account, and
-every call costs 1 point whatever its shape. Steady polling by Orca cards, PR
-watchers, and lanes measured 40 to 75 points a minute, and a ship storm on top
-emptied it. A lane watches a PR with `ccx vcs pr watch --state <file>` or the REST
-check-runs endpoint, at most once a minute, and never loops `gh pr view --json
-statusCheckRollup` or `gh pr checks`. It probes `rateLimit` at most every 5 minutes,
-and ships only while `rate.remaining` in
-`~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500. REST
-`gh api rate_limit` lags the real GraphQL counter, so nothing gates on it. Both lane
-brief templates carry this rule.
+No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop passes
+`--max-age 5m`, so a repeat within five minutes comes from ccx's machine-wide cache
+instead of GitHub. A read that decides a merge passes `--max-age 0s`. With under 1000
+calls left in a quota, ccx refuses the read with one stderr line starting
+`ccx: GitHub rate limit floor:` that names the quota and its reset; the caller stops
+reading until that reset and never retries sooner. The desk runner reads every quota
+each pass and posts one `urgent` `GITHUB-QUOTA-LOW` record to root, once per reset, for
+any quota under 1500, naming the five callers that spent the most. Both lane brief
+templates carry this rule.
 
 **Batch and cache every GitHub read.** A desk or tool that needs one fact for many PRs
 reads it in one batched query per pass, never one call per PR. A surface that shows a
@@ -3023,6 +3023,8 @@ beside it.
 scan across thousands of logs failing two releases' own pipeline syncs on the same
 shared limit; also the account's GraphQL budget running dry at 04:39Z during release v3
 (2026-10-01), which refused every lane's ship until the hourly reset.*
+*Also prevents Oct 27 8:23 AM: PR pollers spent about 1,800 of the user's 5,000 GraphQL
+points an hour while drive scripts read the App's quota with no cache, floor, or alert.*
 *Also prevents Oct 27 12:21 AM: a landing pass spent one GraphQL query per open PR, a
 board page fetched each PR uncached, and twelve PR creates in thirteen minutes tripped
 the secondary limit, so every lane's PR create was refused.*

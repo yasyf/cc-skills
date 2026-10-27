@@ -10,7 +10,7 @@ from pathlib import Path
 
 import ledger
 import pytest
-from conftest import DRIVE, FIXTURES, LEDGER, FakeShell
+from conftest import DRIVE, FIXTURES, FLOOR_REFUSAL, LEDGER, FakeShell
 
 PR = "21221"
 HEAD = "3f3acff97aa11bb22cc33dd44ee55ff667788990"
@@ -1066,7 +1066,7 @@ def test_reconcile_dry_run_writes_nothing(capsys):
 
 def rate_limited_shell() -> FakeShell:
     shell = reconcile_shell()
-    shell.quota_resets_at = 1790000000
+    shell.quota_refusal = FLOOR_REFUSAL
     shell.fields("28349")["last_refresh"] = stamp(-timedelta(minutes=12))
     return shell
 
@@ -1079,7 +1079,7 @@ def test_reconcile_under_an_exhausted_quota_lands_the_squashed_rows_and_names_th
     assert shell.fields("28100")["state"] == "landed"
     assert shell.fields("28302")["state"] == "open", "a closed row the cache cannot read stays unsettled"
     out = capsys.readouterr().out
-    assert "pr states: cached 12m (GraphQL quota exhausted, resets 2026-09-21T14:13:20Z)" in out
+    assert f"pr states: cached 12m (ccx vcs pr state: {FLOOR_REFUSAL})" in out
     assert "reconciled 4 non-terminal rows: 2 landed by squash, 0 of 0 closed settled, 2 unread" in out
     assert len(shell.state_calls()) == 1, "a rate-limited read is never retried"
 
@@ -1090,29 +1090,29 @@ def test_summary_under_an_exhausted_quota_renders_from_the_cached_rows(capsys):
     assert run(shell, "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO, "--checkout", "/checkout") == 0
 
     out = capsys.readouterr().out
-    assert out.index("pr states: cached 12m (GraphQL quota exhausted") < out.index("desk 2")
+    assert out.index("pr states: cached 12m (ccx vcs pr state: ccx: GitHub rate limit floor") < out.index("desk 2")
     assert "open 2 |" in out
 
 
 def test_summary_under_an_exhausted_rest_quota_skips_the_reconcile_and_still_reports(capsys):
     shell = rate_limited_shell()
-    shell.fail_gh, shell.fail_gh_error = f"repos/{REPO}", "gh: API rate limit exceeded for user ID 709645. (HTTP 403)"
+    shell.fail_gh, shell.fail_gh_error = f"repos/{REPO}", FLOOR_REFUSAL
 
     assert run(shell, "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO, "--checkout", "/checkout") == 0
 
     out = capsys.readouterr().out
-    assert f"summary: reconcile skipped this pass, gh api repos/{REPO}: REST quota exhausted, resets 2026-09-21T14:13:20Z\n" in out
+    assert f"summary: reconcile skipped this pass, gh api repos/{REPO}: {FLOOR_REFUSAL}\n" in out
     assert shell.fields("28100").get("state") != "landed"
     assert any(line.startswith("desk ") for line in out.splitlines())
 
 
 def test_reconcile_under_an_exhausted_quota_with_no_recorded_refresh_says_so(capsys):
     shell = reconcile_shell()
-    shell.quota_resets_at = 1790000000
+    shell.quota_refusal = FLOOR_REFUSAL
 
     assert reconcile(shell) == 0
 
-    assert "pr states: cached age unknown (GraphQL quota exhausted" in capsys.readouterr().out
+    assert "pr states: cached age unknown (ccx vcs pr state: ccx: GitHub rate limit floor" in capsys.readouterr().out
 
 
 def test_a_pr_state_failure_that_is_not_the_quota_still_refuses(capsys):

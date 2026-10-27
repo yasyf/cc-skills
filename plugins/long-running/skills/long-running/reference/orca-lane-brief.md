@@ -193,13 +193,12 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
   then report the new head; the landing runner re-enqueues it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
-- GitHub budget: GraphQL is one 5000-point hourly budget for the whole account, 1 point
-  per call. Watch PRs only through `ccx vcs pr watch --state <file>` or REST
-  `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
-  loop `gh pr view --json statusCheckRollup` or `gh pr checks`. Probe `rateLimit` at
-  most every 5 minutes. Ship only while `rate.remaining` in
-  `~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500; never
-  gate on REST `gh api rate_limit`, which reads stale.
+- GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr state`,
+  `vcs pr watch`, or `ccx vcs gh -- <gh args>` for any other read. Writes stay plain
+  `gh`. No loop reads faster than every five minutes, and every `ccx vcs gh` read in a loop
+  passes `--max-age 5m`. A `ccx: GitHub rate limit floor:` refusal means stop reading
+  until the reset it names. The desk runner posts an `urgent` record to root when any
+  quota drops under 1500.
 - Before designing, name what already grades or handles this signal: monitors, the
   release's Watch, open owner tasks and picks (`ccn task list`, `ccn answer search`).
   If one covers it, route through it or delete the duplicate. Building alongside it

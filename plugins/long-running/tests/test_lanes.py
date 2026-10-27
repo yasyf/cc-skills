@@ -9,7 +9,7 @@ from pathlib import Path
 import drive
 import ledger
 import pytest
-from conftest import LEDGER
+from conftest import LEDGER, gateway
 
 ROOT_SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 LANE = "inc-liam-load-opus"
@@ -27,6 +27,7 @@ class LaneShell(ledger.Shell):
         self.posts: list[list[str]] = []
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
+        argv = gateway(argv)
         if argv[:2] == ["cci", "tail"]:
             since = argv[argv.index("--since") + 1]
             kinds = {arg.removeprefix("--kind=") for arg in argv if arg.startswith("--kind=")}

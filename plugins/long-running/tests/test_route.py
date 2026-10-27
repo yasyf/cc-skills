@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import ledger
 import pytest
-from conftest import DIRTY_HEAD, GREEN_HEAD, LEDGER, MOVED_HEAD, FakeShell
+from conftest import DIRTY_HEAD, FLOOR_REFUSAL, GREEN_HEAD, LEDGER, MOVED_HEAD, FakeShell
 
 ERROR = "Invariant violation: build-sand left sand untouched, so it stored nothing to fetch"
 
@@ -306,15 +306,12 @@ def test_a_dev_red_hold_is_not_routed_until_it_expires(capsys, red_routes):
     assert "to accounts:" in printed
 
 
-RATE_LIMIT = "gh: API rate limit exceeded for user ID 709645. (HTTP 403)"
-
-
 def test_a_rate_limited_forge_read_skips_its_row_and_the_pass_routes_the_rest(capsys, red_routes):
     shell = FakeShell(rows=[RED, DIRTY], routes=red_routes)
-    shell.fail_gh, shell.fail_gh_error = f"commits/{MOVED_HEAD}/status", RATE_LIMIT
+    shell.fail_gh, shell.fail_gh_error = f"commits/{MOVED_HEAD}/status", FLOOR_REFUSAL
     printed = route(shell, capsys)
 
-    assert f"route #21052: not routed this pass, gh api repos/Forge-AI/monorepo/commits/{MOVED_HEAD}/status: REST quota exhausted, resets 2026-09-21T14:13:20Z\n" in printed
+    assert f"route #21052: not routed this pass, gh api repos/Forge-AI/monorepo/commits/{MOVED_HEAD}/status: {FLOOR_REFUSAL}\n" in printed
     assert "to p2-edge-rows:" in printed
     assert "routed 1 rows" in printed
     assert "routed_head" not in shell.fields("21052")
