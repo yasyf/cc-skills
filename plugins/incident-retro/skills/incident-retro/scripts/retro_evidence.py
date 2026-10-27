@@ -84,6 +84,10 @@ def save_retro(root: Path, retro: dict):
     (root / "retro.json").write_text(json.dumps(retro, indent=2, ensure_ascii=False) + "\n")
 
 
+class DatadogRefused(SystemExit):
+    pass
+
+
 class Datadog:
     def __init__(self, site: str, api_key: str, app_key: str):
         self.site, self.api_key, self.app_key = site, api_key, app_key
@@ -96,7 +100,7 @@ class Datadog:
             with urllib.request.urlopen(req, timeout=60) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            raise SystemExit(f"datadog {method} {path}: HTTP {e.code} {e.read().decode(errors='replace')[:400]}")
+            raise (DatadogRefused if e.code == 400 else SystemExit)(f"datadog {method} {path}: HTTP {e.code} {e.read().decode(errors='replace')[:400]}")
 
     def get(self, path: str):
         return self.request("GET", path)
@@ -146,7 +150,7 @@ def normalise_request(r: dict, scalar: bool) -> dict:
         formulas = [{"formula": f["formula"], "alias": f.get("alias"), **({"limit": f["limit"]} if "limit" in f else {})}
                     for f in (r.get("formulas") or [{"formula": q["name"]} for q in queries])]
     if scalar:
-        queries = [{**q, "aggregator": q.get("aggregator", "avg")} for q in queries]
+        queries = [{**q, "aggregator": q.get("aggregator", "avg")} if q.get("data_source", "metrics") == "metrics" else q for q in queries]
     return {"queries": queries, "formulas": formulas, "displayType": r.get("display_type", "line")}
 
 
@@ -294,14 +298,17 @@ def fetch_notebook(dd: Datadog, nid: int, args, fetched_at: datetime.datetime, d
     for index, raw in enumerate(nb["cells"]):
         cell = cell_skeleton(index, raw, fetched_at)
         cw = cell.get("time") or window
-        if dry_run:
-            print("  " + cell_plan(cell, cw, args.interval))
-        elif cell["type"] == "timeseries":
-            cell["data"], cell["status"] = fetch_timeseries(dd, cell, cw, args.interval), "rendered"
-        elif cell["type"] in SCALAR_TYPES:
-            cell["data"], cell["status"] = fetch_scalar(dd, cell, cw), "rendered"
-        elif cell["type"] == "log_stream":
-            cell["data"], cell["status"] = fetch_logs(dd, cell, cw, args.logs_limit), "rendered"
+        try:
+            if dry_run:
+                print("  " + cell_plan(cell, cw, args.interval))
+            elif cell["type"] == "timeseries":
+                cell["data"], cell["status"] = fetch_timeseries(dd, cell, cw, args.interval), "rendered"
+            elif cell["type"] in SCALAR_TYPES:
+                cell["data"], cell["status"] = fetch_scalar(dd, cell, cw), "rendered"
+            elif cell["type"] == "log_stream":
+                cell["data"], cell["status"] = fetch_logs(dd, cell, cw, args.logs_limit), "rendered"
+        except DatadogRefused as refused:
+            cell.update(definition=raw["attributes"]["definition"], status="unrendered", reason=f"Datadog refused its query ({refused})")
         if not dry_run:
             print("  " + cell_summary(cell))
         snap["cells"].append(cell)

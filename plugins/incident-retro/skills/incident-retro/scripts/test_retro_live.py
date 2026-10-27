@@ -3,7 +3,7 @@
 
   python3 scripts/test_retro_live.py
 """
-import argparse, datetime, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.parse, urllib.request
+import argparse, datetime, io, json, os, shutil, subprocess, sys, tempfile, unittest, urllib.error, urllib.parse, urllib.request
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -383,6 +383,43 @@ class WindowedMonitorSeries(unittest.TestCase):
         found = retro_live.MONITOR_EXPRESSION.match("avg(last_5m):sum:a.b{*} by {team} / sum:a.c{*} by {team} > 3")
         self.assertEqual(retro_live.windowed(found),
                          "moving_rollup(sum:a.b{*} by {team} / sum:a.c{*} by {team}, 300, 'avg')")
+
+
+class RefusedCell(unittest.TestCase):
+    """A notebook cell Datadog refuses to query is drawn unrendered with Datadog's reason, and the sync goes on."""
+
+    NOTEBOOK = {"data": {"attributes": {**DATADOG[("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}")]["data"]["attributes"], "cells": [
+        {"attributes": {"definition": {"type": "markdown", "text": "Northwind runs stall first."}}},
+        {"attributes": {"definition": {"type": "query_table", "title": "Failed runs by message", "requests": [{
+            "response_format": "scalar",
+            "queries": [{"data_source": "logs", "name": "failures", "indexes": ["*"],
+                         "compute": {"aggregation": "cardinality", "metric": "@run_metadata.workflow_run_id"},
+                         "group_by": [{"facet": "@run_error.message", "limit": 200}],
+                         "search": {"query": "@log_kind:forge_run_error"}}]}]}}}]}}}
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        self.scalar = []
+        with mock.patch.dict(DATADOG, {("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}"): self.NOTEBOOK}), \
+                mock.patch.object(urllib.request, "urlopen", self.answer):
+            self.code = run(retro_live.sync, args(self.incident, self.docs))
+
+    def answer(self, request, timeout):
+        if request.full_url.endswith("/api/v2/query/scalar"):
+            self.scalar.append(json.loads(request.data))
+            raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(b'{"errors":["Invalid query input"]}'))
+        return datadog(request, timeout)
+
+    def test_a_logs_query_carries_no_metrics_aggregator(self):
+        self.assertNotIn("aggregator", self.scalar[0]["data"]["attributes"]["queries"][0])
+
+    def test_the_sync_publishes_the_refused_cell_unrendered_with_datadogs_reason(self):
+        self.assertEqual(self.code, 0)
+        cell = json.loads((self.root / NOTEBOOK_FILE).read_text())["cells"][1]
+        self.assertEqual(cell["status"], "unrendered")
+        self.assertIn("Invalid query input", cell["reason"])
 
 
 class NotebookSnapshot(unittest.TestCase):
