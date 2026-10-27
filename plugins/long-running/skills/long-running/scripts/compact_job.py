@@ -43,4 +43,7 @@ def main(handle: str, text: str, transcript: str) -> None:
 
 
 if __name__ == "__main__":
+    import drive
+
+    drive.refuse_stale(__file__)
     main(*sys.argv[1:])

@@ -1315,7 +1315,10 @@ checkout passes `ledger.py -C <checkout> <verb>`.
 Every script in `scripts/` is on PATH by name through the plugin's `bin/`, which Claude
 Code adds for the installed version, so briefs call `ledger.py` or
 `orca-launch.sh` and never a path. `orca-launch.sh` puts the same `bin/` on PATH for an
-incident worker's codex terminal. Lane messages use `cci` directly.
+incident worker's codex terminal. Lane messages use `cci` directly. A script run by
+path from an older version than the installed one exits `STALE-SCRIPT` and names the
+`bin/` tool to run instead, unless a process of its own version started it, such as a
+desk runner that has not re-executed yet.
 
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
 a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
