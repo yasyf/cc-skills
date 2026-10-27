@@ -4507,10 +4507,12 @@ class Landing:
         return standing(grades, self.fidelity_lanes, sha)
 
     def fidelity(self, pr: str, sha: str) -> Grade:
-        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok, whatever another lane posts; an ok counts as posted (4236611). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""
+        """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok or a root record resolves that `missing`, which accepts it, whatever another lane posts; an ok counts as posted (4236611, root #144646). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
-        if missing := max((grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)), key=lambda record: record["seq"], default=None):
+        misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)]
+        accepted = {seq for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT for seq in closes(record)} if misses else set()
+        if missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
             return Grade(True, max(newest, key=lambda record: record["seq"]), "")
