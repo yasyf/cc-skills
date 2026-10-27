@@ -202,7 +202,7 @@ function tile(name, numbers) {
   const done = sorted.filter((n) => heat(n) === 'landed').length;
   const pct = Math.round((100 * done) / sorted.length);
   const grow = Math.max(1, Math.round(Math.sqrt(sorted.length) * 10));
-  return `<div class="ptile${pct === 100 ? ' complete' : ''}" style="flex-grow:${grow}" data-tile="${esc(name)}">
+  return `<div class="ptile${pct === 100 ? ' complete' : ''}" style="flex-grow:${grow}" data-tile="${esc(name)}" data-nums="${sorted.join(',')}">
     <div class="ptile-h"><b>${esc(name)}</b><span class="pct">${pct}%</span></div>
     <div class="mosaic">${sorted.map(square).join('')}</div>
     <div class="bots">${workersOn(sorted)}</div></div>`;
@@ -251,6 +251,12 @@ function ticker() {
     return `<a class="tick k-${e.kind}" href="#/timeline" title="${esc(e.text)}"><i>${TICK_ICON[e.kind] ?? '•'}</i><b>${esc(what)}</b><span>${n ? esc(plainTitle(n)) : esc(firstSentences(e.text, 40))}</span><time>${clock(e.at)}</time></a>`;
   }).join('');
 }
+function tileSheet() {
+  const { name, nums } = state.tileOpen;
+  const act = activity();
+  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>${esc(name)}</h2>
+    <ul class="prlist">${nums.map((n) => `<li><a href="${prHref(n)}">${square(n)}<b>#${n}</b><span>${esc(plainTitle(n))}</span><em>${HEAT_WORD[heat(n)]}${act[n] ? ` · ${esc(act[n].lane)}` : ''}</em></a></li>`).join('')}</ul></div></div>`;
+}
 function overview() {
   const m = state.model;
   const all = planNumbers();
@@ -269,6 +275,7 @@ function overview() {
   <div class="key"><span><i class="sq landed"></i>landed</span><span><i class="sq doing"></i>being worked on</span><span><i class="sq work"></i>queued</span><span><i class="sq you"></i>needs you</span><span><i class="sq failing"></i>tests failing</span></div>
   <div class="ticker">${ticker()}</div>
   </div>
+  ${state.overlay === 'tile' ? tileSheet() : ''}
   ${state.overlay === 'plan' ? `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>The plan of action, in order</h2><ol class="psteps">${planSteps(true)}</ol><h2>The release plan</h2><div class="prose">${markdown(m.releases.markdown)}</div></div></div>` : ''}`;
 }
 
@@ -403,6 +410,8 @@ document.addEventListener('click', (e) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     render();
   }
+  const tileEl = e.target.closest('[data-tile]');
+  if (tileEl && !e.target.closest('a')) { state.tileOpen = { name: tileEl.dataset.tile, nums: tileEl.dataset.nums.split(',') }; state.overlay = 'tile'; render(); return; }
   const tree = e.target.closest('[data-tree]');
   if (tree) { state.tree = tree.dataset.tree; render(); }
   const close = e.target.closest('[data-close]');

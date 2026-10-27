@@ -238,3 +238,15 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 }
 
 .bot.more { background: var(--surface-2); color: var(--ink-3); }
+
+.ptile { cursor: pointer; } .ptile:hover { box-shadow: inset 0 0 0 1px var(--ink-3), var(--shadow); }
+.prlist { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.prlist a { display: grid; grid-template-columns: 14px 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 6px; border-radius: 8px; color: var(--ink); }
+.prlist a:hover { background: var(--surface-2); text-decoration: none; }
+.prlist em { font-style: normal; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+@media (min-width: 901px) {
+  .ov { height: calc(100vh - 100px); min-height: 640px; }
+  .stage { min-height: 0; }
+  .lane { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+}
+@media (max-width: 760px) { .prlist a { grid-template-columns: 14px 56px minmax(0, 1fr); } .prlist em { grid-column: 3; } }
