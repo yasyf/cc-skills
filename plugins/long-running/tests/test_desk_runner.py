@@ -2749,7 +2749,11 @@ def test_a_root_go_whatever_its_leading_words_answers_the_merge_ask_and_show_nam
     landing_pass(shell, config)
     capsys.readouterr()
     cli(shell, config, "show")
-    assert "- #29020 waits on `merge:29020:cccc333`: a root go naming #29020 at cccc333 answers it\n" in capsys.readouterr().out
+    assert "- #29020 waits on `merge:29020:cccc333`: a root go naming #29020 at cccc333\n" in capsys.readouterr().out
+    for text in ("withdrawn: merge #29020 at cccc333", "hold: do not go #29020 at cccc333", 'he said "go #29020 at cccc333" yesterday'):
+        merge_go(shell, "29020", text)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
     merge_go(shell, "29020", "Owner tapped Merge on board row merge-prs: go #29020 at cccc333 (fidelity ok, finder ok).")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
