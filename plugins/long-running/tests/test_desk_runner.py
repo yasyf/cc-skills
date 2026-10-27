@@ -3208,13 +3208,13 @@ def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_f
     assert not [post for post in blockers(shell) if post["to"] == "root" and "root gos name" in post_body(post)]
 
 
-@pytest.mark.parametrize(("first", "lands"), [("carried", True), ("plain", False), ("withdrawn", False), ("behavior", False)])
+@pytest.mark.parametrize(("first", "lands"), [("carried", True), ("plain", False), ("withdrawn", False), ("behavior", False), ("aside", False)])
 def test_a_root_go_carries_along_the_fidelity_desks_carried_grades_to_the_replayed_head(shell, config, tmp_path, first, lands):
     merge_mode(config, "every")
     gone, replayed, head = "aaaa111111", "bbbb222222", "cccc333333"
     shell.rows = [{"pr": "33001", "lane": LANE, "branch": "c/1", "base": "dev", "head": head, "state": "open", "reported_head": head}]
     merge_go(shell, "33001", f"go #33001 at {gone[:7]}")
-    seq = grade(shell, "33001", {"plain": f"ok {replayed[:7]} at the replayed head", "behavior": f"ok {replayed[:7]} carried from {gone[:7]} plus two commits, graded alone above"}.get(first, f"ok {replayed[:7]} carried from {gone[:7]} (patch-identical replay)"))
+    seq = grade(shell, "33001", {"plain": f"ok {replayed[:7]} at the replayed head", "behavior": f"ok {replayed[:7]} carried from {gone[:7]} plus two commits, graded alone above", "aside": f"ok {replayed[:7]} carried from {gone[:7]} plus one commit, new behavior. Its sibling PR is test-only."}.get(first, f"ok {replayed[:7]} carried from {gone[:7]} (patch-identical replay)"))
     if first == "withdrawn":
         shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "withdraw", "re": seq, "to": ["root"], "refs": {"prs": [33001]}, "text": "withdrawn: not patch-identical", "at": actions.stamp(shell.clock)})
     grade(shell, "33001", f"ok {head} carried from {replayed[:7]} plus one test-only commit")
