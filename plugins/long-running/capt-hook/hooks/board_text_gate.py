@@ -54,6 +54,9 @@ HIT_COUNT = re.compile(r"\b(?:\d+|no|zero|one|two|three|four|five|six|seven|eigh
 ONLY_THESE = re.compile(r"\bthese changes only\b|\bonly these changes\b|\bonly this block\b", re.IGNORECASE)
 SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\s+(?P<key>\S+)\s+(?P<where>\S+:\d+)\s+(?P<name>.+)$")
 FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
+SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
+HEREDOC_BODY = re.compile(r"<<-?\s*(['\"]?)(?P<tag>\w+)\1[^\n]*\n(?P<body>.*?)\n(?P=tag)\s*$", re.DOTALL)
+READ_FILE = re.compile(r"^\s*(?:cat\s+|<\s*)(?P<path>[^\s|;&<>]+)\s*$")
 OK = "ok"
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
@@ -93,6 +96,21 @@ def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, di
             yield call, values, source, piped
 
 
+def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str | None:
+    """The markdown a reply posts: its literal `--body`, or what a `--body "$(cat <<'EOF' ... EOF)"` heredoc or `--body "$(cat <file>)"` substitutes; None when it has no body."""
+    if (body := first(values, "body")) is not None:
+        return body
+    words = call.source.words
+    raw = next((word.raw for flag, word in zip(words, words[1:]) if flag.value == "--body"), None)
+    if raw is None or not (substituted := SUBSTITUTED.match(raw)):
+        return None
+    if heredoc := HEREDOC_BODY.search(substituted["inner"]):
+        return heredoc["body"].rstrip("\n")
+    if read := READ_FILE.match(substituted["inner"]):
+        return Path(str(call.cwd or evt.cwd), Path(read["path"].strip("'\"")).expanduser()).read_text().rstrip("\n")
+    return None
+
+
 def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:
     return Published(verb, data, {"type": TEXT, "id": where, "md": data.decode()}, session, path, where)
 
@@ -110,7 +128,9 @@ def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
     for call, values, source, piped in calls(evt, GATED):
         session = first(values, "session") or evt.session_id
         if first(values, "verb") == "reply":
-            found.append(as_text("reply", (first(values, "body") or "").encode(), session, None, f"the reply on {first(values, 'block')}"))
+            where = f"the reply on {first(values, 'block')}"
+            if (body := reads.read(f"the body of {where}", lambda call=call, values=values: reply_body(evt, call, values))) is not None:
+                found.append(as_text("reply", body.encode(), session, None, where))
             continue
         if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call.cwd, source, piped)))):
             path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())

@@ -96,6 +96,26 @@ def test_a_reply_in_drive_words_is_refused(root: Root) -> None:
     assert 'a drive word, "lane"' in result.message
 
 
+@pytest.mark.parametrize("source", ["heredoc", "file"])
+def test_a_reply_whose_body_is_substituted_is_graded_on_that_body(root: Root, source: str) -> None:
+    body = "The slice for this lane is done."
+    if source == "heredoc":
+        command = f"cc-present reply --block share-open --body \"$(cat <<'EOF'\n{body}\nEOF\n)\""
+    else:
+        (root.home / "reply.md").write_text(f"{body}\n")
+        command = 'cc-present reply --block share-open --body "$(cat reply.md)"'
+    with stubbed_commands(root.reads()):
+        result = gate.board_text_gate(root.event(PreToolUseEvent, command))
+
+    assert 'the reply on share-open has a drive word, "slice"' in result.message
+    assert gate.hashlib.sha256(body.encode()).hexdigest()[:12] in result.message
+
+
+def test_a_reply_with_no_body_is_not_graded(root: Root) -> None:
+    with stubbed_commands(root.reads()):
+        assert gate.board_text_gate(root.event(PreToolUseEvent, "cc-present reply --help")) is None
+
+
 def test_a_failed_register_read_passes_the_board_and_posts_one_blocker(root: Root, posts: Path) -> None:
     with stubbed_commands(root.reads(rows="no register for brook")):
         assert gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board('clean-card.json')}")) is None
