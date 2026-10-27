@@ -62,7 +62,7 @@ function needItem(item) {
     const row = boardRow(r.number);
     const busy = pending.number === r.number && !pending.error;
     const failed = pending.number === r.number && pending.error ? `<em class="err">${esc(pending.error)}</em>` : '';
-    return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(r.title)}</a>
+    return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(shortName(r.number) ?? r.title)}</a>
       ${ov.noting === `${r.number}@${r.head}` ? `<form class="note" data-note="${r.number}" data-head="${esc(r.head)}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn pri">✓ Approve</button><button type="button" class="btn hold" data-note-hold="${r.number}">‖ Hold</button></form>`
         : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
   }
@@ -184,7 +184,7 @@ function tipFor(el) {
     const step = state.model.steps.find((s) => s.id === e?.step);
     const part = state.model.parts.find((p) => p.key === e?.part);
     const pr = state.model.prs[n] ?? {};
-    return `<div class="tip-h"><i class="lt ${prState(n)}"></i><b>#${n}</b><span>${STATE_WORD[prState(n)]}</span></div><div>${esc(plainTitle(n))}</div>
+    return `<div class="tip-h"><i class="lt ${prState(n)}"></i><b>#${n}</b><span>${STATE_WORD[prState(n)]}</span></div><div>${esc(shortName(n) ?? plainTitle(n))}</div>
       <div class="dim">${[step?.label ?? step?.title, part?.name, e?.worker?.lane, pr.landed_at ? `landed ${clock(pr.landed_at)}` : ''].filter(Boolean).map(esc).join(' · ')}</div>`;
   }
   if (el.dataset.part) {
