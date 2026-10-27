@@ -914,7 +914,8 @@ def quoting_rows(loaded: Register, span: str) -> list[str]:
     return [
         key
         for key, fields in loaded.rulings().items()
-        if quote == folded(key) or any(quote in said for said in said_words(fields)) or any(quote == folded(name) for name in names_of(fields))
+        if fields.get("status") != "pending-owner"
+        and (quote == folded(key) or any(quote in said for said in said_words(fields)) or any(quote == folded(name) for name in names_of(fields)))
     ]
 
 

@@ -511,8 +511,11 @@ def test_classify_refuses_a_repeat_that_adds_a_second_row(home: Path, package: P
     assert out.strip() == f"REPEAT {'6' * 16}: the words carry how many times; extend rule/aaaaaaa with extends=<key>, never a second row"
 
 
-def test_a_quoted_phrase_no_row_carries_is_no_repeat_so_classify_adds_the_row(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
-    words = 'for the uploads use "direct or proxy via API" and nothing else'
+@pytest.mark.parametrize("quote", ["direct or proxy via API", "The pass hands out work"])
+def test_a_quoted_phrase_no_in_force_row_carries_is_no_repeat_so_classify_adds_the_row(
+    home: Path, package: Path, state: Path, tmp_path: Path, capsys, quote: str
+) -> None:
+    words = f'for the uploads use "{quote}" and nothing else'
     captured(state, capture("4", words))
     shell = RegisterShell(seeded(package))
 
