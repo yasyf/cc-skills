@@ -318,7 +318,7 @@ sha, or else the head the PR's newest `head` record named before it. The newest 
 whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
-neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` blocker to its lane and the fidelity lanes. A finder ok of an older head
+neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it. A finder ok of an older head
 carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
@@ -591,6 +591,7 @@ GRADE_KEY = "ci-grade:"
 CLAIM_CLAUSE = re.compile(r";|\.\s")
 CLAIMED_PR = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+))?#(?P<pr>\d+)\b")
 STATUS_PAGE = 25
+STATUS_MAX_AGE = timedelta(minutes=5)
 FULL_RUN_GREEN = re.compile(r"full run green (?P<build>\d+)(?P<sentence>[^.]*)")
 FULL_RUN_WINDOW = timedelta(days=2)
 RELEASE_POLL = timedelta(seconds=15)
@@ -793,6 +794,21 @@ def time_bound(argv: list[str]) -> float:
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
 
 
+def command_family(argv: list[str]) -> str:
+    """The program, its verbs (up to three words that are no flag, path or number, read until a flag or path follows them), and `--check` when it carries one: what a pass's cost line groups by."""
+    words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
+    verbs: list[str] = []
+    for word in words[1:]:
+        if word.startswith("-") or "/" in word or word.isdigit():
+            if verbs:
+                break
+            continue
+        verbs.append(word)
+        if len(verbs) == 3:
+            break
+    return " ".join([Path(words[0]).name, *verbs, *(["--check"] if "--check" in words else [])])
+
+
 def command_name(argv: list[str]) -> str:
     words = argv[1:] if Path(argv[0]).name.startswith("python") else argv
     return " ".join(Path(word).name if word.startswith("/") else word for word in words)[:120]
@@ -810,10 +826,13 @@ class Shell:
     """
 
     in_progress: dict[int, tuple[str, float]] = {}
+    spent: Counter[str] = Counter()
+    spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
         timeout = time_bound(argv)
-        self.in_progress[threading.get_ident()] = (command_name(argv), time.monotonic())
+        started = time.monotonic()
+        self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
@@ -825,7 +844,15 @@ class Shell:
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
         finally:
             self.in_progress.pop(threading.get_ident(), None)
+            with self.spending:
+                self.spent[command_family(argv)] += time.monotonic() - started
         return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def pass_cost(self) -> str:
+        """The seconds this pass's commands spent, the eight costliest families first, summed over parallel workers; the tally starts over."""
+        with self.spending:
+            costliest, self.spent = self.spent.most_common(8), Counter()
+        return ", ".join(f"{family} {seconds:.0f}s" for family, seconds in costliest)
 
     def in_flight(self) -> tuple[str, float] | None:
         """The longest-running command in flight and how many seconds it has run."""
@@ -3852,6 +3879,11 @@ def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> boo
     return any(downstack(open_rows, tip) & prs for tip in tree)
 
 
+def blocker_key(pr: str, head: str) -> str:
+    """One blocker per PR and head, whether the gate's 10-character sha or the ledger's full one names it, so a red build and the Graphite `FAILING_REQUIRED` it causes route once (root #142221)."""
+    return f"blocker:{pr}:{head[:10]}"
+
+
 def status_blocker(entry: dict) -> str:
     """What a `ccx vcs pr status` entry asks its lane to fix, or empty while the PR only waits: a conflict, red CI with its failing checks, or requested changes."""
     causes = entry["verdict"].removeprefix("blocked:").split(",")
@@ -3967,6 +3999,7 @@ class Landing:
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
+        self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
         self.reviews: list[dict] | None = None
         self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
@@ -3988,6 +4021,7 @@ class Landing:
         self.grade_tried: set[str] = set()
         self.stacks: dict[str, set[str]] = {}
         self.no_go: set[str] = set()
+        self.below_blocking: set[str] = set()
         self.started = self.book.stamp()
         self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
         self.book.ensure(LANDING, LANDING)
@@ -4157,24 +4191,33 @@ class Landing:
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def refuse_ungone_parents(self, rows: dict[str, dict]) -> None:
-        """Post one note to the root per stack holding rows a root `go` names at their heads above rows `unpassed` keeps out, again only when that stack's set of parents without a go changes, never for a head that moves: no parent without a go at its head is ever swept into a batch, so the whole stack waits, and the root hears which parents need the owner's tap."""
+        """Post one note to the root per stack holding rows a root `go` names at their heads above a parent nothing can land past: one `unpassed` keeps out, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap and which need their lane (root #142036, #142931)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
+        self.below_blocking = self.no_go | red
+        gos = self.root_gos()
         stacks: dict[str, tuple[list[str], set[str]]] = {}
         for pr in sorted(open_rows, key=int):
-            if pr in self.no_go or not (parents := downstack(open_rows, pr) & self.no_go):
+            if pr in self.below_blocking or not gone_at(gos, pr, open_rows[pr]["head"]) or not (parents := downstack(open_rows, pr) & self.below_blocking):
                 continue
             bottom = min(downstack(open_rows, pr), key=lambda below: (len(downstack(open_rows, below)), int(below)))
             gone, waiting = stacks.setdefault(bottom, ([], set()))
             gone.append(pr)
             waiting.update(parents)
+
+        def named(prs: list[str]) -> str:
+            return " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in prs)
+
         for bottom, (gone, waiting) in stacks.items():
             parents = sorted(waiting, key=int)
             key = f"go-parents:{bottom}:" + ",".join(parents)
             if self.book.known(LANDING, key):
                 continue
-            named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
-            heads = " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in gone)
-            self.post_record("note", key, ROOT, f"stack of #{bottom}: root gos name {heads}, stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", bottom)
+            untapped = [parent for parent in parents if parent in self.no_go]
+            broken = [parent for parent in parents if parent not in self.no_go]
+            on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
+            asks = ["the owner taps each parent's merge row and root posts `go #<parent> at <head>`"] * bool(untapped) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
+            self.post_record("note", key, ROOT, f"BELOW-BLOCKED stack of #{bottom}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so nothing in the stack is enqueued; {'; '.join(asks)}", bottom)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -4710,11 +4753,14 @@ class Landing:
         owner = self.owner(pr, graded.rows.get(pr, {}))
         self.post_blocker(key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
-    def warn_head(self, key: str, pr: str, graded: Graded, why: str) -> None:
-        """Post one `note` warning per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none."""
+    def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
+        """Post one `note` warning per `key` to the lane that owns `pr` and to each lane of `also`. The lanes of `also` act on it, so it skips a dead owner and never reaches the root; with no `also`, the root stands in for an owner lane with no live session, or for none (root #142931)."""
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
+        if also:
+            self.post_record("note", key, ",".join([*([owner] if owner and not self.lane_dead(owner) else []), *also]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+            return
         self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
@@ -4801,8 +4847,9 @@ class Landing:
         self.post_record("note", key, record["lane"], text, pr)
 
     def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` fails `OLD-APP-PENDING`, with one blocker per head to its lane and the fidelity lanes (root #140437)."""
-        states = {}
+        """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437)."""
+        if not graded.act:
+            return {}
         for pr, sha in graded.heads.items():
             grades = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
             if (newest := newest_finder(grades, sha)) and newest["grade"] in OLD_APP_PASSES:
@@ -4810,11 +4857,9 @@ class Landing:
             if not newest and self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES):
                 continue
             why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
-            states[pr] = merge_queue.State(merge_queue.FAIL, f"OLD-APP-PENDING #{pr}: {why}")
-        if graded.act:
-            for pr, state in states.items():
-                self.refuse_head(f"old-app:{pr}:{graded.heads[pr]}", pr, graded, state.reason, states, also=self.fidelity_lanes)
-        return states
+            text = f"OLD-APP-PENDING #{pr}, and the head is not held for it: {why}"
+            self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_lanes)
+        return {}
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
         ungraded = self.ungraded(graded.heads)
@@ -4992,22 +5037,22 @@ class Landing:
             why = f"It changes {', '.join(paths[:3])}{' and more' if len(paths) > 3 else ''}." if paths else "Every PR waits for your answer." if mode == "every" and not self.lands_green else "It touches a reserved rule."
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
             if self.landing_config.get("merge_ask_surface", "slack") == "board":
-                where = "on the root's board, where the root asks it"
+                where = "on the root's board"
             elif ts := self.merge_card(pr, heads[pr], f"{why}{touched}"):
-                where = f"the merge card at ts {ts} in the root's status thread or on its board"
+                where = f"on merge card ts {ts}"
             else:
                 continue
             stale = self.stale_title(pr)
             if stale:
                 self.warn_stale_title(pr, heads[pr], rows.get(pr, {}), *stale)
-            authorize = "".join(f"; the card quotes {key} and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <the tap's ts>`, since a go never does" for key, _ in reserved)
+            authorize = "".join(f"; only the tap authorizes {key}: `rulings.py authorize --drive {self.runner.config.drive} --row {key} --action <tap ts>`" for key, _ in reserved)
             self.runner.escalate(
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}" + (f":title-stale:{stale[0]['seq']}" if stale else ""),
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {heads[pr]} is ready" + (f", but its newest grade, cci #{stale[0]['seq']}, says `{stale[1]}`, so no go until the lane's title fix posts" if stale else "") + f", and merge mode {mode} keeps {numbered(list(heads))} out of the queue until the owner answers {where}, waiting on `{waits}`"
-                f" | Merge posts `cci post --kind go --pr {pr} --text \"merge #{pr} at {short}\"`{authorize}, Hold runs `holds.py add --pr {pr}`, the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture,"
-                f" and an Explain more tap resolves nothing: post `cci post --kind ask --to root --text \"explain more: {waits}\"` and answer in plain words with `cc-present reply --block {waits} --body <answer>`, which replies on the board and under the Slack card with the link back to it",
+                f"#{pr} {short} waits on the owner's tap on `{waits}` {where} (merge mode {mode})"
+                + (f"; no go until the lane's title fix: cci #{stale[0]['seq']} says `{stale[1]}`" if stale else "")
+                + authorize,
             )
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
@@ -5290,12 +5335,13 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, or on one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` note per stack (root #142036, #142931)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
         for pr, row in rows.items():
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head:
+            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or downstack(open_rows, pr) - {pr} & self.below_blocking:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
                 continue
@@ -5488,10 +5534,12 @@ class Landing:
         }
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR."""
+        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR. An enqueue is judged only once its whole-second completion stamp is before `statuses_floor`, since the status read may answer from a poll made before it."""
         believed = self.believed_queued(rows)
         if not any(believed.values()) or (queue := self.queue_states()) is None:
             return
+        polled = {action.action_id for action in self.book.actions(LANDING, kind="enqueue", status="completed") if actions.parse_stamp(action.response["at"]) < self.statuses_floor}
+        believed = {key: prs for key, prs in believed.items() if key in polled}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         for key, prs in believed.items():
             dropped = [pr for pr in prs if queue[pr] in OUT_OF_QUEUE]
@@ -5712,7 +5760,7 @@ class Landing:
 
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
-        key = f"blocker:{pr}:{sha}"
+        key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr):
             return
@@ -5802,12 +5850,13 @@ class Landing:
         return pr in self.landed
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, so no entry is older than `statuses_floor`, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
+            self.statuses_floor = actions.parse_stamp(actions.stamp(self.runner.now() - STATUS_MAX_AGE))
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
-                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", *page]), pages))
+                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
             self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
@@ -5826,9 +5875,10 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM)."""
+        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM). It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not self.no_go or (statuses := self.pr_statuses()) is None:
             return
+        self.gos = None
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted(self.no_go - covered, key=int) if pr in statuses and open_rows[pr].get("head")}
@@ -5838,7 +5888,7 @@ class Landing:
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
             if why := status_blocker(entry):
-                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else f"blocker:{pr}:{head}"
+                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
                 self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
 
     def routed(self, key: str, lane: str) -> bool:
@@ -5926,8 +5976,10 @@ class Landing:
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
         if self.quota_low():
             return
-        advanced = self.advance()
-        self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+        with ThreadPoolExecutor(1) as pool:
+            advancing = pool.submit(self.advance)
+            self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+            advanced = advancing.result()
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         rows = self.rows()
         self.watch_trunk(rows or {})
@@ -6100,6 +6152,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 return 1
         behind = runner.stale()
         runner.flush()
+        print(f"PASS landing {runner.passes['landing'] + 1} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
             return 0

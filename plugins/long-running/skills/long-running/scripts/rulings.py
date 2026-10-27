@@ -991,10 +991,14 @@ def widened(loaded: Register, entry: dict) -> tuple[str, list[str]] | None:
     return None
 
 
+def answers_of(entry: dict, capture: dict) -> list[str]:
+    return entry.get("answer") or ([capture["answer"]] if "answer" in capture else [])
+
+
 def new_key(entry: dict, capture: dict) -> str:
     if entry.get("key"):
         return entry["key"]
-    if answers := entry.get("answer"):
+    if answers := answers_of(entry, capture):
         return f"rule/{answers[0][:SHORT]}"
     return f"prompt/{captured_at(capture['at']).astimezone(PACIFIC):%m%d-%H%M%S}"
 
@@ -1213,6 +1217,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     at = pacific(capture["at"])
     words = entry["words"]
     quote = words if capture.get("source") == ANSWER_SOURCE else capture["text"]
+    answers = answers_of(entry, capture)
     repeated = False
     if extends := entry.get("extends"):
         key, how, repeated = extends, "extended", bool(repeat_markers(loaded, capture["text"]))
@@ -1223,7 +1228,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         loaded.write(
             key,
             **reclassified,
-            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": entry.get("answer") or [], "at": at, "words": quote, "proof": proof, "repeat": repeated}],
+            repeats=[*listed(fields.get("repeats")), {"key": new_key(entry, capture), "answer": answers, "at": at, "words": quote, "proof": proof, "repeat": repeated}],
             said=str(int(fields.get("said") or 1) + repeated),
             names=union(names_of(fields), entry.get("names") or []),
             surfaces=union(listed(fields.get("surfaces")), entry.get("surfaces") or []),
@@ -1236,7 +1241,7 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         fields = {
             "kind": kind,
             "words": quote,
-            "answer": entry.get("answer") or [],
+            "answer": answers,
             "proof": proof,
             "at": at,
             "said": "1",

@@ -275,7 +275,8 @@ class FakeShell(runner_module.Shell):
         if argv[:7] == ["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json"]:
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
-            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in argv[7:]]), "")
+            prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
+            return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": self.queue.get(pr, "queued")} | self.pr_status.get(pr, {}) for pr in prs]), "")
         if argv[:6] == ["ccx", "vcs", "gh", "--", "api", "rate_limit"]:
             assert len(argv) == 6 and env == {"GH_REPO": "Forge-AI/monorepo"}
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps({"resources": self.quota}), "")
@@ -2801,7 +2802,7 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
     seq = grade(shell, "29020", graded)
     landing_pass(shell, config)
     [line] = escalations(shell)
-    stale = f"#29020 cccc333333 is ready, but its newest grade, cci #{seq}, says `title: stale, it names the old fix`, so no go until the lane's title fix posts, and merge mode every"
+    stale = f"; no go until the lane's title fix: cci #{seq} says `title: stale, it names the old fix`"
     assert line.startswith("MERGE-ASK ") and (stale in line) == warns and len(shell.pr_cards) == 1 and shell.enqueues() == []
     assert [LANE in post["to"].split(",") for post in blockers(shell) if "title: stale" in post_body(post)] == ([True] if warns else [])
 
@@ -2814,7 +2815,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers the merge card at ts 1700000001.000100 in the root's status thread or on its board, waiting on `merge:29020:cccc333`")
+    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts 1700000001.000100 (merge mode every)"
     [card] = shell.pr_cards
     assert card == {
         "card": {
@@ -2830,10 +2831,6 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
         "argv": ["-", "--session", "s-root"],
     }
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
-    assert 'cci post --kind go --pr 29020 --text "merge #29020 at cccc333"' in line and "send a needs_you" not in line
-    assert "the text the owner types in Other's modal reaches you as the card's capture and merges nothing, so classify it as a capture" in line
-    assert "answer in plain words with `cc-present reply --block merge:29020:cccc333 --body <answer>`, which replies on the board and under the Slack card with the link back to it" in line
-    assert 'Explain more tap resolves nothing: post `cci post --kind ask --to root --text "explain more: merge:29020:cccc333"`' in line
     merge_go(shell, "29020", "merge #29020 at bbbb222")
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -2960,7 +2957,7 @@ def test_a_pass_reads_the_queue_once_for_its_requeue_and_its_landed_checks(shell
     shell.gates["29100"] = [gate(f"#29100 BLOCKED eeee555555 {CONFLICT}")]
     landing_pass(shell, config)
     reads = [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
-    assert [call[7:] for call in reads] == [["29020", "29100"]]
+    assert [call[7:] for call in reads] == [["--max-age", "300s", "29020", "29100"]]
     assert runner_module.time_bound(reads[0]) == runner_module.QUEUE_STATUS_SECONDS
 
 
@@ -2969,7 +2966,7 @@ def test_a_pass_reads_pr_status_in_pages_of_twenty_five(shell, config, tmp_path)
     shell.rows = [{"pr": str(pr), "lane": LANE, "branch": f"b/{pr}", "base": "dev", "head": f"{pr:x}aaaaaa", "state": "open", "reported_head": f"{pr:x}aaaaaa"} for pr in range(30000, 30030)]
     shell.queue |= {row["pr"]: "not queued" for row in shell.rows}
     landing_pass(shell, config)
-    reads = [call[7:] for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
+    reads = [call[9:] for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]
     assert reads == [[str(pr) for pr in range(30000, 30025)], [str(pr) for pr in range(30025, 30030)]]
 
 
@@ -3101,6 +3098,25 @@ def stack_named(shell: FakeShell) -> set[str]:
     return {pr for call in shell.calls if Path(call[0]).name == "stack-enqueue" for pr in itertools.takewhile(str.isdigit, call[1:])}
 
 
+def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config, tmp_path, monkeypatch):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    run = shell.run
+
+    def tapped_mid_pass(argv, stdin=None, env=None):
+        if argv[:4] == ["ccx", "vcs", "pr", "status"] and not any(record["kind"] == "go" for record in shell.records):
+            merge_go(shell, "29020", "merge #29020 at cccc333")
+        return run(argv, stdin, env)
+
+    monkeypatch.setattr(shell, "run", tapped_mid_pass)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")] == []
+
+
 def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go_names_the_head(shell, config, tmp_path):
     board_surface(config)
     lone_green_pr(shell)
@@ -3111,7 +3127,7 @@ def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go
     landing_pass(shell, config)
     assert checks(shell) == [] and shell.pr_cards == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333333 is ready, and merge mode every keeps #29020 out of the queue until the owner answers on the root's board, where the root asks it, waiting on `merge:29020:cccc333`")
+    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every)"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
@@ -3133,6 +3149,19 @@ def test_on_a_board_surface_a_pr_without_a_go_gets_its_blockers_from_the_status_
         (LANE, "#29020 cccc333333: GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"),
         (LANE, "#29100 dddd444444: CI is red: buildkite/test; changes requested by poetic-svc"),
     ]
+
+
+def test_a_red_head_draws_one_blocker_whether_the_status_read_or_the_gate_names_it_first(shell, config, tmp_path):
+    board_surface(config)
+    head = "c" * 40
+    shell.rows = [dict(ONE_ROW, head=head, reported_head=head)]
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccccccccc graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    merge_go(shell, "29020", "merge #29020 at ccccccc")
+    landing_pass(shell, config)
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == [f"#29020 {head}: CI is red: buildkite/test"]
 
 
 def test_on_a_board_surface_a_conflict_alone_is_one_blocker_per_base_whatever_the_head(shell, config, tmp_path):
@@ -3170,7 +3199,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
 
 
 def ungone_parents(bottom: str, heads: str, parents: str) -> str:
-    return f"stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+    return f"BELOW-BLOCKED stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
 
 
 def notes(shell: FakeShell) -> list[dict]:
@@ -3292,10 +3321,10 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     landing_pass(shell, config)
     assert shell.enqueues() == [] and blockers(shell) == []
     [line] = escalations(shell)
-    assert line.startswith(f"MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333333 is ready, and merge mode {mode} keeps #29020 out of the queue")
-    message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
+    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts ")
+    assert f"(merge mode {mode}); only the tap authorizes reserved/user-data" in line
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
-    assert "the card quotes reserved/user-data and its words, and only its tap authorizes the row: after a Merge tap run `rulings.py authorize --drive d1 --row reserved/user-data --action <the tap's ts>`, since a go never does" in message
+    assert line.endswith("; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`")
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
@@ -3368,7 +3397,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     first, second = shell.pr_cards
     assert second["card"]["id"] == first["card"]["id"] == "merge:29020:cccc333" and "User data stays where it is." in second["card"]["children"][0]["md"]
-    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("at ts 1700000001.000100") == 1
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("card ts 1700000001.000100") == 1
 
 
 def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell, config, tmp_path):
@@ -3673,6 +3702,23 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner_module.seed_policy(runner)
     return runner_module.Landing(runner, runner.config.landing)
+
+
+def test_a_pass_fetches_the_trunk_while_the_ledger_refreshes(shell, config):
+    lone_green_pr(shell)
+    refreshing, overlapped = threading.Event(), []
+    run = shell.run
+
+    def watched(argv, stdin=None, env=None):
+        if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "refresh":
+            refreshing.set()
+        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"]:
+            overlapped.append(refreshing.wait(5))
+        return run(argv, stdin, env)
+
+    shell.run = watched
+    landing_pass(shell, config)
+    assert overlapped == [True]
 
 
 def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, config, tmp_path):
@@ -4201,6 +4247,12 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     assert shell.enqueues() == []
 
 
+def out_of_queue(shell: FakeShell, *prs: str, state: str = "not queued") -> None:
+    shell.sleep(runner_module.STATUS_MAX_AGE.total_seconds() + 1)
+    for pr in prs:
+        shell.queue[pr] = state
+
+
 def enqueues_of(tmp_path: Path) -> dict[str, actions.Action]:
     return {key: action for key, action in incident(tmp_path, "desk-landing").actions.items() if action.kind == "enqueue"}
 
@@ -4213,7 +4265,7 @@ def test_a_prefix_the_queue_dropped_at_its_admitted_head_is_enqueued_again(shell
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
     shell.queue["29020"] = "queued"
@@ -4231,7 +4283,7 @@ def test_a_prefix_the_queue_dropped_for_a_conflict_goes_to_its_lane_as_a_blocker
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
-    shell.queue["29020"] = "evicted"
+    out_of_queue(shell, "29020", state="evicted")
     shell.gates["29020"] = [gate(CONFLICT_DROP)]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4253,6 +4305,20 @@ OWN_RED = (
 )
 
 
+def test_an_enqueue_a_root_go_makes_is_judged_against_the_queue_only_once_a_status_read_postdates_it(shell, config, tmp_path):
+    board_surface(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["enqueued"]
+    out_of_queue(shell, "29020", "29031")
+    landing_pass(shell, config)
+    assert sorted(enqueues_of(tmp_path).items())[0][1].response["outcome"] == "dropped"
+
+
 def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tmp_path):
     shell.launch("artifact-retry", "ctx_a")
     shell.rows = [row for row in stack_rows() if row["pr"] != "29020"]
@@ -4260,7 +4326,7 @@ def test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head(shell, config, tm
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
-    shell.queue["29016"] = "not queued"
+    out_of_queue(shell, "29016")
     shell.gates["29016"] = [gate("#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE", OWN_RED)]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4291,7 +4357,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     root_go(shell, "GO #29020 at cccc3333 standard", shell.now() - timedelta(minutes=5))
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FOREIGN_RETRY, would="#29020")]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4330,7 +4396,7 @@ def test_a_drop_blaming_a_pr_inside_the_stack_is_gated_again_and_re_enqueues_the
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n")
     landing_pass(shell, config)
-    shell.queue["28997"] = shell.queue["29016"] = "not queued"
+    out_of_queue(shell, "28997", "29016")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
     assert sorted(action.response["outcome"] for action in enqueues_of(tmp_path).values()) == ["dropped", "enqueued"]
@@ -4347,7 +4413,7 @@ def test_a_red_check_drop_its_gate_reads_as_a_batch_mates_failure_re_enqueues_th
     grade_gated_heads_ok(shell)
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(retry, would="#29020")]
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2 and blockers(shell) == [] and escalations(shell) == []
@@ -4494,7 +4560,7 @@ def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_fo
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     landing_pass(shell, config)
     assert flakes(shell) == [["29020", "--flake"]] and len(shell.enqueues()) == 1
@@ -4502,7 +4568,7 @@ def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_fo
     shell.queue["29020"] = "queued"
     landing_pass(shell, config)
     assert len(flakes(shell)) == 1 and blockers(shell) == []
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(flakes(shell)) == 1
@@ -4523,7 +4589,7 @@ def test_a_flaky_retry_the_queue_refuses_is_a_defect(shell, config, tmp_path):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     shell.flake_code = 1
     landing_pass(shell, config)
@@ -4536,7 +4602,7 @@ def test_a_flaky_retry_the_queue_strands_escalates_like_any_enqueue_and_asks_the
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
-    shell.queue["29020"] = "not queued"
+    out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     shell.flake_code = 3
     landing_pass(shell, config)
@@ -4673,18 +4739,18 @@ def old_app_checked(config: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("lane", "text", "enqueued"),
+    ("lane", "text", "warned"),
     [
-        (None, None, False),
-        ("fidelity-desk", "old-app: unchanged cccc333 (touches only the new tree)", True),
-        ("fidelity-desk", "old-app: bug fix cccc333", True),
-        ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", False),
-        ("fidelity-desk", "old-app: unchanged bbbb222", False),
-        (LANE, "old-app: unchanged cccc333", False),
-        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", False),
+        (None, None, True),
+        ("fidelity-desk", "old-app: unchanged cccc333 (touches only the new tree)", False),
+        ("fidelity-desk", "old-app: bug fix cccc333", False),
+        ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", True),
+        ("fidelity-desk", "old-app: unchanged bbbb222", True),
+        (LANE, "old-app: unchanged cccc333", True),
+        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", True),
     ],
 )
-def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, enqueued):
+def test_a_drive_naming_the_old_app_check_enqueues_every_head_and_warns_once_on_one_no_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, warned):
     old_app_checked(config)
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -4692,10 +4758,23 @@ def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_g
         shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert bool(shell.enqueues()) is enqueued
-    if not enqueued:
-        [blocker] = blockers(shell)
-        assert blocker["to"] == f"{LANE},fidelity-desk" and "OLD-APP-PENDING #29020: " in blocker["text"]
+    assert shell.enqueues() and not blockers(shell)
+    pending = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in note["text"]]
+    assert len(pending) == int(warned)
+    assert all(note["to"] == f"{LANE},fidelity-desk" for note in pending)
+
+
+@pytest.mark.parametrize(("session", "posted", "to"), [(True, False, f"{LANE},fidelity-desk"), (False, True, f"{LANE},fidelity-desk"), (False, False, "fidelity-desk")], ids=["live", "no-session", "dead"])
+def test_an_old_app_warning_reaches_its_living_lane_and_the_fidelity_lanes_and_never_the_root(shell, config, tmp_path, session, posted, to):
+    old_app_checked(config)
+    lone_green_pr(shell)
+    shell.gone = set() if session else {LANE}
+    if posted:
+        posted_lately(shell, LANE)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+    assert (pending["to"], post_body(pending).startswith("#29020 cccc333333: WARNING")) == (to, True)
 
 
 def fast_row(shell: FakeShell, labels: str = "merge-fast,externally-merged", lane: str = LANE) -> dict:
@@ -4878,6 +4957,37 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001@aaaa111111 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
+
+
+def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.queue["29031"] = "not queued"
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
+
+
+@pytest.mark.parametrize("broken", [{"test_state": "failure"}, {"test_state": "success", "mergeable_state": "dirty"}])
+def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path, broken):
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[0] = dict(shell.rows[0], **broken)
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.queue["29031"] = "not queued"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
+        "BELOW-BLOCKED stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so nothing in the stack is enqueued; each red or conflicting parent's lane makes it green and mergeable"
+    ]
 
 
 def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
@@ -9169,3 +9279,24 @@ def test_a_trunk_green_again_posts_dev_green_once(shell, config, tmp_path):
     landing.watch_trunk(OPEN_ROWS)
 
     assert trunk_posts(shell) == [("report", "root,drive-watchdog", "DEV-GREEN dev's buildkite/test passes again; it was red since 10:50 AM.")]
+
+
+@pytest.mark.parametrize(
+    ("argv", "family"),
+    [
+        ([sys.executable, "/plugin/scripts/ledger.py", "-C", "/drive/checkout", "refresh", "--repo", "Forge-AI/monorepo"], "ledger.py refresh"),
+        (["/drive/checkout/.agents/skills/submit-pr/scripts/stack-enqueue", "43052", "--check", "--partial"], "stack-enqueue --check"),
+        (["ccx", "vcs", "pr", "status", "-R", "Forge-AI/monorepo", "--json", "42580", "42587"], "ccx vcs pr status"),
+        (["gh", "api", "repos/Forge-AI/monorepo/compare/a~14...a", "-H", "Accept: application/vnd.github.diff"], "gh api"),
+        (["git", "-C", "/drive/checkout", "merge", "-q", "--ff-only", "FETCH_HEAD"], "git merge"),
+    ],
+)
+def test_a_pass_cost_groups_each_command_by_its_program_and_verbs(argv, family):
+    assert runner_module.command_family(argv) == family
+
+
+def test_a_pass_cost_lists_the_costliest_families_and_starts_over():
+    shell = runner_module.Shell()
+    shell.spent = runner_module.Counter({"ledger.py refresh": 55.2, "stack-enqueue --check": 120.4, "cci tail": 1.0})
+    assert shell.pass_cost() == "stack-enqueue --check 120s, ledger.py refresh 55s, cci tail 1s"
+    assert shell.pass_cost() == ""

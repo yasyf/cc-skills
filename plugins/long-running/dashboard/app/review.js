@@ -175,12 +175,13 @@ function syncReviewEmbed(r) {
     return;
   }
   el.dataset.tab = row && r.tab === 'notes' ? 'notes' : 'code';
-  if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
-  if (embed.number !== number || embed.row !== Boolean(row)) {
+  if (embed.number !== number || embed.row !== Boolean(row)) el.innerHTML = '<div class="pane code"></div>';
+  if (el.dataset.tab === 'notes' && !el.querySelector('.pane.verdict')) {
     const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    const verdict = row && `${state.model.board.url}?block=${encodeURIComponent(row.block)}&row=${number}&theme=${theme}`;
-    el.innerHTML = `${row ? `<div class="pane verdict"><iframe title="Verdict on #${number}" src="${esc(verdict)}"></iframe></div>` : ''}<div class="pane code"></div>`;
+    const verdict = `${state.model.board.url}?block=${encodeURIComponent(row.block)}&row=${number}&theme=${theme}`;
+    el.insertAdjacentHTML('afterbegin', `<div class="pane verdict"><iframe title="Verdict on #${number}" src="${esc(verdict)}"></iframe></div>`);
   }
+  if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
   Object.assign(embed, { number, head, row: Boolean(row) });
   const code = el.querySelector('.pane.code');
   code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
