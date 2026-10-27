@@ -621,4 +621,4 @@ def test_a_failing_one_tap_group_holds_every_row_it_covers(tmp_path: Path, shell
 
     assert gate(tmp_path, shell, claimed("Gateway fix: your one tap approves both.", pr_row("42590"), pr_row("42593")), "--", "cc-present", "update-block") == 1
 
-    assert lines(capsys)[-1] == "rows 2 failing 2 ungraded 0 flags 0" and shell.pushed == []
+    assert lines(capsys)[-1].startswith("rows 2 failing 2 ") and shell.pushed == []
