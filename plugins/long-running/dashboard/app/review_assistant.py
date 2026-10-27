@@ -1,4 +1,5 @@
 import json
+import os
 import queue
 import re
 import subprocess
@@ -34,6 +35,8 @@ class ReviewAssistant:
         self.queues = {}
         self.seen = set()
         self.urls = {}
+        self.closed = set()
+        self.starting = {}
         self.warming = queue.Queue()
         threading.Thread(target=self.warm_loop, daemon=True).start()
 
@@ -52,18 +55,21 @@ class ReviewAssistant:
         threading.Thread(target=self.serve, args=(number,), daemon=True).start()
 
     def review_url(self, number, head, landed):
-        if (url := self.urls.get((number, head))) and live(url):
+        with self.lock:
+            starting = self.starting.setdefault(number, threading.Lock())
+        with starting:
+            if not ((url := self.urls.get((number, head))) and live(url)):
+                cwd = self.scope(number)
+                cwd.mkdir(exist_ok=True)
+                started = subprocess.run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.session(number), "--cwd", str(cwd)], capture_output=True, text=True, check=True, timeout=120)
+                url = TAILNET_LINE.search(started.stdout)[1]
+                self.urls[(number, head)] = url
+            if landed and url not in self.closed:
+                subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
+                self.closed.add(url)
+            if not landed:
+                self.attach(number)
             return url
-        cwd = self.scope(number)
-        cwd.mkdir(exist_ok=True)
-        started = subprocess.run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.session(number), "--cwd", str(cwd)], capture_output=True, text=True, check=True, timeout=120)
-        url = TAILNET_LINE.search(started.stdout)[1]
-        if landed:
-            subprocess.run(["cc-review", "close", url.rsplit("/s/", 1)[1]], capture_output=True, check=True, timeout=60)
-        else:
-            self.attach(number)
-        self.urls[(number, head)] = url
-        return url
 
     def refresh(self, prs, waiting):
         for path in (self.reviews / "assisted").iterdir():
@@ -80,7 +86,7 @@ class ReviewAssistant:
                 continue
             try:
                 self.review_url(number, head, False)
-            except subprocess.CalledProcessError as failure:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
                 with (self.reviews / "warm.log").open("a") as log:
                     log.write(f"#{number} at {head}: {failure.stderr}\n")
 
@@ -109,16 +115,15 @@ class ReviewAssistant:
         self.queues[number].put(event)
 
     def serve(self, number):
-        started = (Path.home() / ".claude" / "projects").glob(f"*/{self.session(number)}.jsonl")
-        resume = any(True for _ in started)
         while True:
             event = self.queues[number].get()
             prompt = PROMPT.format(repo=self.config["repo"], number=number, event=json.dumps(event, indent=2), model_url=self.model_url, scripts=SCRIPTS, drive=self.config["drive"])
-            session = ["--resume", self.session(number)] if resume else ["--session-id", self.session(number)]
+            transcripts = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
+            session = ["--resume" if any(transcripts.glob(f"*/{self.session(number)}.jsonl")) else "--session-id", self.session(number)]
             with (self.scope(number) / "assistant.log").open("a") as log:
-                subprocess.run(["claude", "-p", prompt, "--model", "sonnet", "--effort", "low", "--permission-mode", "bypassPermissions", *session], cwd=self.scope(number), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-            resume = True
-
+                ran = subprocess.run(["claude", "-p", prompt, "--model", "sonnet", "--effort", "low", "--permission-mode", "bypassPermissions", *session], cwd=self.scope(number), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                if ran.returncode:
+                    log.write(f"exit {ran.returncode} on {event['type']}\n")
 
 def live(url):
     try:

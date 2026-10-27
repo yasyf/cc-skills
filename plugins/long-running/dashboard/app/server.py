@@ -159,10 +159,9 @@ def parse_plan(body):
 
 
 class Drive:
-    def __init__(self, config, reviews):
+    def __init__(self, config, assistant):
         self.config = config
-        self.reviews = reviews
-        self.assistant = ReviewAssistant(config, reviews, f"http://{config['host']}:{config['port']}/api/model")
+        self.assistant = assistant
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
@@ -287,6 +286,7 @@ class Drive:
                 self.dirty_at = 0.0
             try:
                 model = self.build(refresh_slow=stale)
+                self.assistant.refresh(model["prs"], [(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
             except Exception as error:
                 failure = f"{type(error).__name__}: {error}"
                 if self.errors.get("build") != failure:
@@ -299,7 +299,6 @@ class Drive:
                 self.model = model
                 self.version += 1
                 self.changed.notify_all()
-            self.assistant.refresh(model["prs"], [(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
 
     def check_gos(self, rows, records):
         gos = {}
@@ -496,7 +495,7 @@ def main():
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    drive = Drive(config, args.config.parent / "reviews")
+    drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
