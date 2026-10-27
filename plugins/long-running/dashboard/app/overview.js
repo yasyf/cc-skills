@@ -261,13 +261,21 @@ function workerTile(w, title) {
   const doing = `${r ? SAID[r.kind] ?? 'Working' : 'Working'}${pr ? ` on ${shortName(pr) ?? plainTitle(pr)}` : ''}`;
   return `<a class="wt st-${st}" href="#/workers" data-lane="${esc(w.lane)}" data-worker="${esc(w.lane)}"><span class="wt-h"><i class="lt"></i><b>${esc(title ?? where)}</b><time>${agoWords(w.at)}</time></span><span class="wt-on"><span>${esc(doing)}</span></span><span class="wt-for">on it ${first < 0 ? 'a few' : (w.boxes.length - first) * 5} min</span></a>`;
 }
-function deskName(lane) {
-  return ['root', 'main'].includes(lane) ? 'Coordinator' : lane;
+function workerName(lane) {
+  if (['root', 'main'].includes(lane)) return 'Coordinator';
+  const m = state.model;
+  const w = m.workers.find((x) => x.lane === lane);
+  const step = m.steps.find((s) => s.id === w?.step);
+  const peers = step ? m.workers.filter((x) => x.step === step.id).map((x) => x.lane) : [];
+  if (step) return `${step.label} worker${peers.length > 1 ? ` ${peers.indexOf(lane) + 1}` : ''}`;
+  const pr = (w?.prs ?? []).find((n) => driveEntry(n)?.state !== 'landed') ?? m.drive.prs.find((e) => e.owner === lane && e.state !== 'landed')?.number;
+  if (pr) return `Worker on ${shortName(pr) ?? plainTitle(pr)}`;
+  return lane.replace(/^p\d+[a-z]?\d*-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 function desksTile() {
   const ds = state.model.desks;
   if (!ds.length) return '';
-  return `<a class="wt desks" href="#/workers" data-desks><span class="wt-h"><i class="lt"></i><b>Coordinators</b><time>${agoWords(ds[0].at)}</time></span><span class="wt-on">${ds.map((d) => `<i${d.live ? ' class="on"' : ''} title="${esc(deskName(d.lane))}"></i>`).join('')}</span><span class="wt-for">${ds.filter((d) => d.live).length} of ${plural(ds.length, 'desk')} active</span></a>`;
+  return `<a class="wt desks" href="#/workers" data-desks><span class="wt-h"><i class="lt"></i><b>Coordinators</b><time>${agoWords(ds[0].at)}</time></span><span class="wt-on">${ds.map((d) => `<i${d.live ? ' class="on"' : ''} title="${esc(workerName(d.lane))}"></i>`).join('')}</span><span class="wt-for">${ds.filter((d) => d.live).length} of ${plural(ds.length, 'desk')} active</span></a>`;
 }
 function crew() {
   const order = (w) => state.model.steps.findIndex((s) => s.id === w.step) >>> 0;
@@ -281,12 +289,12 @@ function desksSheet() {
   return sheet(`<div class="kick">Coordinators · the desks that land, grade and report</div><h3>${plural(m.desks.length, 'desk')} in the last hour</h3>
     <ul class="dlist">${m.desks.map((d) => {
       const r = last(d.lane);
-      return `<li><button class="linkish" data-worker="${esc(d.lane)}">${esc(deskName(d.lane))}</button><span class="bx">${d.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><span class="dsaid">${r ? `<b>${SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind}</b> ${inline(firstSentences(r.text, 110))}` : ''}</span><time>${agoWords(d.at)}</time></li>`;
+      return `<li><button class="linkish" data-worker="${esc(d.lane)}">${esc(workerName(d.lane))}</button><span class="bx">${d.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><span class="dsaid">${r ? `<b>${SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind}</b> ${inline(firstSentences(r.text, 110))}` : ''}</span><time>${agoWords(d.at)}</time></li>`;
     }).join('')}</ul>`);
 }
 function answerList(key, keep = () => true) {
   const j = state.model.journeys[key];
-  const who = (w) => !w ? '' : w === 'you' ? '<b>You</b>' : `<button class="linkish" data-worker="${esc(w)}">${esc(w)}</button>`;
+  const who = (w) => !w ? '' : w === 'you' ? '<b>You</b>' : `<button class="linkish" data-worker="${esc(w)}" title="${esc(w)}">${esc(workerName(w))}</button>`;
   const src = (l) => l.source && !l.text.includes(l.source.label) ? `<a href="${esc(l.source.href)}"${l.source.href.startsWith('#') ? '' : ' target="_blank" rel="noopener"'}>${esc(l.source.label)}</a>` : '';
   const lines = j.lines.filter(keep);
   return `<ul class="answer">${lines.map((l) => `<li><span class="who">${who(l.who)}</span><span class="what">${inline(l.text)}${l.next ? `<small>${inline(l.next)}</small>` : ''}</span><em>${[l.since ? `last word ${agoWords(l.since)}` : '', src(l)].filter(Boolean).join(' · ')}</em></li>`).join('')}</ul>${lines.length ? '' : '<p class="dim">Nothing.</p>'}${j.missing.length ? `<p class="dim">Not known yet: ${j.missing.map(inline).join('; ')}</p>` : ''}`;
@@ -340,7 +348,7 @@ function prFacts(n) {
     ${t.blocker ? `<dt>What blocks it</dt><dd class="${/^GitHub has not/.test(t.blocker) ? 'warn' : 'bad'}">${inline(t.blocker)}</dd>` : ''}
     ${t.checks.length ? `<dt>Which check failed</dt><dd>${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}</dd>` : ''}
     ${t.next ? `<dt>What happens next</dt><dd>${inline(t.next)}</dd>` : ''}
-    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
+    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}" title="${esc(t.owner)}">${esc(workerName(t.owner))}</button>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${word ? `<dt>Its latest word on this</dt><dd>${said(word, 260)} <small class="dim">${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
@@ -373,11 +381,11 @@ function partSheet() {
 function workerSheet() {
   const m = state.model;
   const w = m.workers.find((x) => x.lane === ov.lane) ?? m.desks.find((x) => x.lane === ov.lane);
-  if (!w) return sheet(`<div class="kick">Worker</div><h3>${esc(ov.lane)}</h3><p class="relnow">No word from this worker in the last hour.</p>`, ' small');
+  if (!w) return sheet(`<div class="kick">Worker</div><h3 title="${esc(ov.lane)}">${esc(workerName(ov.lane))}</h3><p class="relnow">No word from this worker in the last hour.</p>`, ' small');
   const last = m.records.filter((r) => r.lane === w.lane).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
   const events = timeline().filter((e) => e.who === w.lane && e.id !== `r${last?.seq}`).slice(0, 13);
   const where = m.steps.find((s) => s.id === w.step)?.label;
-  return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
+  return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3 title="${esc(w.lane)}">${esc(workerName(w.lane))}</h3>
     ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
     ${last ? `<div class="lastsaid"><small>Its last word, ${clock(last.at)}</small><p><b>${SAID[last.kind] ?? KIND_WORD[last.kind] ?? ''}</b> ${said(last, 240)}</p><a href="/record/${last.seq}" target="_blank" rel="noopener">the record ↗</a></div>` : ''}
     <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
@@ -454,7 +462,7 @@ const SAID = { head: 'Pushed a new version', report: 'Reported', state: 'Posted 
 function lastWord(w) {
   const r = state.model.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || new Date(b.at) > new Date(a.at) ? b : a), null);
   const prs = w.prs.slice(0, 2).map((n) => `<a href="${prHref(n)}">#${n} ${esc(shortName(n) ?? plainTitle(n))}</a>`).join(', ');
-  return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button> <b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>${r ? `<a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
+  return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><button class="linkish" data-worker="${esc(w.lane)}" title="${esc(w.lane)}">${esc(workerName(w.lane))}</button> <b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>${r ? `<a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
 }
 function stepCard(s) {
   const t = tally(s.prs);
@@ -492,7 +500,7 @@ function said(r, max) {
 }
 function ownerLine(n) {
   const t = truth(n);
-  return `<span class="own">${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>` : 'No worker named'}${t.next ? `: ${inline(t.next)}` : ''}${t.word ? ` <small class="dim">last word ${agoWords(t.word.at)}</small>` : ''}</span>`;
+  return `<span class="own">${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}" title="${esc(t.owner)}">${esc(workerName(t.owner))}</button>` : 'No worker named'}${t.next ? `: ${inline(t.next)}` : ''}${t.word ? ` <small class="dim">last word ${agoWords(t.word.at)}</small>` : ''}</span>`;
 }
 function redWhy(n) {
   const checks = truth(n).checks.map((c) => c.name);
@@ -552,7 +560,7 @@ function tipFor(el) {
   }
   if (el.dataset.lane) {
     const w = state.model.workers.find((x) => x.lane === el.dataset.lane);
-    return `<div class="tip-h"><b>${esc(w.lane)}</b><span>${agoWords(w.at)}</span></div>${w.prs.map((n) => `<div>#${n} ${esc(plainTitle(n))}</div>`).join('')}`;
+    return `<div class="tip-h"><b>${esc(workerName(w.lane))}</b><span>${agoWords(w.at)}</span></div>${w.prs.map((n) => `<div>#${n} ${esc(plainTitle(n))}</div>`).join('')}`;
   }
   if (el.dataset.release) {
     const r = state.model.now.releases.find((x) => x.id === el.dataset.release);
