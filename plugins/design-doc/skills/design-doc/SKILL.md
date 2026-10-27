@@ -9,9 +9,9 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 gemini-4-argon writes and revises all prose, including summaries, plain
 twins, handles, revision notes, and publication text. The session hands it the
 facts and the rules (the writing contract, the slop-cop rules, the length caps)
-through `gemini -m gemini-4-argon -p`, lands the reply verbatim, and collects
+through `gemini -m gemini-4-argon --skip-trust -p`, lands the reply verbatim, and collects
 evidence and publishes the result itself. Prose helpers call the same model
-through `gemini -p`, with no fallback model.
+through `gemini --skip-trust -p`, with no fallback model.
 
 An architecture design is a stack of decisions on top of a stack of assumptions. This skill runs the design as a conversation — the user decides everything — and renders the result as a document where every claim traces back to an assumption, a decision, and the question round that produced it.
 

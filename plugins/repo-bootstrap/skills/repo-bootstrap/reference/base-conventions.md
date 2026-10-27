@@ -166,7 +166,7 @@ shared AGENTS.md:
   since Opus 5 — which also carries orchestration, design review, hard
   planning, long-horizon agentic driving, sustained hands-on tool-driving,
   review-findings synthesis, and its own commit messages and PR titles and
-  bodies; long-form copy goes to gemini-4-argon via `gemini -m gemini-4-argon -p`);
+  bodies; long-form copy goes to gemini-4-argon via `gemini -m gemini-4-argon --skip-trust -p`);
   fable-5 is exceptional only, for the most sensitive local implementation,
   reached as a typed subagent and never by editing inline; the recon lane
   defaults to gpt-5.6-luna at xhigh with sonnet-5 the carve-out
