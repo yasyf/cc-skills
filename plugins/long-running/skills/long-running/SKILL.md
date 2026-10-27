@@ -2800,6 +2800,13 @@ and workspace after completion. A local lane the root has decided is done ends u
 `--done` route. Dedicated remote API keys belong only to the
 worker process; local Fable keeps existing Mac interactive authentication.
 
+A local lane that sends a build to a shared Sprite runs it with
+`scripts/sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never
+a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>`, so two
+lanes never clobber each other's build-script output, and every call removes the
+targets and source trees idle for more than six hours, so idle lanes do not fill
+the Sprite's disk.
+
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different
 model explicitly when the assignment calls for it. Roots run Opus 5.5. Fable is
