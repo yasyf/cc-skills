@@ -3604,6 +3604,38 @@ def test_a_redundant_skip_head_no_tip_build_covers_gets_one_full_build_on_a_grad
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+def test_a_head_ccx_reads_unproven_gets_its_full_build_and_blocker_without_a_check_and_is_checked_once_proven(shell, config, tmp_path):
+    with_ci_build(config, GRADE)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-unproven"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert checks(shell) == [] and shell.grade_refs == {"ci-grade/29020": "cccc333333"}
+    assert any("#29020 cccc333333: unproven: redundant skip, no child in the ledger, so full build https://buildkite.com/forge/test/builds/78400 grades cccc333333" in body for body in blocker_bodies(shell))
+    shell.builds["78400"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "said"),
+    [
+        ({"verdict": "blocked:ci-red", "ci": {"state": "red", "rollup": "ERROR"}}, "", "CI is red: ERROR"),
+        ({"verdict": "blocked:ci-red,changes-requested", "ci": {"state": "red", "failing": ["buildkite/test"]}, "approval": {"state": "changes-requested", "changes_requested_by": ["poetic-svc"]}}, "**Red by design, per owner tap b61a053.** The rows fail until the fix lands.", "changes requested by poetic-svc"),
+    ],
+)
+def test_a_red_pr_left_unchecked_hears_what_its_status_entry_asks(shell, config, tmp_path, status, body, said):
+    shell.rows = single_row()
+    shell.bodies["29020"] = body
+    shell.pr_status["29020"] = {"queue": "not queued"} | status
+    landing_pass(shell, config)
+    assert checks(shell) == []
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == [f"#29020 cccc333333: {said}"]
+
+
 def test_no_full_build_starts_below_a_tip_whose_own_build_is_still_running(shell, config, tmp_path):
     with_ci_build(config, GRADE)
     shell.launch(LANE, "ctx_a")
@@ -9500,6 +9532,14 @@ def test_a_tree_waiting_on_github_alone_is_not_checked_and_its_lane_hears_what_i
     assert len(checks(shell)) == 1
 
 
+def test_a_pr_graphite_asks_to_restack_hears_it_from_the_status_read_without_a_check(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:needs-restack (parent landed)"}
+    landing_pass(shell, config)
+    assert checks(shell) == []
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == ["#29020 cccc333333: Graphite reads it as needs-restack (parent landed); run ccx vcs stack submit from the branch's worktree"]
+
+
 @pytest.mark.parametrize(
     ("parent", "child", "checked"),
     [
@@ -9508,12 +9548,14 @@ def test_a_tree_waiting_on_github_alone_is_not_checked_and_its_lane_hears_what_i
         ("blocked:ci-pending", "landable", False),
         ("queued", "queued", False),
         ("landable", "blocked:waiting-on-downstack #29020,ci-pending", True),
-        ("queued", "blocked:needs-restack (parent landed)", True),
+        ("queued", "blocked:needs-restack (parent landed)", False),
         ("queued", "blocked:queue-unknown", True),
-        ("queued", "blocked:ci-red", True),
+        ("queued", "blocked:ci-red", False),
+        ("queued", "blocked:unapproved", False),
+        ("queued", "blocked:ci-unproven", True),
     ],
 )
-def test_a_tree_is_checked_unless_every_pr_is_settled_or_waits_on_github_alone(shell, config, tmp_path, parent, child, checked):
+def test_a_tree_is_checked_only_when_the_pass_is_about_to_enqueue_from_it(shell, config, tmp_path, parent, child, checked):
     two_pr_stack(shell)
     shell.pr_status = {"29020": {"verdict": parent}, "29031": {"verdict": child}}
     landing = landing_of(shell, config, tmp_path)
