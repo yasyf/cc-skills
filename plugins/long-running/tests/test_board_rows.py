@@ -433,7 +433,7 @@ def test_a_row_root_approved_at_its_head_fails_until_the_board_holds_the_approva
     seq = shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 9:12 PM)", "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
-    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} approved: root go cci #{seq} names it at {HEAD[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} approved: root go cci #{seq} names it at {HEAD[:7]}, and neither a board approval there nor his approved head in its carried list backs it; add his approved head to carried, import the verdict, or drop the row"
 
     shell.verdicts = {"merge-prs": {"42590": approved("42590")}}
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
@@ -528,3 +528,11 @@ def test_a_row_at_a_head_he_did_not_approve_waits_until_root_rules_it_new_conten
 
     shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
+@pytest.mark.parametrize(("carried", "failing"), [([], 1), ([NEW_HEAD[:7]], 0)])
+def test_a_row_root_go_d_at_its_head_passes_when_its_carried_list_names_his_approved_head(tmp_path: Path, shell: FakeShell, carried: list[str], failing: int) -> None:
+    shell.post("go", "root", f"go #42590 at {HEAD[:7]}: patch-identical replay of his tap", "42590")
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"carried": carried}), "--check") == failing
