@@ -14,6 +14,8 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from review_assistant import ReviewAssistant
+
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
@@ -161,6 +163,7 @@ class Drive:
     def __init__(self, config, reviews):
         self.config = config
         self.reviews = reviews
+        self.assistant = ReviewAssistant(config, reviews, f"http://{config['host']}:{config['port']}/api/model")
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
@@ -179,9 +182,11 @@ class Drive:
     def review_url(self, number):
         cwd = self.reviews / str(number)
         cwd.mkdir(parents=True, exist_ok=True)
-        url = TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--cwd", str(cwd)]))[1]
+        url = TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.assistant.session(number), "--cwd", str(cwd)]))[1]
         if self.model["prs"].get(str(number), {}).get("state") == "landed":
             run(["cc-review", "close", url.rsplit("/s/", 1)[1]])
+        else:
+            self.assistant.attach(number)
         return url
 
     def decide(self, block, number, verdict, head, note):
@@ -300,6 +305,7 @@ class Drive:
                 self.model = model
                 self.version += 1
                 self.changed.notify_all()
+            self.assistant.attach_open(model["prs"])
 
     def check_gos(self, rows, records):
         gos = {}
