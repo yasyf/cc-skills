@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, on
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, WorkflowState, ast_grep, on
+from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
@@ -54,6 +55,7 @@ HIT_COUNT = re.compile(r"\b(?:\d+|no|zero|one|two|three|four|five|six|seven|eigh
 ONLY_THESE = re.compile(r"\bthese changes only\b|\bonly these changes\b|\bonly this block\b", re.IGNORECASE)
 SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\s+(?P<key>\S+)\s+(?P<where>\S+:\d+)\s+(?P<name>.+)$")
 FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
+SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 OK = "ok"
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
@@ -93,6 +95,28 @@ def calls(evt: BaseHookEvent, verbs: tuple[str, ...]) -> Iterator[tuple[Call, di
             yield call, values, source, piped
 
 
+def reply_body(evt: BaseHookEvent, call: Call, values: dict[str, tuple]) -> str | None:
+    """The markdown a reply posts: its literal `--body`, or what a `--body "$(cat <<'EOF' ... EOF)"` heredoc or `--body "$(cat <file>)"` substitutes, as the shell would; None when it has no body."""
+    if (body := first(values, "body")) is not None:
+        return body
+    words = call.source.words
+    raw = next((word.raw for flag, word in zip(words, words[1:]) if flag.value == "--body"), None)
+    raw = raw or next((word.raw.removeprefix("--body=") for word in words if word.raw.startswith("--body=")), None)
+    if raw is None or not (substituted := SUBSTITUTED.match(raw)):
+        return None
+    inner = substituted["inner"]
+    if redirect := next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_redirect"})), None):
+        text = next(ast_grep.find_kinds(inner, "bash", frozenset({"heredoc_body"}))).text
+        return ("\n".join(line.lstrip("\t") for line in text.split("\n")) if redirect.text.startswith("<<-") else text).rstrip("\n")
+    read = inner.strip()
+    command = Cmd.parse(f"cat {read.removeprefix('<')}" if read.startswith("<") else read)
+    match [[word.value for word in found.source.words] for found in command.calls()] if command else []:
+        case [["cat", str(path)]]:
+            return Path(str(call.cwd or evt.cwd), Path(path).expanduser()).read_text().rstrip("\n")
+        case _:
+            return None
+
+
 def as_text(verb: str, data: bytes, session: str, path: Path | None, where: str) -> Published:
     return Published(verb, data, {"type": TEXT, "id": where, "md": data.decode()}, session, path, where)
 
@@ -107,10 +131,12 @@ def published(evt: BaseHookEvent, reads: Reads) -> list[Published]:
         data = reads.read("the plan file", lambda: Path(plan).expanduser().read_bytes()) if plan else None
         return [] if data is None else [as_text("plan", data, "", Path(plan).expanduser(), "the plan")]
     found = []
-    for call, values, source, piped in calls(evt, GATED):
+    for index, (call, values, source, piped) in enumerate(calls(evt, GATED), 1):
         session = first(values, "session") or evt.session_id
         if first(values, "verb") == "reply":
-            found.append(as_text("reply", (first(values, "body") or "").encode(), session, None, f"the reply on {first(values, 'block')}"))
+            where = f"the reply on {first(values, 'block')}"
+            if (body := reads.read(f"the body of {where}, command {index}", lambda call=call, values=values: reply_body(evt, call, values))) is not None:
+                found.append(as_text("reply", body.encode(), session, None, where))
             continue
         if source and (loaded := reads.read(f"the board {source} {piped}", lambda: parsed(board_bytes(evt, call.cwd, source, piped)))):
             path = None if source == STDIN else Path(str(call.cwd or evt.cwd), Path(source).expanduser())
