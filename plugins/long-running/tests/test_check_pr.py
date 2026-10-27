@@ -516,3 +516,52 @@ def test_a_failed_read_passes_with_one_blocker_line(package: Path, state: Path, 
 
 def test_a_pr_that_names_no_number_is_a_usage_error(package: Path, state: Path, registered: Path, capsys) -> None:
     assert ran(capsys, CheckShell(pinned(package)), "check-pr", "--pr", "acme/app#x", "--head", HEAD) == (2, "")
+
+
+GRANT_TICKER = changed("go/sand/cmd/runner_grant.go", [], ["func renew(path string) {", "\tticker := time.NewTicker(15 * time.Minute)", "\tdefer ticker.Stop()", "}"])
+BANNED_CELLS = {
+    "go ticker": (GRANT_TICKER, "timer", "go/sand/cmd/runner_grant.go", 2),
+    "tokio interval": (changed("rust/src/renew.rs", [], ["let mut tick = tokio::time::interval(Duration::from_secs(900));"]), "timer", "rust/src/renew.rs", 1),
+    "setInterval in a test": (changed("api/src/grant.test.ts", [], ["const handle = setInterval(rewriteGrant, 15 * 60_000);"]), "timer", "api/src/grant.test.ts", 1),
+    "sleep in a for loop": (changed("go/sand/cmd/wait.go", [], ["func waitReady() {", "\tfor {", "\t\tif ready() {", "\t\t\treturn", "\t\t}", "\t\ttime.Sleep(time.Second)", "\t}", "}"]), "poll loop", "go/sand/cmd/wait.go", 6),
+    "setTimeout rescheduling itself": (changed("dashboard/src/poll.ts", [], ["function refresh() {", "  load();", "  setTimeout(refresh, 5000);", "}"]), "poll loop", "dashboard/src/poll.ts", 3),
+    "grant written by Go": (changed("go/sand/cmd/runner_grant.go", [], ["if err := os.WriteFile(grantPath, []byte(grant), 0o600); err != nil {"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
+    "signing key over three lines": (changed("rust/src/keys.rs", [], ["fs::write(", "    &path,", "    signing_key.to_bytes(),", ")?;"]), "credential written to a file", "rust/src/keys.rs", 1),
+    "grant opened for writing": (changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(grantPath, os.O_CREATE|os.O_WRONLY, 0o600)"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
+    "timer that writes a token": (changed("api/src/renew.ts", [], ["setInterval(() => writeFileSync(tokenPath, token), 1000);"]), "timer and credential written to a file", "api/src/renew.ts", 1),
+    "cargo test from a tool script": (changed("tools/check.sh", [], ["cargo test -p sandsql-server"]), "local exec", "tools/check.sh", 1),
+    "go test from a hook": (changed(".claude/hooks/verify.py", [], ['subprocess.run(["go", "test", "./..."], check=True)']), "local exec", ".claude/hooks/verify.py", 1),
+}
+BENIGN_CELLS = {
+    "one-shot sleep with its reason": changed("go/sand/cmd/dial.go", [], ["func dial() {", "\t// the socket binds a beat after listen returns", "\ttime.Sleep(50 * time.Millisecond)", "\tconnect()", "}"]),
+    "timer deletion": changed("go/sand/cmd/runner_grant.go", ["\tticker := time.NewTicker(15 * time.Minute)"], ["\t<-done"]),
+    "one-shot promise delay": changed("dashboard/src/wait.ts", [], ["async function settle(ms: number) {", "  await new Promise((resolve) => setTimeout(resolve, ms));", "}"]),
+    "token opened to read": changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(tokenPath, os.O_RDONLY, 0)"]),
+    "state file write": changed("go/sand/cmd/state.go", [], ["os.WriteFile(statePath, data, 0o644)"]),
+    "cache key file write": changed("api/src/cache.ts", [], ["writeFileSync(cacheKeyPath, digest);"]),
+    "cargo test in CI config": changed(".buildkite/pipeline.yml", [], ["  - cargo test -p sandsql-server"]),
+    "cargo test in a doc": changed("docs/testing.md", [], ["Run `cargo test -p sandsql-server` in CI."]),
+    "go test named in product code": changed("go/sand/internal/build/plan.go", [], ['steps = append(steps, "go test ./...")']),
+}
+TIMER_ANSWER_ROW = {"kind": "pick", "status": "in-force", "words": "The signal keeps its keep-alive timer every 15 s.", "answer": '["abcabca"]', "lanes": '["all"]', "paths": "none"}
+
+
+@pytest.mark.parametrize(("diff", "shape", "path", "line"), list(BANNED_CELLS.values()), ids=list(BANNED_CELLS))
+def test_a_banned_mechanism_on_an_added_line_warns_with_its_rule_and_line(package: Path, state: Path, registered: Path, capsys, diff: str, shape: str, path: str, line: int) -> None:
+    code, lines = check(capsys, CheckShell(pinned(package), diff=DIFF + diff))
+
+    assert code == 1
+    assert [found.startswith(f"MECHANISM-BANNED {shape} {path}:{line} ") for found in lines] == [True]
+
+
+@pytest.mark.parametrize("diff", list(BENIGN_CELLS.values()), ids=list(BENIGN_CELLS))
+def test_a_neighbour_of_a_banned_mechanism_warns_nothing(package: Path, state: Path, registered: Path, capsys, diff: str) -> None:
+    assert check(capsys, CheckShell(pinned(package), diff=DIFF + diff)) == (0, [])
+
+
+def test_an_owner_answer_naming_the_mechanism_is_the_one_way_through(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package) | {"rule/abcabca": TIMER_ANSWER_ROW}
+
+    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("# owner: abcabca"))) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("# owner: ccccccc")))[0] == 1
+    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("- abcabca: the signal keeps its keep-alive timer.")))[0] == 1
