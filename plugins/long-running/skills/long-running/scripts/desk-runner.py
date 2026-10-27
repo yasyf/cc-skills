@@ -597,7 +597,6 @@ SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 TRUNK_DEPTH = 50
 TRUNK_RED_EVERY = timedelta(minutes=30)
-TRUNK_TO = f"{ROOT},{WATCHDOG}"
 FINISHED_STATES = frozenset({"SUCCESS", "FAILURE", "ERROR"})
 SQUASHED_PR = re.compile(r"\(#(\d+)\)$")
 CARD_ROLLUP = 50
@@ -754,6 +753,7 @@ WITHDRAWN = "withdrawn"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
+TRUNK_TO = f"{ROOT},{WATCHDOG}"
 
 
 @dataclass
