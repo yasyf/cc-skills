@@ -23,6 +23,7 @@ html:not(.ai-on) .ai-only { display: none !important; }
 #pal .ans p { margin: 0 0 8px; } #pal .ans ul { margin: 0; padding-left: 18px; }
 #pal .foot { display: flex; gap: 14px; padding: 8px 20px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-3); }
 #pal .foot kbd { font: 600 10.5px var(--mono); padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; }
+#pal .palx { margin-left: auto; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0; }
 #ash { position: fixed; z-index: 70; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); background: var(--surface); border-left: 1px solid var(--line); box-shadow: -18px 0 40px -18px rgba(0,0,0,.35); overflow-y: auto; padding: 18px 22px 40px; }
 #ash h2 { margin: 6px 0 4px; font-size: 20px; }
 #ash .x { float: right; }
@@ -66,6 +67,12 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .kbtn span, .kbtn kbd { display: none; }
   #pal { padding: 0; align-items: stretch; }
   #pal .box { max-height: none; border-radius: 0; width: 100%; }
+  #pal .foot { order: -1; border-top: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  #pal .foot span { display: none; }
+  #pal .palx { font: 650 15px var(--sans); color: var(--accent); }
+  #pal .palx kbd { display: none; }
+  #pal .list { order: 1; flex: 1; }
+  #pal input { order: 2; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   #ash { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
   .as-since { grid-template-columns: 1fr; }
   .as-nl li { grid-template-columns: 1fr; }
@@ -73,7 +80,7 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
-<div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a pull request, stack, worker, step, or ask a question…" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span class="ai-only"><kbd>⇥</kbd> ask the assistant</span><span><kbd>esc</kbd> close</span></div></div></div>
+<div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a pull request, stack, worker, step, or ask a question…" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span class="ai-only"><kbd>⇥</kbd> ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>esc</kbd> Close</button></div></div></div>
 <aside id="ash" hidden></aside>
 <script>
 (()=>{
@@ -711,7 +718,7 @@ document.addEventListener("keydown",e=>{
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
-document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal")closePal()});
+document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))closePal()});
 document.addEventListener("click",e=>{
  const t=e.target;
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}

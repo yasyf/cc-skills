@@ -369,3 +369,103 @@ body:has(.ck) { background: #080a0d; }
 .ck .rc { cursor: pointer; } .ck .rc.blocked { border-color: rgba(255,107,107,.45); } .ck .rc.next { border-color: rgba(255,178,36,.5); } .ck .rc.out .rn { background: var(--done); color: #04121f; }
 .ck .md a { color: var(--doing); }
 @media (min-width: 760px) { .ck .rels, .ck .steps { grid-template-columns: 1fr 1fr; } .sheet.ck { padding: 22px 26px 28px; } }
+.ck button.ro { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ck .pl { cursor: pointer; }
+.ck .pl:hover { color: var(--ink); text-decoration: underline; }
+.ck .replay { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 2px 4px; }
+.ck .replay .rl { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); white-space: nowrap; }
+.ck .ticks { position: relative; flex: 1; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.ck .ticks::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line2); }
+.ck .tk { position: relative; flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: var(--bg2); color: var(--ink3); font: 600 10.5px var(--sans); padding: 3px 7px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.ck .tk i { width: 6px; height: 6px; border-radius: 50%; background: var(--line2); }
+.ck .tk.past i { background: var(--done); opacity: .5; }
+.ck .tk.now { color: var(--ink); }
+.ck .tk.now i { background: var(--doing); box-shadow: 0 0 6px var(--doing); }
+.ck .tk.fut i { border: 1px dashed var(--ink3); background: none; }
+.ck .tk:hover { color: var(--ink); background: var(--panel2); }
+.ck .tk.on { background: var(--panel2); color: var(--ink); box-shadow: 0 0 0 1px var(--ink2); }
+.ck .body { display: flex; flex-direction: column; gap: 12px; }
+.ck .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ck .tracks { position: relative; display: flex; flex-direction: column; gap: 1px; padding: 10px 12px 8px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); }
+.ck .tracks .th { display: flex; align-items: baseline; gap: 8px; padding-bottom: 6px; font-size: 11px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.ck .tracks .th b { color: var(--ink2); font-weight: 650; }
+.ck .tracks .th span { text-transform: none; letter-spacing: 0; }
+.ck .tracks .th .linkish { margin-left: auto; font-size: 12px; color: var(--doing); }
+.ck .trk { position: relative; display: grid; grid-template-columns: 16px 82px minmax(0, 1fr) auto 38px 16px; align-items: center; gap: 8px; min-height: 28px; padding: 3px 4px; border-radius: 8px; cursor: pointer; --d: 9px; --g: 3px; }
+.ck .trk:hover, .ck .trk:focus-visible { background: rgba(255,255,255,.03); outline: none; }
+.ck .trk .no { font-size: 11px; color: var(--ink3); text-align: right; font-variant-numeric: tabular-nums; }
+.ck .trk .nm { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck .trk .tdots { display: flex; flex-wrap: wrap; gap: var(--g); min-width: 0; }
+.ck .trk .tws { display: flex; align-items: center; gap: 6px; }
+.ck .trk .tws em { font-style: normal; font-size: 11px; color: var(--ink3); }
+.ck .wst { display: block; padding: 2px; border-radius: 4px; }
+.ck .wst:hover { background: var(--panel2); }
+.ck .wst .boxes { width: 84px; }
+.ck .wst .boxes i { height: 10px; }
+.ck .tws .badge { display: none; font-size: 11px; color: var(--doing); font-weight: 700; }
+.ck .trk .ct { font-size: 11.5px; color: var(--ink2); text-align: right; font-variant-numeric: tabular-nums; }
+.ck .trk .g { font-size: 12px; text-align: center; color: var(--ink3); }
+.ck .trk .into { position: absolute; right: -13px; top: 50%; width: 12px; height: 2px; background: var(--line2); }
+.ck .trk.tn-failing .g, .ck .trk.tn-failing .nm { color: var(--bad); }
+.ck .trk.tn-you .g, .ck .trk.tn-you .nm { color: var(--you); }
+.ck .trk.tn-moving .g { color: var(--doing); }
+.ck .trk.tn-done .g, .ck .trk.tn-queued .g { color: var(--done); }
+.ck .trk.tn-failing .into { background: var(--bad); }
+.ck .trk.tn-you .into { background: var(--you); }
+.ck .trk.tn-moving .into { background: var(--doing); }
+.ck .trk.tn-done .into, .ck .trk.tn-queued .into { background: var(--done); }
+.ck .trk.loose .nm { color: var(--ink2); font-style: italic; }
+.ck .trk.loose .into { background: repeating-linear-gradient(90deg, var(--line2) 0 3px, transparent 3px 6px); }
+.ck .fold { align-self: flex-start; margin: 4px 0 0 28px; font-size: 12px; color: var(--ink3); }
+.ck .fold:hover { color: var(--ink); }
+.ck .gate { --g-c: #6b7480; position: relative; display: flex; align-items: stretch; }
+.ck .gate.g-ok, .ck .gate.g-done { --g-c: var(--done); }
+.ck .gate.g-bad { --g-c: var(--bad); }
+.ck .gate.g-you { --g-c: var(--you); }
+.ck .gate .gb { position: relative; z-index: 1; flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px 10px; border-radius: 10px; background: var(--g-c); color: #071018; box-shadow: 0 0 18px color-mix(in srgb, var(--g-c) 50%, transparent); }
+.ck .gate .gb b { font-size: 13px; font-weight: 800; }
+.ck .gate .gb small { font-size: 10.5px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+.ck .gate .trunk { display: none; }
+.ck .route .rk { align-self: center; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); margin-right: 10px; white-space: nowrap; }
+.ck .dock { display: none; }
+.prc { white-space: nowrap; }
+.prc .lt { --l: 7px; margin-right: 3px; vertical-align: 1px; }
+.prc.landed { color: var(--c-done, #3ddc97); }
+@media (min-width: 1100px) {
+  .ck .body { display: grid; grid-template-columns: minmax(0, 1fr) 58px minmax(0, 1.08fr); gap: 0; align-items: stretch; }
+  .ck .body .deck { grid-template-columns: 1fr; gap: 10px; }
+  .ck .body .ro b { font-size: 40px; }
+  .ck .body .ro { padding: 8px 14px; }
+  .ck .gate { padding: 0 0 0 13px; }
+  .ck .gate .gb { flex: 0 0 30px; flex-direction: column; padding: 10px 0; }
+  .ck .gate .gb b, .ck .gate .gb small { writing-mode: vertical-rl; transform: rotate(180deg); }
+  .ck .gate .trunk { display: block; position: absolute; left: 43px; right: 0; top: 50%; height: 3px; background: var(--g-c); box-shadow: 0 0 10px var(--g-c); }
+  .ck .body .hero { display: flex; flex-direction: column; justify-content: center; }
+  .ck .body .machines { flex-direction: column; }
+  .ck .body .cloud { order: 0; } .ck .body .link { order: 1; } .ck .body .mac { order: 2; }
+  .ck .body .link { width: auto; height: 104px; flex-direction: row; }
+  .ck .body .stream { left: 50%; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+  .ck .body .stream.a { transform: translateX(-9px); background: repeating-linear-gradient(180deg, var(--doing) 0 4px, transparent 4px 10px); animation: down .9s linear infinite; }
+  .ck .body .stream.b { transform: translateX(7px); background: repeating-linear-gradient(180deg, var(--done) 0 4px, transparent 4px 10px); animation: up 1.3s linear infinite; }
+  .ck .body .gauge span { top: 50%; left: 96px; width: 130px; transform: translateY(-50%); text-align: left; }
+  .ck .body .mac .shell { margin-top: 0; }
+}
+@media (max-width: 759px) {
+  .ck > .tonight { order: 2; }
+  .ck > .route, .ck > .crew, .ck > .below { order: 3; }
+  .ck .left .cta, .ck .left .calm { display: none; }
+  .ck .tracks { padding: 8px 8px 6px; }
+  .ck .tracks .th span { display: none; }
+  .ck .trk { grid-template-columns: 14px 64px minmax(0, 1fr) auto 32px 12px; gap: 6px; --d: 6px; --g: 2px; min-height: 24px; }
+  .ck .trk .nm { font-size: 11.5px; }
+  .ck .tws .wst, .ck .tws em { display: none; }
+  .ck .tws .badge { display: inline; }
+  .ck .trk .into { display: none; }
+  .ck .dock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: rgba(8,10,13,.94); backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
+  .ck .dock .cta { flex: 1 0 100%; padding: 8px 10px; }
+  .ck .dock .cta .tx > span:not(.acts), .ck .dock .cta .nx { display: none; }
+  .ck .dock .dcalm { flex: 1; font-size: 13px; font-weight: 650; color: var(--done); }
+  .ck .dock .dbtns { display: flex; gap: 8px; flex: 1; }
+  .ck .dbtn { flex: 1; height: 38px; border-radius: 11px; background: var(--panel2); border: 1px solid var(--line2); text-align: center; font-weight: 650; font-size: 14px; }
+  .wrap:has(> .ck) { padding-bottom: 170px; }
+}

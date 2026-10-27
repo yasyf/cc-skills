@@ -64,7 +64,8 @@ function prHref(n) {
 }
 function prLink(n) {
   const external = !state.model.prs[n];
-  return `<a href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}">#${n}</a>`;
+  const s = prState(n);
+  return `<a class="prc ${s}" href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[s]}">${s === 'landed' ? '✓' : s === 'closed' ? '' : `<i class="lt ${s}"></i>`}#${n}</a>`;
 }
 function inline(md) {
   return esc(md)

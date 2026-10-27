@@ -131,10 +131,69 @@ function destination() {
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
     <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button></div>
     ${machine('mac', 'Your Mac')}</div>
-    <div class="runway" data-part="tools"><span class="rl">Release and tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
+    <div class="runway" data-part="tools"><span class="rl pl">Release and tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
+    ${replay()}
     <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
     <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-you"></i>you</span></div></div>
   </section>`;
+}
+function replay() {
+  const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h === 24 ? '1 day ago' : h > 24 ? `${h / 24} days ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
+  return `<div class="replay"><span class="rl">Replay</span><div class="ticks">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
+}
+const ONLY = {
+  landed: ['landed', (e) => seen(e) === 'landed'],
+  flight: ['in flight', (e) => seen(e) !== 'landed'],
+  you: ['waiting on you', (e) => seen(e) === 'you'],
+};
+function onlyBy(key) {
+  if (ov.only?.key === key) return showOnly(null);
+  const [label, test] = ONLY[key];
+  ov.only = { key, label, numbers: new Set(state.model.drive.prs.filter(test).map((e) => e.number)) };
+  render();
+}
+function strip(w) {
+  return `<button class="wst" data-worker="${esc(w.lane)}" data-lane="${esc(w.lane)}"><span class="boxes">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></button>`;
+}
+function track(s) {
+  const m = state.model;
+  const t = tally(s.prs);
+  const ws = m.workers.filter((w) => w.live && w.step === s.id);
+  return `<div class="trk tn-${s.tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
+    <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}</span>
+    <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<b class="badge">▶${ws.length}</b>` : ''}</span>
+    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[s.tone] ?? ''}</span><i class="into"></i></div>`;
+}
+function tracks() {
+  const m = state.model;
+  const shown = m.steps.filter((s) => ov.unfold || !['done', 'later'].includes(s.tone));
+  const done = m.steps.filter((s) => s.tone === 'done').length;
+  const later = m.steps.filter((s) => s.tone === 'later').length;
+  const loose = m.drive.prs.filter((e) => !e.step && e.state !== 'landed');
+  const looseWs = m.workers.filter((w) => w.live && !w.step);
+  return `<section class="tracks"><div class="th"><b>The plan</b><span>each line is a step; its lights run into the release gate</span><button class="linkish" data-plan>Open the plan ⤢</button></div>
+    ${shown.map(track).join('')}
+    ${loose.length ? `<div class="trk loose" data-track="" tabindex="0"><span class="no">┄</span><span class="nm">Unplanned</span><span class="tdots">${byLight(loose).map((e) => dot(e.number)).join('')}</span><span class="tws">${looseWs.slice(0, 2).map(strip).join('')}${looseWs.length ? `<b class="badge">▶${looseWs.length}</b>` : ''}</span><span class="ct">${loose.length}</span><span class="g"></span><i class="into"></i></div>` : ''}
+    ${done || later ? `<button class="fold" data-unfold>${ov.unfold ? 'Fold done and later steps' : `${done ? `✓ ${done} done` : ''}${done && later ? ' · ' : ''}${later ? `⚑ ${later} later` : ''}`}</button>` : ''}</section>`;
+}
+function gateTone(r) {
+  if (!r) return ['done', 'all out'];
+  const waits = [...r.state.matchAll(/#(\d{5})\b/g)].map((x) => prState(x[1]));
+  if (state.model.now.blocker || /\b(blocked|stopped|rolled back)\b/i.test(r.state)) return ['bad', 'blocked'];
+  if (waits.includes('failing')) return ['bad', 'waits on red'];
+  if (waits.includes('you')) return ['you', 'needs you'];
+  if (/\b(live|cutting|rolling|running|passed|complete)\b/i.test(r.state)) return ['ok', 'moving'];
+  return ['wait', 'waiting'];
+}
+function gate() {
+  const rels = state.model.now.releases ?? [];
+  const r = rels.find((x) => !RELEASED.test(x.state));
+  const [tone, word] = gateTone(r);
+  return `<button class="gate g-${tone}"${r ? ` data-release="${esc(r.id)}"` : ''} aria-label="${r ? `${esc(r.id)} ${esc(r.name)}: ${word}` : 'Every release is out'}"><span class="gb"><b>${r ? esc(r.id) : '⚑'}</b><small>${word}</small></span><i class="trunk"></i></button>`;
+}
+function dock() {
+  const need = state.model.needs.length;
+  return `<nav class="dock">${need ? cta(state.model.needs[ov.page]) : '<span class="dcalm">✓ Nothing needs you</span>'}<span class="dbtns"><button class="dbtn" data-plan>⤢ Plan</button><button class="dbtn" data-jump>⌕ Jump</button></span></nav>`;
 }
 function cta(item) {
   const pager = state.model.needs.length > 1 ? `<span class="nx"><span>${ov.page + 1} of ${state.model.needs.length}</span><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span></span>` : '<span></span>';
@@ -165,9 +224,9 @@ function deck() {
   const need = needsTotal();
   ov.page = Math.min(ov.page, Math.max(0, m.needs.length - 1));
   return `<div class="deck"><div class="readouts">
-    <a class="ro ro-done" href="#/timeline/hour"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></a>
-    <a class="ro ro-fly" href="#/workers"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></a>
-    <a class="ro ro-you${need ? '' : ' zero'}" href="${need ? '#/now' : '#/review'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap the card to act' : 'nothing to approve'}</em></a></div>
+    <button class="ro ro-done" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
+    <button class="ro ro-fly" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></button>
+    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap the card to act' : 'nothing to approve'}</em></button></div>
     ${m.needs.length ? cta(m.needs[ov.page]) : `<a class="calm" href="#/review"><span class="ic">✓</span><span><b>Nothing needs you right now</b><span>Approvals and questions land here with their buttons. Review ›</span></span></a>`}</div>`;
 }
 function routeStrip() {
@@ -175,14 +234,9 @@ function routeStrip() {
   const rels = m.now.releases ?? [];
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
-  const step = (s) => {
-    const t = tally(s.prs);
-    const p = t.total ? Math.round((100 * t.landed) / t.total) : s.tone === 'done' ? 100 : 0;
-    return `<span class="wp step tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${p}" title="${esc(s.label)}: ${esc(TONE_SAY[s.tone] ?? s.tone)}${s.blocker ? ` · ${esc(s.blocker)}` : ''}"><i class="n"></i><span class="lb">${esc(s.label)}</span><span class="ct">${t.total ? `${t.landed}/${t.total}` : esc(TONE_SAY[s.tone] ?? '')}</span></span>`;
-  };
   const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i, at)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i, at)[1])}</span></span>`;
   const rows = planRows();
-  return `<section class="route"><div class="track">${m.steps.map(step).join('')}<span class="wp gap"><i class="n"></i></span>${rels.map(rel).join('')}</div>
+  return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${esc(cur.state)}` : 'Every release is out'}</div>
     <button class="thumb" data-plan aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
 }
@@ -194,7 +248,7 @@ function workerTile(w) {
   const first = w.boxes.findIndex(Boolean);
   const st = ['blocker', 'defect', 'incident'].includes(r?.kind) ? 'blocked' : r?.kind === 'ask' ? 'asking' : 'live';
   const doing = `${r ? SAID[r.kind] ?? 'Working' : 'Working'}${pr ? ` on ${shortName(pr) ?? plainTitle(pr)}` : ''}`;
-  return `<a class="wt st-${st}" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><span class="wt-h"><i class="lt"></i><b>${esc(where)}</b><time>${agoWords(w.at)}</time></span><span class="wt-on"><span>${esc(doing)}</span></span><span class="wt-for">on it ${first < 0 ? 'a few' : (w.boxes.length - first) * 5} min</span></a>`;
+  return `<a class="wt st-${st}" href="#/workers" data-lane="${esc(w.lane)}" data-worker="${esc(w.lane)}"><span class="wt-h"><i class="lt"></i><b>${esc(where)}</b><time>${agoWords(w.at)}</time></span><span class="wt-on"><span>${esc(doing)}</span></span><span class="wt-for">on it ${first < 0 ? 'a few' : (w.boxes.length - first) * 5} min</span></a>`;
 }
 function crew() {
   const live = state.model.workers.filter((w) => w.live && w.prs.length);
@@ -218,7 +272,9 @@ function overview() {
   return `<div class="ck">
     ${stop ? `<button class="stopband" data-stop><i>■</i><b>Stopped since ${clock(stop.since)}</b><span>${esc(stop.text)}</span><em>›</em></button>` : ''}
     ${ov.only || ov.scrub ? `<div class="cp-top">${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}</div>` : ''}
-    ${tonight()}${destination()}${deck()}${routeStrip()}${crew()}
+    ${tonight()}
+    <div class="body"><div class="left">${deck()}${tracks()}</div>${gate()}${destination()}</div>
+    ${routeStrip()}${crew()}${dock()}
     <div class="below">${waitingOn()}</div>
     <div id="tip" class="tip" hidden></div>
   </div>
@@ -226,7 +282,60 @@ function overview() {
   ${state.overlay === 'stop' && stop ? stopSheet() : ''}
   ${state.overlay === 'key' ? keySheet() : ''}
   ${state.overlay === 'plan' ? planSheet() : ''}
-  ${state.overlay === 'release' ? releaseSheet() : ''}`;
+  ${state.overlay === 'release' ? releaseSheet() : ''}
+  ${state.overlay === 'pr' ? prSheet() : ''}
+  ${state.overlay === 'part' ? partSheet() : ''}
+  ${state.overlay === 'worker' ? workerSheet() : ''}`;
+}
+const PART_WORD = { landed: 'landed', queued: 'approved', doing: 'moving', you: 'yours', failing: 'red', held: 'held', waiting: 'waiting' };
+const HOME = { mac: 'Your Mac', cloud: 'The cloud', tools: 'Release and tools' };
+function sheet(body, small = '') {
+  return `<div class="overlay" data-close="1"><div class="sheet${small}"><button class="btn close" data-close="1">Close</button>${body}</div></div>`;
+}
+function prSheet() {
+  const m = state.model;
+  const n = ov.pr;
+  const e = driveEntry(n) ?? { number: n, state: prState(n) };
+  const pr = m.prs[n] ?? {};
+  const step = m.steps.find((s) => s.id === e.step);
+  const part = m.parts.find((p) => p.key === e.part);
+  const lane = e.worker?.lane ?? m.workers.find((w) => w.prs.includes(Number(n)))?.lane;
+  const w = m.workers.find((x) => x.lane === lane);
+  const row = boardRow(n);
+  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}, whose tests also fail` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
+  const approve = e.state === 'you' && row ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
+  return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
+    <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
+    ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
+    <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
+    <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
+    <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd></dl>
+    <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
+}
+function partSheet() {
+  const m = state.model;
+  const p = m.parts.find((x) => x.key === ov.part);
+  const list = m.drive.prs.filter((e) => e.part === p.key);
+  const t = tally(list);
+  const open = list.filter((e) => seen(e) !== 'landed').sort((a, b) => LIGHT_ORDER.indexOf(seen(a)) - LIGHT_ORDER.indexOf(seen(b)));
+  const landed = list.filter((e) => seen(e) === 'landed');
+  const ws = m.workers.filter((w) => w.live && w.prs.some((n) => driveEntry(n)?.part === p.key));
+  return sheet(`<div class="kick">${HOME[p.home] ?? ''} · ${pct(t)}% landed</div><h3>${esc(p.name)}</h3><p class="relnow">${esc(p.becomes)}</p>
+    <div class="partbar">${LIGHT_ORDER.filter((k) => t[k]).map((k) => `<span class="pb ${k}" style="flex:${t[k]}" title="${t[k]} ${esc(STATE_WORD[k])}"><i class="lt ${k}"></i>${t[k]} <small>${PART_WORD[k]}</small></span>`).join('')}</div>
+    ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.length, 'worker')} active</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : ''}
+    ${open.length ? `<h4 class="sc-h">Still to land <span>${open.length}</span></h4><ul class="prlist">${open.map(prRow).join('')}</ul>` : ''}
+    ${landed.length ? `<details data-id="part-landed-${esc(p.key)}"${state.open.has(`part-landed-${p.key}`) ? ' open' : ''}><summary class="sc-h">Landed <span>${landed.length}</span></summary><ul class="prlist">${landed.map(prRow).join('')}</ul></details>` : ''}`);
+}
+function workerSheet() {
+  const m = state.model;
+  const w = m.workers.find((x) => x.lane === ov.lane);
+  const events = timeline().filter((e) => e.who === w.lane).slice(0, 14);
+  const where = m.steps.find((s) => s.id === w.step)?.label;
+  return sheet(`<div class="kick">Worker · ${w.live ? 'active' : 'quiet'} · last word ${agoWords(w.at)}</div><h3>${esc(w.lane)}</h3>
+    ${where ? `<p class="relnow">On plan step <button class="linkish" data-track="${esc(w.step)}">${esc(where)}</button></p>` : ''}
+    <div class="wbox"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span><small>each box is five minutes, newest on the right</small></div>
+    ${w.prs.length ? `<h4 class="sc-h">Its pull requests <span>${w.prs.length}</span></h4><ul class="prlist">${w.prs.map((n) => prRow(driveEntry(n) ?? { number: n, state: prState(n) })).join('')}</ul>` : ''}
+    <h4 class="sc-h">What it said <span>newest first</span></h4><ul class="tl">${events.length ? timelineRows(events, false) : '<li class="dim">Nothing in the last day.</li>'}</ul>`);
 }
 function planSheet() {
   const m = state.model;
@@ -312,7 +421,7 @@ function redWhy(n) {
 function prRow(p) {
   const pr = state.model.prs[p.number] ?? {};
   const extra = `${p.state === 'failing' ? redWhy(p.number) : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
-  return `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${extra}</em></a></li>`;
+  return `<li><a href="${prHref(p.number)}" data-pr="${p.number}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${extra}</em></a></li>`;
 }
 function releaseSheet() {
   const m = state.model;
@@ -424,9 +533,22 @@ document.addEventListener('mouseover', (e) => {
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.ck, .overlay, .rellist')) return;
+  if (e.metaKey || e.ctrlKey) return;
+  const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
+  if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
+  const onlyEl = e.target.closest('[data-only]');
+  if (onlyEl) return onlyBy(onlyEl.dataset.only);
+  const scrubTo = e.target.closest('[data-scrubto]');
+  if (scrubTo) return setScrub(Number(scrubTo.dataset.scrubto));
+  const partEl = e.target.closest('[data-part-open], .ck .pl');
+  if (partEl) { ov.part = partEl.dataset.partOpen ?? partEl.closest('[data-part]')?.dataset.part; if (ov.part) { state.overlay = 'part'; return render(); } }
+  const workerEl = e.target.closest('[data-worker]');
+  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return render(); }
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
   if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }
+  if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
+  if (e.target.closest('[data-jump]')) return $('#kbtn')?.click();
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
