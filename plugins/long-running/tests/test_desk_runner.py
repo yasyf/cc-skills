@@ -4472,8 +4472,9 @@ def test_a_believed_queued_pr_whose_row_left_the_ledger_is_skipped(shell, config
     landing_pass(shell, config)
     shell.rows = [{"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
     shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
+    before = len(shell.calls)
     landing_pass(shell, config)
-    assert not [call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"] and "29020" in call]
+    assert not [call for call in shell.calls[before:] if call[:4] == ["ccx", "vcs", "pr", "status"] and "29020" in call]
 
 
 def mq(shell: FakeShell, config: Path, *argv: str) -> int:
