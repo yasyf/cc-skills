@@ -3675,6 +3675,23 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     return runner_module.Landing(runner, runner.config.landing)
 
 
+def test_a_pass_fetches_the_trunk_while_the_ledger_refreshes(shell, config):
+    lone_green_pr(shell)
+    refreshing, overlapped = threading.Event(), []
+    run = shell.run
+
+    def watched(argv, stdin=None, env=None):
+        if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "refresh":
+            refreshing.set()
+        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"]:
+            overlapped.append(refreshing.wait(5))
+        return run(argv, stdin, env)
+
+    shell.run = watched
+    landing_pass(shell, config)
+    assert overlapped == [True]
+
+
 def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")

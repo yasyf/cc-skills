@@ -222,6 +222,32 @@ def test_refresh_batches_run_at_most_refresh_workers_at_once(lock, red_routes, m
     assert shell.peak == 2
 
 
+def test_refresh_polls_the_rows_while_the_lane_stacks_list(lock, red_routes, tmp_path):
+    class Listing(FakeShell):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.polled = threading.Event()
+            self.overlapped = False
+
+        def _pr_state(self, argv):
+            if "--lane-prefix" not in argv:
+                self.polled.set()
+            return super()._pr_state(argv)
+
+        def run(self, argv, stdin=None, cwd=None):
+            if argv[1:4] == ["vcs", "stack", "list"]:
+                self.overlapped = self.polled.wait(5)
+            return super().run(argv, stdin, cwd)
+
+    lane = {"key": "lane/lo", "fields": {"lane": "lo", "branch_prefix": "lo/", "worktree": str(tmp_path)}}
+    shell = Listing(rows=[lane, {"key": "20961", "fields": {"head": "stale"}}], routes=red_routes)
+    shell.stacks[str(tmp_path)] = {"root": str(tmp_path), "branches": [{"branch": "lo/a"}]}
+    refresh(shell, lock)
+
+    assert shell.overlapped
+    assert shell.fields("20961")["head"] == DIRTY_HEAD
+
+
 def test_grade_reads_a_ccx_record():
     record = {
         "number": 190,

@@ -5952,8 +5952,10 @@ class Landing:
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
         if self.quota_low():
             return
-        advanced = self.advance()
-        self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+        with ThreadPoolExecutor(1) as pool:
+            advancing = pool.submit(self.advance)
+            self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+            advanced = advancing.result()
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         rows = self.rows()
         self.watch_trunk(rows or {})

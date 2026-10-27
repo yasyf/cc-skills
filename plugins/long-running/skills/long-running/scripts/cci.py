@@ -7,7 +7,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-PAGE_BYTES = 16000
+PAGE_BYTES = 4_000_000
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
 FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
