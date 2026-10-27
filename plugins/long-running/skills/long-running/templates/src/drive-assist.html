@@ -327,10 +327,58 @@ function mark(label,q){
  q.filter(w=>w.length>1).forEach(w=>{out=out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")})`,"ig"),"<mark>$1</mark>")});
  return out;
 }
+function onOverview(fn){
+ if(!location.hash.replace(/^#\/?/,""))return fn();
+ window.addEventListener("hashchange",()=>setTimeout(fn,0),{once:true});
+ location.hash="#/";
+}
+function only(label,list){
+ const numbers=list.map(e=>e.number);
+ return ()=>onOverview(()=>showOnly(label,numbers));
+}
+async function filterBy(sentence){
+ const box=document.getElementById("pal-ans");
+ box.hidden=false;box.innerHTML='<span class="dim">✦ Finding the pull requests that match…</span>';
+ const m=state.model,prs=m.drive.prs;
+ const facets={states:Object.keys(STATE_WORD),parts:m.parts.map(p=>p.key),steps:m.steps.map(x=>x.id),trees:[...new Set(prs.map(e=>e.tree))]};
+ const schema={name:"filter",schema:{type:"object",additionalProperties:false,required:["states","parts","steps","trees","topic_prs"],properties:{states:{type:"array",items:{type:"string",enum:facets.states}},parts:{type:"array",items:{type:"string",enum:facets.parts}},steps:{type:"array",items:{type:"string",enum:facets.steps}},trees:{type:"array",items:{type:"string",enum:facets.trees}},topic_prs:{type:"array",items:{type:"integer"}}}}};
+ try{
+  const f=await aiCached("filter",sentence,()=>aiOnce(compose(`Turn this filter into facets: "${sentence}". Fill states, parts, steps and trees only with what the sentence names; leave a facet empty when it says nothing about it. Use topic_prs only when the sentence names a topic no facet covers, listing the pull requests whose titles match it.\n\nStates: ${facets.states.map(k=>`${k} (${STATE_WORD[k]})`).join(", ")}\nParts: ${m.parts.map(p=>`${p.key} (${p.name})`).join(", ")}\nSteps: ${m.steps.map(x=>`${x.id} (${x.label}: ${x.title})`).join("; ")}\nTrees: ${facets.trees.join(", ")}\nPull requests:\n${prs.map(e=>`#${e.number} ${plainTitle(e.number)}`).join("\n")}`),{schema}));
+  const hit=(list,v)=>!list.length||list.includes(v);
+  const faceted=f.states.length||f.parts.length||f.steps.length||f.trees.length;
+  const topic=new Set(f.topic_prs);
+  const numbers=prs.filter(e=>(faceted&&hit(f.states,e.state)&&hit(f.parts,e.part)&&hit(f.steps,e.step)&&hit(f.trees,e.tree)&&(!topic.size||topic.has(e.number)))||(!faceted&&topic.has(e.number))).map(e=>e.number);
+  closePal();
+  onOverview(()=>showOnly(sentence,numbers));
+ }catch(e){box.innerHTML=`<span class="dim">The assistant could not filter: ${esc(e.message)}</span>`}
+}
+const SHORT={name:"short",schema:{type:"object",additionalProperties:false,required:["names"],properties:{names:{type:"array",items:{type:"object",additionalProperties:false,required:["pr","name"],properties:{pr:{type:"integer"},name:{type:"string"}}}}}}};
+const shortKey=n=>`drive-assist:short:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
+const shortWanted=new Set(),shortAsked=new Set();
+function shortName(n){
+ const key=shortKey(n);
+ const hit=localStorage.getItem(key);
+ if(hit)return hit;
+ if(AI.key&&!shortAsked.has(key)){shortWanted.add(Number(n));if(shortWanted.size===1)setTimeout(nameBatch,0)}
+ return null;
+}
+function nameBatch(){
+ const batch=[...shortWanted].slice(0,40);
+ batch.forEach(n=>{shortWanted.delete(n);shortAsked.add(shortKey(n))});
+ if(!batch.length)return;
+ aiOnce(compose(`Give each pull request a short name of at most six plain words that says what it changes for a person using the product. No pull request numbers, no jargon, no trailing period.\n\n${batch.map(n=>{const r=boardRow(n);return `#${n} ${plainTitle(n)}${r?`. ${short(r.change,240)}`:""}`}).join("\n")}`),{schema:SHORT}).then(out=>{
+  out.names.filter(x=>batch.includes(x.pr)).forEach(x=>localStorage.setItem(shortKey(x.pr),x.name.split(/\s+/).slice(0,6).join(" ").replace(/\.$/,"")));
+  render();
+ }).catch(()=>{}).finally(()=>{if(shortWanted.size)setTimeout(nameBatch,0)});
+}
 function entries(){
  const m=state.model;
  const out=[];
  const add=(group,icon,label,sub,go,hay="")=>out.push({group,icon,label,sub,go,hay:`${label} ${sub} ${hay}`});
+ const prs=m.drive.prs;
+ Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
+ m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
+ m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
  [["","Overview"],["now","Needs you"],["review","Review"],["releases","Releases"],["workers","Workers"],["timeline","Timeline"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
@@ -345,17 +393,18 @@ function entries(){
 }
 const STOP=new Set("a an the is are was were be of to in on at for and or but what why how which who whom when where did does do can could should would will has have had it its me my i we us you your this that these those there any all from with by about".split(" "));
 const QUESTION=/^(what|why|how|which|who|when|where|is|are|did|does|do|can|should|will|has|have|summari[sz]e|explain|tell)\b|\?$/i;
-const CAPS={"Screens":7,"Needs you":6,"Pull requests":8,"Stacks":5,"Plan steps":5,"Workers":5,"Releases":4,"Your words":6,"Records":6};
+const CAPS={"Show only":6,"Screens":7,"Needs you":6,"Pull requests":8,"Stacks":5,"Plan steps":5,"Workers":5,"Releases":4,"Your words":6,"Records":6};
 function results(raw){
  const typed=raw.trim().toLowerCase().replace(/^#/,"").replace(/[?.,!]/g,"").split(/\s+/).filter(Boolean);
  const q=typed.length>1?typed.filter(w=>!STOP.has(w)):typed;
  const all=entries();
  let picked;
  if(!q.length)picked=all.filter(e=>["Needs you","Screens"].includes(e.group)).map(e=>({...e,score:1}));
- else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20);
+ else picked=all.map(e=>({...e,score:fuzzy(q,e.label)*2+fuzzy(q,e.hay)})).filter(e=>e.score>=q.length*20).map(e=>e.group==="Show only"?{...e,score:e.score+40}:e);
  const groups={};
  picked.sort((a,b)=>b.score-a.score).forEach(e=>{(groups[e.group]??=[]).push(e)});
  const items=Object.keys(CAPS).filter(g=>groups[g]).sort((a,b)=>groups[b][0].score-groups[a][0].score).flatMap(g=>groups[g].slice(0,q.length?CAPS[g]:20));
+ if(q.length&&AI.key&&!QUESTION.test(raw.trim()))items.push({group:"Assistant",icon:"✦",label:`Show only what matches: ${raw.trim()}`,sub:"the assistant picks the pull requests and dims the rest",go:()=>filterBy(raw.trim()),ask:true});
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
@@ -420,7 +469,7 @@ document.addEventListener("keydown",e=>{
  const palOpen=!document.getElementById("pal").hidden;
  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
- if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
+ if(!palOpen){if(e.key==="Escape"){if(sheet){sheet=null;paintSheet()}else showOnly(null)}return}
  e.stopImmediatePropagation();
  if(e.key==="Escape"){e.preventDefault();closePal()}
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
@@ -447,6 +496,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("hashchange",closePal);
 try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
-Object.assign(window,{assistAsk,needsYou,needsCount,decorate});
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName});
 })();
 </script>
