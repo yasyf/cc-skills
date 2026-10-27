@@ -15,7 +15,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 REBUILD_AFTER = 2.0
 SLOW_REFRESH = 300
