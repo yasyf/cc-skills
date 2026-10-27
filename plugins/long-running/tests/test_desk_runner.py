@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import itertools
@@ -6042,16 +6043,24 @@ def successor(config: Path, tmp_path: Path, desk: str) -> tuple[list[str], Path,
     return [str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk], tmp_path / f"{desk}-runner.log", True
 
 
-def test_handoff_waits_for_the_runner_to_remove_the_stop_marker_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
-    orca_pass(shell, config)
+def live_runner(shell: FakeShell, config: Path, tmp_path: Path, desk: str) -> tuple[runner_module.Runner, contextlib.ExitStack]:
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    held = contextlib.ExitStack()
+    assert held.enter_context(runner.desk_lock(desk)) is None
+    return runner, held
+
+
+def test_handoff_waits_for_the_runner_holding_the_desk_to_exit_and_then_starts_its_successor(shell, config, tmp_path, monkeypatch):
+    runner, held = live_runner(shell, config, tmp_path, "orca")
     started = []
 
-    def exit_mark(seconds):
+    def exits(seconds):
         started.append(list(shell.successors))
+        assert runner.stop_marker().read_text() == f"{os.getpid()}\n"
         runner.stop_marker().unlink()
+        held.close()
 
-    monkeypatch.setattr(shell, "sleep", exit_mark)
+    monkeypatch.setattr(shell, "sleep", exits)
     assert cli(shell, config, "handoff", "--desk", "orca") == 0
     assert not runner.stop_marker().exists()
     assert started == [[]]
@@ -6069,8 +6078,8 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     restart = f"nohup env AWS_PROFILE=release-operator desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert shell.environ["AWS_PROFILE"] == "release-operator"
     assert json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())["restart"] == restart
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    monkeypatch.setattr(shell, "sleep", lambda seconds: runner.stop_marker().unlink())
+    _, held = live_runner(shell, config, tmp_path, "landing")
+    monkeypatch.setattr(shell, "sleep", lambda seconds: held.close())
     assert cli(shell, config, "handoff", "--desk", "landing") == 0
     assert shell.successors == [successor(config, tmp_path, "landing")]
     assert shell.spawned_env["desk-runner.py"] == {"AWS_PROFILE": "release-operator"}
@@ -6079,13 +6088,23 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     assert "AWS_PROFILE" not in shell.environ
 
 
-def test_a_handoff_whose_runner_writes_no_exit_mark_in_twenty_minutes_starts_no_successor_and_tells_root(shell, config, tmp_path):
-    orca_pass(shell, config)
+def test_a_handoff_whose_runner_still_runs_after_twenty_minutes_starts_no_successor_and_tells_root_its_pid(shell, config, tmp_path):
+    _, held = live_runner(shell, config, tmp_path, "orca")
     started = shell.now()
-    assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca") == 1
     assert shell.successors == [] and shell.now() - started >= timedelta(minutes=20)
     [line] = [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
-    assert "wrote no exit mark within 0:20:00, so no successor started" in line and "handoff --desk orca` starts the successor" in line
+    assert f"runner {os.getpid()} still runs the orca desk after 0:20:00, so no successor started" in line and "handoff --desk orca` starts the successor" in line
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_a_second_runner_on_the_same_config_and_desk_refuses_to_start_and_names_the_first(shell, config, tmp_path, capsys, desk):
+    _, held = live_runner(shell, config, tmp_path, desk)
+    with held:
+        assert cli(shell, config, "run", "--desk", desk, "--once") == 3
+    assert f"runner {os.getpid()} already runs the {desk} desk" in capsys.readouterr().err
+    assert not (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).exists()
 
 
 def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
