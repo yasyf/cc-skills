@@ -262,6 +262,7 @@ class Drive:
         self.pr_facts = {}
         self.board_seq = None
         self.gos = {}
+        self.carried = {}
         self.board_raw = None
 
     def review_url(self, number):
@@ -403,6 +404,7 @@ class Drive:
     def note_go(self, record):
         if record["kind"] == "go" and (found := GO.match(record["text"])):
             self.gos[int(found[1])] = found[2]
+            self.carried[int(found[1])] = bool(set(re.findall(r"\b[0-9a-f]{7,40}\b", record["text"][found.end():])) - {found[2]})
 
     def load_gos(self):
         after = 0
@@ -420,7 +422,7 @@ class Drive:
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
             key = (row["number"], row["head"])
-            if row["state"] == "approved" and not stored and key not in self.reported:
+            if row["state"] == "approved" and not stored and not self.carried.get(row["number"]) and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
 

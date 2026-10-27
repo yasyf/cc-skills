@@ -13,7 +13,7 @@ with no API key; only short names and Command-K answers call Cerebras.
 
 | Field | Shape | Source |
 |---|---|---|
-| `drive.prs[]` | `{number, state, tree, part, step, worker}` | ledger rows, board verdicts, `go` records, `steps.json`, the config's parts |
+| `drive.prs[]` | `{number, state, base, tree, part, step, worker}` | ledger rows, board verdicts, `go` records, `steps.json`, the config's parts |
 | `steps[]` | `{id, label, title, state, blocker, next, prs[{number, state}], tone, workers[]}` | the progress desk's `steps.json` |
 | `workers[]` | `{lane, step, prs[], at, boxes[12]}` | cci lanes and records, coordinators left out |
 | `needs[]` | ordered `{kind: prs\|card\|ask, why, source{label, href}, ...}` | the cc-present store and the story's asks |
@@ -35,7 +35,7 @@ one.
 |---|---|
 | `landed` | merged |
 | `you` | waiting on his tap at its current head |
-| `failing` | tests failing at its head |
+| `failing` | its own tests fail at its head; a red whose base PR also fails is `waiting`, with `base` naming that PR |
 | `held` | a hold is set |
 | `queued` | approved at its current or a carried head, waiting to land |
 | `doing` | a worker wrote about it in the last 20 minutes, or checks are running |
@@ -77,9 +77,12 @@ The progress desk rewrites `steps.json` atomically on every pass:
 - `now.release` and `now.releases[]`: the next release and every release with the parts
   it ships, in plain words; `tonight` marks the releases the release track shows.
 - `now.goal`: the end state's checks, each (such as `enabled` and `old_app`) with a
-  `state`, when it was read (`at`), its `source`, and the `check` that proves it.
+  `state` that opens with its verdict before a colon, when it was read (`at`), its
+  `source`, and the `check` that proves it. A check older than 30 minutes shows as
+  "not rechecked since" its time, never as current.
 - `now.waiting[]`: what the drive waits on outside any step: `what`, `owed_by`, `since`,
-  `expected`, and what it `unblocks`.
+  `expected`, and what it `unblocks`. The Overview shows only items that unblock
+  something, and one past its `expected` time reads overdue.
 - `now.blocker`: a drive-wide stop only, such as a red trunk or a dead merge queue,
   with its start time; null otherwise. A step's own blocker stays on the step.
 
@@ -87,9 +90,27 @@ It writes no counts; the dashboard counts.
 
 ## Layout
 
-Top to bottom: the totals row; the release track with the exact plan one click away;
-the step table with landed, approved, and your-tap counts beside the machines it builds;
-the working-now boxes; and the waiting-on list.
+The Overview is the Cockpit, an app and not a page of tables. Top to bottom:
+
+1. Tonight. The current release or where it is blocked, and that release's state. New-app
+   PRs merged, releases out, and who has the flag. Whether everyone else keeps today's
+   app, what broke tonight, and how many PRs fail their own tests.
+2. The destination. The Mac and the cloud are outlines traced green to their landed
+   share. Each part is a cluster with one light per PR, and the old tree sits in an
+   "Old, kept" cluster. The ring sits between them, above the tools runway and the end
+   state in one line.
+3. Readouts. Landed with the last hour's count, in flight with how many are moving, and
+   what needs him. Beside them the amber action card pages `needs[]` with Approve, Note,
+   or the question's options in place; a calm card shows when nothing waits.
+4. The route. Each step is a ring filled to its landed share and toned by its state.
+   R1 to R8 follow, with the plane at the current release and its state underneath. The
+   exact plan's thumbnail sits at the end. A tap on a step, a release, or the thumbnail
+   opens its card or the plan sheet.
+5. Working now. One tile per worker on a PR names the step, what the worker last did and
+   the PR it did it on, and how long it has been on it.
+
+The waiting-on list sits below the fold. On a phone the same order stacks, the machines
+one above the other.
 
 ## Words at rest
 
