@@ -4200,7 +4200,7 @@ class Landing:
                 continue
             named = " and ".join(f"#{parent} at {open_rows[parent]['head'][:10]}" for parent in parents)
             heads = " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in gone)
-            self.post_record("note", key, ROOT, f"stack of #{bottom}: root gos name {heads}, stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", bottom)
+            self.post_record("note", key, ROOT, f"BELOW-BLOCKED stack of #{bottom}: root gos name {heads}, stacked on {named} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`", bottom)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -5315,12 +5315,13 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason."""
+        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` note per stack (root #142036)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
         for pr, row in rows.items():
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head:
+            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or downstack(open_rows, pr) - {pr} & self.no_go:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
                 continue

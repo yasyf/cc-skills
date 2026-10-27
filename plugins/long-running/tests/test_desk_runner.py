@@ -3166,7 +3166,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
 
 
 def ungone_parents(bottom: str, heads: str, parents: str) -> str:
-    return f"stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+    return f"BELOW-BLOCKED stack of #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so nothing in the stack is enqueued; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
 
 
 def notes(shell: FakeShell) -> list[dict]:
@@ -4891,6 +4891,19 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001@aaaa111111 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
+
+
+def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.queue["29031"] = "not queued"
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
 
 
 def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
