@@ -342,9 +342,8 @@ function needRow(r) {
       : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   const stuck = r.blocker && !/^nothing/i.test(r.blocker);
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(shortName(r.number) ?? r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
-    <p class="nline">${inline(r.change)}</p>${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}
-    <details data-id="facts-${r.number}"${state.open.has(`facts-${r.number}`) ? ' open' : ''}><summary>Plan, risk and review</summary><dl>${FACTS.filter(([key]) => key !== 'change' && (key !== 'blocker' || !stuck)).map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl></details>
-    ${r.md ? `<details class="nmd" data-id="note-${r.number}"${state.open.has(`note-${r.number}`) ? ' open' : ''}><summary>The board's note</summary><div class="md">${markdown(r.md)}</div></details>` : ''}
+    ${r.md ? `<div class="md nmd">${markdown(r.md)}</div>` : `<p class="nline">${inline(r.change)}</p>`}${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}
+    ${r.md ? '' : `<details data-id="facts-${r.number}"${state.open.has(`facts-${r.number}`) ? ' open' : ''}><summary>Plan, risk and review</summary><dl>${FACTS.filter(([key]) => key !== 'change' && (key !== 'blocker' || !stuck)).map(([key, label]) => `<dt>${label}</dt><dd>${inline(r[key])}</dd>`).join('')}</dl></details>`}
     ${row?.failed ? `<div class="nerr">${esc(row.failed)}</div>` : ''}<div class="acts">${acts}</div></li>`;
 }
 function needGroup(item) {

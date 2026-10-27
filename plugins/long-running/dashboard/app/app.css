@@ -268,6 +268,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
   #cardembed { top: 56px; right: 8px; left: 8px; bottom: 8px; width: auto; }
 }
 .nline { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-2); } .nline.bad { color: var(--bad); }
+.nrow .nmd { margin-top: 6px; font-size: 13.5px; color: var(--ink-2); } .nrow .nmd p { margin: 2px 0; }
 .nrow details { margin-top: 6px; font-size: 13px; } .nrow summary { cursor: pointer; color: var(--accent); }
 details.brec > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; } details.brec > summary::-webkit-details-marker { display: none; }
 details.brec > summary h4 { margin: 0; } details.brec > summary::before { content: "▸"; color: var(--accent); } details.brec[open] > summary::before { content: "▾"; }

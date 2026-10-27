@@ -573,7 +573,7 @@ class Drive:
         while True:
             watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
             for _ in watch.stdout:
-                self.touch(slow=True)
+                self.touch()
             watch.wait()
             time.sleep(5)
 
