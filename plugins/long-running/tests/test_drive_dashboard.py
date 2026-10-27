@@ -256,7 +256,7 @@ def test_a_release_path_with_nothing_held_marks_the_first_unreleased_release():
         ({"state": "open"}, "approved", "open", "Lands after #42001 lands."),
         ({"state": "open"}, "approved", "landed", "Lands when the merge queue reaches it."),
         ({"state": "open", "hold_reason": "held for the cutover", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held by root: held for the cutover."),
-        ({"state": "open", "hold_reason": "root cci hold: landing dependency not live (hold records #134860-#134881, sweep 6:41 PM)"}, None, None, "Held by root: landing dependency not live."),
+        ({"state": "open", "hold_reason": "root cci hold: landing dependency not live (hold records #134860-#134881, sweep 6:41 PM)", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held by root: landing dependency not live."),
     ],
 )
 def test_every_pull_request_carries_one_next_action_from_its_own_state(fields, row_state, base_state, next_step):
