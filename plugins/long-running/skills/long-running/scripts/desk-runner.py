@@ -564,6 +564,10 @@ RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:r
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
+DEQUEUE_READ = "dequeue-read"
+DEQUEUES = "dequeues"
+DEQUEUE_ORDER = re.compile(r"\bdequeue #(\d+)\b", re.IGNORECASE)
+DEQUEUE_FIRST_READ = "15m"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
@@ -641,7 +645,8 @@ HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
 TRUNK_REREAD = timedelta(minutes=5)
-STATUS_SETTLED = frozenset({"queued", "landed"})
+QUEUED_STATE = "queued"
+STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 STATUS_WAITS = frozenset({"ci-pending", "conflict", "changes-requested", "unapproved"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
@@ -4021,6 +4026,7 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.gos: list[dict] | None = None
+        self.withdrawn_gos: list[dict] = []
         self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.unread: dict[str, dict[str, str]] = {}
@@ -4197,9 +4203,63 @@ class Landing:
             self.gate_trees(rows, held, trees)
         return gone
 
+    def gos_authorize(self) -> bool:
+        """Whether a root `go` at a PR's head is what lets it land: merge mode `every` with its asks on the root's board."""
+        return self.merge_mode == "every" and self.landing_config.get("merge_ask_surface", "slack") == "board" and not self.lands_green
+
+    def pull_ordered(self, rows: dict[str, dict]) -> None:
+        """Take out of the queue each PR a root record orders out with `dequeue #<n>`, read once per record, and each PR this runner enqueued at a head whose go root has since withdrawn while no other go names that head, through `dequeue_pr`, so no order waits on a lane reading the bus (root #146459). Each one posts `DEQUEUED` only once a later pass's status read shows the queue let it go, or `DEQUEUE-FAILED` when that read still finds it queued or the dequeue was refused."""
+        if (statuses := self.pr_statuses()) is None:
+            return
+        facts = self.book.load(LANDING).facts
+        pending = dict(facts.get(DEQUEUES, {}))
+        for pr, entry in list(pending.items()):
+            if actions.parse_stamp(entry["at"]) >= self.statuses_floor:
+                continue
+            queue = statuses.get(pr, {}).get("queue", "unread")
+            label = "DEQUEUE-FAILED" if queue == QUEUED_STATE else "DEQUEUED"
+            self.runner.escalate(f"dequeue:{pr}:{entry['at']}", label, f"#{pr}", f"#{pr} at {entry['head'][:10]}, {entry['why']}: the status read after the dequeue finds it {queue}")
+            del pending[pr]
+        orders = self.dequeue_orders(facts.get(DEQUEUE_READ))
+        for pr, why in (self.withdrawn_queued(rows) | orders).items():
+            if pr in pending:
+                continue
+            head = rows.get(pr, {}).get("head", "")
+            if statuses.get(pr, {}).get("queue") != QUEUED_STATE:
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: the status read finds it {statuses.get(pr, {}).get('queue', 'unread')}, so nothing was taken out")
+                continue
+            released, text = self.dequeue_pr(pr, why)
+            if released:
+                pending[pr] = {"head": head, "why": why, "at": self.book.stamp()}
+            else:
+                self.runner.escalate(f"dequeue:{pr}:{why}", "DEQUEUE-FAILED", f"#{pr}", f"#{pr} at {head[:10]}, {why}: {text}")
+        if pending != facts.get(DEQUEUES, {}):
+            self.book.edit(LANDING, lambda incident: incident.facts.update({DEQUEUES: pending}))
+
+    def dequeue_orders(self, read: int | None) -> dict[str, str]:
+        """Each PR a root record on this drive posted after seq `read` orders out with `dequeue #<n>`, naming that record; the first read starts `DEQUEUE_FIRST_READ` back. Records the newest seq read."""
+        drive = self.runner.config.drive
+        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=read if read is not None else DEQUEUE_FIRST_READ) if record["lane"] == ROOT and record["drive"] == drive]
+        if records:
+            newest = max(record["seq"] for record in records)
+            self.book.edit(LANDING, lambda incident: incident.facts.update({DEQUEUE_READ: newest}))
+        return {pr: f"root #{record['seq']} ordered it out" for record in records for pr in DEQUEUE_ORDER.findall(full_text(record))}
+
+    def withdrawn_queued(self, rows: dict[str, dict]) -> dict[str, str]:
+        """Each PR this runner believes queued at a head that a root go it has since withdrawn names, with no standing go at that head, when gos are what let PRs land."""
+        if not self.gos_authorize():
+            return {}
+        gos = self.root_gos()
+        return {
+            pr: f"root withdrew go #{withdrawn[0]['seq']} at {rows[pr]['head'][:10]}"
+            for prs in self.believed_queued(rows).values()
+            for pr in prs
+            if not gone_at(gos, pr, rows[pr]["head"]) and (withdrawn := gone_at(self.withdrawn_gos, pr, rows[pr]["head"]))
+        }
+
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
         """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
-        if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
+        if not self.gos_authorize():
             return set()
         gos = self.root_gos()
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
@@ -5035,7 +5095,9 @@ class Landing:
                 later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
-                posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
+                voided = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos]
+                posted = [go for go in voided if go["seq"] not in closed]
+                self.withdrawn_gos = [go | {"voided": set()} for go in voided if go["seq"] in closed] + [go | {"voided": set()} for go in posted if go["voided"]]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
                 self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, self.old_app_lands())
@@ -6120,6 +6182,7 @@ class Landing:
         self.ungraded_after()
         self.verify_restacks(rows)
         self.requeue(rows)
+        self.pull_ordered(rows)
         if held is not None:
             self.squash_incidents(rows, held)
             if gating:

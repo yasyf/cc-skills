@@ -4622,6 +4622,43 @@ def stopped(shell: FakeShell) -> list[tuple[str, str]]:
     return [(post["drive"], post["to"]) for post in shell.posts if post["kind"] == "stopped"]
 
 
+def dequeue_lines(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("DEQUEUE")]
+
+
+def test_a_root_dequeue_order_takes_the_pr_out_and_says_dequeued_once_the_status_read_shows_it_out(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "decide", "to": ["landing-desk"], "refs": {}, "text": "landing-desk: dequeue #29020 cccc333 now; it re-enters after his pick.", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]] and dequeue_lines(shell) == []
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    [line] = dequeue_lines(shell)
+    assert line.startswith("DEQUEUED dequeue:29020:") and line.endswith("#29020: #29020 at cccc333333, root #40000 ordered it out: the status read after the dequeue finds it not queued")
+
+
+def test_a_queued_pr_whose_go_root_withdrew_is_taken_out_and_one_still_queued_after_reads_dequeue_failed(shell, config, tmp_path):
+    board_surface(config)
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    go = next(record["seq"] for record in shell.records if record["kind"] == "go")
+    shell.records.append({"seq": 40001, "drive": "d1", "lane": "root", "kind": "decide", "to": ["landing-desk"], "refs": {}, "text": f"Root's go #{go} is withdrawn until his pick.", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    landing_pass(shell, config)
+    [line] = dequeue_lines(shell)
+    assert line.startswith("DEQUEUE-FAILED dequeue:29020:") and line.endswith(f"#29020: #29020 at cccc333333, root withdrew go #{go} at cccc333333: the status read after the dequeue finds it queued")
+
+
 def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):
     shell.rows = [dict(ONE_ROW, ours=False)]
     other_drive_opened(shell, "29020")
