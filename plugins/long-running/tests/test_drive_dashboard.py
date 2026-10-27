@@ -219,6 +219,18 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]
 
 
+def test_a_board_row_missing_a_fact_still_reaches_needs_you():
+    row = board_row(43250, "you")
+    del row["risk"], row["review"]
+    store = merge_board(("gate", "Release 1 waits on this", "The first release cannot start without it.", [row]))
+    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+
+    out = needs(rows, [], [], "http://board/p/x")
+
+    assert out[0]["prs"][0]["number"] == 43250
+    assert out[0]["prs"][0]["risk"] is None
+
+
 def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_says_so():
     record = {"seq": 140321, "lane": "release-plan-2", "at": "2026-10-27T09:16:23Z", "text": "Where is that key kept?"}
     asks = [{"what": "Say where the key is kept", "why": "The flag read needs it.", "record": record}, {"what": "Rotate a key", "why": "It sat in chat."}, {"what": "Resume", "why": "W", "optional": True}]

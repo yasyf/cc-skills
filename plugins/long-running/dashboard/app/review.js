@@ -94,7 +94,7 @@ function decideBar(row, v) {
   if (v === 'approved' || v === 'held') {
     return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared" ${busy ? 'disabled' : ''}>Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">${busy ? 'Sending…' : pending.number === row.number && pending.error ? `Retry approve ${head}` : `✓ Approve ${head}`}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
+  return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" ${busy ? 'disabled' : ''} title="A">${busy ? 'Sending…' : pending.number === row.number && pending.error ? `Retry approve ${head}` : `✓ Approve ${head}`}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
 }
 async function decide(row, verdict, note, advance = true) {
   clearTimeout(pending.advance);
@@ -120,6 +120,7 @@ document.addEventListener('click', (e) => {
   const r = route();
   const row = r.screen === 'review' && r.id ? boardRow(r.id) : null;
   if (!button || !row) return;
+  if (button.dataset.head && button.dataset.head !== row.head) return render();
   const verdict = button.dataset.decide;
   if (verdict === 'hold' || verdict === 'cancel') {
     Object.assign(pending, { number: verdict === 'hold' ? row.number : null, holding: verdict === 'hold', error: '' });

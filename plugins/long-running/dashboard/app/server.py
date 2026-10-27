@@ -188,7 +188,7 @@ def merge_needs(rows, board_url):
     groups = {}
     for row in rows:
         group = groups.setdefault((row["block"], row["group_id"]), {"group": row["group"], "relation": row["group_summary"], "rows": []})
-        group["rows"].append({key: row[key] for key in ROW_FACTS})
+        group["rows"].append({key: row.get(key) for key in ROW_FACTS})
     items = []
     for group in groups.values():
         waiting = [row for row in group["rows"] if row["state"] == "you"]

@@ -162,7 +162,7 @@ function needItem(item) {
     const failed = pending.number === r.number && pending.error ? `<em class="err">${esc(pending.error)}</em>` : '';
     return `<div class="act"><a class="what" href="#/review/${r.number}"><span class="star">★</span><b>#${r.number}</b> ${esc(shortName(r.number) ?? r.title)}</a>${why(item)}
       ${ov.noting === `${r.number}@${r.head}` ? `<form class="note" data-note="${r.number}" data-head="${esc(r.head)}"><input name="note" placeholder="Note" value="${esc(ov.note)}"><button class="btn pri">✓ Approve</button><button type="button" class="btn hold" data-note-hold="${r.number}">‖ Hold</button></form>`
-        : `<div class="acts"><button class="btn pri" data-approve="${r.number}"${busy || !row ? ' disabled' : ''}>${busy ? 'Sending…' : `✓ Approve ${esc(r.head.slice(0, 7))}`}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
+        : `<div class="acts"><button class="btn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !row ? ' disabled' : ''}>${busy ? 'Sending…' : `✓ Approve ${esc(r.head.slice(0, 7))}`}</button><button class="btn" data-noting="${r.number}@${esc(r.head)}">✎ Note</button>${failed}</div>`}</div>`;
   }
   if (item.kind === 'prs') return `<div class="act"><a class="what" href="#/review"><span class="star">★</span><b>${item.prs.length}</b> pull requests${item.group ? ` in ${esc(item.group)}` : ''} need your approval</a>${why(item)}<div class="acts"><a class="btn pri" href="#/review">Review ${item.prs.length}</a></div></div>`;
   if (item.kind === 'card') {
@@ -350,8 +350,8 @@ function numbersFor(el) {
   return null;
 }
 function mountOverview() {
-  const input = $('.note input');
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  const input = ov.focusNote && $('.note input');
+  if (input) { ov.focusNote = false; input.focus(); }
   ov.was = new Map(state.model.drive.prs.map((e) => [e.number, e.state]));
   for (const fig of document.querySelectorAll('.mach')) {
     const svg = fig.querySelector('svg');
@@ -406,11 +406,14 @@ document.addEventListener('click', (e) => {
   const page = e.target.closest('[data-page]');
   if (page) { ov.page = Number(page.dataset.page); ov.noting = null; return render(); }
   const noting = e.target.closest('[data-noting]');
-  if (noting) { ov.noting = noting.dataset.noting; ov.note = ''; return render(); }
+  if (noting) { ov.noting = noting.dataset.noting; ov.note = ''; ov.focusNote = true; return render(); }
   const choose = e.target.closest('[data-choose]');
   if (choose) return answer({ kind: 'choice', block: choose.dataset.choice, options: [choose.dataset.choose] });
   const approve = e.target.closest('[data-approve]');
-  if (approve) return decide(boardRow(approve.dataset.approve), 'approved', '', false);
+  if (approve) {
+    const row = boardRow(approve.dataset.approve);
+    return row?.head === approve.dataset.head ? decide(row, 'approved', '', false) : render();
+  }
   const hold = e.target.closest('[data-note-hold]');
   if (hold) return noteDecide(hold.closest('[data-note]'), 'rejected');
 });
