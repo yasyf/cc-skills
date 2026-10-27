@@ -24,6 +24,7 @@ from captain_hook import (
 from captain_hook.transcripts import TranscriptLoadError
 
 from .compaction_handoff import CompactionState
+from .incident_lane_pr import LANE_STATUS
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
@@ -70,7 +71,7 @@ SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 LANE_NAME = re.compile(r"(?<![\w./-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\w/-])")
 NOT_LANES = frozenset({"lane-status", "stand-down"})
 UNREAD_LANE = (
-    "Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `drive.py lane-status <lane>` in the same turn."
+    f"Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `{LANE_STATUS} <lane>` in the same turn."
     " Run it, then report what it shows."
 )
 DEFECT_ADMITTED = re.compile(
