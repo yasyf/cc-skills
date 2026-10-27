@@ -91,14 +91,19 @@ function brokeTonight() {
   const m = state.model;
   const recs = m.records.filter((r) => ['incident', 'fix-live'].includes(r.kind) && Date.now() - new Date(r.at) < 12 * 3600 * 1000).sort((a, b) => new Date(a.at) - new Date(b.at));
   const last = recs[recs.length - 1];
-  const failing = tally(m.drive.prs).failing;
-  const red = failing ? ` · ${plural(failing, 'pull request')} failing tests` : '';
-  if (!last) return `Nothing broke${red}`;
-  if (last.kind === 'incident') return `${esc(firstSentences(last.text, 70))}, open since ${clock(last.at)}${red}`;
-  return `${esc(last.text.match(/^FIX-LIVE\s+([^:]+):/)?.[1] ?? firstSentences(last.text, 50))}, fixed ${clock(last.at)}${red}`;
+  if (!last) return 'Nothing broke';
+  if (last.kind === 'incident') return `${esc(firstSentences(last.text, 70))}, open since ${clock(last.at)}`;
+  const name = last.text.match(/^FIX-LIVE\s+([^:]+):/)?.[1] ?? firstSentences(last.text, 50);
+  const at = last.text.match(/\b\d{1,2}:\d{2}(?::\d{2})?\s?[AP]M\b/)?.[0].replace(/:\d{2}(\s?[AP]M)$/, (x, ap) => (x.split(':').length > 1 ? ap : x));
+  return `${esc(name)}, recovered ${at ? esc(at.replace(/^(\d{1,2}:\d{2}):\d{2}/, '$1')) : clock(last.at)}`;
+}
+function releaseWord(rels, i, next) {
+  if (next < 0 || i < next) return ['out', 'Out'];
+  if (i === next) return ['blocked', /^(waits? on|blocked)/i.test(rels[i].state) ? 'Blocked' : 'Next'];
+  return ['', `After ${rels[i - 1].id}`];
 }
 function proof(p) {
-  return p ? esc(p.state.split(':')[0]) : 'Not checked yet';
+  return p ? esc(p.state) : 'Not checked yet';
 }
 function tile(label, value, sub, cls, href, fill) {
   return `<a class="tile2 ${cls}" href="${href}"><small>${label}</small><b>${value}</b>${fill === undefined ? '' : `<span class="tbar"><i style="width:${fill}%"></i></span>`}<span class="sub">${sub}</span></a>`;
@@ -110,15 +115,17 @@ function totals() {
   const rels = (m.now.releases ?? []).filter((r) => r.tonight);
   const out = rels.filter((r) => RELEASED.test(r.state)).length;
   const next = rels.find((r) => !RELEASED.test(r.state));
-  const hour = lastHour().length;
+  const hour = lastHour();
   const g = m.now.goal ?? {};
+  const failing = all.failing ? `${plural(all.failing, 'pull request')} failing tests now` : 'No pull request failing tests';
+  const verdict = rels.length && out === rels.length ? ['ok', 'Released'] : next && /^(waits? on|blocked)/i.test(next.state) ? ['bad', `Blocked at ${next.id}`] : ['', 'Moving'];
   return `<section class="totals">
-    ${tile('New app merged', `${t.landed}<span>/${t.total}</span>`, `${hour ? `+${hour}` : 'None'} landed in the last hour`, 'ok', '#/timeline', pct(t))}
-    ${tile('Approved, landing next', all.queued, 'pull requests across the drive', '', '#/review')}
-    ${tile('Need your tap', all.you, all.you ? 'Open the review list' : 'Nothing waiting on you', all.you ? 'you' : '', '#/review')}
+    ${tile('New app merged', `${t.landed}<span>/${t.total}</span>`, `${t.queued} approved, landing next`, 'ok', '#/timeline', pct(t))}
+    ${tile('Landed in the last hour', hour.length, hour.length ? hour.slice(0, 2).map((e) => esc(shortName(e.number) ?? plainTitle(e.number))).join(' · ') : 'Nothing landed', '', '#/timeline')}
+    ${tile('Need your tap', all.you, all.you ? 'Open the review list' : 'Nothing waiting on you', all.you ? 'you' : '', all.you ? '#/review' : '#/now')}
     ${tile('Released tonight', `${out}<span>/${rels.length}</span>`, next ? `Next: ${esc(next.id)}, ${esc(next.name)}` : 'All out', '', '#/releases', rels.length ? (100 * out) / rels.length : 0)}
-    <a class="tile2 tonight" href="#/releases"><small>Tonight: flag holders get the new app, everyone else keeps the old</small>
-      <ul><li title="${esc(g.old_app?.state ?? '')}"><b>Old app</b><span>${proof(g.old_app)}</span></li><li title="${esc(g.enabled?.state ?? '')}"><b>Flag</b><span>${proof(g.enabled)}</span></li><li><b>Broke</b><span>${brokeTonight()}</span></li></ul></a>
+    <a class="tile2 tonight" href="#/releases"><small><span class="verdict ${verdict[0]}">${verdict[1]}</span>Tonight: flag holders get the new app, everyone else keeps the old</small>
+      <ul><li><b>Old app</b><span>${proof(g.old_app)}</span></li><li><b>Flag</b><span>${proof(g.enabled)}</span></li><li><b>Broke</b><span>${brokeTonight()} · ${failing}</span></li></ul></a>
   </section>`;
 }
 function track() {
@@ -126,10 +133,16 @@ function track() {
   const rels = m.now.releases ?? [];
   const next = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[next];
+  const stop = (r, i) => {
+    const [cls, word] = releaseWord(rels, i, next);
+    return `<span class="rstop ${cls}" data-release="${esc(r.id)}"><i></i><b>${esc(r.id)} <em>${word}</em></b><small>${esc(r.name)}</small></span>`;
+  };
+  const tonight = rels.map((r, i) => (r.tonight ? stop(r, i) : '')).join('');
+  const later = rels.map((r, i) => (r.tonight ? '' : stop(r, i))).join('');
   return `<section class="track">
-    <div class="stops">${rels.map((r, i) => `<span class="rstop${i < next || next < 0 ? ' done' : i === next ? ' next' : ''}${r.tonight ? '' : ' after'}" data-release="${esc(r.id)}"><i></i><b>${esc(r.id)}</b><small>${esc(r.name)}</small></span>`).join('')}</div>
-    <p class="at">${cur ? `<b>${esc(cur.id)}, ${esc(cur.name)}:</b> ${esc(cur.state)}` : 'Every release is out'}</p>
-    <button class="planthumb" data-plan><span class="mini">${m.steps.map((s) => `<i class="tn-${s.tone}" style="--w:${Math.max(6, pct(tally(s.prs)))}%"></i>`).join('')}</span><span class="pl"><b>Exact plan</b><small>revised ${m.plan_at ? clock(m.plan_at) : ''}</small></span></button>
+    <div class="stops"><span class="tlabel">Tonight</span>${tonight}${later ? `<span class="tlabel later">Later</span>${later}` : ''}</div>
+    <p class="at">${cur ? `<b>${esc(cur.id)} ${releaseWord(rels, next, next)[1].toLowerCase()}:</b> ${esc(cur.state)}` : 'Every release is out'}</p>
+    <button class="planthumb" data-plan><span class="mini">${rels.map((r) => `<i>${esc(r.id)} ${esc(r.name)}</i>`).join('')}</span><span class="pl"><b>Exact plan</b><small>revised ${m.releases.updated ? clock(m.releases.updated) : ''}</small></span></button>
   </section>`;
 }
 function working() {
@@ -137,11 +150,12 @@ function working() {
   const live = m.workers.filter((w) => w.live);
   if (!live.length) return '';
   const box = (w) => {
-    const step = m.steps.find((s) => s.id === w.step);
-    const pr = w.prs[0];
-    return `<a class="wbox2" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><b>${esc(step?.label ?? 'Tooling')}</b><em>${agoWords(w.at)}</em><span>${pr ? `#${pr} ${esc(shortName(pr) ?? plainTitle(pr))}` : esc(w.lane)}</span><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></a>`;
+    const pr = w.prs.find((n) => driveEntry(n)?.state !== 'landed') ?? w.prs[0];
+    const step = m.steps.find((s) => s.id === (w.step ?? driveEntry(pr)?.step));
+    const part = m.parts.find((p) => p.key === driveEntry(pr)?.part);
+    return `<a class="wbox2" href="${pr ? prHref(pr) : '#/workers'}" data-lane="${esc(w.lane)}"><b>${esc(step?.label ?? part?.name ?? 'Other work')}</b><em>${agoWords(w.at)}</em><span>${pr ? `#${pr} ${esc(shortName(pr) ?? plainTitle(pr))}` : esc(w.lane)}</span><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></a>`;
   };
-  return `<section class="working"><h4>Working now <span>${plural(live.length, 'worker')}</span></h4><div class="wboxes">${live.slice(0, 6).map(box).join('')}${live.length > 6 ? `<a class="wbox2 more" href="#/workers">+${live.length - 6} more</a>` : ''}</div></section>`;
+  return `<section class="working"><h4>Working now <a href="#/workers">all ${plural(live.length, 'worker')} ›</a></h4><div class="wboxes">${live.slice(0, 7).map(box).join('')}</div></section>`;
 }
 function waitingOn() {
   const items = state.model.now.waiting ?? [];
@@ -235,7 +249,8 @@ function overview() {
   ${state.overlay === 'track' ? trackSheet() : ''}
   ${state.overlay === 'stop' && stop ? stopSheet() : ''}
   ${state.overlay === 'key' ? keySheet() : ''}
-  ${state.overlay === 'plan' ? planSheet() : ''}`;
+  ${state.overlay === 'plan' ? planSheet() : ''}
+  ${state.overlay === 'release' ? releaseSheet() : ''}`;
 }
 function planSheet() {
   const m = state.model;
@@ -281,15 +296,33 @@ function stepCard(s) {
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
     <dl class="facts"><dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${ws.length ? `<h4 class="sc-h">Who is on it</h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker is on this step right now.</p>'}
-    ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((p) => `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}</em></a></li>`).join('')}</ul>` : ''}
+    ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
 }
 function trackSheet() {
   const s = state.model.steps.find((x) => x.id === ov.track);
   if (s) return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>${stepCard(s)}</div></div>`;
   const list = state.model.drive.prs.filter((e) => !e.step && e.state !== 'landed');
-  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Unplanned: ${list.length} open pull requests</h3>
-    <ul class="prlist">${list.map((p) => `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}</em></a></li>`).join('')}</ul></div></div>`;
+  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">No plan step names these</div><h3>Other work: ${list.length} open pull requests</h3>
+    <ul class="prlist">${list.map(prRow).join('')}</ul></div></div>`;
+}
+function prRow(p) {
+  const pr = state.model.prs[p.number] ?? {};
+  const extra = pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : '';
+  return `<li><a href="${prHref(p.number)}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${extra}</em></a></li>`;
+}
+function releaseSheet() {
+  const m = state.model;
+  const rels = m.now.releases;
+  const i = rels.findIndex((r) => r.id === ov.release);
+  const r = rels[i];
+  const next = rels.findIndex((x) => !RELEASED.test(x.state));
+  const parts = r.parts.map((k) => m.parts.find((p) => p.key === k)).filter(Boolean);
+  const open = m.drive.prs.filter((e) => r.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]);
+  return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><div class="kick">${esc(r.id)} · ${releaseWord(rels, i, next)[1]}${r.tonight ? ' · tonight' : ' · after tonight'}</div><h3>${esc(r.name)}</h3>
+    <dl class="facts"><dt>Where it stands</dt><dd>${esc(r.state)}</dd><dt>What it ships</dt><dd>${parts.map((p) => `${esc(p.name)} <span class="dim">${pct(tally(m.drive.prs.filter((e) => e.part === p.key)))}% landed</span>`).join(' · ')}</dd></dl>
+    ${open.length ? `<h4 class="sc-h">New-app pull requests still open in these parts <span>${open.length}</span></h4><ul class="prlist">${[...open].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map(prRow).join('')}</ul>` : ''}
+    <p><button class="linkish" data-plan>Open the full release plan ›</button></p></div></div>`;
 }
 function stopSheet() {
   const stop = state.model.now.blocker;
@@ -386,20 +419,12 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.cp, .overlay')) return;
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
-  if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'text'; return render(); }
+  if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
   const rel = e.target.closest('[data-release]');
-  if (rel) {
-    const r = state.model.now.releases.find((x) => x.id === rel.dataset.release);
-    state.overlay = 'plan';
-    ov.planTab = 'releases';
-    render();
-    const target = [...document.querySelectorAll('.sheet h2, .sheet h3, .sheet h4, .sheet h5')].find((h) => h.textContent.toLowerCase().startsWith(r.name.toLowerCase()));
-    target?.scrollIntoView({ block: 'start' });
-    return;
-  }
+  if (rel) { ov.release = rel.dataset.release; state.overlay = 'release'; return render(); }
   if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
