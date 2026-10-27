@@ -570,7 +570,8 @@ def ask_plain(prompt: str, reg: str, e: dict, original: str, titles: dict) -> st
         request += f"Title: {e['t']}\n"
     request += f"Text: {original}\n"
     out = subprocess.run(["gemini", "-m", PLAIN_MODEL, "--approval-mode", "plan", "--skip-trust", "-p", request],
-                         capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT).stdout
+                         stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True,
+                         timeout=PLAIN_TIMEOUT).stdout
     plain = " ".join(out.split()).strip("\"“” ")
     if not plain:
         raise ValueError(f"{PLAIN_MODEL} returned an empty reply")
