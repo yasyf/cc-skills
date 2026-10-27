@@ -22,12 +22,17 @@ LOOP_KINDS = frozenset({"for_statement", "c_style_for_statement", "while_stateme
 POLL_KINDS = frozenset({"c_style_for_statement", "while_statement"})
 SLEEP_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 POLL_FLOOR_SECONDS = 30
+GITHUB_FLOOR_SECONDS = 300
+GH_READS = frozenset({"pr", "run", "api", "search", "issue", "release", "workflow", "repo"})
+CCX_READS = frozenset({"gh", "pr", "status", "reviews"})
+WATCH_DEFAULTS = {("run", "watch"): 3.0, ("pr", "checks"): 10.0}
 LOG_PACE_SECONDS = 2
 MAX_SCRIPT_BYTES = 256_000
 MAX_DEPTH = 3
 
 LOGS = "logs"
 POLL = "poll"
+GH_POLL = "gh-poll"
 
 LOGS_MESSAGE = (
     "Warning, nothing was blocked: Dumping Buildkite logs job by job drains the org REST budget release reads share."
@@ -37,6 +42,11 @@ LOGS_MESSAGE = (
 POLL_MESSAGE = (
     "Warning, nothing was blocked: Polling Buildkite more often than every 30 s drains the org REST budget Platy's release reads share."
     " Run the poll under `Monitor` or a blocking wait that sleeps 30 s or more between calls."
+)
+
+GH_POLL_MESSAGE = (
+    "Warning, nothing was blocked: Polling GitHub more often than every 5 minutes spends the quota the merge process and every lane share."
+    " Read PR state from cci records, or sleep 300 s between calls; `gh run watch` and `gh pr checks --watch` take `--interval 300`."
 )
 
 
@@ -68,6 +78,34 @@ def rest_argv(argv: Sequence[str]) -> bool:
     return False
 
 
+def github_argv(argv: Sequence[str]) -> bool:
+    match argv:
+        case ["gh", subcommand, *_]:
+            return subcommand in GH_READS
+        case ["ccx", "vcs", verb, *_]:
+            return verb in CCX_READS
+    return False
+
+
+def gh_watch(argv: Sequence[str]) -> tuple[str, ...] | None:
+    match argv:
+        case ["gh", *rest] | ["ccx", "vcs", "gh", "--", *rest]:
+            return tuple(rest)
+    return None
+
+
+def fast_watch(argv: Sequence[str]) -> bool:
+    if (rest := gh_watch(argv)) is None or len(rest) < 2 or (rest[0], rest[1]) not in WATCH_DEFAULTS:
+        return False
+    if rest[:2] == ("pr", "checks") and "--watch" not in rest:
+        return False
+    flags = list(rest[2:])
+    interval = next((flags[at + 1] for at, flag in enumerate(flags[:-1]) if flag in ("--interval", "-i")), None)
+    interval = interval or next((flag.split("=", 1)[1] for flag in flags if flag.startswith("--interval=")), None)
+    wait = seconds(interval) if interval is not None else WATCH_DEFAULTS[(rest[0], rest[1])]
+    return wait is not None and wait < GITHUB_FLOOR_SECONDS
+
+
 def job_log_path(text: str) -> bool:
     if (parts := url(text)) is None:
         return False
@@ -89,7 +127,7 @@ def job_log_argv(argv: Sequence[str]) -> bool:
 def seconds(word: str) -> float | None:
     unit = word[-1:] if word[-1:] in SLEEP_UNITS else ""
     number = word.removesuffix(unit)
-    return float(number) * SLEEP_UNITS.get(unit, 1) if number.replace(".", "", 1).isdigit() else None
+    return float(number) * SLEEP_UNITS.get(unit, 1) if number.replace(".", "", 1).isdecimal() else None
 
 
 def sleep_seconds(args: Sequence[str]) -> float | None:
@@ -223,6 +261,11 @@ def shell_findings(cmd: Cmd, source: Source) -> set[str]:
         calls = argvs(body)
         if any(rest_argv(argv) for argv in calls) and short_wait(loop_waits(calls)):
             found.add(POLL)
+        waits = loop_waits(calls)
+        if any(github_argv(argv) for argv in calls) and all(argv[0] != "read" for argv in calls) and (not waits or short_wait(waits, GITHUB_FLOOR_SECONDS)):
+            found.add(GH_POLL)
+    if any(fast_watch(argv) for argv in argvs(cmd)):
+        found.add(GH_POLL)
     return found
 
 
@@ -237,15 +280,19 @@ def literal(node: ast.AST) -> str | None:
 
 def py_argv(node: ast.AST) -> tuple[str, ...] | None:
     match node:
-        case ast.List(elts=elts) | ast.Tuple(elts=elts) if elts and literal(elts[0]) in ("bk", *HTTP_CLIENTS):
+        case ast.List(elts=elts) | ast.Tuple(elts=elts) if elts and literal(elts[0]) in ("bk", "gh", "ccx", *HTTP_CLIENTS):
             return tuple(literal(elt) or "{}" for elt in elts)
-        case ast.Constant(value=str()) | ast.JoinedStr() if (text := literal(node)) and text.split(" ", 1)[0] in ("bk", *HTTP_CLIENTS):
+        case ast.Constant(value=str()) | ast.JoinedStr() if (text := literal(node)) and text.split(" ", 1)[0] in ("bk", "gh", "ccx", *HTTP_CLIENTS):
             return next(iter(argvs(cmd)), None) if (cmd := Cmd.parse(text)) is not None else None
     return None
 
 
 def py_rest(node: ast.AST) -> bool:
     return ((argv := py_argv(node)) is not None and rest_argv(argv)) or rest_url(literal(node) or "")
+
+
+def py_github(node: ast.AST) -> bool:
+    return (argv := py_argv(node)) is not None and github_argv(argv)
 
 
 def py_job_log(node: ast.AST) -> bool:
@@ -304,7 +351,7 @@ def py_findings(source: Source) -> set[str]:
         tree = ast.parse(source.text)
     except SyntaxError:
         return set()
-    loggers, pollers = callers(tree, py_job_log), callers(tree, py_rest)
+    loggers, pollers, readers = callers(tree, py_job_log), callers(tree, py_rest), callers(tree, py_github)
     found: set[str] = set()
     for loop in py_loops(tree, polls=False):
         nodes = list(ast.walk(loop))
@@ -318,6 +365,9 @@ def py_findings(source: Source) -> set[str]:
         nodes = list(ast.walk(loop))
         if any(py_rest(node) or names(node, pollers) for node in nodes) and short_wait(py_waits(nodes)):
             found.add(POLL)
+        waits = py_waits(nodes)
+        if any(py_github(node) or names(node, readers) for node in nodes) and (not waits or short_wait(waits, GITHUB_FLOOR_SECONDS)):
+            found.add(GH_POLL)
     return found
 
 
@@ -471,3 +521,39 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
 )
 def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(POLL_MESSAGE) if POLL in command_findings(evt) else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Monitor")],
+    skip_if=[Annotated("raw")],
+    max_fires=1,
+    tests={
+        Input(command="while true; do gh pr checks 1; sleep 5; done"): Warn(pattern="--interval 300"),
+        Input(command="until gh pr view 7 --json state | grep -q MERGED; do sleep 60; done"): Warn(),
+        Input(command="while :; do ccx vcs pr status 1 2; sleep 30; done"): Warn(),
+        Input(command="gh run watch 123 --exit-status"): Warn(),
+        Input(command="ccx vcs gh -- run watch 123 --exit-status --interval 30"): Warn(),
+        Input(command="gh pr checks 7 --watch"): Warn(),
+        Input(
+            command=(
+                "python3 -c \"import subprocess, time\nwhile True:\n"
+                "    subprocess.run(['gh', 'pr', 'view', '1', '--json', 'state'])\n    time.sleep(30)\""
+            )
+        ): Warn(),
+        Input(tool="Monitor", tool_input={"command": "while true; do gh run list -L 1; sleep 20; done", "description": "ci"}): Warn(),
+        Input(command="while true; do gh pr checks 1; done"): Warn(),
+        Input(command="while true; do gh pr checks 1; sleep 300; done"): Allow(),
+        Input(command="while read pr; do gh pr view $pr --json state; done < prs.txt"): Allow(),
+        Input(command="gh run watch 1 --interval ²"): Allow(),
+        Input(command="gh run watch 123 --exit-status --interval 300"): Allow(),
+        Input(command="gh pr checks 7 --watch --interval=5m"): Allow(),
+        Input(command="gh pr checks 7"): Allow(),
+        Input(command="for pr in 1 2; do gh pr view $pr --json state; done"): Allow(),
+        Input(command="while true; do bk build view 1; sleep 45; done"): Allow(),
+        Input(command="cat > notes.md <<'EOF'\nwhile true; do gh pr checks 1; sleep 5; done\nEOF"): Allow(),
+        Input(command="while true; do gh pr checks 1; sleep 5; done  # ccx:raw"): Allow(),
+    },
+)
+def no_fast_github_polls(evt: BaseHookEvent) -> HookResult | None:
+    return evt.context(GH_POLL_MESSAGE) if GH_POLL in command_findings(evt) else None

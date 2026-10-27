@@ -1814,7 +1814,8 @@ and the Buildkite build list, never one REST call per PR. The pack's `buildkite_
 hook blocks a Buildkite poll under 30 seconds and an unpaced per-job log dump; one
 `bk build view <build> -p <pipeline> --json` call and `bk job log <id>` for the one job replace
 them, and a lane that needs every plan log of a release reads them in a loop that sleeps 2 seconds
-or more between fetches. Stagger desks and shards by a minute at `:00`, `:01`, and `:02`. One refused prefix never stops another;
+or more between fetches. The same hook warns on a GitHub poll under 5 minutes: a lane loop over `gh` or `ccx vcs pr`
+reads, or a `gh run watch` or `gh pr checks --watch` at its 3 s or 10 s default, takes `--interval 300` or reads the drive's cci records instead. Stagger desks and shards by a minute at `:00`, `:01`, and `:02`. One refused prefix never stops another;
 the D3 executor routes gate blockers under D14. A lane's `red` or `conflicting`
 verdict does not refuse a head the forge passes.
 
