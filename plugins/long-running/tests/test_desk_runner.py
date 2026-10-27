@@ -4353,6 +4353,20 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
+def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_every_head_it_queues(shell, config, capsys):
+    two_pr_stack(shell)
+    assert mq(shell, config, "gate", "29031") == 0
+    assert capsys.readouterr().out == ""
+    shell.rows[0]["head"] = "eeee555555"
+    grade(shell, "29020", "ok F307 at eeee555.", finder=False)
+    posts = len(shell.posts)
+    assert mq(shell, config, "gate", "29031") == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
+    ]
+    assert len(shell.posts) == posts
+
+
 def other_drive_opened(shell: FakeShell, pr: str) -> None:
     shell.drives = ["d1", "d2"]
     shell.records.append({"seq": 9100 + len(shell.records), "drive": "d2", "lane": "billing-fix", "kind": "opened", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"opened #{pr}", "at": "2026-10-01T17:00:00Z"})

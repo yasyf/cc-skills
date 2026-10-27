@@ -5609,6 +5609,20 @@ class Landing:
             lines.append(f"{name} {state.state} {state.reason}".rstrip())
         return lines
 
+    def gate(self, prs: list[str]) -> list[str]:
+        """One line per hold or enqueue check that does not pass a head a hand `stack-enqueue` of `prs` puts in the queue, each named PR and the open rows below it at its ledger head, graded as this desk grades its own enqueue, posting nothing (#140584)."""
+        rows = self.rows() or {}
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        heads = {pr: open_rows[pr].get("head", "") for named in prs for pr in sorted(downstack(open_rows, named), key=int)}
+        graded = Graded(heads, rows, self.runner.now(), act=False)
+        return [
+            f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip()
+            for name in self.checks
+            if name in HOLD_CHECKS + ENQUEUE_CHECKS
+            for pr, state in self.check(name, graded).items()
+            if state.state != merge_queue.PASS
+        ]
+
     def status_lines(self) -> list[str]:
         """The queue as this drive's store records it: each believed-queued enqueue, then each open tree in the order the desk gates and enqueues it."""
         rows = self.rows() or {}
