@@ -57,6 +57,9 @@ class Running:
         return self.code
 
 
+PUSHED_AT = "2026-10-01T17:00:00Z"
+
+
 def cci_names(record: dict, pr: str) -> bool:
     refs = record.get("refs", {}).get("prs", [])
     if "#" in pr:
@@ -110,6 +113,7 @@ class FakeShell(runner_module.Shell):
         self.queue: dict[str, str] = {}
         self.pr_status: dict[str, dict] = {}
         self.bodies: dict[str, str] = {}
+        self.pushed_at: dict[str, str] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
         self.launch_line = ""
@@ -289,6 +293,8 @@ class FakeShell(runner_module.Shell):
         if argv[:5] == ["gh", "api", "-X", "POST", "repos/Forge-AI/monorepo/git/refs"]:
             self.grade_refs[argv[6].removeprefix("ref=refs/heads/")] = argv[8].removeprefix("sha=")
             return runner_module.Done(0, "{}", "")
+        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[3:] == ["--jq", ".commit.committer.date"]:
+            return runner_module.Done(0, f"{self.pushed_at.get(argv[2].rsplit('/', 1)[1], PUSHED_AT)}\n", "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status"):
             return runner_module.Done(0, json.dumps({"statuses": self.commit_statuses.get(argv[2].split("/")[4], [])}), "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
@@ -3799,6 +3805,58 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder reference/finder-brief.md names and post its record"
 
 
+PRECONDITION = "This lands only after the seed's read-back shows the pointer."
+
+
+def root_decide(shell: FakeShell, text: str, at: str) -> None:
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["desk-runner"], "refs": {}, "text": text, "at": at})
+
+
+def said_in_body(shell: FakeShell) -> str:
+    shell.bodies["29020"] = f"Reads the release pointer.\n\n{PRECONDITION} Readers ship first."
+    return "the PR body"
+
+
+def said_on_the_bus(shell: FakeShell) -> str:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "report", "to": ["root"], "refs": {"prs": [29020]}, "text": PRECONDITION})
+    return f"cci #{seq}"
+
+
+@pytest.mark.parametrize("say", [said_in_body, said_on_the_bus])
+def test_an_unmet_landing_precondition_refuses_the_head_with_one_blocker_to_root_quoting_it(shell, config, tmp_path, say):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    where = say(shell)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "root"
+    assert blocker["text"].startswith(f'#29020 cccc333333: PRECONDITION-UNMET #29020: {where} says "{PRECONDITION}", and no root `decide` record opening `precondition-met #29020` came after cccc333333 was pushed at {PUSHED_AT}.')
+
+
+def test_a_root_precondition_met_after_the_push_lets_the_head_enqueue(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    said_in_body(shell)
+    root_decide(shell, "precondition-met #29020: the seed read back the pointer", "2026-10-01T16:30:00Z")
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and len(blockers(shell)) == 1
+    root_decide(shell, "precondition-met #29020: the seed read back the pointer at 17:20", "2026-10-01T17:30:00Z")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_head_with_no_landing_precondition_enqueues_without_reading_its_push_time(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    shell.bodies["29020"] = "Lands the release pointer reader. Readers come before the writer."
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
+    assert not [call for call in shell.calls if call[-1] == ".commit.committer.date"]
+
+
 def test_a_restack_with_the_finder_ok_heads_patch_carries_the_finder_ok(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -4141,7 +4199,7 @@ def mq(shell: FakeShell, config: Path, *argv: str) -> int:
     return mq_module.main(["--config", str(config), *argv], shell)
 
 
-QUIET_WHY = ["hold pass", "rules-review pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
+QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
 
 
 @pytest.mark.parametrize(

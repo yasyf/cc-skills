@@ -23,6 +23,10 @@ GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
+PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\blands after\b|\bdo not (?:land|merge) until\b|\breaders-first\b", re.IGNORECASE)
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
+PRECONDITION_MET = re.compile(r"\s*precondition-met\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+)#\d+)*)", re.IGNORECASE)
+PRECONDITION_LIMIT = 300
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -85,6 +89,17 @@ def go_heads(record: dict) -> dict[str, str]:
 
 def goes(record: dict, pr: str) -> bool:
     return pr in go_heads(record)
+
+
+def precondition_sentences(text: str) -> list[str]:
+    """Each sentence of `text` that holds a landing back on something outside the PR: `lands only after`, `lands after`, `merge only after`, `do not land until`, or a readers-first line."""
+    return [" ".join(sentence.split())[:PRECONDITION_LIMIT] for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
+
+
+def met_prs(record: dict) -> set[str]:
+    """The PRs whose landing precondition a root `decide` says holds: only the `#<n>` list of the `precondition-met` clause the record opens with."""
+    clause = PRECONDITION_MET.match(record["text"])
+    return set(re.findall(r"#(\d+)", clause[1])) if clause else set()
 
 
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
