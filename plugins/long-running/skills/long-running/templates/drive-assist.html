@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:35a8d92c1f76 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:dab7a48010b9 — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -367,10 +367,9 @@ async function assistAsk(question,history,onText){
  return "";
 }
 function paintAi(key){
- const box=document.querySelector(`[data-ai="${CSS.escape(key)}"]`);
  const a=ai[key];
- if(!box||!a)return;
- box.innerHTML=a.error?`<span class="dim">The assistant could not answer: ${esc(a.error)}</span>`:a.text?markdown(a.text):`<span class="dim">Thinking…</span>`;
+ if(!a)return;
+ document.querySelectorAll(`[data-ai="${CSS.escape(key)}"]`).forEach(box=>{box.innerHTML=a.error?`<span class="dim">The assistant could not answer: ${esc(a.error)}</span>`:a.text?markdown(a.text):`<span class="dim">Thinking…</span>`});
 }
 function stream(key,task,{fresh=false}={}){
  const a=ai[key];
@@ -387,9 +386,11 @@ function stream(key,task,{fresh=false}={}){
 const aiBox=(key,label,extra="")=>`<div class="aibox ai-only"><div class="k">✦ ${label}${extra}</div><div data-ai="${esc(key)}">${ai[key]?.text?markdown(ai[key].text):'<span class="dim">Thinking…</span>'}</div></div>`;
 
 async function prFacts(n){
- const r=await fetch(`/api/pr/${n}`);
- const j=await r.json();
- return r.ok?j:{error:j.error};
+ try{
+  const r=await fetch(`/api/pr/${n}`);
+  const j=await r.json();
+  return r.ok?j:{error:j.error};
+ }catch(e){return {error:e.message}}
 }
 function rowFacts(r){
  return `#${r.number} ${r.title} (stack: ${r.group}). What changes: ${r.change} Against the plan: ${r.plan} Risk: ${r.risk} Review and tests: ${r.review} Blocks landing: ${r.blocker}${r.carried?` Carried: ${r.carried}`:""} Status: ${STATE_WORD[prState(r.number)]}.`;
@@ -466,7 +467,7 @@ const TRIAGE={name:"triage",schema:{type:"object",additionalProperties:false,req
 function triage(){
  const rows=waiting();
  if(!rows.length)return null;
- const input=rows.map(r=>`${r.number}@${r.head}`).join(",");
+ const input=rows.map(r=>`${r.number}@${r.head}:${state.model.prs[r.number]?.test_state}:${aiHash(rowFacts(r))}`).join(",")+`:${words().length}`;
  const key=`triage:${aiHash(input)}`;
  if(ai[key])return ai[key];
  const hit=aiCacheGet("triage",input);
@@ -480,21 +481,31 @@ function triage(){
  }).catch(e=>{ai[key]={error:e.message}}).finally(()=>{if(route().screen==="now")render()});
  return ai[key];
 }
-async function post(row,verdict){
- row.pending=true;render();
- const r=await fetch("/api/verdict",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({block:row.block,number:row.number,verdict,head:row.head})});
- const j=await r.json().catch(()=>({error:`came back ${r.status}`}));
- row.pending=false;
- if(!r.ok||j.error)row.failed=j.error||`came back ${r.status}`;
- else row.verdict={verdict,head:row.head,at:new Date().toISOString()};
- render();
+let batching=false;
+async function post(want,verdict){
+ const row=boardRow(want.number);
+ if(!row||row.head!==want.head||row.block!==want.block||verdictState(row)!=="you")return false;
+ row.pending=true;row.failed="";render();
+ try{
+  const r=await fetch("/api/verdict",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({block:want.block,number:want.number,verdict,head:want.head})});
+  const j=await r.json().catch(()=>({error:`came back ${r.status}`}));
+  if(!r.ok||j.error){row.failed=j.error||`came back ${r.status}`;return false}
+  row.verdict={verdict,head:want.head,at:new Date().toISOString()};
+  return true;
+ }catch(e){row.failed=e.message;return false}
+ finally{row.pending=false;render()}
+}
+async function approveAll(wants){
+ batching=true;render();
+ try{for(const w of wants)if(!await post(w,"approved"))break}
+ finally{batching=false;render()}
 }
 function needsCount(){return state.model?.board?waiting().length+openCards().length:0}
 function nowItem(r,i,t){
  const pr=state.model.prs[r.number]??{};
  const why=t?.why?`<span class="ai">✦ ${esc(t.why)}</span>`:esc(short(r.change,110));
  const conflict=t?.conflict_quote?`<div class="conf">Check against your words (${esc(t.conflict_id)}): “${esc(t.conflict_quote)}”</div>`:"";
- const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}"${r.pending?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${r.pending?" disabled":""}>‖ Hold</button>`;
+ const acts=verdictState(r)!=="you"?`<span class="done">${verdictState(r)==="approved"?"✓ Approved":"‖ Held"}</span>`:`<button class="btn pri" data-tap="approved" data-n="${r.number}"${r.pending||batching?" disabled":""}>✓ Approve ${esc(r.head.slice(0,7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}"${r.pending||batching?" disabled":""}>‖ Hold</button>`;
  return `<li><span class="rank">${i+1}</span><div><div class="t"><a href="#/review/${r.number}">#${r.number} ${esc(r.title)}</a> ${testPill(pr)}</div><div class="w">${why}</div>${conflict}${r.failed?`<div class="conf">${esc(r.failed)}</div>`:""}</div><div class="acts">${acts}<a class="btn" href="#/review/${r.number}">›</a></div></li>`;
 }
 function needsYou(){
@@ -507,7 +518,7 @@ function needsYou(){
  const safe=rows.filter(r=>by[r.number]?.bucket==="safe"&&verdictState(r)==="you");
  const sorted=t?.items?[["safe","Safe to approve together",rows.filter(r=>by[r.number]?.bucket==="safe")],["read","Read before you tap",rows.filter(r=>by[r.number]?.bucket!=="safe")]]:[["","",rows]];
  const head=`<div class="now-h"><h1>Needs you</h1>${waiting().length?`<span class="pill bad">${plural(waiting().length,"tap")}</span>`:""}${cards.length?`<span class="pill owner">${plural(cards.length,"question")}</span>`:""}${t?.busy?'<span class="pill ai-only">✦ sorting by what unblocks the most…</span>':""}${t?.error?`<span class="dim">The assistant could not sort them: ${esc(t.error)}</span>`:""}</div>`;
- const batch=safe.length>1?`<div class="card aibox batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}">✓ Approve all ${safe.length}</button></div>`:"";
+ const batch=safe.length>1?`<div class="card aibox batch"><div><div class="k">✦ ${safe.length} look safe to approve together</div><div class="dim">tests pass, they match the plan, small risk, nothing against your words</div></div><button class="btn pri" data-batch="${safe.map(r=>r.number).join(",")}"${batching?" disabled":""}>✓ Approve all ${safe.length}</button></div>`:"";
  const lists=sorted.filter(([,,rs])=>rs.length).map(([id,label,rs])=>`${label?`<div class="bucket ${id}">${label}</div>`:""}<ul class="nl">${rs.map(r=>nowItem(r,rows.indexOf(r),by[r.number])).join("")}</ul>`).join("");
  const qs=cards.length?`<div class="bucket">Questions on the board</div><ul class="nl">${cards.map((c,i)=>`<li><span class="rank">${i+1}</span><div><div class="t">${esc(c.title)}</div><div class="w">${c.recommended?`Recommended: <b>${esc(c.recommended)}</b>`:esc(short(c.summary,120))}</div></div><div class="acts"><a class="btn" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">Answer ›</a></div></li>`).join("")}</ul>`:"";
  return `${head}${batch}<div class="card">${lists||'<p class="dim">No taps waiting on you.</p>'}${qs}</div>`;
@@ -600,7 +611,7 @@ async function askInPal(question){
  try{
   const text=await assistAsk(question,[],t=>{if(pal.busy===mine)box.innerHTML=markdown(t)});
   if(pal.busy===mine)box.innerHTML=markdown(text)+`<div class="dim" style="margin-top:8px"><a href="#/ask" data-carry="${esc(question)}">Continue in Ask ›</a></div>`;
- }catch(e){box.innerHTML=`<span class="dim">The assistant could not answer: ${esc(e.message)}</span>`}
+ }catch(e){if(pal.busy===mine)box.innerHTML=`<span class="dim">The assistant could not answer: ${esc(e.message)}</span>`}
 }
 
 function openSheet(s){sheet=s;paintSheet()}
@@ -622,9 +633,11 @@ function paintSheet(){
   if(!ai[key])queueMicrotask(()=>stream(key,`In two plain sentences, say what the worker ${sheet.id} is doing right now and whether it looks stuck, from its latest status line and records. Latest status (${l?clock(l.at):"none"}): ${l?.text??"none"}\nRecords, newest first:\n${recs.map(r=>`${clock(r.at)} ${r.kind}: ${short(r.text,300)}`).join("\n")}`));
  }else if(sheet.kind==="word"){
   const w=words().find(x=>x.id===sheet.id);
+  if(!w){sheet=null;return paintSheet()}
   html=`<div class="kick">Your words · ${esc(w.id)}</div><h2>${esc(w.title)}</h2><p class="dim">${clock(w.at)}</p><blockquote>${esc(w.text)}</blockquote>`;
  }else{
   const r=m.records.find(x=>x.seq===sheet.id);
+  if(!r){sheet=null;return paintSheet()}
   html=`<div class="kick">${esc(KIND_WORD[r.kind]??r.kind)} · #${r.seq}</div><h2>${esc(r.lane)}</h2><p class="dim">${clock(r.at)}</p><div class="prose">${markdown(r.text)}</div>`;
  }
  box.innerHTML=`<button class="btn x" data-unsheet>Close</button>${html}`;
@@ -637,6 +650,7 @@ document.addEventListener("keydown",e=>{
  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
  if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
+ e.stopImmediatePropagation();
  if(e.key==="Escape"){e.preventDefault();closePal()}
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
  else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
@@ -653,9 +667,10 @@ document.addEventListener("click",e=>{
  const ss=t.closest("[data-sum-stack]");if(ss){openSheet({kind:"stack",id:ss.dataset.sumStack});return}
  const tile=t.closest("[data-since]");if(tile){state.sinceOpen=state.sinceOpen===tile.dataset.since?null:tile.dataset.since;render();return}
  if(t.closest("[data-seen]")){saveSeen();since=null;render();return}
- const tap=t.closest("[data-tap]");if(tap){post(boardRow(tap.dataset.n),tap.dataset.tap);return}
- const batch=t.closest("[data-batch]");if(batch){batch.disabled=true;batch.dataset.batch.split(",").reduce((p,n)=>p.then(()=>post(boardRow(n),"approved")),Promise.resolve());return}
- if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']"))sheet=null;
+ const want=n=>{const r=boardRow(n);return {block:r.block,number:r.number,head:r.head}};
+ const tap=t.closest("[data-tap]");if(tap&&!batching){post(want(tap.dataset.n),tap.dataset.tap);return}
+ const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
+ if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});

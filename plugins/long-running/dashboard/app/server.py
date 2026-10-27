@@ -258,8 +258,9 @@ class Drive:
         head = self.slow.get("prs", {}).get(str(number), {}).get("head")
         if head and self.pr_facts.get(number, {}).get("head", "").startswith(head):
             return self.pr_facts[number]
-        self.pr_facts[number] = json.loads(run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS]))
-        return self.pr_facts[number]
+        facts = json.loads(run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS]))
+        self.pr_facts[number] = facts
+        return facts
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
