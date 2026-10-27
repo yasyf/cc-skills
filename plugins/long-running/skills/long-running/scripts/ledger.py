@@ -381,11 +381,9 @@ def working_repo(shell: Shell, named: str | None) -> str:
         raise
 
 
-def inside_checkout(shell: Shell) -> bool:
-    try:
-        return shell.run(["git", "rev-parse", "--is-inside-work-tree"]).strip() == "true"
-    except subprocess.CalledProcessError:
-        return False
+def inside_checkout() -> bool:
+    here = Path.cwd()
+    return any((folder / ".git").exists() for folder in (here, *here.parents))
 
 
 def registry_checkout(args: argparse.Namespace) -> str | None:
@@ -2726,7 +2724,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     shell = shell or Shell()
     if args.directory:
         os.chdir(args.directory)
-    elif not inside_checkout(shell) and (checkout := registry_checkout(args)):
+    elif not inside_checkout() and (checkout := registry_checkout(args)):
         os.chdir(checkout)
     if "repo" in vars(args):
         default = working_repo(shell, args.repo)

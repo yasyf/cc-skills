@@ -78,7 +78,6 @@ def test_a_command_outside_any_checkout_runs_in_its_registered_drives_checkout(t
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
     monkeypatch.chdir(scratch)
     shell = StopAtCcn()
 
