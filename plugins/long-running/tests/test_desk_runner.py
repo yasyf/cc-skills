@@ -10015,6 +10015,17 @@ def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell
     assert not finder_failures(shell)
 
 
+def test_a_queued_head_whose_pr_a_root_go_names_starts_before_older_heads(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "43601")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    shell.records.append({"seq": 149900, "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": f"go #43601 at {heads['43601'][:10]}", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43601"]
+
+
 def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_last_finder_read(shell, config):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)

@@ -375,7 +375,7 @@ or a post that prints no `#<seq>`, is posted again on the next pass and escalate
 `deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
 drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
 With a `finder` object in runner.json, read again every pass, each orca pass also dispatches the finder
-(reference/finder-brief.md) on every drive head, beside the fidelity desks and never after them. Each `head` record
+(reference/finder-brief.md) on every drive head, beside the fidelity desks and never after them; a head whose PR a root `go` names starts first. Each `head` record
 past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
@@ -3893,14 +3893,17 @@ class Runner:
                 self.finder_settled(action.action_id, outcome)
 
     def start_finders(self, spec: dict, repo: str) -> None:
-        """Start the newest queued head of each PR, oldest first, while fewer than `finder.concurrent` passes run; an older queued head of the same PR settles as superseded."""
+        """Start the newest queued head of each PR, those a root `go` names first, then oldest first, while fewer than `finder.concurrent` passes run; an older queued head of the same PR settles as superseded."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
                 self.finder_settled(older.action_id, {"superseded": json.loads(action.target)["head"]})
             newest[pr] = action
         running = len(self.book.actions(FINDER, kind="finder", status="started"))
-        for action in sorted(newest.values(), key=lambda action: json.loads(action.target)["seq"]):
+        if not newest or running >= spec.get("concurrent", FINDER_CONCURRENT):
+            return
+        going = {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
+        for action in sorted(newest.values(), key=lambda action: (json.loads(action.target)["pr"] not in going, json.loads(action.target)["seq"])):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
             running += self.start_finder(spec, repo, action)
