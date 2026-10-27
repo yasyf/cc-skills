@@ -3877,10 +3877,25 @@ def said_on_the_bus(shell: FakeShell) -> str:
         ("Reads the pointer. Waits for the card's answer before it lands.", "Waits for the card's answer before it lands."),
         ("Interim pin, not for landing as is.\nRe-pins later.", "Interim pin, not for landing as is."),
         ("Do not merge until the seed reads back! Then ship.", "Do not merge until the seed reads back!"),
+        ('This lands only after "the seed. It reads back" holds. Then ship.', 'This lands only after "the seed. It reads back" holds.'),
     ],
 )
 def test_each_explicit_landing_order_phrase_reads_as_a_precondition(text, sentence):
     assert runner_module.precondition_sentences(text) == [sentence]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'The phrase list matches the landing side\'s: "lands only after", "merge only after", "requires ... before", "do not land until". Each is checked.',
+        "Rulings:\n- “it lands only after the seed. ok” (abc1234)",
+        "Scans for `before it lands` and `not for landing`.",
+        "```\nThis lands only after the seed.\n```",
+        "> Do not merge until the seed reads back.\nQuoted from the plan.",
+    ],
+)
+def test_a_text_that_cites_the_phrases_holds_no_landing(text):
+    assert runner_module.precondition_sentences(text) == []
 
 
 def precondition_notes(shell: FakeShell) -> list[dict]:

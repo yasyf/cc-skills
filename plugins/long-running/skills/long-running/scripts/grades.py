@@ -26,6 +26,8 @@ GO_CLAUSE = re.compile(rf"(?:^\s*|[.:;!?]\s+)(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
+QUOTED_BLOCK = re.compile(r"```.*?```|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
+QUOTED_SPAN = re.compile(r"`[^`\n]*`|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 
 
@@ -94,8 +96,11 @@ def goes(record: dict, pr: str) -> bool:
 
 
 def precondition_sentences(text: str) -> list[str]:
-    """Each sentence of `text` that holds a landing back on something outside the PR in so many words: `lands only after`, `merge only after`, `before it lands`, `do not land until`, or `not for landing`."""
-    return [" ".join(sentence.split()) for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
+    """Each sentence of `text` that holds a landing back on something outside the PR in so many words: `lands only after`, `merge only after`, `before it lands`, `do not land until`, or `not for landing`, said outside quotes, code and block quotes, so a text that cites the phrases never reads as saying them."""
+    text = QUOTED_BLOCK.sub("", text)
+    masked = QUOTED_SPAN.sub(lambda span: " " * len(span[0]), text)
+    cuts = [0, *(cut for found in SENTENCE_BREAK.finditer(masked) for cut in found.span()), len(text)]
+    return [" ".join(text[start:end].split()) for start, end in zip(cuts[::2], cuts[1::2]) if PRECONDITION.search(masked[start:end])]
 
 
 def full_text(record: dict) -> str:
