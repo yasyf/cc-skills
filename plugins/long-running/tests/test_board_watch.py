@@ -1,10 +1,11 @@
-"""board_watch.py over a recorded cc-present stream: every owner interaction becomes a capture, and each event line is kept verbatim."""
+"""board_watch.py over a recorded cc-present stream: every owner interaction becomes a capture and one bus record, and each event line is kept verbatim."""
 
 from __future__ import annotations
 
 import fcntl
 import hashlib
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,19 +19,30 @@ CONFIRMED = "download the update in the background, show the banner, and only re
 
 
 class RecordedShell(board_watch.Shell):
-    def __init__(self) -> None:
-        self.reads: list[str] = []
+    def __init__(self, bus: list[dict] | None = None, doc: dict | None = None, refused: bool = False) -> None:
+        self.bus = bus or []
+        self.doc = doc or json.loads((FIXTURES / "outcomes.json").read_text())["doc"]
+        self.refused = refused
+        self.posts: list[list[str]] = []
 
     def watch(self, session: str):
         assert session == SESSION
         yield from (FIXTURES / "stream.jsonl").read_text().splitlines(keepends=True)
 
-    def block(self, session: str, block: str) -> dict | None:
-        self.reads.append(block)
-        return board_watch.find(json.loads((FIXTURES / "outcomes.json").read_text())["doc"], block)
+    def document(self, session: str, block: str) -> dict | None:
+        return self.doc
+
+    def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
+        if argv[0] == "grep":
+            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.bus), "")
+        self.posts.append(argv)
+        return subprocess.CompletedProcess(argv, 1 if self.refused else 0, "", "refused" if self.refused else "")
 
     def now(self) -> datetime:
         return ARRIVED
+
+    def posted(self, name: str) -> list[str]:
+        return [post[post.index(name) + 1] for post in self.posts if name in post]
 
 
 def run(state: Path, shell: board_watch.Shell | None = None) -> list[dict]:
@@ -78,13 +90,6 @@ def test_a_repeated_pick_or_a_rerun_writes_no_duplicate_capture(tmp_path: Path) 
 
     assert len({capture["digest"] for capture in first}) == len(first)
     assert run(tmp_path) == first
-
-
-def test_only_picks_and_approvals_read_the_document(tmp_path: Path) -> None:
-    shell = RecordedShell()
-    run(tmp_path, shell)
-
-    assert shell.reads == ["share-open-pick", "update-confirm-ok", "share-open-pick"]
 
 
 def test_a_second_watch_of_the_same_board_exits_at_once(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -138,6 +143,83 @@ def test_each_note_on_a_triage_row_is_captured_with_its_row_and_verdict(tmp_path
 def test_a_credential_in_a_board_note_is_redacted_in_its_capture() -> None:
     event = {"type": "triage.decided", "blockId": "notes", "verdicts": {"r1": {"verdict": "ok", "note": "token api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f works"}}}
 
-    [capture] = board_watch.captures(event, SESSION, RecordedShell(), ARRIVED)
+    [capture] = board_watch.captures(event, SESSION, None, ARRIVED)
 
     assert capture["text"] == "token [credential redacted] works"
+
+
+SHARE = "Owner on board board-1, Should a shared note open in the browser? (share-open-pick)"
+
+
+def test_each_owner_interaction_reaches_the_bus_once_with_the_card_and_his_words(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    run(tmp_path, shell)
+
+    assert shell.posted("--text") == [
+        f"{SHARE}: wrote \u201conly for the team, and only read-only\u201d, at {{at}}",
+        f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
+        "Owner on board board-1, board-notes: wrote \u201calso check the share menu\u201d, at {at}",
+        f"{SHARE}: noted \u201csay who can open it\u201d, at {{at}}",
+        f"Owner on board board-1, Confirm your words as written? (update-confirm-ok): approved \u201c{CONFIRMED}\u201d, at {{at}}",
+        "Owner on board board-1, banner-ok: rejected noted \u201ckeep the old banner text\u201d, at {at}",
+        f"{SHARE}: picked \u201cYes, read-only\u201d, at {{at}}",
+    ]
+    assert {tuple(shell.posted(flag)) for flag in ("--kind", "--to", "--lane", "--drive")} == {("owner",) * 7, ("all",) * 7, ("board-watch",) * 7, ("brook",) * 7}
+
+
+def test_a_restart_keys_events_after_the_lines_already_recorded(tmp_path: Path) -> None:
+    first, second = RecordedShell(), RecordedShell()
+    run(tmp_path, first)
+    run(tmp_path, second)
+
+    keys = first.posted("--id") + second.posted("--id")
+    assert [key.split(":")[2] for key in first.posted("--id")] == ["2", "3", "4", "5", "6", "7", "8"]
+    assert len(set(keys)) == len(keys) == 14
+
+
+class MergeShell(RecordedShell):
+    def watch(self, session: str):
+        yield '{"blockId":"merge-triage","schemaVersion":1,"type":"triage.decided","verdicts":{"merge-row-101":{"verdict":"approved"}}}\n'
+        yield '{"blockId":"merge-prs","schemaVersion":1,"type":"triage.decided","verdicts":{"202":{"verdict":"rejected","head":"413b38e","note":"split it"}}}\n'
+
+
+MERGE_DOC = {"blocks": [{"id": "card-merge", "type": "card", "title": "Merge these?", "children": [{"id": "merge-triage", "type": "triage", "items": [{"id": "merge-row-101", "hint": "commit abc1234, built on dev"}]}]}]}
+
+
+def ask(seq: int, text: str, kind: str = "ask", status: str = "open", drive: str = "brook") -> dict:
+    return {"seq": seq, "kind": kind, "status": status, "drive": drive, "text": text}
+
+
+def test_a_merge_tap_names_the_head_and_resolves_only_open_asks_on_that_row(tmp_path: Path) -> None:
+    bus = [
+        ask(11, "waiting on merge-row-101"),
+        ask(12, "hold merge:202:413b38e until he taps", kind="hold"),
+        ask(13, "merge-row-101 again", status="closed"),
+        ask(14, "merge-row-1010 waits", kind="blocker"),
+        ask(15, "merge-row-101 elsewhere", drive="other"),
+        ask(16, "#202 is red"),
+    ]
+    shell = MergeShell(bus, MERGE_DOC)
+    run(tmp_path, shell)
+
+    assert shell.posted("--text") == [
+        "Owner on board board-1, Merge these? (merge-triage): merge-row-101 approved at abc1234, at {at}",
+        "Owner on board board-1, merge-prs: 202 rejected at 413b38e noted \u201csplit it\u201d, at {at}",
+    ]
+    assert shell.posted("--resolves") == ["11", "12"]
+    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=101"], ["--pr=202"]]
+
+
+def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(tmp_path: Path) -> None:
+    bus = [ask(21, "parked on share-open"), ask(22, "share-open-pick needs his word", kind="blocker"), ask(23, "parked on share-open-2")]
+    shell = RecordedShell(bus)
+    run(tmp_path, shell)
+
+    assert shell.posted("--resolves") == ["21,22"] * 4
+
+
+def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    captured = run(tmp_path, RecordedShell(refused=True))
+
+    assert len(captured) == 7
+    assert capsys.readouterr().out.count("failed: refused") == 7
