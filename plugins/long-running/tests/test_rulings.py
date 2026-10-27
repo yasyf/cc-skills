@@ -1010,6 +1010,14 @@ def test_classify_records_a_no_line_and_lists_only_unclassified_captures(home: P
     )
 
 
+def test_a_relayed_capture_the_owner_repeated_in_root_chat_leaves_the_unclassified_list(home: Path, package: Path, state: Path, capsys) -> None:
+    captured(state, capture("8", "the shell never uploads", source="relay"), capture("9", "the shell never uploads, ever") | {"supersedes": ["8" * 16]})
+
+    code, out = ran(capsys, RegisterShell(seeded(package)), "classify")
+
+    assert (code, [json.loads(line)["digest"] for line in out.splitlines()]) == (0, ["9" * 16])
+
+
 def test_implications_show_what_binds_now_and_what_waits_for_a_tick(home: Path, package: Path, state: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package)), "implications", "rule/aaaaaaa")
 

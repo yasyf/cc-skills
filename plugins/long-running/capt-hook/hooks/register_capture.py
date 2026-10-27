@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -32,7 +33,11 @@ ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"}
 LEADING = frozenset({"a", "an", "the", "this", "that", "these", "those"})
 PRONOUNS = frozenset({"this", "that", "it", "these", "those", "all", "everything"})
 TERM_WORDS = 6
-QUOTED = re.compile(r'^>\s?(?P<line>.+)$|["“](?P<inner>[^"”\n]{12,})["”]', re.MULTILINE)
+QUOTE_CHARS = 12
+QUOTED = re.compile(rf'^>\s?(?P<line>.+)$|["“](?P<inner>[^"”\n]{{{QUOTE_CHARS},}})["”]', re.MULTILINE)
+RELAY = re.compile(r'<cross-session-message\s+from="(?P<sender>[^"]*)"(?:\s+from-name="(?P<name>[^"]*)")?[^>]*>(?P<body>.*?)</cross-session-message>', re.DOTALL)
+OWNER = re.compile(r"\b(?:owner|yasyf)\b", re.IGNORECASE)
+RELAYED = 'From the ai-oncall root, relaying what the owner said, verbatim: "we shouldnt need a pin PR before cutover"'
 SENTENCE = re.compile(r"(?<=[.?!])\s+|\n+")
 CREDENTIAL = re.compile(
     r"\b(?:sk|pk|rk)-[\w-]{16,}"
@@ -78,6 +83,44 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
+@on(
+    Event.UserPromptSubmit,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(prompt=f'<cross-session-message from="uds:/tmp/s.sock" from-name="ai-oncall">{RELAYED}</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
+        Input(prompt='<cross-session-message from="uds:/tmp/s.sock">p3 DONE: note 635dab7</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
+    },
+)
+def record_relayed_quote(evt: BaseHookEvent) -> HookResult | None:
+    if not (relay := RELAY.search(evt.user_prompt or "")) or not OWNER.search(relay["body"]) or not drive_args(evt):
+        return None
+    with PendingPrompts.mutate(evt) as pending:
+        pending.prompts += [
+            {
+                "digest": hashlib.sha256(f"{evt.session_id}\0{quote}".encode()).hexdigest()[:16],
+                "session": evt.session_id,
+                "source": "relay",
+                "relayed_from": relay["name"] or relay["sender"],
+                "stamp": evt.user_prompt or "",
+                "text": quote,
+            }
+            for found in QUOTED.finditer(relay["body"])
+            if (quote := found["line"] or found["inner"])
+        ]
+    return None
+
+
+def overlaps(left: str, right: str) -> bool:
+    shorter, longer = sorted((left, right), key=len)
+    return len(shorter) >= QUOTE_CHARS and shorter in longer
+
+
+def repeated(capture: dict, relays: list[dict]) -> list[str]:
+    typed = folded(capture["text"])
+    return [relay["digest"] for relay in relays if overlaps(folded(relay["text"]), typed)]
+
+
 def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
     found: dict[str, datetime] = {}
     for event in evt.ctx.t.events:
@@ -90,7 +133,8 @@ def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
 
 
 def capture(prompt: dict) -> dict:
-    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])}
+    kept = {key: prompt[key] for key in ("relayed_from",) if key in prompt}
+    return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
 
 
 @on(
@@ -116,13 +160,17 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
     with PendingPrompts.mutate(evt) as pending:
         seen = stamps(evt)
         pending.prompts = [
-            prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt["text"])) in seen else prompt
+            prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt.get("stamp", prompt["text"]))) in seen else prompt
             for prompt in pending.prompts
         ]
         if not (landed := [capture(prompt) for prompt in pending.prompts if "at" in prompt]):
             return None
         try:
-            with captures(read_register(evt, which)).open("a") as file:
+            path = captures(read_register(evt, which))
+            earlier = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+            relays = [entry for entry in [*earlier, *landed] if entry["source"] == "relay"]
+            landed = [line | ({"supersedes": names} if line["source"] == "prompt" and (names := repeated(line, relays)) else {}) for line in landed]
+            with path.open("a") as file:
                 file.writelines(f"{json.dumps(line)}\n" for line in landed)
         except READ_ERRORS as error:
             failed_open(evt, "stamp_owner_prompts", error)

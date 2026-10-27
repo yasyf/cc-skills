@@ -242,6 +242,11 @@ def excerpt(capture: dict, width: int) -> str:
     return " ".join(capture["text"].split())[:width]
 
 
+def standing(entries: list[dict]) -> list[dict]:
+    gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
+    return [entry for entry in entries if entry["digest"] not in gone]
+
+
 def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     prompts = captures(register)
     if not prompts.is_file():
@@ -249,7 +254,7 @@ def report_unclassified(evt: BaseHookEvent, register: dict) -> None:
     classified = set(register["classified"])
     fresh = [
         capture
-        for capture in (json.loads(line) for line in prompts.read_text().splitlines() if line.strip())
+        for capture in standing([json.loads(line) for line in prompts.read_text().splitlines() if line.strip()])
         if capture["digest"] not in classified and evt.ctx.s.once(f"unclassified:{capture['digest']}", scope=BLOCKERS)
     ]
     if not fresh:

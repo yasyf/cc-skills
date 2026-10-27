@@ -153,6 +153,49 @@ def test_a_queued_prompt_takes_its_queued_command_stamp(root):
     assert [capture["at"] for capture in root.captures()] == ["2026-10-22T19:43:49Z"]
 
 
+OWNER_WORDS = "we shoudknt need a pin PR bc we shoildnt be deleting thr old stuff jntil cutover"
+RELAY = (
+    '<cross-session-message from="uds:/tmp/cc-socks/37625.sock" from-name="ai-oncall-improvement-plan" from-mode="bypass">\n'
+    f'From the ai-oncall-improvement-plan root, relaying the owner\'s words verbatim about #43182: "{OWNER_WORDS}". Please answer him.\n'
+    "</cross-session-message>"
+)
+
+
+@pytest.mark.parametrize("delivered", ["queued", "typed"])
+def test_a_relayed_owner_quote_lands_alone_tagged_with_its_sender(root, delivered):
+    text = RELAY if delivered == "queued" else f"Another Claude session sent a message:\n{RELAY}"
+    getattr(root, delivered)(text, "2026-10-27T05:21:00.000Z")
+    root.prompt(text)
+    root.fire(StopEvent)
+
+    assert root.captures() == [
+        {"digest": digest(OWNER_WORDS), "at": "2026-10-27T05:21:00Z", "session": SESSION, "source": "relay", "text": OWNER_WORDS, "relayed_from": "ai-oncall-improvement-plan"}
+    ]
+
+
+def test_a_relayed_lane_report_lands_nothing(root):
+    report = '<cross-session-message from="uds:/tmp/cc-socks/1.sock" from-name="p3-closeout">p3 DONE: "C143 and C144 kept as written"</cross-session-message>'
+    root.queued(report, "2026-10-27T05:21:00.000Z")
+    root.prompt(report)
+    root.fire(StopEvent)
+
+    assert root.captures() == []
+
+
+def test_the_owner_typing_one_relayed_quote_in_root_chat_supersedes_only_that_quote(root):
+    second = "keep the old tree until cutover"
+    relay = RELAY.replace("Please answer him.", f'He added: "{second}".')
+    root.queued(relay, "2026-10-27T05:21:00.000Z")
+    root.prompt(relay)
+    root.fire(StopEvent)
+    typed = f"{OWNER_WORDS}. why djent you carch this?"
+    root.typed(typed, "2026-10-27T05:24:00.000Z")
+    root.prompt(typed)
+    root.fire(StopEvent)
+
+    assert [(capture["text"], capture.get("supersedes")) for capture in root.captures()] == [(OWNER_WORDS, None), (second, None), (typed, [digest(OWNER_WORDS)])]
+
+
 def test_a_what_is_question_marks_its_block_and_names_the_rows_bearing_on_it(root):
     root.routes[("cc-present", "outcomes")] = board(LOOKUP, TIMERS)
     text = "waht is a relay slot? why is this here?"

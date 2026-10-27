@@ -198,7 +198,7 @@ class OwnerPrompt:
 
     def check(self, evt: BaseHookEvent) -> bool:
         text = (evt.user_prompt or "").strip()
-        return not text.startswith(self.prefixes) and "<teammate-message" not in text
+        return not text.startswith(self.prefixes) and "<teammate-message" not in text and "<cross-session-message" not in text
 
 
 class OversizedTool:
