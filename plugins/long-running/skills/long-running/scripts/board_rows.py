@@ -68,9 +68,12 @@ a token Jaccard above 0.8 or their first 60 characters are flagged together as `
 root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints a `WARN` line and
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
 for `--session`, else the push command's `--session`, else cc-present's default session. A last
-line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1. Otherwise
-`--check` exits 0, and the push form runs its command with a copy of the block, `textAt` removed,
-as its last argument and exits with the command's status. `--json` prints it all as one object.
+line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1, and `--check` exits 0
+otherwise. The push form runs its command with a copy of the block, `textAt` removed and each failing
+row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
+left empty), as its last argument, so one refused row never holds the rest of the board, and exits 1 when it left a
+row out, else with the command's status. When every row fails it pushes nothing. A one-tap claim that fails marks
+every row it covers. `--json` prints it all as one object.
 """
 
 from __future__ import annotations
@@ -551,8 +554,9 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     if verdicts is not None:
         newest = newest_by_pr(verdicts)
         for block_id, anchor, _, members in claims:
-            if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
-                owner.reasons.append(reason)
+            if reason := claim_reason(members, newest, pulls):
+                for claimed in [row for row in rows if row.block == block_id and (row.pr == anchor or row.pr in members)]:
+                    claimed.reasons.append(reason)
     for one, other in alike(rows):
         one.reasons.append(f"alike: its title shares most of its words with #{other.pr} in group {other.group}")
         other.reasons.append(f"alike: its title shares most of its words with #{one.pr} in group {one.group}")
@@ -592,6 +596,27 @@ def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], w
     approved = carried or standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
     graded = carried or grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
     return (["no go, approval or carry"] if not approved else []) + (["no fidelity ok"] if not graded else [])
+
+
+def withheld(node: object, failing: list[Row]) -> object:
+    """`node` without each failing row, and without each triage or `pr-groups` block left holding none, which cc-present refuses: None for such a block."""
+    if isinstance(node, list):
+        return [kept for value in node if (kept := withheld(value, failing)) is not None]
+    if not isinstance(node, dict):
+        return node
+    kept = {key: withheld(value, failing) for key, value in node.items()}
+    named = {row.id for row in failing if row.block == node.get("id")}
+    if node.get("type") == "triage":
+        kept["items"] = [item for item in kept.get("items", []) if item.get("id") not in named]
+        return kept if kept["items"] else None
+    if node.get("type") == PR_GROUPS:
+        groups = [dict(group, prs=[pr for pr in group.get("prs", []) if str(pr.get("number")) not in named]) for group in kept.get("groups", [])]
+        kept["groups"] = [group for group, before in zip(groups, kept.get("groups", []), strict=True) if group["prs"] or not before.get("prs")]
+        return kept if kept["groups"] else None
+    if node.get("type") == "markdown":
+        listed = {row.pr for row in failing if row.id == f"{node.get('id')}#{row.pr}"}
+        kept["md"] = "".join(line for line in kept.get("md", "").splitlines(keepends=True) if not ((found := LISTED.match(line)) and found[1] in listed))
+    return kept
 
 
 def stripped(block: object) -> object:
@@ -651,14 +676,16 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     if (banner := trunk_banner(shell, loaded["drive"], warnings)) and not args.json:
         print(f"BANNER {banner}")
     report(rows, found, warnings, args.json)
-    if any(row.reasons for row in rows):
-        return 1
+    failing = [row for row in rows if row.reasons]
     if args.check:
-        return 0
+        return 1 if failing else 0
+    if failing and len(failing) == len(rows):
+        return 1
     with tempfile.NamedTemporaryFile("w", prefix=f"{args.block.stem}.", suffix=".json") as copy:
-        json.dump(stripped(bannered(block, banner) if banner else block), copy, indent=1)
+        json.dump(stripped(withheld(bannered(block, banner) if banner else block, failing)), copy, indent=1)
         copy.flush()
-        return shell.push([*command, copy.name])
+        pushed = shell.push([*command, copy.name])
+    return 1 if failing else pushed
 
 
 if __name__ == "__main__":

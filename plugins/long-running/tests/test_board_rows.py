@@ -124,6 +124,11 @@ def shell() -> FakeShell:
     return fake
 
 
+def pushed_rows(shell: FakeShell) -> list[str]:
+    [(_, pushed)] = shell.pushed
+    return [item["id"] for _, item in board_rows.triage_items(pushed)] + [str(row["number"]) for *_, row in board_rows.pr_group_rows(pushed)]
+
+
 def lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().out.splitlines()
 
@@ -161,7 +166,8 @@ def test_a_row_with_no_grade_or_no_finder_at_its_head_warns_and_still_pushes(tmp
         f"WARN merge-row-42592 42592 {HEAD[:7]} ungraded: no finder review names {HEAD[:7]}",
         "rows 3 failing 1 ungraded 2 flags 0",
     ]
-    assert shell.pushed == []
+    [(_, pushed)] = shell.pushed
+    assert pushed == card(row("42590", text_at=None), row("42592", md="Ports the journal reader tests to the new tree.", text_at=None))
 
 
 @pytest.mark.parametrize(
@@ -580,3 +586,39 @@ def test_a_green_or_post_merge_red_dev_carries_no_banner(tmp_path: Path, shell: 
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
 
     assert "prompt" not in shell.pushed[0][1]["children"][0]
+
+
+def test_one_refused_row_is_left_out_and_every_other_row_and_list_line_still_pushes(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("42591", head=NEW_HEAD)
+    shell.graded("42591")
+    shell.pull("42593", state="MERGED")
+    landing = {"id": "landing-list", "type": "markdown", "md": "- #42590: lands next\n- #42593: landed already\n"}
+    board = card(row("42590"), row("42591", md="Keeps a copy of each release's Rust-built files."))
+    board["children"].append(landing)
+
+    assert gate(tmp_path, shell, board, "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[:2] == [f"merge-row-42591 42591 {HEAD[:7]} stale: GitHub's head is {NEW_HEAD[:7]}", f"landing-list#42593 42593 {HEAD[:7]} listed: the PR is merged on GitHub and still listed under landing-list"]
+    [(_, pushed)] = shell.pushed
+    assert pushed_rows(shell) == ["merge-row-42590"] and pushed["children"][1]["md"] == "- #42590: lands next\n"
+
+
+def test_a_block_left_with_no_row_leaves_the_push_and_its_passing_siblings_still_push(tmp_path: Path, shell: FakeShell) -> None:
+    shell.pull("42591", head=NEW_HEAD)
+    board = groups(pr_row("42590"))
+    board["children"].append({"id": "merge-triage", "type": "triage", "items": [row("42591", md="Keeps a copy of each release's Rust-built files.")]})
+
+    assert gate(tmp_path, shell, board, "--", "cc-present", "update-block") == 1
+
+    [(_, pushed)] = shell.pushed
+    assert [child["id"] for child in pushed["children"]] == ["merge-prs"] and pushed_rows(shell) == ["42590"]
+
+
+def test_a_failing_one_tap_group_holds_every_row_it_covers(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("42593")
+    shell.graded("42593")
+    shell.verdicts = {"merge-prs": {"42590": approved("42590"), "42593": rejected("42593", NEW_HEAD)}}
+
+    assert gate(tmp_path, shell, claimed("Gateway fix: your one tap approves both.", pr_row("42590"), pr_row("42593")), "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[-1].startswith("rows 2 failing 2 ") and shell.pushed == []
