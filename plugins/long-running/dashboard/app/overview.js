@@ -415,7 +415,7 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.cp, .overlay')) return;
+  if (!e.target.closest('.cp, .overlay, .rellist')) return;
   const trackEl = e.target.closest('[data-track]');
   if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
   if (e.target.closest('[data-plan]')) { state.overlay = 'plan'; ov.planTab = 'releases'; return render(); }
@@ -423,7 +423,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
   const rel = e.target.closest('[data-release]');
-  if (rel) { ov.release = rel.dataset.release; state.overlay = 'release'; return render(); }
+  if (rel) { ov.release = rel.dataset.release; state.overlay = 'release'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
   if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }

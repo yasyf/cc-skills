@@ -256,8 +256,17 @@ function mergeCard() {
 }
 
 function releases() {
-  const r = state.model.releases;
-  return `<div class="prose">${r.updated ? `<p class="dim">Last revised ${clock(r.updated)}</p>` : ''}${markdown(r.markdown)}</div>`;
+  const m = state.model;
+  const r = m.releases;
+  const rels = m.now.releases ?? [];
+  const next = rels.findIndex((x) => !RELEASED.test(x.state));
+  const row = (x, i) => {
+    const [cls, word] = releaseWord(rels, i, next);
+    const open = m.drive.prs.filter((e) => x.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]).length;
+    return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><b>${esc(x.id)}</b><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${esc(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
+  };
+  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><ol class="rellist">${rels.map(row).join('')}</ol>
+    <h2 class="sec">The full release plan ${r.updated ? `<span class="dim">revised ${clock(r.updated)}</span>` : ''}</h2><div class="prose">${markdown(r.markdown)}</div>`;
 }
 
 function chatTurns() {
