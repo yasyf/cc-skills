@@ -200,9 +200,9 @@ function storyColumn(item) {
 }
 function storyPage(item) {
   const b = state.model.brief;
-  const top = b.paths.flatMap((p) => p.nodes).find((n) => n.state !== 'done');
+  const top = b.paths.map(unfinished).flatMap((p) => p.nodes).sort((x, y) => ({ nobody: 0, you: 1, fixing: 2, waiting: 3 })[x.state] - ({ nobody: 0, you: 1, fixing: 2, waiting: 3 })[y.state])[0];
   return `<div class="nw-storypage"><a class="back" href="#/">‹ Back to now</a><p class="nw-sub">${esc(b.headline)}</p>
-    ${top ? `<p class="nw-sub">Biggest blocker: ${esc(top.text)} ${esc(top.how)}</p>` : ''}<div id="nw-story">${storyBody(item)}</div></div>`;
+    ${top ? `<p class="nw-sub">Biggest blocker: ${esc(top.text)}. ${esc(NODE_WORD[top.state])}: ${esc(top.how)}</p>` : ''}<div id="nw-story">${storyBody(item)}</div></div>`;
 }
 function storyBody(item) {
   const w = workItem(item);
