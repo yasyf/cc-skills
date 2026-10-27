@@ -44,10 +44,10 @@ CREDENTIAL = re.compile(
     r"\b(?:sk|pk|rk)-[\w-]{16,}"
     r"|\b(?:gh[pousr]|github_pat)_\w{20,}"
     r"|\bxox[abprs]-[\w-]{10,}"
-    r"|\bAKIA[0-9A-Z]{16}\b"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
     r"|\b(?:api|sdk|mob)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b"
     r"|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}"
-    r"|\b(?=[\w-]*[a-z])(?=[\w-]*[A-Z])(?=[\w-]*\d)[\w-]{32,}"
+    r"|(?<![\w/+=.-])(?=[\w+/=]*[a-z])(?=[\w+/=]*[A-Z])(?=[\w+/=]*\d)[\w+/=]{32,}(?=[.,;:!?)\]\"'`]*(?:\s|$))"
 )
 REDACTED = "[credential redacted]"
 BOARDS = "boards"
