@@ -2,7 +2,7 @@ const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', que
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
 const ATTENTION = ['failing', 'you', 'held', 'doing', 'queued', 'waiting', 'landed'];
-const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {}, embedCard: null };
+const ov = { page: 0, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null, drafts: {}, embedCard: null, sent: new Map() };
 const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 const RELEASED = /^(released|done|live)/i;
 
@@ -71,7 +71,7 @@ function releaseWord(rels, i) {
 }
 function clause(text) {
   const t = String(text ?? '');
-  const i = t.indexOf(':');
+  const i = t.search(/:\s/);
   return i > 0 ? [t.slice(0, i), t.slice(i + 1).trim()] : [t, ''];
 }
 function minutesPast(when) {
@@ -114,8 +114,8 @@ function tonight() {
   const [flagWord] = clause(g.enabled?.state ?? 'Not checked yet');
   const target = stop ?? next;
   const rail = rels.map((r, i) => `<button class="mr ${releaseWord(rels, i)[0]}" data-release="${esc(r.id)}" aria-label="${esc(r.id)} ${esc(r.name)}: ${esc(releaseWord(rels, i)[1])}"><i></i><span>${esc(r.id)}</span></button>`).join('');
-  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
-    <span class="tn-facts"><span class="ok"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>has the flag${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
+  return `<section class="tonight"><button class="verdict ${verdict[0]}"${target ? ` data-release="${esc(target.id)}"` : ''}>${esc(verdict[1])}${stop ? ` <small>${esc(clause(stop.state)[0].split(/\.\s/)[0])}</small>` : ''}</button><span class="minirail">${rail}</span>
+    <span class="tn-facts"><span class="ok" title="Pull requests in the new app's code that have merged, of all the drive's new-app pull requests"><b>${t.landed}<small>/${t.total}</small></b>new-app changes merged</span><span><b>${out}<small>/${tonightRels.length}</small></b>released tonight</span><span title="${esc(g.enabled?.state ?? '')}"><b>${esc(flagWord)}</b>on the new Mac build${(minutesPast(g.enabled?.at) ?? 0) > 60 ? ` <span class="warn">as of ${esc(g.enabled.at.replace(/ Oct \d+$/, ''))}</span>` : ''}</span><a class="tn-oldapp" title="${esc(g.old_app?.state ?? '')}"${/#(\d{6})/.test(g.old_app?.source ?? '') ? ` href="/record/${/#(\d{6})/.exec(g.old_app.source)[1]}" target="_blank" rel="noopener"` : ''}>Everyone else: ${fact(g.old_app, /unchanged|kept|proven/i)}</a></span></section>`;
 }
 function cluster(name, list, key, extra = '') {
   const c = Math.min(13, Math.max(2, Math.ceil(Math.sqrt(list.length * 2.4))));
@@ -142,14 +142,14 @@ function destination() {
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
     <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
-    <div class="runway" data-part="tools"><span class="rl pl">Release and tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
+    <div class="runway" data-part="tools"><span class="rl pl">Tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
     ${replay()}
     <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
     <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-you"></i>you</span></div></div>
   </section>`;
 }
 function replay() {
-  const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h === 24 ? '1 day ago' : h > 24 ? `${h / 24} days ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
+  const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h >= 24 ? `${h / 24}d ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
   return `<div class="replay"><span class="rl">Replay</span><div class="ticks" data-keep-scroll="replay">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
 }
 const ONLY = {
@@ -174,7 +174,7 @@ function track(s) {
   return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
     <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</span>
     <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
-    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
+    <span class="ct" title="${t.landed} of ${plural(t.total, 'pull request')} landed${s.untracked.length ? `; ${s.untracked.length} more the merge ledger does not track yet` : ''}">${t.landed}/${t.total}</span><span class="g" title="${TONE_SAY[tone] ?? ''}" aria-label="${TONE_SAY[tone] ?? ''}">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -209,7 +209,7 @@ function dock() {
   return `<nav class="dock">${need ? cta(state.model.needs[ov.page]) : '<span class="dcalm">✓ Nothing needs you</span>'}<span class="dbtns"><button class="dbtn" data-plan>⤢ Plan</button><button class="dbtn" data-jump>⌕ Jump</button></span></nav>`;
 }
 function cta(item) {
-  const pager = `<span class="nx">${state.model.needs.length > 1 ? `<span>${ov.page + 1} of ${state.model.needs.length}</span><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}<a class="all" href="#/now">All in Needs you ›</a></span>`;
+  const pager = `<span class="nx">${state.model.needs.length > 1 ? `<button class="pg" data-page="${(ov.page + 1) % state.model.needs.length}" aria-label="Next item">${ov.page + 1} of ${state.model.needs.length} ›</button><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}<a class="all" href="#/now">All in Needs you ›</a></span>`;
   const shell = (icon, kick, head, meta, acts) => `<div class="cta" tabindex="-1"><span class="ic">${icon}</span><span class="tx"><small>${kick}</small><b>${head}</b>${meta ? `<span>${meta}</span>` : ''}<span class="acts">${acts}</span></span>${pager}</div>`;
   const meta = item.why ? `${esc(item.why)}${item.source?.href ? ` · <a href="${esc(item.source.href)}" target="_blank" rel="noopener">${esc(item.source.label)} ↗</a>` : ''}` : '';
   if (item.kind === 'prs' && item.prs.length === 1) {
@@ -226,10 +226,12 @@ function cta(item) {
   if (item.kind === 'card') {
     const c = item.card;
     const options = [...c.options].sort((a, b) => b.recommended - a.recommended);
-    const acts = `${options.map((o) => `<button class="btn${o.recommended ? '' : ' ghost'}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${ov.answering ? ' disabled' : ''}>${esc(o.label)}</button>`).join('')}<form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn ghost">Send</button></form>${ov.answerError ? ` <em>${esc(ov.answerError)}</em>` : ''}`;
+    const block = c.choice ?? c.id;
+    const busy = sending(block) ? ' disabled' : '';
+    const acts = `${options.map((o) => `<button class="btn${o.recommended ? '' : ' ghost'}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${o.recommended ? '★ ' : ''}${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<form class="note" data-answer="${esc(c.id)}" data-choice="${esc(c.choice ?? '')}"><input name="text" data-draft="${esc(c.id)}" value="${esc(ov.drafts[c.id] ?? '')}" placeholder="${c.choice ? 'Other answer or a note' : 'Your note'}"><button class="btn ghost"${busy}>Send</button></form>${sentNote(block)}`;
     return shell('?', 'A question for you', esc(c.title), meta, acts);
   }
-  return shell('!', 'Reminder', esc(item.ask.what), meta, item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')} ↗</a>` : '');
+  return shell('!', 'Reminder', esc(item.ask.what), meta, item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')} ↗</a>` : `<a class="btn" href="#/now">Open in Needs you ›</a>`);
 }
 function deck() {
   const m = state.model;
@@ -238,9 +240,9 @@ function deck() {
   const need = needsTotal();
   ov.page = Math.min(ov.page, Math.max(0, m.needs.length - 1));
   return `<div class="deck"><div class="readouts">
-    <button class="ro ro-done" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
+    <button class="ro ro-done" title="Every pull request of the drive that has merged: new app, old app and shared code" data-only="landed" aria-pressed="${ov.only?.key === 'landed'}"><b>${t.landed}</b><span><i></i>landed</span><em>${hour ? `+${hour} in the last hour` : 'none in the last hour'}</em></button>
     <button class="ro ro-fly" data-only="flight" aria-pressed="${ov.only?.key === 'flight'}"><b>${t.total - t.landed}</b><span><i></i>in flight</span><em>${t.doing} moving now · ${t.queued} approved</em></button>
-    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap the card to act' : 'nothing to approve'}</em></button></div>
+    <button class="ro ro-you${need ? '' : ' zero'}" data-only="you" aria-pressed="${ov.only?.key === 'you'}"><b>${need}</b><span><i></i>need${need === 1 ? 's' : ''} you</span><em>${need ? 'tap to see them all' : 'nothing to approve'}</em></button></div>
     ${m.needs.length ? cta(m.needs[ov.page]) : `<a class="calm" href="#/review"><span class="ic">✓</span><span><b>Nothing needs you right now</b><span>Approvals and questions land here with their buttons. Review ›</span></span></a>`}</div>`;
 }
 function routeStrip() {
@@ -249,10 +251,9 @@ function routeStrip() {
   const at = rels.findIndex((r) => !RELEASED.test(r.state));
   const cur = rels[at];
   const rel = (r, i) => `<span class="wp rel ${releaseWord(rels, i)[0]}${i === at ? ' here' : ''}" data-release="${esc(r.id)}" title="${esc(r.id)} ${esc(r.name)}: ${esc(r.state)}"><i class="n"></i><span class="lb">${esc(r.id)}</span><span class="ct">${esc(releaseWord(rels, i)[1])}</span></span>`;
-  const rows = planRows();
   return `<section class="route"><div class="track"><span class="rk">Releases</span>${rels.map(rel).join('')}<span class="wp end"><i class="n"></i><span class="lb">Cutover</span></span></div>
     <div class="route-now">${cur ? `<b>${esc(cur.id)} ${esc(cur.name)}:</b> ${inline(cur.state)}` : 'Every release is out'}</div>
-    <button class="thumb" data-plan="releases" aria-label="Open the exact plan"><span class="ti"><b>Exact plan · revised ${m.releases.updated ? clock(m.releases.updated) : ''}</b>${rows.map(([n, name, reach]) => `<div>R${esc(n)} ${esc(name)} — ${esc(reach)}</div>`).join('')}</span></button></section>`;
+    <button class="planlink" data-plan="releases">Release plan${m.releases.updated ? `<small>revised ${clock(m.releases.updated)}</small>` : ''}<span>Open ›</span></button></section>`;
 }
 function workerTile(w, title) {
   const m = state.model;
@@ -429,15 +430,26 @@ function planSheet() {
     ${tab[ov.planTab] ?? tab.steps}
   </div><aside class="mini">${machine('cloud', 'The cloud')}${machine('mac', 'Your Mac')}<p>Hover a step or a release to light what it changes.</p></aside></div></div></div>`;
 }
-async function answer(body) {
-  ov.answering = true;
-  ov.answerError = '';
+function sending(block) {
+  const sent = ov.sent.get(block);
+  return Boolean(sent && !sent.error);
+}
+function sentNote(block) {
+  const sent = ov.sent.get(block);
+  if (!sent) return '';
+  return sent.error ? `<em class="nsent bad">Not recorded: ${esc(sent.error)}. Try again.</em>` : `<em class="nsent">${sent.recorded ? '✓ Recorded on your board' : 'Sending…'}</em>`;
+}
+async function answer(body, draft) {
+  if (sending(body.block)) return;
+  ov.sent.set(body.block, {});
   render();
-  ov.answerError = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const error = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then((res) => res.json())
-    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server: ${failure.message}`);
-  ov.answering = false;
+    .then((out) => out.error ?? '', (failure) => `could not reach the dashboard server (${failure.message})`);
+  ov.sent.set(body.block, error ? { error } : { recorded: true });
+  if (!error && draft) delete ov.drafts[draft];
   render();
+  if (!error) setTimeout(() => { ov.sent.delete(body.block); render(); }, body.kind === 'note' ? 4000 : 30000);
 }
 function noteDecide(form, verdict) {
   const row = boardRow(form.dataset.note);
@@ -628,8 +640,13 @@ document.addEventListener('click', (e) => {
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
   if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
+  const strip = e.target.closest('.ck .route');
+  if (strip && !e.target.closest('.planlink, a')) return (location.hash = `#/status/${e.target.closest('[data-release]')?.dataset.release ?? ''}`);
   const onlyEl = e.target.closest('[data-only]');
+  if (onlyEl?.dataset.only === 'you') return (location.hash = '#/now');
   if (onlyEl) return onlyBy(onlyEl.dataset.only);
+  const cardEl = e.target.closest('.deck .cta');
+  if (cardEl && !e.target.closest('a, button, input, form, [data-page]')) return (location.hash = '#/now');
   const scrubTo = e.target.closest('[data-scrubto]');
   if (scrubTo) return setScrub(Number(scrubTo.dataset.scrubto));
   const partEl = e.target.closest('[data-part-open], .ck .pl');
@@ -678,18 +695,18 @@ document.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = reply.text.value.trim();
     if (!text) return;
-    return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text });
+    return answer(reply.dataset.choice ? { kind: 'choice', block: reply.dataset.choice, other: text } : { kind: 'note', block: reply.dataset.answer, text }, reply.text.dataset.draft);
   }
   const approval = e.target.closest('[data-approval]');
   if (approval) {
     e.preventDefault();
-    return answer({ kind: 'approval', block: approval.dataset.approval, verdict: e.submitter?.value ?? 'approved', text: approval.text.value.trim() });
+    return answer({ kind: 'approval', block: approval.dataset.approval, verdict: e.submitter?.value ?? 'approved', text: approval.text.value.trim() }, approval.text.dataset.draft);
   }
   const input = e.target.closest('[data-input]');
   if (input) {
     e.preventDefault();
     const text = input.text.value.trim();
-    return text ? answer({ kind: 'input', block: input.dataset.input, text }) : undefined;
+    return text ? answer({ kind: 'input', block: input.dataset.input, text }, input.text.dataset.draft) : undefined;
   }
   const form = e.target.closest('[data-note]');
   if (!form) return;

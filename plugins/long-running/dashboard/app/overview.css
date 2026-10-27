@@ -1,9 +1,6 @@
 :root {
-  --c-done: #1d9a5f; --c-doing: #2b7fd8; --c-you: #d98c00; --c-bad: #d0453b; --c-ink3: #7c8590; --c-line: #d6d3ca; --c-panel: var(--surface); --c-glow: rgba(217, 140, 0, .45);
+  --c-done: #3ddc97; --c-doing: #5aa9ff; --c-you: #ffb224; --c-bad: #ff6b6b; --c-ink3: #5f6875; --c-line: #29303a; --c-panel: #11151b; --c-glow: rgba(255, 178, 36, .55);
   --l: 9px; --lg: 3px;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --c-done: #3ddc97; --c-doing: #5aa9ff; --c-you: #ffb224; --c-bad: #ff6b6b; --c-ink3: #5f6875; --c-line: #29303a; --c-panel: #11151b; --c-glow: rgba(255, 178, 36, .55); }
 }
 .cp-top { display: flex; align-items: center; gap: 10px; min-height: 30px; }
 .cp-top .sp { flex: 1; }

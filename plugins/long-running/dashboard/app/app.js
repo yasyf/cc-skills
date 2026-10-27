@@ -34,7 +34,8 @@ function agoWords(iso) {
   if (m < 1) return 'just now';
   if (m < 60) return `${m} min ago`;
   const h = Math.floor(m / 60);
-  return `${h} h ${m % 60} min ago`;
+  if (h >= 12) return `at ${clock(iso)}`;
+  return m % 60 ? `${h} h ${m % 60} min ago` : `${h} h ago`;
 }
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -137,7 +138,7 @@ function timeline() {
     if (r.kind === 'landed') continue;
     let kind = r.kind, who = r.lane, text = r.text;
     const owner = /^OWNER [^:]*?(?:,\s*verbatim)?(?:, a repeat)?:\s*['"](.+?)['"](?:\.|$|\s)/s.exec(r.text);
-    if (r.kind === 'owner' || owner) { kind = 'owner'; who = 'You'; text = owner ? owner[1] : r.text; }
+    if (r.kind === 'owner' || owner) { kind = 'owner'; who = 'You'; text = (owner ? owner[1] : r.text).replace(/^Owner on board \w+, (.+?) \([\w-]+\): /s, 'On “$1”, you '); }
     else if (r.lane === 'root') who = 'Coordinator';
     const go = /^go #(\d+) at (\w+)/.exec(r.text);
     const ready = /READY #?(\d{5})/.exec(r.text);
@@ -257,6 +258,26 @@ function timelineScreen() {
 }
 
 const FACTS = [['change', 'What changes for a user'], ['plan', 'Against the plan'], ['risk', 'Risk'], ['review', 'Review'], ['blocker', 'What blocks it']];
+function statusScreen() {
+  const m = state.model;
+  const focus = route().id;
+  const rels = m.now.releases ?? [];
+  const reach = new Map(planRows().map(([n, , what]) => [`R${n}`, what]));
+  const cell = (text, empty = '') => text ? `<span>${inline(text)}</span>` : `<span class="dim">${empty}</span>`;
+  const row = (r) => `<details class="strow tn-${r.tone}" id="st-${esc(r.id)}" data-id="st-${esc(r.id)}"${state.open.has(`st-${r.id}`) || focus === r.id ? ' open' : ''}>
+    <summary><b>${esc(r.name)}</b>${cell(r.delivers, 'Not written yet')}<span class="ststate"><i class="pill ${r.pill}">${esc(r.word)}</i> ${r.state ? inline(firstSentences(r.state, 140)) : ''}</span>${cell(r.blocker, r.tone === 'done' || r.tone === 'out' ? 'Nothing' : 'Not recorded yet')}${cell(r.doing, r.tone === 'done' || r.tone === 'out' ? 'Nothing needed' : 'Not recorded yet')}${cell(r.wrong, 'Not recorded yet')}</summary>
+    <div class="stdetail">${r.state ? `<p>${inline(r.state)}</p>` : ''}${r.prs.length ? `<p>${dots(r.prs)} ${r.prs.length} pull request${r.prs.length === 1 ? '' : 's'}</p>` : ''}${r.open}</div></details>`;
+  const pill = { done: 'ok', out: 'ok', failing: 'bad', held: 'warn', blocked: 'bad', you: 'warn' };
+  const relRows = rels.map((r, i) => {
+    const [tone, word] = releaseWord(rels, i);
+    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: `${r.id} ${r.name}`, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
+  });
+  const stepRows = m.steps.map((s) => row({ id: s.id, tone: s.tone, pill: pill[s.tone] ?? '', word: TONE_SAY[s.tone] ?? s.tone, name: s.title, delivers: s.delivers, state: s.state, blocker: s.blocker, doing: s.unblocking ?? s.next, wrong: s.went_wrong, prs: s.prs.map((p) => p.number ?? p), open: `<button class="btn" data-track="${esc(s.id)}">Open the step ›</button>` }));
+  const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
+  return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
+    <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
+    <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
+}
 function needsTotal() {
   return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : 1), 0);
 }
@@ -285,13 +306,14 @@ function needOther(item) {
   return `<li class="nother ${item.kind}"><span class="nmark">${item.kind === 'card' ? '?' : '!'}</span><div><div class="nt">${esc(item.kind === 'card' ? item.card.title : item.ask.what)}</div><p class="nwhy">${esc(item.why)}</p>
     ${record ? `<details data-id="ask-${record.seq}"${state.open.has(`ask-${record.seq}`) ? ' open' : ''}><summary>Full ask from ${esc(record.lane)} at ${clock(record.at)}</summary><div class="nfull">${inline(record.text)}</div></details>` : ''}</div>${sourceLink(item.source)}</li>`;
 }
-const factGrid = (facts) => facts.length ? `<dl class="bfacts">${facts.map((f) => `<dt>${inline((f.label ?? '').replace(/\.$/, ''))}</dt><dd>${inline(f.value)}</dd>`).join('')}</dl>` : '';
+const factGrid = (facts) => facts.length ? `<dl class="bfacts">${facts.map((f) => `<dt>${inline((f.label ?? '').replace(/\.$/, ''))}</dt><dd${f.tone ? ` class="t-${esc(f.tone)}"` : ''}>${inline(f.value)}</dd>`).join('')}</dl>` : '';
+const prosCons = (d) => `${d?.pros?.length ? `<ul class="pros">${d.pros.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}${d?.cons?.length ? `<ul class="cons">${d.cons.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}`;
 function pickedLabel(part) {
   const a = part.answer;
-  return [...a.optionIds.map((id) => part.options.find((o) => o.id === id)?.label ?? id), ...(a.other ? [`“${a.other}”`] : [])].join(', ');
+  return [...a.optionIds.map((id) => (part.options.find((o) => o.id === id)?.label ?? id).replace(/\s*\(Recommended\)\s*$/i, '')), ...(a.other ? [`“${a.other}”`] : [])].join(', ');
 }
 function boardPart(part, card) {
-  const busy = ov.answering ? ' disabled' : '';
+  const busy = sending(part.id) ? ' disabled' : '';
   if (part.kind === 'record') return part.facts.length > 2
     ? `<details class="brec" data-id="rec-${esc(part.id)}"${state.open.has(`rec-${part.id}`) ? ' open' : ''}><summary><h4>${inline(part.title || 'Background')}</h4><span class="dim">${part.facts.length} facts</span></summary>${factGrid(part.facts)}</details>`
     : `<section class="brec">${part.title ? `<h4>${inline(part.title)}</h4>` : ''}${factGrid(part.facts)}</section>`;
@@ -300,21 +322,22 @@ function boardPart(part, card) {
     if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You picked</span> ${esc(pickedLabel(part))}</section>`;
     return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts">${part.options.map((o) => `<article class="bopt${o.recommended ? ' rec' : ''}">
       ${o.recommended ? '<span class="bstamp">★ Recommended</span>' : ''}<b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${factGrid(o.facts)}
+      ${o.detail?.pros?.length || o.detail?.cons?.length ? `<details data-id="pc-${esc(o.id)}"${state.open.has(`pc-${o.id}`) ? ' open' : ''}><summary>Pros and cons</summary>${prosCons(o.detail)}</details>` : ''}
       ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : ''}
       <button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(part.id)}"${busy}>Pick this</button></article>`).join('')}</div>
-      <form class="note" data-answer="${esc(card.id)}" data-choice="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Something else: write your answer"><button class="btn ghost"${busy}>Send</button></form></section>`;
+      <form class="note" data-answer="${esc(card.id)}" data-choice="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Something else: write your answer"><button class="btn ghost"${busy}>Send</button></form>${sentNote(part.id)}</section>`;
   }
   if (part.kind === 'approval') {
     if (part.answer) return `<section class="bpick done"><span class="pill ${part.answer.verdict === 'approved' ? 'ok' : 'warn'}">${part.answer.verdict === 'approved' ? '✓ You approved' : '✕ You rejected'}</span>${part.answer.note ? ` “${esc(part.answer.note)}”` : ''}</section>`;
     const d = part.detail;
-    return `<section class="bpick"><h4>${inline(part.prompt || 'Approve?')}</h4>${d.pros?.length ? `<ul class="pros">${d.pros.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}${d.cons?.length ? `<ul class="cons">${d.cons.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>` : ''}${d.md ? markdown(d.md) : ''}
-      <form class="note" data-approval="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Note, optional"><button class="btn pri" value="approved"${busy}>✓ Approve</button><button class="btn ghost" value="rejected"${busy}>✕ Reject</button></form></section>`;
+    return `<section class="bpick"><h4>${inline(part.prompt || 'Approve?')}</h4>${prosCons(d)}${d.md ? markdown(d.md) : ''}
+      <form class="note" data-approval="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Note, optional"><button class="btn pri" value="approved"${busy}>✓ Approve</button><button class="btn ghost" value="rejected"${busy}>✕ Reject</button></form>${sentNote(part.id)}</section>`;
   }
   if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You answered</span> “${esc(part.answer.text)}”</section>`;
   const field = part.multiline
     ? `<textarea name="text" rows="3" data-draft="${esc(part.id)}" placeholder="${esc(part.placeholder || 'Your answer')}">${esc(ov.drafts[part.id] ?? '')}</textarea>`
     : `<input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="${esc(part.placeholder || 'Your answer')}">`;
-  return `<section class="bpick"><h4>${inline(part.label)}</h4><form class="note" data-input="${esc(part.id)}">${field}<button class="btn pri"${busy}>Send</button></form></section>`;
+  return `<section class="bpick"><h4>${inline(part.label)}</h4><form class="note" data-input="${esc(part.id)}">${field}<button class="btn pri"${busy}>Send</button></form>${sentNote(part.id)}</section>`;
 }
 function boardCard(item) {
   const c = item.card;
@@ -322,7 +345,7 @@ function boardCard(item) {
     ? `<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div>`
     : c.parts.map((part) => boardPart(part, c)).join('');
   return `<article class="card bcard" id="card-${esc(c.id)}"><header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>
-    ${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${body}${ov.answerError ? `<div class="nerr">${esc(ov.answerError)}</div>` : ''}</article>`;
+    ${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${body}${c.embed ? '' : sentNote(c.id)}</article>`;
 }
 function syncCardEmbed(r) {
   const host = $('#cardembed');
@@ -357,7 +380,7 @@ function mergeCard() {
   const merge = state.model.board.merge;
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<div class="card prose mergecard"><p class="kick muted">Your merge board says <a href="${esc(state.model.board.url)}" target="_blank" rel="noopener">open it ↗</a></p><p><b>${esc(merge.summary)}</b></p>
+  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3>${merge.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${esc(merge.summary)}</b></p>
     <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
     ${merge.pages.map((md) => markdown(md)).join('')}</div>`;
 }
@@ -411,19 +434,20 @@ function route() {
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function overRoute(r) {
-  return ['now', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !/^\d+$/.test(r.id ?? ''));
+  return ['now', 'status', 'releases', 'workers', 'timeline', 'ask'].includes(r.screen) || (r.screen === 'review' && !/^\d+$/.test(r.id ?? ''));
 }
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
   const r = route();
+  if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
+  const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
   const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
@@ -438,6 +462,10 @@ function render() {
   if ($('.overlay.route')) [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] = sheetY;
   syncReviewEmbed(r);
   syncCardEmbed(r);
+  if (r.screen === 'status' && r.id && state.statusFocus !== location.hash) {
+    state.statusFocus = location.hash;
+    document.getElementById(`st-${r.id}`)?.scrollIntoView({ block: 'center' });
+  }
   if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
@@ -488,7 +516,7 @@ document.addEventListener('click', (e) => {
   }
   const close = e.target.closest('[data-close]');
   if (close && (e.target === close || close.matches('button'))) {
-    if (state.overlay) { state.overlay = null; render(); } else if (overRoute(route())) location.hash = '#/';
+    if (state.overlay) closeSheet(); else if (overRoute(route())) location.hash = '#/';
     return;
   }
   const overlay = e.target.closest('[data-overlay]');
@@ -509,9 +537,19 @@ document.addEventListener('submit', (e) => {
   ask(e.target.q.value);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.overlay) { state.overlay = null; render(); }
+  if (e.key === 'Escape' && state.overlay) closeSheet();
   else if (e.key === 'Escape' && overRoute(route())) location.hash = '#/';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
+});
+function closeSheet() {
+  if (history.state?.sheet) return history.back();
+  state.overlay = null;
+  render();
+}
+window.addEventListener('popstate', (e) => {
+  if (e.state?.sheet || !state.overlay) return;
+  state.overlay = null;
+  render();
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
 window.addEventListener('DOMContentLoaded', () => {

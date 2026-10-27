@@ -456,7 +456,7 @@ def test_a_merge_card_with_no_rows_waiting_still_reaches_needs_you_as_its_featur
     board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
 
     assert board["rows"] == []
-    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "tables": [table], "pages": ["| Feature | Waiting on |"]}
+    assert board["merge"] == {"title": "Which may merge now?", "summary": "Nothing needs your tap.", "chips": [], "tables": [table], "pages": ["| Feature | Waiting on |"]}
 
 
 def test_a_board_row_missing_a_fact_still_reaches_needs_you():
@@ -480,7 +480,7 @@ def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_
     assert [item["kind"] for item in out] == ["card", "ask", "ask"]
     assert out[0]["source"] == {"label": "Board card: Pick one", "href": "http://board/p/x"}
     assert out[0]["why"].endswith("Two ways. Recommended: A.")
-    assert out[1]["source"] == {"label": "Record #140321 from release-plan-2", "href": "/record/140321"}
+    assert out[1]["source"] == {"label": "Open the record", "href": "/record/140321"}
     assert out[1]["why"] == "release-plan-2 asked in #140321, due now: The flag read needs it."
     assert out[1]["ask"]["record"]["text"] == "Where is that key kept?"
     assert out[2]["source"]["href"] is None
