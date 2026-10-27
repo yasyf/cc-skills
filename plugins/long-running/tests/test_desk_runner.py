@@ -4098,6 +4098,28 @@ def test_a_check_pr_run_the_runner_cannot_read_passes_the_head_and_posts_nothing
     assert escalations(shell) == []
 
 
+def test_a_heads_rulings_check_runs_once_across_passes(shell, config, tmp_path):
+    two_pr_stack(shell)
+    shell.check_pr["29031"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.run()
+    landing.run()
+    assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031"]
+
+
+@pytest.mark.parametrize("page", [1, 25])
+def test_the_queue_status_read_covers_every_open_row_in_pages(shell, config, tmp_path, monkeypatch, page):
+    monkeypatch.setattr(runner_module, "STATUS_PAGE", page)
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.rows()
+    assert set(landing.pr_statuses()) == {"29020", "29031"}
+    assert len([call for call in shell.calls if call[:4] == ["ccx", "vcs", "pr", "status"]]) == 2 // page + (2 % page > 0)
+
+
 def test_a_check_pr_failure_whose_text_differs_only_in_numbers_posts_nothing(shell, config, tmp_path):
     """Oct 23: a fetch failure naming each run's pid in its temporary ref posted 30 identical RULINGS-UNREAD records to root in ten minutes."""
     lone_green_pr(shell)

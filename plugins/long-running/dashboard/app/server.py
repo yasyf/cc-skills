@@ -14,6 +14,8 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from review_assistant import ReviewAssistant
+
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
@@ -28,7 +30,6 @@ GO = re.compile(r"^go #(\d+) at (\w+)")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
-TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -244,9 +245,9 @@ def parse_plan(body):
 
 
 class Drive:
-    def __init__(self, config, reviews):
+    def __init__(self, config, assistant):
         self.config = config
-        self.reviews = reviews
+        self.assistant = assistant
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
@@ -264,12 +265,9 @@ class Drive:
         self.board_raw = None
 
     def review_url(self, number):
-        cwd = self.reviews / str(number)
-        cwd.mkdir(parents=True, exist_ok=True)
-        url = TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--cwd", str(cwd)]))[1]
-        if self.model["prs"].get(str(number), {}).get("state") == "landed":
-            run(["cc-review", "close", url.rsplit("/s/", 1)[1]])
-        return url
+        pr = self.model["prs"].get(str(number), {})
+        row = next((r for r in self.board()["rows"] if r["number"] == number), {})
+        return self.assistant.review_url(number, row.get("head") or pr.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
         entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
@@ -388,6 +386,7 @@ class Drive:
                 self.dirty_at = 0.0
             try:
                 model = self.build(refresh_slow=stale)
+                self.assistant.refresh([(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
             except Exception as error:
                 failure = f"{type(error).__name__}: {error}"
                 if self.errors.get("build") != failure:
@@ -637,7 +636,7 @@ def main():
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    drive = Drive(config, args.config.parent / "reviews")
+    drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
     for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):

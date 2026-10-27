@@ -1,6 +1,8 @@
 import datetime as dt
+import queue
 
 import pytest
+from review_assistant import ReviewAssistant
 from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, verdict_state
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
@@ -289,3 +291,21 @@ def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interact
     drive.answer(body)
 
     assert {k: v for k, v in sent[0].items() if k != "id"} == interaction
+
+
+def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments(tmp_path):
+    assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")
+    assistant.queues[7] = queue.Queue()
+    request = {"type": "ai.request.created", "request": {"id": "1", "attempt": 1}}
+    for event in (
+        request,
+        request,
+        {"type": "ai.request.created", "request": {"id": "1", "attempt": 2}},
+        {"type": "comment.created", "id": "c1", "comment": {"author": "claude"}},
+        {"type": "comment.created", "id": "c2", "comment": {"author": "remote"}},
+        {"type": "comment.created", "id": "c3", "comment": {"author": "user"}},
+        {"type": "file.states"},
+    ):
+        assistant.offer(7, event)
+    queued = [assistant.queues[7].get_nowait() for _ in range(assistant.queues[7].qsize())]
+    assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
