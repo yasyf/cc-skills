@@ -827,6 +827,7 @@ class Shell:
 
     in_progress: dict[int, tuple[str, float]] = {}
     spent: Counter[str] = Counter()
+    called: Counter[str] = Counter()
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
@@ -846,13 +847,14 @@ class Shell:
             self.in_progress.pop(threading.get_ident(), None)
             with self.spending:
                 self.spent[command_family(argv)] += time.monotonic() - started
+                self.called[command_family(argv)] += 1
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
     def pass_cost(self) -> str:
-        """The seconds this pass's commands spent, the eight costliest families first, summed over parallel workers; the tally starts over."""
+        """The seconds this pass's commands spent and how many calls spent them, the eight costliest families first, summed over parallel workers; the tally starts over."""
         with self.spending:
-            costliest, self.spent = self.spent.most_common(8), Counter()
-        return ", ".join(f"{family} {seconds:.0f}s" for family, seconds in costliest)
+            costliest, called, self.spent, self.called = self.spent.most_common(8), self.called, Counter(), Counter()
+        return ", ".join(f"{family} {seconds:.0f}s in {called[family]}" for family, seconds in costliest)
 
     def in_flight(self) -> tuple[str, float] | None:
         """The longest-running command in flight and how many seconds it has run."""
@@ -6164,7 +6166,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 return 1
         behind = runner.stale()
         runner.flush()
-        print(f"PASS landing {runner.passes['landing'] + 1} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
             return 0
