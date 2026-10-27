@@ -202,7 +202,7 @@ function dock() {
   return `<nav class="dock">${need ? cta(state.model.needs[ov.page]) : '<span class="dcalm">✓ Nothing needs you</span>'}<span class="dbtns"><button class="dbtn" data-plan>⤢ Plan</button><button class="dbtn" data-jump>⌕ Jump</button></span></nav>`;
 }
 function cta(item) {
-  const pager = state.model.needs.length > 1 ? `<span class="nx"><span>${ov.page + 1} of ${state.model.needs.length}</span><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span></span>` : '<span></span>';
+  const pager = `<span class="nx">${state.model.needs.length > 1 ? `<span>${ov.page + 1} of ${state.model.needs.length}</span><span class="pips">${state.model.needs.map((_, i) => `<i data-page="${i}"${i === ov.page ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}<a class="all" href="#/now">All in Needs you ›</a></span>`;
   const shell = (icon, kick, head, meta, acts) => `<div class="cta" tabindex="-1"><span class="ic">${icon}</span><span class="tx"><small>${kick}</small><b>${head}</b>${meta ? `<span>${meta}</span>` : ''}<span class="acts">${acts}</span></span>${pager}</div>`;
   const meta = item.why ? `${esc(item.why)}${item.source?.href ? ` · <a href="${esc(item.source.href)}" target="_blank" rel="noopener">${esc(item.source.label)} ↗</a>` : ''}` : '';
   if (item.kind === 'prs' && item.prs.length === 1) {

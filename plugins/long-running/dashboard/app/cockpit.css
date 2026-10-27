@@ -534,3 +534,4 @@ body:has(.ck.ov) .top .tabs { display: none; }
   .ck .body .mac .tag { left: 6px; }
 }
 .ck figure.machine { margin: 0; }
+.ck .cta .nx .all { font-size: 11px; font-weight: 700; text-decoration: underline; white-space: nowrap; }
