@@ -147,7 +147,7 @@ def record_owner_picks(evt: BaseHookEvent) -> HookResult | None:
     with PendingPrompts.mutate(evt) as pending:
         pending.prompts += [
             {
-                "digest": hashlib.sha256(f"{evt.session_id}\0{question}\0{picked}".encode()).hexdigest()[:DIGEST_CHARS],
+                "digest": hashlib.sha256(f"{evt.session_id}\0{picked_text(question, picked, note)}".encode()).hexdigest()[:DIGEST_CHARS],
                 "at": at,
                 "session": evt.session_id,
                 "source": ANSWER_SOURCE,
@@ -167,8 +167,7 @@ def recorded_answer(evt: BaseHookEvent, prompt: dict) -> str | None:
         (
             answer["id"]
             for answer in json.loads(listed.stdout)
-            if answer["title"]
-            and prompt["question"].startswith(answer["title"])
+            if (answer["title"] == prompt["question"] or f"\nQuestion: {prompt['question']}\n" in f"{answer['body']}\n")
             and answer["body"].split("\n", 1)[0] == prompt["picked"]
         ),
         None,
@@ -239,8 +238,11 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
         ]
         try:
             pending.prompts = [with_answer(evt, prompt) for prompt in pending.prompts]
-            if not (landed := [capture(prompt) for prompt in pending.prompts if landing(evt, prompt)]):
-                return None
+        except READ_ERRORS as error:
+            failed_open(evt, "stamp_owner_prompts", error)
+        if not (landed := [capture(prompt) for prompt in pending.prompts if landing(evt, prompt)]):
+            return None
+        try:
             path = captures(read_register(evt, which))
             earlier = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
             relays = [entry for entry in [*earlier, *landed] if entry["source"] == "relay"]

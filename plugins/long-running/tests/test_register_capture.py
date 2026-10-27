@@ -250,7 +250,11 @@ def test_why_does_it_need_this_opens_a_question_with_no_term(root):
 
 
 def answers(root: Root, *recorded: dict) -> None:
-    root.routes[("ccn", "-R", str(root.home), "answer", "list")] = json.dumps(list(recorded))
+    listed(root, json.dumps(list(recorded)))
+
+
+def listed(root: Root, outcome: str | tuple[int, str]) -> None:
+    root.routes[("ccn", "-R", str(root.home), "answer", "list")] = outcome
 
 
 def answer(body: str = KEEP, title: str = ASKED) -> dict:
@@ -280,14 +284,24 @@ def test_an_owner_pick_lands_with_the_answer_cc_notes_records_for_it(root):
     ]
 
 
-@pytest.mark.parametrize("recorded", [[], [answer(body="Drop it")], [answer(title="Drop the nightly report?")]], ids=["none", "another pick", "another question"])
-def test_an_owner_pick_with_no_answer_recorded_for_it_lands_without_one_at_stop(root, recorded):
-    answers(root, *recorded)
+def test_a_pick_on_a_question_too_long_for_a_title_finds_its_answer_by_the_question_line(root):
+    answers(root, answer(title=ASKED[:20]) | {"body": f"{KEEP}\nQuestion: {ASKED}\nOptions: {KEEP} | Drop it"})
+    pick(root)
+
+    assert [capture.get("answer") for capture in root.captures()] == [PICK_ANSWER]
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [json.dumps([]), json.dumps([answer(body="Drop it")]), json.dumps([answer(title="Keep the nightly report")]), (1, "ccn: no store")],
+    ids=["none", "another pick", "a question it begins", "a failed read"],
+)
+def test_an_owner_pick_with_no_answer_recorded_for_it_lands_without_one_at_stop(root, outcome):
+    listed(root, outcome)
     pick(root)
     root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
     assert root.captures() == []
 
     root.fire(StopEvent)
 
-    question_digest = hashlib.sha256(f"{SESSION}\0{ASKED}\0{KEEP}".encode()).hexdigest()[:16]
-    assert landed(root) == [{"digest": question_digest, "session": SESSION, "source": "answer", "text": f"{ASKED}\nPicked: {KEEP}"}]
+    assert landed(root) == [{"digest": digest(f"{ASKED}\nPicked: {KEEP}"), "session": SESSION, "source": "answer", "text": f"{ASKED}\nPicked: {KEEP}"}]
