@@ -1,25 +1,48 @@
 const TONE_GLYPH = { you: '★', failing: '✕', held: '⏸', moving: '▶', queued: '⧗', waiting: '○', done: '✓', later: '⚑' };
 const TONE_SAY = { you: 'Needs you', failing: 'Tests failing', held: 'Held', moving: 'Being worked on', queued: 'Approved, waiting to land', waiting: 'Waiting its turn', done: 'Done', later: 'Later' };
 const LIGHT_ORDER = ['landed', 'queued', 'doing', 'you', 'failing', 'held', 'waiting'];
-const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map() };
+const ov = { page: 0, unfold: false, noting: null, note: '', planTab: 'steps', only: null, was: new Map(), scrub: 0, dragX: null };
+const PAST_HOURS = [1, 3, 6, 12, 24, 48, 96];
 
+function scrubAt() {
+  return ov.scrub < 0 ? new Date(Date.now() - PAST_HOURS[-ov.scrub - 1] * 3600 * 1000) : null;
+}
+function seen(e) {
+  if (ov.scrub < 0) {
+    const landed = state.model.prs[e.number]?.landed_at;
+    return e.state === 'landed' && landed && new Date(landed) > scrubAt() ? 'waiting' : e.state;
+  }
+  if (ov.scrub > 0 && state.model.steps.slice(0, ov.scrub).some((s) => s.id === e.step)) return 'landed';
+  return e.state;
+}
 function tally(list) {
   const out = { total: list.length };
   for (const s of LIGHT_ORDER) out[s] = 0;
-  for (const e of list) out[e.state] += 1;
+  for (const e of list) out[seen(e)] += 1;
   return out;
+}
+function scrubChip() {
+  if (!ov.scrub) return '';
+  const p = pct(tally(state.model.drive.prs));
+  const at = scrubAt();
+  return `<button class="only scrubchip" data-scrub-clear>${at ? `As of ${clock(at.toISOString())}` : `If steps 1–${ov.scrub} land`} · ${p}% ✕</button>`;
+}
+function setScrub(v) {
+  const next = Math.max(-PAST_HOURS.length, Math.min(state.model.steps.length, v));
+  if (next !== ov.scrub) { ov.scrub = next; render(); }
 }
 function pct(t) {
   return t.total ? Math.round((100 * t.landed) / t.total) : 0;
 }
 function light(n) {
-  const s = prState(n);
+  const entry = driveEntry(n);
+  const s = entry ? seen(entry) : prState(n);
   const flash = s === 'landed' && ov.was.size && ov.was.get(Number(n)) && ov.was.get(Number(n)) !== 'landed' ? ' flash' : '';
   const dim = ov.only && !ov.only.numbers.has(Number(n)) ? ' out' : '';
   return `<a class="lt ${s}${flash}${dim}" href="${prHref(n)}" data-n="${n}" aria-label="#${n} ${esc(STATE_WORD[s])}"></a>`;
 }
 function lights(list) {
-  return [...list].sort((a, b) => LIGHT_ORDER.indexOf(a.state) - LIGHT_ORDER.indexOf(b.state)).map((e) => light(e.number)).join('');
+  return [...list].sort((a, b) => LIGHT_ORDER.indexOf(seen(a)) - LIGHT_ORDER.indexOf(seen(b))).map((e) => light(e.number)).join('');
 }
 function workerStrip(w) {
   const pr = w.prs[0];
@@ -115,7 +138,7 @@ function overview() {
   const m = state.model;
   const stop = m.now.blocker;
   return `<div class="cp">
-    <div class="cp-top">${stop ? `<button class="stop" data-stop><i></i>Stopped since ${clock(stop.since)} ›</button>` : ''}${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}<span class="sp"></span><button class="btn ghost" data-overlay="plan">⤢ Plan</button></div>
+    <div class="cp-top">${stop ? `<button class="stop" data-stop><i></i>Stopped since ${clock(stop.since)} ›</button>` : ''}${ov.only ? `<button class="only" data-only-clear>Only ${esc(ov.only.label)} ✕</button>` : ''}${scrubChip()}<span class="sp"></span><button class="btn ghost" data-overlay="plan">⤢ Plan</button></div>
     <div class="cp-grid">
       <div class="cp-left">${actionCard()}${tracks()}</div>
       <button class="gate" data-overlay="plan" title="${esc(m.now.release ? `${m.now.release.name}: ${m.now.release.state}` : 'Release 1')}"><span>R1</span></button>
@@ -269,6 +292,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
   if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
+  if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
   const ptab = e.target.closest('[data-ptab]');
   if (ptab) { ov.planTab = ptab.dataset.ptab; return render(); }
   const page = e.target.closest('[data-page]');
@@ -293,10 +317,24 @@ document.addEventListener('keydown', (e) => {
   if (route().screen !== 'overview' || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey) return;
   const needs = state.model?.needs ?? [];
   if (e.key === 'Escape' && ov.only && !state.overlay) { showOnly(null); return; }
-  if (e.key === 'ArrowRight' && needs.length > 1) { ov.page = (ov.page + 1) % needs.length; render(); }
-  else if (e.key === 'ArrowLeft' && needs.length > 1) { ov.page = (ov.page + needs.length - 1) % needs.length; render(); }
+  const paging = e.target.closest('.actcard') && needs.length > 1;
+  if (e.key === 'ArrowRight' && paging) { ov.page = (ov.page + 1) % needs.length; render(); }
+  else if (e.key === 'ArrowLeft' && paging) { ov.page = (ov.page + needs.length - 1) % needs.length; render(); }
+  else if (e.key === 'ArrowRight' && !state.overlay) setScrub(ov.scrub + 1);
+  else if (e.key === 'ArrowLeft' && !state.overlay) setScrub(ov.scrub - 1);
+  else if (e.key === 'n' && ov.scrub) setScrub(0);
   else if (e.key === 'p' && !state.overlay) { state.overlay = 'plan'; render(); }
   else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) { ov.track = e.target.dataset.track; state.overlay = 'track'; render(); }
 });
 window.addEventListener('resize', () => { if (route().screen === 'overview' && state.model) mountOverview(); });
 Object.assign(window, { showOnly, tally });
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.dest .mach, .dest .ring')) return;
+  ov.dragX = e.clientX;
+  ov.dragFrom = ov.scrub;
+});
+document.addEventListener('pointermove', (e) => {
+  if (ov.dragX === null) return;
+  setScrub(ov.dragFrom + Math.round((e.clientX - ov.dragX) / 48));
+});
+document.addEventListener('pointerup', () => { ov.dragX = null; });

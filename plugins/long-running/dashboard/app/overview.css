@@ -78,7 +78,7 @@
 .gate span { position: absolute; top: -26px; left: 50%; transform: translateX(-50%); font: 800 13px var(--display); color: var(--ink-2); }
 
 .dest { display: flex; flex-direction: column; gap: 6px; }
-.mach { position: relative; margin: 0; padding: 30px 18px 14px; min-height: 120px; }
+.mach { position: relative; margin: 0; touch-action: pan-y; user-select: none; padding: 30px 18px 14px; min-height: 120px; }
 .mach.cloud { padding-top: 58px; }
 .mach .ol { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .mach .ol .base { fill: var(--c-panel); stroke: var(--c-line); stroke-width: 2; }
