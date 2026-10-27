@@ -4801,6 +4801,7 @@ def unqueued(shell: FakeShell) -> list[str]:
 def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalates_once(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
     shell.sleep(4 * 60)
     landing_pass(shell, config)
     assert unqueued(shell) == []
@@ -4810,6 +4811,54 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001@aaaa111111 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
+
+
+def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    book, key = runner_module.Landing(runner, runner.config.landing).book, "enqueue:33001@aaaa111111#1"
+    book.accept(runner_module.LANDING, key, "enqueue", "33001", "", shell.now() + timedelta(minutes=15))
+    book.attempt(runner_module.LANDING, lambda incident: incident.start(key, shell.now()))
+    book.attempt(runner_module.LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": "the merge-mode check refuses #33001", "at": book.stamp()}))
+    shell.sleep(60)
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.endswith("no enqueue was accepted for it since the go")
+
+
+def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 graphite QUEUED_TO_MERGE")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and unqueued(shell) == []
+
+
+@pytest.mark.parametrize("withdrawal", [lambda go: {"text": f"go #{go} on #33001 aaaa111 is withdrawn: both grades it cited were withdrawn"}, lambda go: {"re": go, "text": "Withdrawn: the finder found a blocker at aaaa111"}])
+def test_a_go_the_root_withdraws_by_naming_it_neither_enqueues_nor_escalates(shell, config, tmp_path, withdrawal):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    go = shell.records[-1]["seq"]
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["landing-desk"], "refs": {}, "at": actions.stamp(shell.clock)} | withdrawal(go))
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and unqueued(shell) == []
+
+
+@pytest.mark.parametrize("text", ["go #{go} is not withdrawn; the grade it cited stands", "Answering go #{go}: the fidelity grade #140953 it cited was withdrawn. The go stands."])
+def test_a_root_record_that_mentions_a_go_beside_a_withdrawal_leaves_the_go_standing(shell, config, tmp_path, text):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    go = shell.records[-1]["seq"]
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["landing-desk"], "refs": {}, "re": go, "text": text.format(go=go), "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
 
 
 def test_a_green_head_a_go_names_that_enqueues_escalates_nothing(shell, config, tmp_path):

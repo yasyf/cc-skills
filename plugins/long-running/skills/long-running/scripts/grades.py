@@ -212,3 +212,10 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
         for record in records
         if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads))
     ]
+
+
+def withdraws(record: dict, seq: int) -> bool:
+    """Whether `record` withdraws the record `seq`: it answers it by `--re` and opens with "withdrawn", or names `#<seq>` and then "withdrawn" in the same clause, with no "not" between."""
+    if record.get("re") == seq and WITHDRAWN.match(record["text"]):
+        return True
+    return re.search(rf"#{seq}\b(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b", record["text"], re.IGNORECASE) is not None
