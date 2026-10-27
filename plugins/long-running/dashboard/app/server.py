@@ -326,32 +326,6 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
     }
 
 
-def parse_status(markdown):
-    lead, _, rest = markdown.partition("\n## ")
-    paragraphs = [block.strip() for block in lead.split("\n\n") if block.strip() and not block.startswith("#")]
-    morning = rest.split("\n## ", 1)[0] if rest.startswith("For your morning") else ""
-    table = [row.strip().strip("|").split("|") for row in markdown.splitlines() if row.startswith("|") and not re.match(r"^\|[\s|:-]+\|$", row)]
-    header = [cell.strip() for cell in table[0]] if table else []
-    rows = [dict(zip(header, (cell.strip() for cell in cells))) for cells in table[1:]]
-    return {
-        "lead": paragraphs[0] if paragraphs else "",
-        "morning": [item[2:].split("\n\n")[0].strip() for item in re.split(r"\n(?=- )", morning.split("\n", 1)[1] if "\n" in morning else "") if item.startswith("- ")],
-        "rows": [{"step": row["Step"], "state": row["Where it stands"], "blocker": None if re.match(r"nothing", row["What blocks it"], re.I) else row["What blocks it"], "next": row["Next"], "prs": plan_prs(row["Pull requests"])} for row in rows],
-    }
-
-
-def status_rows(status, drive, parts, wrong):
-    part_of_pr = {entry["number"]: entry["part"] for entry in drive["prs"]}
-    names = {part["key"]: part["name"] for part in parts}
-    def row_part(row):
-        counted = [part_of_pr[n] for n in row["prs"] if part_of_pr.get(n)]
-        return max(set(counted), key=counted.count) if counted else None
-    return {**status, "rows": [
-        {**row, "part": row_part(row), "part_name": names.get(row_part(row)), "wrong": [item for item in wrong if set(plan_prs(item["what"])) & set(row["prs"])]}
-        for row in status["rows"]
-    ]}
-
-
 def drive_workers(records, prs, steps, now, desks=False):
     live = {}
     for record in records:
@@ -721,7 +695,6 @@ class Drive:
             "steps_at": progress["updated"],
             "live": LIVE_SOURCES,
             "needs": need_items,
-            "status": status_rows(model["status"], drive, self.config["parts"], model["story"].get("wrong", [])),
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
         }
 
@@ -752,7 +725,6 @@ class Drive:
         prs = {row["key"]: {k: json.loads(v) if k == "failing_checks" else v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
         plan_at, plan = self.read_plan()
         story = json.loads(Path(self.config["story"]).read_text())
-        status = self.read_doc(self.config["status_doc"])
         for ask in story.get("asks", []):
             if "seq" in ask:
                 ask["record"] = self.record(ask["seq"])
@@ -762,7 +734,6 @@ class Drive:
             "plan_at": plan_at,
             "story": story,
             "releases": self.read_doc(self.config["release_doc"]),
-            "status": {"updated": status["updated"], **parse_status(status["markdown"])},
             "words": [{"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for a in json.loads(self.ccn("answer", "list", "--label", f"program:{self.config['drive']}", "--json"))],
         }
 

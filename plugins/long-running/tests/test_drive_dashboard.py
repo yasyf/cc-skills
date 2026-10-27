@@ -6,7 +6,7 @@ import urllib.parse
 import pytest
 from holds import Entry
 from review_assistant import ReviewAssistant
-from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_status, status_rows, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -611,33 +611,3 @@ def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments
         assistant.offer(7, event)
     queued = [assistant.queues[7].get_nowait() for _ in range(assistant.queues[7].qsize())]
     assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
-
-
-STATUS = """Updated 11:17 AM. Where things stand: 164 landed.
-
-## For your morning
-
-- **Chime's runs.** Re-triggered on your pick.
-- **Release 2.** Broke about 95 pieces of work, #42766 included.
-
-| Step | Where it stands | What blocks it | Next | Pull requests |
-|---|---|---|---|---|
-| Credentials, one per app | All 2 landed | Nothing | Nothing left in this step | #42743, #42766 |
-| Cloud runs | 0 of 2 landed | the review bot rechecking #42789 | Queued when it clears | #42789-#42790 |
-"""
-
-
-def test_the_owner_status_table_becomes_rows_grouped_by_part_with_what_went_wrong():
-    status = parse_status(STATUS)
-    drive = journey_drive({"number": 42743, "state": "landed", "part": "api"}, {"number": 42766, "state": "landed", "part": "api"}, {"number": 42789, "state": "you", "part": "agent"})
-    wrong = [{"at": "9:00 AM", "what": "#42766 broke runs", "state": "done"}]
-
-    out = status_rows(status, drive, [{"key": "api", "name": "Cloud api"}, {"key": "agent", "name": "Agent"}], wrong)
-
-    assert out["lead"] == "Updated 11:17 AM. Where things stand: 164 landed."
-    assert out["morning"] == ["**Chime's runs.** Re-triggered on your pick.", "**Release 2.** Broke about 95 pieces of work, #42766 included."]
-    assert [(row["step"], row["blocker"], row["prs"], row["part"], row["part_name"]) for row in out["rows"]] == [
-        ("Credentials, one per app", None, [42743, 42766], "api", "Cloud api"),
-        ("Cloud runs", "the review bot rechecking #42789", [42789, 42790], "agent", "Agent"),
-    ]
-    assert [len(row["wrong"]) for row in out["rows"]] == [1, 0]
