@@ -6822,6 +6822,14 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
     assert shell.successors == [successor(config, tmp_path, desk)]
 
 
+def test_a_desk_writes_its_heartbeat_when_it_starts_before_its_first_pass_ends(shell, config, tmp_path):
+    path = tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"pid": 1, "at": "2026-10-27T21:58:00+00:00"}) + "\n")
+    runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).keep_alive("landing").set()
+    assert json.loads(path.read_text())["pid"] == os.getpid()
+
+
 def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
     landing_pass(shell, config)
     assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1"]

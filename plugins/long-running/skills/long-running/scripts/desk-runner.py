@@ -1685,12 +1685,14 @@ class Runner:
         self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], self.config.desk_inbox.with_name("stall-watch.log"), {})
 
     def keep_alive(self, desk: str) -> threading.Event:
-        """Post the alive record every minute from a daemon thread, whatever the pass is doing, until the returned event is set."""
+        """Write the heartbeat file now, then post the alive record and rewrite the file every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid in the file."""
         stop = threading.Event()
+        self.write_heartbeat(desk)
 
         def tick() -> None:
             while not stop.wait(ALIVE_EVERY.total_seconds()):
                 self.post_alive(desk)
+                self.write_heartbeat(desk)
 
         threading.Thread(target=tick, name=f"{desk}-alive", daemon=True).start()
         return stop
@@ -1699,10 +1701,13 @@ class Runner:
         """Write the desk's heartbeat file every pass, and post its alive record."""
         self.passes[desk] += 1
         self.post_alive(desk)
+        self.write_heartbeat(desk)
+
+    def write_heartbeat(self, desk: str) -> None:
         inbox = self.config.desk_inbox.parent
         beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "version": RUNNING_VERSION}
         inbox.mkdir(parents=True, exist_ok=True)
-        staged = inbox / f".{HEARTBEATS[desk]}"
+        staged = inbox / f".{HEARTBEATS[desk]}.{threading.get_ident()}"
         staged.write_text(json.dumps(beat) + "\n")
         staged.replace(inbox / HEARTBEATS[desk])
 
