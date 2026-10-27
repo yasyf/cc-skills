@@ -4755,14 +4755,14 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`, plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root record opening `WITHDRAWN` names, which it no longer lets merge."""
+        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves or answers with a `withdraw`, plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
                 gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
                 later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)}
-                withdrawals = [record for record in later if WITHDRAWN_OPENING.match(record["text"])]
+                withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
