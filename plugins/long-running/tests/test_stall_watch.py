@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -111,8 +112,11 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return path
 
 
-def task(tmp_path: Path, number: int, owner: str, status: str = "in_progress") -> None:
-    (tmp_path / "claude/tasks" / SESSION / f"{number}.json").write_text(json.dumps({"id": str(number), "subject": f"lane {owner}", "status": status, "owner": owner}))
+def task(tmp_path: Path, number: int, owner: str, status: str = "in_progress", minutes_ago: float = 60) -> None:
+    path = tmp_path / "claude/tasks" / SESSION / f"{number}.json"
+    path.write_text(json.dumps({"id": str(number), "subject": f"lane {owner}", "status": status, "owner": owner}))
+    written = (NOW - timedelta(minutes=minutes_ago)).timestamp()
+    os.utime(path, (written, written))
 
 
 def opened(config: Path) -> dict:
@@ -178,7 +182,28 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
 
     assert shell.topics() == ["go:201:abc1234"]
     assert shell.post("go:201:abc1234")["to"] == "root"
-    assert "root gos name #202, #203, and no QUEUED record does | owner root | #201 at abc1234 has no go, and a stack enqueues from the bottom" in shell.post("go:201:abc1234")["text"]
+    assert "root gos name #202, #203 in the stack from #201, and no QUEUED record does | owner root | #201 at abc1234 has no go, and a stack enqueues from the bottom" in shell.post("go:201:abc1234")["text"]
+
+
+def test_gos_above_a_green_unqueued_bottom_whose_own_builds_run_post_one_stall_naming_the_bottom(config):
+    records = [record(1, "root", "go", f"go #401 at {HEAD[:7]}", 30), record(2, "root", "go", f"go #402 at {OTHER[:7]}", 30), record(3, "root", "go", f"go #403 at {OLD[:7]}", 30)]
+    rows = [row("401"), row("402", OTHER, base="b401", test_state="pending"), row("403", OLD, base="b402", test_state="pending")]
+    shell = FakeShell(records, rows)
+
+    watch(shell, config)
+
+    assert shell.topics() == ["go:401:abc1234"]
+    assert "root gos name #401, #402, #403 in the stack from #401, and no QUEUED record does | owner desk-runner | the landing desk has not queued it" in shell.post("go:401:abc1234")["text"]
+
+
+@pytest.mark.parametrize(("graded", "stalls"), [(3, []), (15, ["go:101:abc1234"])])
+def test_a_go_a_fidelity_carry_moved_to_a_new_head_stalls_only_once_the_carry_grade_is_old(config, graded, stalls):
+    carry = record(3, "fidelity-desk", "review", f"fidelity: ok {HEAD[:7]} carried from {OLD[:7]}, patch-identical replay onto dev.", graded, "101")
+    shell = FakeShell([record(1, "root", "go", f"go #101 at {OLD[:7]}", 60), head(2, "101", HEAD, 40), carry], [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
 
 
 def test_a_go_the_landing_desk_queued_at_its_head_is_no_stall(config):
@@ -224,6 +249,25 @@ def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_
     assert "post `fidelity: ok abc1234 carried from 0123456`" in shell.post("carry:101:abc1234")["text"]
 
 
+@pytest.mark.parametrize(
+    ("answer", "step"),
+    [
+        ({"fix": True}, "his tap at 0123456 keeps over a review fix (rule 399b5fa): root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix"),
+        ({}, "re-ask the owner at abc1234; it adds new behavior beyond the tapped change"),
+    ],
+)
+def test_a_tap_at_an_earlier_head_keeps_over_a_review_fix_and_only_new_behavior_re_asks_the_owner(config, answer, step):
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, fixed)], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+    shell.answer = lambda question: answer
+
+    watch(shell, config)
+
+    assert shell.post("carry:101:abc1234")["to"] == "root"
+    assert f"| owner root | {step}" in shell.post("carry:101:abc1234")["text"]
+
+
 def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_next_pass(config):
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
@@ -234,13 +278,14 @@ def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_nex
 
     assert len(shell.prompts) == 2
     assert shell.post("carry:101:abc1234")["to"] == "root,fidelity-desk@d1"
-    assert "if it is a patch-identical restack; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
+    assert "if it is a patch-identical restack; if it adds only a review fix, his tap keeps (rule 399b5fa) and root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
 
 
 def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_named_wait_holds_off_its_stall(config, tmp_path):
     for number, lane in enumerate(["lane-a", "lane-b", "lane-c", "lane-d", "lane-e"], start=1):
-        task(tmp_path, number, lane)
+        task(tmp_path, number, lane, minutes_ago=45)
     task(tmp_path, 6, "lane-f", status="completed")
+    task(tmp_path, 7, "lane-g", minutes_ago=5)
     records = [
         record(1, "lane-a", "state", "pushed the fix", 40),
         record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 40),
@@ -264,7 +309,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
     assert shell.post("lane:lane-a")["to"] == "root,lane-a@d1"
     assert "promised its next state by 12:50 PM" in shell.post("lane:lane-c")["text"]
     assert shell.post("lane:lane-d")["to"] == "root"
-    assert "posted nothing in 24 h" in shell.post("lane:lane-d")["text"]
+    assert "it owns task #4 in progress, given it by 12:15 PM, and has posted nothing since" in shell.post("lane:lane-d")["text"]
 
 
 def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
