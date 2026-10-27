@@ -208,7 +208,7 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
     records = [record for record in found if record["drive"] == drive and record["kind"] in ("review", "head") and about_pr(record, repo, pr)]
     heads = [record for record in records if record["kind"] == "head"]
     return [
-        record | {"grade": said[1].lower(), "head": head_named(record, heads)}
+        record | {"grade": said[1].lower(), "head": head}
         for record in records
-        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record)))
+        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads))
     ]

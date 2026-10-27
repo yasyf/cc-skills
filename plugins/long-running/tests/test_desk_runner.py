@@ -4613,6 +4613,7 @@ def old_app_checked(config: Path) -> None:
         ("fidelity-desk", "old-app: CHANGES cccc333: a user without the flag loses the retry button", False),
         ("fidelity-desk", "old-app: unchanged bbbb222", False),
         (LANE, "old-app: unchanged cccc333", False),
+        ("fidelity-desk", "old-app: unchanged (touches only the new tree)", False),
     ],
 )
 def test_a_drive_naming_the_old_app_check_enqueues_only_a_head_a_fidelity_lane_graded_unchanged_or_bug_fix(shell, config, tmp_path, lane, text, enqueued):
