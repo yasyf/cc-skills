@@ -4813,6 +4813,22 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     assert "yet it is not in the queue after 6 minutes" in line
 
 
+def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    book, key = runner_module.Landing(runner, runner.config.landing).book, "enqueue:33001@aaaa111111#1"
+    book.accept(runner_module.LANDING, key, "enqueue", "33001", "", shell.now() + timedelta(minutes=15))
+    book.attempt(runner_module.LANDING, lambda incident: incident.start(key, shell.now()))
+    book.attempt(runner_module.LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": "the merge-mode check refuses #33001", "at": book.stamp()}))
+    shell.sleep(60)
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.endswith("no enqueue was accepted for it since the go")
+
+
 def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 graphite QUEUED_TO_MERGE")
