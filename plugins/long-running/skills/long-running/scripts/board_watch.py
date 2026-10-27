@@ -15,7 +15,7 @@ takes the row id in place of the block:
     write-in   choice.selected with `other`, and input.submitted: the text the owner typed
     note       feedback.created, the note on a decision.created, and each row note a triage.decided carries
     pick       choice.selected option ids, as the option labels in the board's current document
-    verdict    decision.created: an approval's exact prompt, or `rejected` or `cleared`
+    verdict    decision.created: an approval's exact prompt, marked `"verdict": "approved"`, or `rejected` or `cleared`
 
 A write-in a later pick replaces survives as its own capture. A capture already in the file is
 not written again. A pick or approval whose block is missing from the board's document gets no
@@ -160,9 +160,11 @@ def captures(event: dict, session: str, doc: dict | None, moment: datetime) -> l
             for row_id, row in event["verdicts"].items()
             if row.get("note")
         ]
+    said = texts(event, session, doc)
+    approval = event.get("type") == "decision.created" and event.get("verdict") == "approved" and bool(said) and said[0] == (find(doc, block) or {}).get("prompt")
     return [
-        {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)}
-        for text in texts(event, session, doc)
+        {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)} | ({"verdict": "approved"} if approval and index == 0 else {})
+        for index, text in enumerate(said)
     ]
 
 

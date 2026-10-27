@@ -1629,6 +1629,28 @@ def test_authorize_refuses_a_go_with_no_tap_a_card_or_answer_naming_no_row_and_a
     assert refused([OWNER_TAP], "--row", "rule/aaaaaaa", "--prompt", "d" * 16) == "AUTHORIZE-PROMPT-NAMES-NO-ROW"
 
 
+@pytest.mark.parametrize(
+    ("prompt", "marks", "verdict"),
+    [
+        (QUOTING_CARD, {"verdict": "approved"}, "authorized"),
+        ("One storage credential per Mac: the server issues one key.", {"verdict": "approved"}, "AUTHORIZE-PROMPT-NAMES-NO-ROW"),
+        (QUOTING_CARD, {}, "AUTHORIZE-NOT-AFFIRMATIVE"),
+        (QUOTING_CARD, {"verdict": "rejected", "row": "42"}, "AUTHORIZE-NOT-AFFIRMATIVE"),
+    ],
+    ids=["approval-quoting-the-row", "approval-of-a-merge-row-only", "note-quoting-the-row", "rejected-row-note"],
+)
+def test_authorize_takes_only_a_board_approval_whose_prompt_quotes_the_row(home: Path, package: Path, state: Path, registered: Path, capsys, prompt: str, marks: dict, verdict: str) -> None:
+    transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board round posted."}]}})
+    captured(state, capture("e", prompt, source="board", block="rulings-card") | marks)
+    approval = dict(OWNER_TAP, body="Approved on the board: merge also authorizes rule/aaaaaaa.", tags=["from:owner", "program:brook", f"proof:board:{'e' * 16}"])
+    shell = RegisterShell(seeded(package), answers=[approval])
+
+    code, out = ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--prompt", "e" * 16)
+
+    assert (code, out.split(" ", 1)[0]) == (0 if verdict == "authorized" else 1, verdict)
+    assert ("authorizes:rule/aaaaaaa" in shell.answers[0]["tags"]) == (verdict == "authorized")
+
+
 def test_authorize_refuses_a_merge_card_tap_for_a_reserved_row_its_pr_does_not_touch(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
     rows = seeded(package)
     rows["rule/aaaaaaa"] |= {"kind": "reserved", "ops": '["*drain*"]'}
