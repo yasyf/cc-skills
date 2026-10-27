@@ -24,9 +24,10 @@ class FakeShell(bus.Shell):
         self.calls.append(argv)
         if argv[:2] == ["cci", "post"]:
             return "#41\n"
-        since = int(argv[argv.index("--since") + 1])
-        fresh = [record for record in self.records if record["seq"] > since][: self.page]
-        return "".join(json.dumps(record) + "\n" for record in fresh)
+        since, budget = int(argv[argv.index("--since") + 1]), int(argv[argv.index("--budget") + 1])
+        lines = [json.dumps(record) + "\n" for record in self.records if record["seq"] > since][: self.page]
+        fitting = next((count for count in range(len(lines), 0, -1) if sum(map(len, lines[:count])) <= budget), 0)
+        return "".join(lines[:fitting])
 
 
 def record(seq: int, **fields) -> dict:
@@ -52,7 +53,7 @@ def test_read_pages_every_delivery_into_one_json_list(capsys):
     argv = ["read", "--bus", "d1", "--lane", "incident-x", "--kind", "answer", "--kind", "ask", "--all", "--peek", "--json", "--repo", "/m"]
     assert bus.main(argv, shell) == 0
     assert [call[call.index("--since") + 1] for call in shell.calls] == ["0", "9", "12"]
-    assert shell.calls[0][2:] == ["--drive", "d1", "--since", "0", "--json", "--budget", "16000", "--reader", "incident-x", "--kind=answer", "--kind=ask"]
+    assert shell.calls[0][2:] == ["--drive", "d1", "--since", "0", "--json", "--budget", "4000000", "--reader", "incident-x", "--kind=answer", "--kind=ask"]
     entries = json.loads(capsys.readouterr().out)
     assert [entry["seq"] for entry in entries] == [3, 9, 12]
     assert entries[1] == {"seq": 9, "at": "2026-10-05T09:00:00Z", "kind": "answer", "topic": "", "from": "comms", "to": [], "text": "t", "re": 3}
@@ -62,3 +63,10 @@ def test_read_pages_every_delivery_into_one_json_list(capsys):
 def test_read_is_json_only():
     with pytest.raises(SystemExit):
         bus.main(["read", "--bus", "d1", "--lane", "x"], FakeShell())
+
+
+def test_read_takes_a_whole_cci_page_of_records_in_one_call(capsys):
+    shell = FakeShell([record(seq, text="t" * 300) for seq in range(1, 301)], page=500)
+    assert bus.main(["read", "--bus", "d1", "--lane", "incident-x", "--all", "--peek", "--json", "--repo", "/m"], shell) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 300
+    assert len(shell.calls) == 2

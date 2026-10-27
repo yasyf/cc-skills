@@ -175,7 +175,7 @@ SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 SETTLE_WORKERS = 8
 REFRESH_BATCH = 25
 PR_STATE_MAX_AGE = "2m"
-REFRESH_WORKERS = 4
+REFRESH_WORKERS = 8
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 REOPEN_WINDOW = timedelta(hours=24)
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
@@ -1555,15 +1555,13 @@ def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def batched_pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[str]) -> dict:
-    """`pr_state` over `REFRESH_BATCH` PRs or prefixes a call, `REFRESH_WORKERS` calls at once, merged into one answer.
+def merged_pr_state(reads: list[Future]) -> dict:
+    """The answers of `pr_state` calls over `REFRESH_BATCH` PRs or prefixes each, merged into one.
 
     One call naming a whole drive's ledger outlives its timeout once the cache falls back to a REST read per record.
     """
-    batches = [(list(chunk), []) for chunk in batched(prs, REFRESH_BATCH)] + [([], list(chunk)) for chunk in batched(prefixes, REFRESH_BATCH)]
     try:
-        with ThreadPoolExecutor(REFRESH_WORKERS) as pool:
-            answers = list(pool.map(lambda batch: pr_state(shell, ccx, repo, *batch), batches))
+        answers = [read.result() for read in reads]
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
     return {"lanes": {prefix: prs for answer in answers for prefix, prs in answer["lanes"].items()}, "prs": {pr: record for answer in answers for pr, record in answer["prs"].items()}}
@@ -1576,11 +1574,12 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
-    with ThreadPoolExecutor(REFRESH_WORKERS) as pool:
-        stacks = dict(zip((lane["lane"] for lane in registrations), pool.map(lambda lane: lane_stack(shell, args.ccx, lane), registrations), strict=True))
-    prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
     wanted = sorted((set(known) | set(named)) - settled, key=int)
-    state = batched_pr_state(shell, args.ccx, scope.repo, wanted, prefixes)
+    with ThreadPoolExecutor(REFRESH_WORKERS) as reads, ThreadPoolExecutor(max(1, len(registrations))) as listings:
+        numbered = [reads.submit(pr_state, shell, args.ccx, scope.repo, list(chunk), []) for chunk in batched(wanted, REFRESH_BATCH)]
+        stacks = dict(zip((lane["lane"] for lane in registrations), listings.map(lambda lane: lane_stack(shell, args.ccx, lane), registrations), strict=True))
+        prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
+        state = merged_pr_state([*numbered, *(reads.submit(pr_state, shell, args.ccx, scope.repo, [], list(chunk)) for chunk in batched(prefixes, REFRESH_BATCH))])
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
     steps = {lane["lane"]: lane.get("step", "") for lane in registrations}
     for lane, branches in stacks.items():
