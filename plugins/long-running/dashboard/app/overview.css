@@ -71,3 +71,15 @@
 .wbox .bx i { flex: 1; height: 12px; }
 .wbox small { color: var(--ink-3); font-size: 12px; }
 .partbar .pb small { font-weight: 500; color: var(--ink-3); }
+.dlist { list-style: none; margin: 12px 0 0; padding: 0; }
+.dlist li { display: grid; grid-template-columns: 150px 120px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.dlist .linkish { text-align: left; }
+.dlist .bx { grid-column: auto; }
+.dlist .dsaid { min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlist .dsaid b { color: var(--ink); margin-right: 4px; }
+.dlist time { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+@media (max-width: 760px) {
+  .dlist li { grid-template-columns: minmax(0, 1fr) auto; }
+  .dlist .bx, .dlist .dsaid { grid-column: 1 / -1; }
+  .dlist .dsaid { white-space: normal; }
+}

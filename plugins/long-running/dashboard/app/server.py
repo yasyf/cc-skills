@@ -45,7 +45,7 @@ BOX = dt.timedelta(minutes=5)
 BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
-COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
+COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css")}
 
@@ -145,11 +145,11 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
     return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed}
 
 
-def drive_workers(records, steps, now):
+def drive_workers(records, steps, now, desks=False):
     live = {}
     for record in records:
         age = now - at(record["at"])
-        if COORDINATORS.search(record["lane"]) or age >= BOX * BOXES:
+        if bool(COORDINATORS.search(record["lane"])) != desks or age >= BOX * BOXES:
             continue
         worker = live.setdefault(record["lane"], {"lane": record["lane"], "at": record["at"], "prs": set(), "boxes": ["" for _ in range(BOXES)]})
         worker["at"] = max(worker["at"], record["at"])
@@ -448,6 +448,7 @@ class Drive:
             "board": board,
             "drive": drive,
             "workers": workers,
+            "desks": drive_workers(activity_records, progress["steps"], now, desks=True),
             "steps": step_rows(progress["steps"], drive, workers),
             "parts": self.config["parts"],
             "now": progress.get("now", {}),

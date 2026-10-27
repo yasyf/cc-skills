@@ -210,6 +210,17 @@ def test_a_worker_box_takes_its_most_severe_record_and_desks_are_not_workers():
     assert workers[0]["step"] == "journal"
 
 
+def test_coordinator_desks_get_their_own_boxes_apart_from_workers():
+    records = [record("landing-desk", 1, kind="blocker"), record("root", 7), record("board-refresher", 9), record("p8e-desktop-ship-5", 1), record("dashboard-v3-4", 2)]
+
+    desks = drive_workers(records, [], NOW, desks=True)
+
+    assert [d["lane"] for d in desks] == ["landing-desk", "root", "board-refresher"]
+    assert [w["lane"] for w in drive_workers(records, [], NOW)] == ["p8e-desktop-ship-5", "dashboard-v3-4"]
+    assert desks[0]["boxes"][-1] == "bad"
+    assert desks[1]["boxes"][-2] == "info"
+
+
 def merge_board(*groups):
     blocks = [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": gid, "title": title, "summary": summary, "prs": prs} for gid, title, summary, prs in groups]}]}]
     return {"doc": {"blocks": blocks}, "interactions": {"triage": {}, "choices": {}, "decisions": {}, "inputs": {}, "feedback": {}}}
