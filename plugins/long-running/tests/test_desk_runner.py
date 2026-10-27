@@ -2848,7 +2848,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts 1700000001.000100 (merge mode every)"
+    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts 1700000001.000100 (merge mode every)"
     [card] = shell.pr_cards
     assert card == {
         "card": {
@@ -3160,7 +3160,7 @@ def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go
     landing_pass(shell, config)
     assert checks(shell) == [] and shell.pr_cards == []
     [line] = escalations(shell)
-    assert line == "MERGE-ASK merge-ask:29020@cccc333333 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every)"
+    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every)"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
@@ -3385,7 +3385,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     landing_pass(shell, config)
     assert shell.enqueues() == [] and blockers(shell) == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts ")
+    assert line.startswith("MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts ")
     assert f"(merge mode {mode}); only the tap authorizes reserved/user-data" in line
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
     assert line.endswith("; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`")
@@ -3409,7 +3409,7 @@ def test_a_go_that_predates_a_reserved_touch_still_sends_the_card_naming_the_row
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020:") and len(shell.pr_cards) == 1
+    assert line.startswith("MERGE-ASK merge-ask:29020 #29020:") and len(shell.pr_cards) == 1
     assert 'It touches your rule "User data stays where it is."' in shell.pr_cards[0]["card"]["children"][0]["md"]
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
@@ -5197,7 +5197,7 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.startswith("GO-UNQUEUED go-unqueued:33001@aaaa111111 #33001: #33001 is green at aaaa111111 and root go #")
+    assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
 
 
@@ -7126,7 +7126,7 @@ def test_a_lane_silent_past_a_root_order_logs_one_lane_gone(shell, config, tmp_p
     lines = [line for line in escalations(shell) if line.startswith("LANE-GONE")]
     assert len(lines) == gone
     if gone:
-        assert lines[0].startswith(f"LANE-GONE lane-gone:p8-lane:{order} p8-lane: root #{order} to p8-lane unanswered; its last record is #{last} head at ")
+        assert lines[0].startswith(f"LANE-GONE lane-gone:p8-lane p8-lane: root #{order} to p8-lane unanswered; its last record is #{last} head at ")
         assert lines[0].endswith(("cci last saw it 20 min ago; " + LANE_GONE_ADVICE, "cci lists no session for it; " + LANE_GONE_ADVICE))
 
 

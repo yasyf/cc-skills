@@ -683,7 +683,7 @@ LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
 LANE_ORDER_KINDS = frozenset({"decide", "ask", "note"})
 LANE_SPAWN_GRACE = timedelta(minutes=10)
-LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+):")
+LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 HANDOFF_WAIT = timedelta(minutes=20)
@@ -1514,9 +1514,9 @@ class Runner:
     def now(self) -> datetime:
         return self.shell.now()
 
-    def escalate(self, key: str, kind: str, about: str, text: str) -> None:
-        """Record one escalation per key; `flush` posts it to root through cci with the key as its topic."""
-        self.record(f"escalation:{key}", f"{kind} {key} {about}: {' '.join(text.split())}")
+    def escalate(self, key: str, kind: str, about: str, text: str, subject: str = "") -> None:
+        """Record one escalation per key; `flush` posts it to root through cci with its subject, the key unless given, as its topic, so cci delivers only the newest report on a subject the root has not read yet."""
+        self.record(f"escalation:{key}", f"{kind} {subject or key} {about}: {' '.join(text.split())}")
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
@@ -3359,7 +3359,7 @@ class Runner:
                 said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"
                 sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
                 orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
-                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes")
+                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", f"lane-gone:{lane}")
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
@@ -5320,6 +5320,7 @@ class Landing:
                 f"#{pr} {short} waits on the owner's tap on `{waits}` {where} (merge mode {mode})"
                 + (f"; no go until the lane's title fix: cci #{stale[0]['seq']} says `{stale[1]}`" if stale else "")
                 + authorize,
+                f"merge-ask:{pr}",
             )
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
@@ -5649,7 +5650,7 @@ class Landing:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             else:
                 why = "no enqueue was accepted for it since the go"
-            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}")
+            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}", f"go-unqueued:{pr}")
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
