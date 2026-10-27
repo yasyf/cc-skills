@@ -24,7 +24,7 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
               none on this id, and no root record that re-keys names this id or its head; a
               `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
-    approved  a root `go` names the PR at its head, no root `withdraw` closes that go, and the board
+    approved  a `go` from root, or from a lane the config's `landing.go_lanes` names, names the PR at its head, no root `withdraw` closes that go, and the board
               records no approval for the row at that head, so the row asks a tap he already gave;
               `cc-present verdict import` at the head, or dropping the row, clears it
     re-ask    the board records his approval at another head, and no root go, decide or decision record
@@ -303,9 +303,10 @@ def ruling_text(shell: Shell, record: dict) -> str:
     return (shell.read(path) if path else None) or record["text"]
 
 
-def root_rulings(shell: Shell, drive: str) -> list[dict]:
+def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
+    """The go, decide and decision records of root and of each lane `landing.go_lanes` lets rule for it."""
     kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
-    records = [record for record in cci.records(tail(shell), drive, "--lane", "root", *kinds) if record["lane"] == "root" and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
+    records = [record for lane in lanes for record in cci.records(tail(shell), drive, "--lane", lane, *kinds) if record["lane"] == lane and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
     return [record | {"full": ruling_text(shell, record)} for record in records]
 
 
@@ -504,7 +505,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     asked = {row.pr for row in named} | {pr for prs in blockers.values() for pr in prs} | {pr for *_, members in claims for pr in members} | {pr for _, pr in listed}
     pulls = read_pulls(shell, repo, sorted(asked, key=int), warnings)
     try:
-        rulings = root_rulings(shell, drive)
+        rulings = sorted(root_rulings(shell, drive, ["root", *landing.get("go_lanes", [])]), key=lambda record: record["seq"])
         withdrawn = {seq for record in cci.records(tail(shell), drive, "--lane", "root", "--kind=withdraw") if record["lane"] == "root" for seq in grades.closes(record)}
     except ReadFailed as failed:
         rulings, withdrawn = None, set()
