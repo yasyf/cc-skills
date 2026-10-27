@@ -50,6 +50,19 @@ def plan_prs(text):
     return list(dict.fromkeys(numbers))
 
 
+def parse_plan(body):
+    if PLAN_HEADING not in body:
+        return None
+    updated = next(row.split(": ", 1)[1] for row in body.splitlines() if row.startswith("updated: "))
+    section = body.split(PLAN_HEADING, 1)[1].split("\n", 1)[1].split("\n## ", 1)[0]
+    steps = []
+    for row in section.splitlines():
+        if found := PLAN_ITEM.match(row.strip()):
+            lead, _, rest = found[1].partition("** ")
+            steps.append({"title": lead.strip("*").rstrip(":. ") if rest else found[1], "text": rest, "prs": plan_prs(found[1])})
+    return updated, steps
+
+
 class Drive:
     def __init__(self, config):
         self.config = config
@@ -169,18 +182,8 @@ class Drive:
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
-            body = self.ccn("doc", "show", line.split("\t")[0])
-            if PLAN_HEADING not in body:
-                continue
-            updated = next(row.split(": ", 1)[1] for row in body.splitlines() if row.startswith("updated: "))
-            section = body.split(PLAN_HEADING, 1)[1].split("\n", 1)[1].split("\n## ", 1)[0]
-            steps = []
-            for row in section.splitlines():
-                if found := PLAN_ITEM.match(row.strip()):
-                    lead, _, rest = found[1].partition("** ")
-                    title = lead.strip("*").rstrip(":. ") if rest else found[1]
-                    steps.append({"title": title, "text": rest or "", "prs": plan_prs(found[1])})
-            return updated, steps
+            if plan := parse_plan(self.ccn("doc", "show", line.split("\t")[0])):
+                return plan
         return None, []
 
     def read_doc(self, ref):
