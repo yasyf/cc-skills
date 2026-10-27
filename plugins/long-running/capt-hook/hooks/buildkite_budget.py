@@ -45,9 +45,8 @@ POLL_MESSAGE = (
 )
 
 GH_POLL_MESSAGE = (
-    "Warning, nothing was blocked: Polling GitHub more often than every 5 minutes spends the GitHub quota the merge process and every lane share."
-    " Read PR and CI state from the drive's cci records and dashboard, or sleep 300 s or more between GitHub calls;"
-    " `gh run watch` and `gh pr checks --watch` take `--interval 300`."
+    "Warning, nothing was blocked: Polling GitHub more often than every 5 minutes spends the quota the merge process and every lane share."
+    " Read PR state from cci records, or sleep 300 s between calls; `gh run watch` and `gh pr checks --watch` take `--interval 300`."
 )
 
 
@@ -128,7 +127,7 @@ def job_log_argv(argv: Sequence[str]) -> bool:
 def seconds(word: str) -> float | None:
     unit = word[-1:] if word[-1:] in SLEEP_UNITS else ""
     number = word.removesuffix(unit)
-    return float(number) * SLEEP_UNITS.get(unit, 1) if number.replace(".", "", 1).isdigit() else None
+    return float(number) * SLEEP_UNITS.get(unit, 1) if number.replace(".", "", 1).isdecimal() else None
 
 
 def sleep_seconds(args: Sequence[str]) -> float | None:
@@ -262,7 +261,8 @@ def shell_findings(cmd: Cmd, source: Source) -> set[str]:
         calls = argvs(body)
         if any(rest_argv(argv) for argv in calls) and short_wait(loop_waits(calls)):
             found.add(POLL)
-        if any(github_argv(argv) for argv in calls) and short_wait(loop_waits(calls), GITHUB_FLOOR_SECONDS):
+        waits = loop_waits(calls)
+        if any(github_argv(argv) for argv in calls) and all(argv[0] != "read" for argv in calls) and (not waits or short_wait(waits, GITHUB_FLOOR_SECONDS)):
             found.add(GH_POLL)
     if any(fast_watch(argv) for argv in argvs(cmd)):
         found.add(GH_POLL)
@@ -365,7 +365,8 @@ def py_findings(source: Source) -> set[str]:
         nodes = list(ast.walk(loop))
         if any(py_rest(node) or names(node, pollers) for node in nodes) and short_wait(py_waits(nodes)):
             found.add(POLL)
-        if any(py_github(node) or names(node, readers) for node in nodes) and short_wait(py_waits(nodes), GITHUB_FLOOR_SECONDS):
+        waits = py_waits(nodes)
+        if any(py_github(node) or names(node, readers) for node in nodes) and (not waits or short_wait(waits, GITHUB_FLOOR_SECONDS)):
             found.add(GH_POLL)
     return found
 
@@ -541,7 +542,10 @@ def no_fast_buildkite_polls(evt: BaseHookEvent) -> HookResult | None:
             )
         ): Warn(),
         Input(tool="Monitor", tool_input={"command": "while true; do gh run list -L 1; sleep 20; done", "description": "ci"}): Warn(),
+        Input(command="while true; do gh pr checks 1; done"): Warn(),
         Input(command="while true; do gh pr checks 1; sleep 300; done"): Allow(),
+        Input(command="while read pr; do gh pr view $pr --json state; done < prs.txt"): Allow(),
+        Input(command="gh run watch 1 --interval ²"): Allow(),
         Input(command="gh run watch 123 --exit-status --interval 300"): Allow(),
         Input(command="gh pr checks 7 --watch --interval=5m"): Allow(),
         Input(command="gh pr checks 7"): Allow(),
