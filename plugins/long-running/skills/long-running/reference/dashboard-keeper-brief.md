@@ -17,7 +17,10 @@ plain words: `now` (what the drive delivers and where it stands), `release` (wha
 next release gives people and what it waits on), `wrong` (today's problems, each with a
 state of open, in progress, working again, or done), `instructions` (the owner's asks
 today in his meaning, each with what is being done), `events` (incidents, freezes and
-restores the records do not show), and `as_of` (when you last checked every sentence).
+restores the records do not show), `asks` (what only he can do outside the board, each
+with the `seq` of the cci record that raised it, so his Needs you shows who asked and
+links the record; an ask with no record says so), and `as_of` (when you last checked
+every sentence).
 
 Loop, one foreground Bash call each, timeout 570000 ms:
 
