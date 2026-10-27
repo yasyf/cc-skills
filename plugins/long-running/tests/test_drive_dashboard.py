@@ -1,5 +1,5 @@
 import pytest
-from server import parse_plan, plan_prs
+from server import Drive, parse_plan, plan_prs
 
 DOC = """id: a5262e7
 updated: 2026-10-27T06:30:00Z
@@ -40,3 +40,14 @@ def test_parse_plan_reads_only_the_ordered_section():
 
 def test_parse_plan_skips_a_doc_without_the_section():
     assert parse_plan("id: x\nupdated: now\n\n## Lanes live\n1. **A.** b\n") is None
+
+
+def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
+    row = {"number": 43211, "head": "8242887", "title": "T", "change": "C.", "plan": "P.", "risk": "R.", "review": "V.", "blocker": "B."}
+    board = {
+        "doc": {"blocks": [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "title": "G", "summary": "S.", "prs": [row]}]}]}]},
+        "interactions": {"triage": {"merge-prs": {"43211": {"verdict": "approved", "head": "8242887"}}}, "choices": {}},
+    }
+    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(board)["rows"]
+    assert rows[0]["block"] == "merge-prs"
+    assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}

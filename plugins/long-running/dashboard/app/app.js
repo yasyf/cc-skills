@@ -341,6 +341,7 @@ function render() {
   const y = window.scrollY;
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   window.scrollTo(0, y);
+  syncReviewEmbed(r);
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
 }
