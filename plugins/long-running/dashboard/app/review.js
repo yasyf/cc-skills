@@ -90,15 +90,18 @@ function decideBar(row, v) {
   if (pending.number === row.number && pending.holding) {
     return `<form class="hold-form" data-hold="${row.number}"><input name="note" placeholder="Why hold? (optional)" value="${esc(pending.note)}"><button class="btn hold">Hold at ${head}</button><button type="button" class="btn" data-decide="cancel">Cancel</button></form>`;
   }
-  const error = pending.number === row.number && pending.error ? `<span class="pill bad">${esc(pending.error)}</span>` : '';
+  if (busy) return `<span class="decided sending">${DECIDE_WORD[pending.verdict]} ${head}…</span>`;
+  const error = pending.number === row.number && pending.error ? `<span class="pill bad">Not recorded: ${esc(pending.error)}</span><button class="btn" data-decide="${pending.verdict}">Retry</button>` : '';
   if (v === 'approved' || v === 'held') {
-    return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared" ${busy ? 'disabled' : ''}>Undo</button>${error}`;
+    return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" ${busy ? 'disabled' : ''} title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" ${busy ? 'disabled' : ''} title="H">‖ Hold</button>${error}`;
+  return `<button class="btn pri" data-decide="approved" title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
 }
+const DECIDE_WORD = { approved: 'Approving', rejected: 'Holding', cleared: 'Undoing' };
 async function decide(row, verdict, note, advance = true) {
+  if (pending.number === row.number && !pending.holding && !pending.error) return;
   clearTimeout(pending.advance);
-  Object.assign(pending, { number: row.number, holding: false, error: '', note: '' });
+  Object.assign(pending, { number: row.number, holding: false, error: '', note: '', verdict, retryNote: note });
   render();
   const error = await fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ block: row.block, number: row.number, verdict, head: row.head, ...(note ? { note } : {}) }) })
     .then((res) => res.json())
@@ -107,7 +110,7 @@ async function decide(row, verdict, note, advance = true) {
     pending.error = error;
     return render();
   }
-  row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note };
+  row.verdict = verdict === 'cleared' ? null : { verdict, head: row.head, note, at: new Date().toISOString() };
   row.state = verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held';
   pending.number = null;
   const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
@@ -115,7 +118,7 @@ async function decide(row, verdict, note, advance = true) {
   if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 700);
   render();
 }
-document.addEventListener('click', (e) => {
+function onDecide(e) {
   const button = e.target.closest('[data-decide]');
   const r = route();
   const row = r.screen === 'review' && r.id ? boardRow(r.id) : null;
@@ -125,8 +128,9 @@ document.addEventListener('click', (e) => {
     Object.assign(pending, { number: verdict === 'hold' ? row.number : null, holding: verdict === 'hold', error: '' });
     return render();
   }
-  decide(row, verdict);
-});
+  decide(row, verdict, verdict === 'rejected' ? pending.retryNote : undefined);
+}
+document.addEventListener('click', onDecide);
 document.addEventListener('submit', (e) => {
   const form = e.target.closest('[data-hold]');
   if (!form) return;

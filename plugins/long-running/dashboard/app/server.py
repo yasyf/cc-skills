@@ -30,7 +30,6 @@ GO = re.compile(r"^go #(\d+) at (\w+)")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
-TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
@@ -180,14 +179,9 @@ class Drive:
         self.board_raw = None
 
     def review_url(self, number):
-        cwd = self.reviews / str(number)
-        cwd.mkdir(parents=True, exist_ok=True)
-        url = TAILNET_LINE.search(run(["cc-review", "start", "--pr", f"{self.config['repo']}#{number}", "--session", self.assistant.session(number), "--cwd", str(cwd)]))[1]
-        if self.model["prs"].get(str(number), {}).get("state") == "landed":
-            run(["cc-review", "close", url.rsplit("/s/", 1)[1]])
-        else:
-            self.assistant.attach(number)
-        return url
+        pr = self.model["prs"].get(str(number), {})
+        row = next((r for r in self.board()["rows"] if r["number"] == number), {})
+        return self.assistant.review_url(number, row.get("head") or pr.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
         origin, _, subject = self.config["board_url"].partition("/p/")
@@ -305,7 +299,7 @@ class Drive:
                 self.model = model
                 self.version += 1
                 self.changed.notify_all()
-            self.assistant.attach_open(model["prs"])
+            self.assistant.refresh(model["prs"], [(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
 
     def check_gos(self, rows, records):
         gos = {}
