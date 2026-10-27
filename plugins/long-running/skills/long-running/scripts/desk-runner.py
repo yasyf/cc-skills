@@ -254,7 +254,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its 60-second cap has no verdict yet, logs nothing, and runs again next pass. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
 Right after the ledger and holds read, the pass gates every tree holding a PR whose ledger head a root `go` record names, eight
 checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read,
@@ -616,7 +616,7 @@ CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
-GATE_CHECK_SECONDS = 180
+GATE_CHECK_SECONDS = 60
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -4188,7 +4188,8 @@ class Landing:
         for tips, done in gated:
             verdicts = done.verdicts
             if verdictless(done):
-                self.gate_failed(tips, done)
+                if done.code != TIMED_OUT:
+                    self.gate_failed(tips, done)
                 continue
             if done.would is not None:
                 self.accept(tips, done.would, verdicts, rows, held)

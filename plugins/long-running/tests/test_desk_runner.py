@@ -2154,6 +2154,19 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
+def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
+    assert runner_module.GATE_CHECK_SECONDS == 60
+    shell.rows = single_row()
+    killed = f"stack-enqueue 29020 --check timed out after {runner_module.GATE_CHECK_SECONDS}s and was killed"
+    shell.gates["29020"] = [(runner_module.TIMED_OUT, "", killed), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    assert escalations(shell) == [] and shell.enqueues() == []
+    landing_pass(shell, config)
+    assert escalations(shell) == [] and len(checks(shell)) == 2 and len(shell.enqueues()) == 1
+
+
 def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
     shell.rows = single_row()
     shell.gates["29020"] = [(5, HANDSHAKE, "")]
