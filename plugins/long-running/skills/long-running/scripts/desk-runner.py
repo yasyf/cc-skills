@@ -256,11 +256,15 @@ wave per priority, lower first. A check that reads no verdict first settles its 
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
 log `GATE-FAILED`. A check killed at its 60-second cap has no verdict yet, logs nothing, and runs again next pass. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
-Right after the ledger and holds read, the pass gates every tree holding a PR whose ledger head a root `go` record names, eight
-checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read,
-the queue read, and the gate over every other tree. Every gate settles each tree in order as its checks come back, and runs the
-enqueue it accepts at once, while the trees after it are still being checked. The queue read is one `ccx vcs pr status` call over every open row a pass,
-allowed 300 s, which the requeue and the landed check share.
+Right after the ledger and holds read, the pass reads the queue, then gates every tree holding a PR whose ledger head a root `go`
+record names, eight checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read and the gate
+over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
+or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
+entry asks of its lane. Every gate settles each tree in order as its checks come back, and runs the enqueue it accepts at once,
+while the trees after it are still being checked. The queue read is one `ccx vcs pr status` call over every open row a pass,
+allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
+`check-pr` that waits on an owner answer runs again at most once per five minutes, and the trunk's statuses are read only when
+`git ls-remote` shows the trunk moved or its newest check was unfinished five minutes ago (root #146561).
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
 is gated again, and the adapter blocks it until a new head. A `batch-mate-red` the adapter retries is gated again; one blaming a PR outside the
@@ -634,6 +638,11 @@ RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
 POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
+BODY_MAX_AGE = timedelta(minutes=5)
+CHECK_PR_REREAD = timedelta(minutes=5)
+TRUNK_REREAD = timedelta(minutes=5)
+STATUS_SETTLED = frozenset({"queued", "landed"})
+STATUS_WAITS = frozenset({"ci-pending", "conflict", "changes-requested", "unapproved"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
 QUOTA_RESOURCES = ("core", "graphql")
@@ -3996,7 +4005,10 @@ class Landing:
         self.risky: dict[tuple[str, str], list[str]] = {}
         self.read_only = False
         self.viewer = ""
-        self.reported: dict[tuple[str, str, bool], list[str]] = {}
+        self.reported: dict[tuple[str, str, bool], tuple[datetime | None, list[str]]] = {}
+        self.bodies: dict[str, tuple[datetime, str]] = {}
+        self.trunk_read: tuple[str, datetime, bool, dict] | None = None
+        self.unchecked: set[str] = set()
         self.sessions: dict[str, bool] = {}
         self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
@@ -4177,7 +4189,7 @@ class Landing:
         self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows, held) if not holds_any(open_rows, tree, gone)])
 
     def land_gone(self, rows: dict[str, dict], held: list[str]) -> set[str]:
-        """Gate every tree holding a PR the root's `go` names at its ledger head, `GATE_WORKERS` checks at a time, and enqueue what they accept, before the pass reads anything ledger-wide: only those PRs can land, so they reach the queue first. Returns those PRs."""
+        """Gate every tree holding a PR the root's `go` names at its ledger head, `GATE_WORKERS` checks at a time, and enqueue what they accept, before the ledger-wide head read and the gate over every other tree: only those PRs can land, so they reach the queue first. Returns those PRs."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         gos = self.root_gos()
         gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
@@ -4234,11 +4246,34 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Check `trees` `GATE_WORKERS` at a time and settle each in order as its checks come back: accept what it would enqueue and run that enqueue at once, so an accepted tree reaches the queue while the trees after it are still being checked."""
+        """Check the trees of `trees` that `landable_trees` keeps, `GATE_WORKERS` at a time, and settle each in order as its checks come back: accept what it would enqueue and run that enqueue at once, so an accepted tree reaches the queue while the trees after it are still being checked."""
+        trees = self.landable_trees(rows, trees)
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             for gated in pool.map(self.proven_stacks, trees):
                 self.settle_tree(rows, held, gated)
                 self.enqueue()
+
+    def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
+        """The trees of `trees` a `--check` could enqueue from, by the pass's one status read: those holding a PR that is neither queued, landed, nor waiting on GitHub alone, on no PR that waits on GitHub alone. A PR waits on GitHub alone when every cause its verdict names is pending CI, a conflict, requested changes, a missing approval, or a parent it waits on; any other verdict, and a PR the read has no entry for, keeps its tree checked, so the adapter still routes what only it reads. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane (root #146561). None are kept when the status read failed."""
+        if (statuses := self.pr_statuses()) is None:
+            return []
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+
+        def waits(pr: str) -> bool:
+            verdict = statuses.get(pr, {}).get("verdict", "")
+            return verdict.startswith("blocked:") and all(cause in STATUS_WAITS or cause.startswith("waiting-on-downstack") for cause in verdict.removeprefix("blocked:").split(","))
+
+        def ready(pr: str) -> bool:
+            return statuses.get(pr, {}).get("verdict") not in STATUS_SETTLED and not waits(pr) and not any(waits(below) for below in downstack(open_rows, pr) - {pr})
+
+        kept = []
+        for tree in trees:
+            prs = {pr for tip in tree for pr in downstack(open_rows, tip)}
+            if any(ready(pr) for pr in prs):
+                kept.append(tree)
+            else:
+                self.unchecked |= prs
+        return kept
 
     def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -4274,9 +4309,19 @@ class Landing:
             if lane and red_contract(self.runner.lane_records(lane, "contract"), pr):
                 self.designed_red[pr] = True
             else:
-                done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-                self.designed_red[pr] = done.code == 0 and RED_BY_DESIGN.match(json.loads(done.out)["body"] or "") is not None
+                self.designed_red[pr] = (body := self.body(pr)) is not None and RED_BY_DESIGN.match(body) is not None
         return self.designed_red[pr]
+
+    def body(self, pr: str, max_age: timedelta = BODY_MAX_AGE) -> str | None:
+        """`pr`'s body, read again once the copy kept across passes is `max_age` old; None when GitHub refuses it, and the next caller reads again (root #146561)."""
+        now = self.runner.now()
+        if (kept := self.bodies.get(pr)) and now - kept[0] < max_age:
+            return kept[1]
+        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
+        if done.code != 0:
+            return None
+        self.bodies[pr] = (now, json.loads(done.out)["body"] or "")
+        return self.bodies[pr][1]
 
     def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
         """Escalate `GATE-FAILED` for a check that read no verdict, naming only the tips that have not landed since the pass read the ledger."""
@@ -4405,11 +4450,9 @@ class Landing:
         """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. It bars nothing: the queue's own required checks hold what cannot land, and a hold here would freeze the queue."""
         if not (check := self.landing_config.get("trunk_check")):
             return
-        done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
-        target = (json.loads(done.out)["data"]["repository"]["ref"] or {}).get("target") if done.code == 0 else None
+        target, why = self.trunk_target(check)
         if not target:
-            last = ((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]) if done.code else [f"GitHub knows no {TRUNK} branch in {self.repo}"]
-            self.runner.escalate(f"trunk-read:{self.runner.now():%Y%m%d%H}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {last[0]}; this pass gates as though {TRUNK} were green")
+            self.runner.escalate(f"trunk-read:{self.runner.now():%Y%m%d%H}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {why}; this pass gates as though {TRUNK} were green")
             return
         posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
@@ -4436,6 +4479,22 @@ class Landing:
         owed = f"#{posted.fix} fixes it" if posted.fix else "name the fix with `cci post --topic dev-red --pr <n>`"
         text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
         self.runner.cci_post("report", text, TRUNK_TO, cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
+
+    def trunk_target(self, check: str) -> tuple[dict | None, str]:
+        """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
+        listed = self.shell.run(["git", "-C", str(self.checkout), "ls-remote", "origin", f"refs/heads/{TRUNK}"])
+        head = listed.out.split()[0] if listed.code == 0 and listed.out.strip() else ""
+        now = self.runner.now()
+        if head and (kept := self.trunk_read) and kept[0] == head and (kept[2] or now - kept[1] < TRUNK_REREAD):
+            return kept[3], ""
+        done = self.shell.run(["gh", "api", "graphql", "-f", f"query={trunk_query(self.repo)}"])
+        target = (json.loads(done.out)["data"]["repository"]["ref"] or {}).get("target") if done.code == 0 else None
+        if not target:
+            return None, (((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"])[0] if done.code else f"GitHub knows no {TRUNK} branch in {self.repo}")
+        newest = (target["history"]["nodes"] or [{}])[0]
+        settled = any(context["context"] == check and context["state"] == "SUCCESS" for context in (newest.get("status") or {"contexts": []})["contexts"])
+        self.trunk_read = (head, now, settled, target)
+        return target, ""
 
     def landing_steps(self, pipeline: str, rows: dict[str, dict]) -> set[str] | None:
         """Every job any open row's finished full build of `pipeline` runs: a PR build leaves out each unit it did not touch, so one build alone reads a landing job as post-merge. None when no such build reads."""
@@ -4734,10 +4793,11 @@ class Landing:
             list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
-        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head and kept across passes, except an incident fix's, a timeout, a run that does not read, and a reserved-row cause an owner answer can clear, which run again next pass. A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
+        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head and kept across passes, except an incident fix's, a timeout, a run that does not read, and a reserved-row cause an owner answer can clear, which run again once `CHECK_PR_REREAD` has passed, so a head waiting on an answer costs GitHub one read per interval rather than one per pass (root #146561). A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha[:7], incident)
-        if key in self.reported:
-            return self.reported[key]
+        now = self.runner.now()
+        if (kept := self.reported.get(key)) and (kept[0] is None or now - kept[0] < CHECK_PR_REREAD):
+            return kept[1]
         done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
         lines = [line.strip() for line in done.out.splitlines() if line.strip()]
         causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
@@ -4746,8 +4806,8 @@ class Landing:
             causes = [f"{CHECK_PR_TIMEOUT} it ran past {CHECK_PR_SECONDS}s and was killed, so the rulings at {sha[:10]} are unproven this pass"]
         elif done.code not in (0, 1) or len(causes) + len(unread) < len(lines) or (done.code == 1) != bool(causes):
             causes = []
-        if not incident and done.code in (0, 1) and not unread and not any(cause(line) == RESERVED_TOUCH for line in causes):
-            self.reported[key] = causes
+        final = not incident and done.code in (0, 1) and not unread and not any(cause(line) == RESERVED_TOUCH for line in causes)
+        self.reported[key] = (None if final else now, causes)
         return causes
 
     def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str], also: Iterable[str] = ()) -> None:
@@ -4904,10 +4964,8 @@ class Landing:
 
     def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]]:
         """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass."""
-        if (pr, sha) not in self.body_preconditions:
-            done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-            if done.code == 0:
-                self.body_preconditions[(pr, sha)] = precondition_sentences(json.loads(done.out)["body"] or "")
+        if (pr, sha) not in self.body_preconditions and (body := self.body(pr, timedelta(0))) is not None:
+            self.body_preconditions[(pr, sha)] = precondition_sentences(body)
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
             records = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}")
@@ -5413,10 +5471,9 @@ class Landing:
 
     def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
         """Owe a landing's release, and say whether its body was read: a merge-fast landing owes the components its `Release-With:` lines name, and none when it names none; an incident fix's landing owes its release either way. A landing from before this runner started owes nothing once `<landing.release_cli> live --json` shows its squash or a later commit running, and closes without a record."""
-        done = self.shell.run(["gh", "pr", "view", pr, "--repo", self.repo, "--json", "body"])
-        if done.code != 0:
+        if (body := self.body(pr, timedelta(0))) is None:
             return False
-        components = list(dict.fromkeys(name for line in RELEASE_WITH.findall(json.loads(done.out)["body"]) for name in line.split()))
+        components = list(dict.fromkeys(name for line in RELEASE_WITH.findall(body) for name in line.split()))
         key = f"release:{pr}"
         self.book.accept(LANDING, key, "release", json.dumps({"pr": pr, "sha": row["landed_sha"], "components": components, "landed_at": row["landed_at"], "incident": incident}), f"#{pr} {'incident' if incident else MERGE_FAST}", None)
         if not components and not incident:
@@ -5821,7 +5878,7 @@ class Landing:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
-        if self.routed(key, owner) or self.has_landed(pr):
+        if self.routed(key, owner) or self.has_landed(pr) or blocker.conflict and self.routed(f"conflict:{pr}:{row.get('base', '')}", owner):
             return
         red = self.red_cause(pr, sha) if failing and not blocker.conflict else ""
         cause = hashlib.sha1(f"{blocker.text}\n{red}".encode()).hexdigest()[:12] if red else ""
@@ -5934,14 +5991,14 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM). It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
-        if not self.no_go or (statuses := self.pr_statuses()) is None:
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM). It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.gos = None
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
-        told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted(self.no_go - covered, key=int) if pr in statuses and open_rows[pr].get("head")}
-        landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE}
+        told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted((self.no_go | self.unchecked) - covered, key=int) if pr in statuses and pr in open_rows and open_rows[pr].get("head")}
+        landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE and pr in self.no_go}
         self.read_reports(landable)
         for pr, head in landable.items():
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
@@ -6032,7 +6089,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.sessions, self.dead, self.designed_red, self.builds_read, self.full_runs_read, self.said_preconditions = {}, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos = None, False, None, None, None
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked = None, False, None, None, None, set()
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:
