@@ -20,7 +20,7 @@ h1, h2, h3, .display { font-family: var(--display); }
 .top { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 18px; padding: 0 22px; height: 54px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .brand { font: 700 16px var(--display); color: var(--ink); white-space: nowrap; }
 .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-.tab { padding: 16px 12px 14px; color: var(--ink-2); font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; }
+.tab { padding: 16px 10px 14px; color: var(--ink-2); font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; }
 .tab:hover { text-decoration: none; color: var(--ink); }
 .tab.on { color: var(--ink); border-bottom-color: var(--accent); }
 .tab .count { margin-left: 6px; }
@@ -289,3 +289,9 @@ details.brec[open] > summary { margin-bottom: 6px; }
 .strow[open] { background: var(--surface-2); } .stdetail { padding: 4px 8px 14px; font-size: 13px; color: var(--ink-2); } .stdetail p { margin: 0 0 8px; }
 .strow.tn-failing > summary > b, .strow.tn-blocked > summary > b { color: var(--bad); }
 @media (max-width: 900px) { .sthead { display: none; } .strow > summary { grid-template-columns: 1fr; gap: 4px; } }
+@media (max-width: 1420px) { .top { gap: 12px; } #kbtn { width: auto; min-width: 0; } #kbtn > span { display: none; } }
+.answer { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; } .answer li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 2px 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.answer li:first-child { border-top: 0; } .answer .what small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 2px; } .answer em { grid-column: 2; font-style: normal; font-size: 12px; color: var(--ink-3); }
+.answer .who { color: var(--ink-2); overflow-wrap: anywhere; }
+.stanswers { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; margin-bottom: 14px; } .stanswer { padding: 14px 16px; } .stanswer h3 { margin: 0 0 6px; font-size: 15px; }
+.answer em:empty { display: none; }

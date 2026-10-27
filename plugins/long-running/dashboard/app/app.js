@@ -274,7 +274,9 @@ function statusScreen() {
   });
   const stepRows = m.steps.map((s) => row({ id: s.id, tone: s.tone, pill: pill[s.tone] ?? '', word: TONE_SAY[s.tone] ?? s.tone, name: s.title, delivers: s.delivers, state: s.state, blocker: s.blocker, doing: s.unblocking ?? s.next, wrong: s.went_wrong, prs: s.prs.map((p) => p.number ?? p), open: `<button class="btn" data-track="${esc(s.id)}">Open the step ›</button>` }));
   const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
+  const q = (key, keep) => `<section class="card stanswer"><h3>${esc(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
   return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
+    <div class="stanswers">${q('track')}${q('release', (l) => !/^R\d+ /.test(l.text))}</div>
     <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
     <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
 }
@@ -476,7 +478,7 @@ function tickFresh() {
   const age = Date.now() - new Date(m.built_at);
   const el = $('#fresh');
   el.classList.toggle('late', age > LATE_MS);
-  el.textContent = age > LATE_MS ? `Not updated since ${clock(m.built_at)}` : `Updated ${Math.max(0, Math.round(age / 1000))} seconds ago · All times Pacific`;
+  el.textContent = age > LATE_MS ? `Not updated since ${clock(m.built_at)}` : `Updated ${Math.max(0, Math.round(age / 1000))} s ago · Pacific time`;
 }
 
 async function load() {
