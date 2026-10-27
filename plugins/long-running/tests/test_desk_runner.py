@@ -3842,6 +3842,18 @@ def said_on_the_bus(shell: FakeShell) -> str:
     return f"cci #{seq}"
 
 
+@pytest.mark.parametrize(
+    ("text", "sentence"),
+    [
+        ("Reads the pointer. Waits for the card's answer before it lands.", "Waits for the card's answer before it lands."),
+        ("Interim pin, not for landing as is.\nRe-pins later.", "Interim pin, not for landing as is."),
+        ("Do not merge until the seed reads back! Then ship.", "Do not merge until the seed reads back!"),
+    ],
+)
+def test_each_explicit_landing_order_phrase_reads_as_a_precondition(text, sentence):
+    assert runner_module.precondition_sentences(text) == [sentence]
+
+
 @pytest.mark.parametrize("say", [said_in_body, said_on_the_bus])
 def test_an_unmet_landing_precondition_refuses_the_head_with_one_blocker_to_root_quoting_it(shell, config, tmp_path, say):
     lone_green_pr(shell)
@@ -3867,10 +3879,18 @@ def test_a_root_precondition_met_after_the_push_lets_the_head_enqueue(shell, con
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
-def test_a_head_with_no_landing_precondition_enqueues_without_reading_its_push_time(shell, config, tmp_path):
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Lands the release pointer reader. Readers come before the writer.",
+        "A store the readers-first gate would refuse is past the chain head, and no shipped build has one.",
+        "This lands after its parent in the stack.",
+    ],
+)
+def test_a_head_with_no_landing_precondition_enqueues_without_reading_its_push_time(shell, config, tmp_path, body):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
-    shell.bodies["29020"] = "Lands the release pointer reader. Readers come before the writer."
+    shell.bodies["29020"] = body
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
     assert not [call for call in shell.calls if call[-1] == ".commit.committer.date"]

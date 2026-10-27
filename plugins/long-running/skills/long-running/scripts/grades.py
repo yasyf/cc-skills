@@ -24,7 +24,7 @@ GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
-PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\blands after\b|\bdo not (?:land|merge) until\b|\breaders-first\b", re.IGNORECASE)
+PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 PRECONDITION_MET = re.compile(r"\s*precondition-met\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+)#\d+)*)", re.IGNORECASE)
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
@@ -93,7 +93,7 @@ def goes(record: dict, pr: str) -> bool:
 
 
 def precondition_sentences(text: str) -> list[str]:
-    """Each sentence of `text` that holds a landing back on something outside the PR: `lands only after`, `lands after`, `merge only after`, `do not land until`, or a readers-first line."""
+    """Each sentence of `text` that holds a landing back on something outside the PR in so many words: `lands only after`, `merge only after`, `before it lands`, `do not land until`, or `not for landing`."""
     return [" ".join(sentence.split()) for sentence in SENTENCE_BREAK.split(text) if PRECONDITION.search(sentence)]
 
 
