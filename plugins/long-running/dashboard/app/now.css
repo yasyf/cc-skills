@@ -142,3 +142,6 @@ body:has(.nw) { background: #080a0d; }
 .nw-hsub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink3); margin-left: 8px; font-size: 12px; }
 .nw-foot { display: flex; gap: 18px; align-items: baseline; justify-content: space-between; }
 .nw-foot .nw-code { white-space: nowrap; }
+.nw-status { max-width: 1040px; margin: 2px 0 3px; font-size: 15px; line-height: 1.45; }
+.nw-status p { margin: 0 0 4px; }
+.nw-status b { font-weight: 650; }

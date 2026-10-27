@@ -511,6 +511,7 @@ class Drive:
         self.carried = {}
         self.board_raw = None
         self.curator = Curator(config, self.curator_model, self.bump)
+        self.status_now = None
         self.stories = Stories(config, self.lane_names, self.worker_reports)
 
     def curator_model(self):
@@ -624,6 +625,17 @@ class Drive:
                 seen = stamp
                 self.touch()
                 self.curator.poke()
+            time.sleep(1)
+
+    def follow_status(self):
+        status = Path(self.config["status_now"])
+        seen = None
+        while True:
+            stamp = status.stat().st_mtime_ns if status.exists() else None
+            if stamp != seen:
+                seen = stamp
+                self.status_now = json.loads(status.read_text()) if stamp else None
+                self.bump()
             time.sleep(1)
 
     def follow_code(self):
@@ -760,6 +772,7 @@ class Drive:
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
             "brief": self.curator.brief,
             "brief_error": self.curator.error,
+            "status_now": self.status_now,
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
@@ -991,7 +1004,7 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.follow_code, ()), (drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), (drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True

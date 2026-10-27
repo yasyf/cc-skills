@@ -22,8 +22,9 @@ function nowScreen() {
   return `<div class="nw">
     ${band(b)}
     ${page ? storyPage(r.id) : `
-    <h1 class="nw-head">${esc(b.headline)}</h1>
-    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
+    ${m.status_now ? `<div class="nw-status">${m.status_now.paragraphs.map((p) => `<p><b>${esc(p.label)}.</b> ${esc(p.text)}</p>`).join('')}</div>
+    <p class="nw-sub">Written at ${clock(m.status_now.at)}. <button class="linkish" data-toggle="nw-why">${esc(b.headline)} ›</button></p>` : `<h1 class="nw-head">${esc(b.headline)}</h1>
+    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>`}
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)} · ${(() => { const t = tally(m.drive.prs); return `${t.landed} of ${t.total} changes merged`; })()}</span></h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     <div class="nw-cols">

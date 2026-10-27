@@ -35,6 +35,7 @@ From top to bottom:
 | `milestones` | The named stops in the progress view, in order. Name each by product and outcome, never by a release code. `release` ties a stop to an entry of `now.releases` in the progress desk's `steps.json`, so the model reads that release's state and blocker. |
 | `milestones_label` | The line above the stops, such as Milestones to everyone on Iris. |
 | `views` | Which version of each piece shows by default. Any of them can be flipped for one visit with a URL parameter, such as `?blockers=cards`. |
+| `status_now` | A JSON file `{at, paragraphs: [{label, text}]}` the progress desk rewrites, such as one paragraph for the main work and one for a side project. When it exists, its paragraphs replace the curator's headline, so the owner's standing status question is answered where he looks. |
 | `brief_dir` | Where the curated brief and its last 50 versions are written. |
 | `stories_dir` | Where each piece of work's story lines are saved, so reopening a story costs nothing. |
 | `transcripts` | The root session's `subagents` directory. The story for a piece of work reads the newest transcript named after its worker. |

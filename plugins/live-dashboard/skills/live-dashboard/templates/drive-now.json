@@ -12,6 +12,7 @@
  "story": "/Users/you/.claude/scratch/your-drive/drive-dashboard/story.json",
  "steps": "/Users/you/.claude/scratch/your-drive/progress-desk/steps.json",
  "holds": "/Users/you/.claude/scratch/your-drive/holds.md",
+ "status_now": "/Users/you/.claude/scratch/your-drive/progress-desk/status-now.json",
  "paths_cache": "/Users/you/.claude/scratch/your-drive/dashboard/paths.json",
  "host": "100.64.0.1",
  "port": 61210,
