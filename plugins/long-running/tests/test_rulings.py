@@ -581,6 +581,17 @@ def test_a_quoted_phrase_no_in_force_row_carries_is_no_repeat_so_classify_adds_t
     assert shell.rows[PROMPT_KEY]["words"] == words
 
 
+def test_classify_keys_a_captured_owner_pick_by_its_cc_notes_answer(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    picked = "c0ffee1d" * 5
+    captured(state, capture("9", "Keep the nightly report after cutover?\nPicked: Keep it", source="answer") | {"answer": picked})
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "9" * 16, "kind": "pick", "words": "Keep it"})
+
+    assert code == 0, out
+    assert json.loads(shell.rows[f"rule/{picked[:7]}"]["answer"]) == [picked]
+
+
 def test_a_quoted_phrase_from_a_rows_words_is_a_repeat(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     words = 'remember "Relay code lives in relay-journal" for the uploader too'
     captured(state, capture("5", words))

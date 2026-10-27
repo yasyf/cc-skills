@@ -29,6 +29,9 @@ TIMERS = {
         {"id": "queue-poll", "label": SLOT},
     ],
 }
+ASKED = "Keep the nightly report after cutover?"
+KEEP = "Keep it (Recommended)"
+PICK_ANSWER = "80ef2e4a" * 5
 LOOKUP = {"id": "c6-lookup", "type": "choice", "prompt": "6. How does the export learn a report's owner?"}
 CATCH = "One catch: each laptop's export key is minted against the owner lookup and turned away when that lookup is missing."
 REGISTER_ROWS = {
@@ -244,3 +247,61 @@ def test_why_does_it_need_this_opens_a_question_with_no_term(root):
 
     [question] = root.questions()
     assert (question["term"], question["sentence"], question["rows"], question["blocks"]) == ("", "", [], [])
+
+
+def answers(root: Root, *recorded: dict) -> None:
+    listed(root, json.dumps(list(recorded)))
+
+
+def listed(root: Root, outcome: str | tuple[int, str]) -> None:
+    root.routes[("ccn", "-R", str(root.home), "answer", "list")] = outcome
+
+
+def answer(body: str = KEEP, title: str = ASKED) -> dict:
+    return {"id": PICK_ANSWER, "title": title, "body": f"{body}\nOptions: {KEEP} | Drop it"}
+
+
+def pick(root: Root, note: str = "") -> None:
+    asked = {"questions": [{"question": ASKED, "header": "Report", "multiSelect": False, "options": [{"label": KEEP}, {"label": "Drop it"}]}]}
+    response = {"answers": {ASKED: KEEP}, "annotations": {ASKED: {"notes": note}}}
+    root.fire(PostToolUseEvent, tool_name="AskUserQuestion", tool_input=asked, tool_response=response)
+
+
+def landed(root: Root) -> list[dict]:
+    return [{key: value for key, value in capture.items() if key != "at"} for capture in root.captures()]
+
+
+def test_an_owner_pick_lands_with_the_answer_cc_notes_records_for_it(root):
+    answers(root)
+    pick(root, "and keep last week's too")
+    assert root.captures() == []
+
+    answers(root, answer())
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+
+    assert landed(root) == [
+        {"digest": PICK_ANSWER[:16], "session": SESSION, "source": "answer", "text": f"{ASKED}\nPicked: {KEEP}\nNote: and keep last week's too", "answer": PICK_ANSWER}
+    ]
+
+
+def test_a_pick_on_a_question_too_long_for_a_title_finds_its_answer_by_the_question_line(root):
+    answers(root, answer(title=ASKED[:20]) | {"body": f"{KEEP}\nQuestion: {ASKED}\nOptions: {KEEP} | Drop it"})
+    pick(root)
+
+    assert [capture.get("answer") for capture in root.captures()] == [PICK_ANSWER]
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [json.dumps([]), json.dumps([answer(body="Drop it")]), json.dumps([answer(title="Keep the nightly report")]), (1, "ccn: no store")],
+    ids=["none", "another pick", "a question it begins", "a failed read"],
+)
+def test_an_owner_pick_with_no_answer_recorded_for_it_lands_without_one_at_stop(root, outcome):
+    listed(root, outcome)
+    pick(root)
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    assert root.captures() == []
+
+    root.fire(StopEvent)
+
+    assert landed(root) == [{"digest": digest(f"{ASKED}\nPicked: {KEEP}"), "session": SESSION, "source": "answer", "text": f"{ASKED}\nPicked: {KEEP}"}]

@@ -10,9 +10,9 @@ from itertools import dropwhile, takewhile
 from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, WorkflowState, on, workflow_state
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, WorkflowState, on, workflow_state
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, rulings
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings
 from .owner_facing import REPLY_WINDOW, last_reply
 from .register_gates import READ_ERRORS, captures, failed_open, folded, read_register
 from .register_injection import drive_args
@@ -49,6 +49,12 @@ CREDENTIAL = re.compile(
     r"|(?<![\w/+=.-])(?=[\w+/=]*[a-z])(?=[\w+/=]*[A-Z])(?=[\w+/=]*\d)[\w+/=]{32,}(?=[.,;:!?)\]\"'`]*(?:\s|$))"
 )
 REDACTED = "[credential redacted]"
+ANSWER_SOURCE = "answer"
+ANSWER_LABEL = "source:askuserquestion"
+ANSWER_LIMIT = "20"
+DIGEST_CHARS = 16
+ASKED_KEEP = {"questions": [{"question": "Keep it?", "options": [{"label": "Keep"}]}]}
+PICKED_KEEP = json.dumps({"answers": {"Keep it?": "Keep"}})
 NO_BOARD = "no cc-present artifact"
 MARKED = (
     'The owner asked "{text}". Blocks marked revising: {blocks}. Until its reply is posted, a reply or writer brief quotes'
@@ -111,6 +117,73 @@ def record_relayed_quote(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
+def picks(evt: BaseHookEvent) -> list[tuple[str, str, str]]:
+    response = json.loads(evt.tool_response) if isinstance(evt.tool_response, str) else evt.tool_response
+    answers, notes = response.get("answers") or {}, response.get("annotations") or {}
+    return [
+        (asked["question"], answers[asked["question"]], ((notes.get(asked["question"]) or {}).get("notes") or "").strip())
+        for asked in evt.input.raw.get("questions", [])
+        if isinstance(answers.get(asked["question"]), str)
+    ]
+
+
+def picked_text(question: str, picked: str, note: str) -> str:
+    return "\n".join([question, f"Picked: {picked}", *([f"Note: {note}"] if note else [])])
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[DriveActive(), Tool("AskUserQuestion")],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP, env=DRIVE_CONFIG, state=ACTIVE): Allow(),
+        Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP): Allow(),
+    },
+)
+def record_owner_picks(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    at = datetime.now(UTC).strftime(STAMP)
+    with PendingPrompts.mutate(evt) as pending:
+        pending.prompts += [
+            {
+                "digest": hashlib.sha256(f"{evt.session_id}\0{picked_text(question, picked, note)}".encode()).hexdigest()[:DIGEST_CHARS],
+                "at": at,
+                "session": evt.session_id,
+                "source": ANSWER_SOURCE,
+                "question": question,
+                "picked": picked,
+                "text": picked_text(question, picked, note),
+            }
+            for question, picked, note in picks(evt)
+        ]
+    return None
+
+
+def recorded_answer(evt: BaseHookEvent, prompt: dict) -> str | None:
+    listed = ccn(str(evt.cwd), "answer", "list", "--json", "--label", ANSWER_LABEL, "--limit", ANSWER_LIMIT)
+    listed.check_returncode()
+    return next(
+        (
+            answer["id"]
+            for answer in json.loads(listed.stdout)
+            if (answer["title"] == prompt["question"] or f"\nQuestion: {prompt['question']}\n" in f"{answer['body']}\n")
+            and answer["body"].split("\n", 1)[0] == prompt["picked"]
+        ),
+        None,
+    )
+
+
+def with_answer(evt: BaseHookEvent, prompt: dict) -> dict:
+    if prompt["source"] != ANSWER_SOURCE or "answer" in prompt or not (found := recorded_answer(evt, prompt)):
+        return prompt
+    return prompt | {"digest": found[:DIGEST_CHARS], "answer": found}
+
+
+def landing(evt: BaseHookEvent, prompt: dict) -> bool:
+    return "at" in prompt and (prompt["source"] != ANSWER_SOURCE or "answer" in prompt or evt.event == Event.Stop)
+
+
 def overlaps(left: str, right: str) -> bool:
     shorter, longer = sorted((left, right), key=len)
     return len(shorter) >= QUOTE_CHARS and shorter in longer
@@ -133,7 +206,7 @@ def stamps(evt: BaseHookEvent) -> dict[str, datetime]:
 
 
 def capture(prompt: dict) -> dict:
-    kept = {key: prompt[key] for key in ("relayed_from",) if key in prompt}
+    kept = {key: prompt[key] for key in ("relayed_from", "answer") if key in prompt}
     return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
 
 
@@ -163,7 +236,11 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
             prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)} if "at" not in prompt and (key := folded(prompt.get("stamp", prompt["text"]))) in seen else prompt
             for prompt in pending.prompts
         ]
-        if not (landed := [capture(prompt) for prompt in pending.prompts if "at" in prompt]):
+        try:
+            pending.prompts = [with_answer(evt, prompt) for prompt in pending.prompts]
+        except READ_ERRORS as error:
+            failed_open(evt, "stamp_owner_prompts", error)
+        if not (landed := [capture(prompt) for prompt in pending.prompts if landing(evt, prompt)]):
             return None
         try:
             path = captures(read_register(evt, which))
@@ -175,7 +252,7 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
         except READ_ERRORS as error:
             failed_open(evt, "stamp_owner_prompts", error)
             return None
-        pending.prompts = [prompt for prompt in pending.prompts if "at" not in prompt]
+        pending.prompts = [prompt for prompt in pending.prompts if not landing(evt, prompt)]
     return None
 
 
