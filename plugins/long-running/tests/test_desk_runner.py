@@ -3131,6 +3131,19 @@ def test_on_a_board_surface_a_pr_without_a_go_gets_its_blockers_from_the_status_
     ]
 
 
+def test_a_red_head_draws_one_blocker_whether_the_status_read_or_the_gate_names_it_first(shell, config, tmp_path):
+    board_surface(config)
+    head = "c" * 40
+    shell.rows = [dict(ONE_ROW, head=head, reported_head=head)]
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccccccccc graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    merge_go(shell, "29020", "merge #29020 at ccccccc")
+    landing_pass(shell, config)
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == [f"#29020 {head}: CI is red: buildkite/test"]
+
+
 def test_on_a_board_surface_a_conflict_alone_is_one_blocker_per_base_whatever_the_head(shell, config, tmp_path):
     board_surface(config)
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
