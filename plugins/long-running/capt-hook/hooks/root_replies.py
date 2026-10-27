@@ -74,6 +74,40 @@ UNREAD_LANE = (
     f"Warning, nothing was blocked: A claim that a lane is idle, dead, or done nothing, or a stand-down or relaunch, follows `{LANE_STATUS} <lane>` in the same turn."
     " Run it, then report what it shows."
 )
+CODE_CLAIM = re.compile(
+    r"\bthe (?:review |codex |real )?findings (?:were|are)\b|\b(?:codex|sol|the review(?:er)?|the finder) found\b"
+    r"|\bthe (?:mechanism|reason) (?:is|was)\b|\bit works by\b|\bwhat happens is\b|(?<!by )\bmeans\b(?! of\b)",
+    re.IGNORECASE,
+)
+READ_TOOLS = frozenset({"Read", "Grep", "Glob"})
+READ_MCP = ("mcp__plugin_cc-context_", "mcp__plugin_cc-notes_")
+READ_COMMANDS = (
+    ("cat",),
+    ("sed",),
+    ("head",),
+    ("tail",),
+    ("rg",),
+    ("grep",),
+    ("jq",),
+    ("git", "show"),
+    ("git", "diff"),
+    ("git", "log"),
+    ("git", "blame"),
+    ("ccx", "code"),
+    ("ccx", "vcs"),
+    ("ccx", "repo"),
+    ("cci", "show"),
+    ("cci", "tail"),
+    ("cci", "digest"),
+    ("ccn",),
+    ("gh", "pr", "view"),
+    ("gh", "pr", "diff"),
+)
+WORKER_ANSWER = ("<teammate-message", '<channel source="plugin:cc-inbox:cci"')
+UNREAD_CLAIM = (
+    "Warning, nothing was blocked: A claim about what code does or what a review found follows a read of the file or record, or the owning worker's answer, in the same turn."
+    " Run `cci show <seq>` or `Read` the file, or ask the worker and tell the owner you are reading it and will answer in a few minutes."
+)
 DEFECT_ADMITTED = re.compile(
     r"\bmy bad\b|\bI (?:missed|forgot|should have|didn'?t)\b|\b(?:tooling|tool|hook|runner|desk)\s+(?:defect|bug|gap|is broken|was broken|misfired)\b"
     r"|\bdead lane\b|\blane (?:is|was) dead\b|\bmissed (?:a|the) step\b|\bstep (?:was )?skipped\b",
@@ -346,6 +380,70 @@ def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
         return None
     unread = [lane for lane in idle_claimed_lanes(last_reply(evt)) if not lane_status_read(evt, {lane})]
     return evt.context(UNREAD_LANE) if once_per_hour(evt, [f"idle-claim:{lane}" for lane in unread]) else None
+
+
+def read_this_turn(evt: BaseHookEvent) -> bool:
+    turn = evt.ctx.turn
+    tools = [use.call.name for use in turn.tool_calls.items]
+    commands = [(Path(argv[0]).name, *argv[1:]) for argv in turn_commands(evt) if argv]
+    return (
+        any(name in READ_TOOLS or name.startswith(READ_MCP) for name in tools)
+        or any(argv[: len(read)] == read for argv in commands for read in READ_COMMANDS)
+        or any(marker in event.text for event in turn.events if isinstance(event, UserEvent) and event.text for marker in WORKER_ANSWER)
+    )
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")], state=ACTIVE): Warn(
+            pattern=r"same turn"
+        ),
+        Input(transcript=[T.user("how does landing work?"), T.assistant("Landing means the journal is copied to a shared server.")], state=ACTIVE): Warn(),
+        Input(
+            transcript=[
+                T.user("what did review find?"),
+                T.assistant(T.tool("Bash", command="cci show 149433")),
+                T.assistant("Per #149433, codex found two races in the retire path."),
+            ],
+            state=ACTIVE,
+        ): Allow(),
+        Input(
+            transcript=[
+                T.user("how does landing work?"),
+                T.assistant(T.tool("Read", file_path="/repo/service/landing.go")),
+                T.assistant("The mechanism is a journal upload after each merge."),
+            ],
+            state=ACTIVE,
+        ): Allow(),
+        Input(
+            transcript=[
+                T.user("what did review find?"),
+                T.assistant(T.tool("Bash", command="cci show 149433")),
+                T.assistant("checked."),
+                T.user("and the mechanism?"),
+                T.assistant("The mechanism is a journal upload after each merge."),
+            ],
+            state=ACTIVE,
+        ): Warn(),
+        Input(
+            transcript=[
+                T.user('<teammate-message teammate_id="p8a-step5-2">Landing uploads the journal after each merge.</teammate-message>'),
+                T.assistant("The mechanism is a journal upload after each merge, per p8a-step5-2."),
+            ],
+            state=ACTIVE,
+        ): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user("status?"), T.assistant("The PR lands by means of the queue.")], state=ACTIVE): Allow(),
+        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")]): Allow(),
+    },
+)
+def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
+    if not CompactionState.load(evt).active or not (claims := CODE_CLAIM.findall(last_reply(evt))) or read_this_turn(evt):
+        return None
+    return evt.context(UNREAD_CLAIM) if once_per_hour(evt, [f"code-claim:{claim.casefold()}" for claim in claims]) else None
 
 
 @on(
