@@ -470,6 +470,7 @@ def test_a_blocker_naming_a_merged_pr_fails(tmp_path: Path, shell: FakeShell, ca
 )
 def test_a_one_tap_claim_over_a_rejected_pr_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], summary: str, verdicts: dict, failing: int) -> None:
     shell.pull("42593")
+    shell.graded("42593")
     shell.verdicts = {"merge-prs": verdicts}
 
     assert gate(tmp_path, shell, claimed(summary, pr_row("42590"), pr_row("42593")), "--check") == failing
@@ -517,3 +518,13 @@ def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, s
         block["children"][0]["groups"].append({"id": "g2", "title": "Another group", "summary": "One line.", "prs": [second]})
 
     assert gate(tmp_path, shell, block, "--check") == failing
+
+
+def test_a_row_at_a_head_he_did_not_approve_waits_until_root_rules_it_new_content(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and no root record rules {HEAD[:7]} replay or new content; it waits in Being fixed or checked"
+
+    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0

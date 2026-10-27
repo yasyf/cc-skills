@@ -27,6 +27,9 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     approved  a root `go` names the PR at its head, no root `withdraw` closes that go, and the board
               records no approval for the row at that head, so the row asks a tap he already gave;
               `cc-present verdict import` at the head, or dropping the row, clears it
+    re-ask    the board records his approval at another head, and no root go, decide or decision record
+              names the PR at this head saying it re-asks or is new content (root #138721): until root
+              rules replay or new content the row sits in Being fixed or checked
     rejected  the board records his reject for the row at its head, so the row asks again what he
               refused; it returns only at a new head
     landed    its blocker, the `blocker` field or the `Gate` fact, names a PR GitHub shows merged
@@ -90,6 +93,7 @@ SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
 PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
+REASK = re.compile(r"\bre-?asks?\b|\bnew (?:behavior|behaviour|content)\b|\basks? (?:his|a fresh) tap\b", re.IGNORECASE)
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
@@ -380,12 +384,18 @@ def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -
     return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head)
 
 
-def tap_reasons(row: Row, entry: dict | None, gos: list[dict]) -> list[str]:
+def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dict]) -> list[str]:
     if at_head(entry, "rejected", row.head):
         return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
     if gos and not at_head(entry, "approved", row.head):
         return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]} and the board holds no approval there; import it with cc-present verdict import or drop the row"]
+    if entry is not None and entry.get("verdict") == "approved" and not at_head(entry, "approved", row.head) and not reasked(rulings, row):
+        return [f"re-ask: he approved it at {entry['head']}, and no root record rules {row.head[:7]} replay or new content; it waits in Being fixed or checked"]
     return []
+
+
+def reasked(rulings: list[dict], row: Row) -> bool:
+    return any(REASK.search(record["full"]) and re.search(rf"#{row.pr}\b", record["full"]) and any(grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(record["full"])) for record in rulings)
 
 
 def newest_by_pr(verdicts: dict[str, dict[str, dict]]) -> dict[str, dict]:
@@ -519,7 +529,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
-            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [])
+            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
         if reviews is not None:
             gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
