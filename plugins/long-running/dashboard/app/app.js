@@ -68,8 +68,16 @@ function prLink(n) {
   const s = prState(n);
   return `<a class="prc ${s}" href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[s]}">${s === 'landed' ? '✓' : s === 'closed' ? '' : `<i class="lt ${s}"></i>`}#${n}</a>`;
 }
+function words(text) {
+  const rels = state.model?.now?.releases ?? [];
+  return String(text ?? '').replace(/\bR(\d{1,2})\b ?/g, (all, n, at, whole) => {
+    const r = rels.find((x) => x.id === `R${n}`);
+    if (!r) return all;
+    return whole.startsWith(r.name, at + all.length) ? '' : `the “${r.name}” release${all.endsWith(' ') ? ' ' : ''}`;
+  });
+}
 function inline(md) {
-  return esc(md)
+  return esc(words(md))
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -270,12 +278,13 @@ function statusScreen() {
   const pill = { done: 'ok', out: 'ok', failing: 'bad', held: 'warn', blocked: 'bad', you: 'warn' };
   const relRows = rels.map((r, i) => {
     const [tone, word] = releaseWord(rels, i);
-    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: `${r.id} ${r.name}`, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
+    return row({ id: r.id, tone, pill: pill[tone] ?? '', word, name: r.name, delivers: r.delivers ?? reach.get(r.id), state: r.state, blocker: r.blocker ?? (tone === 'held' ? clause(r.state)[0].split(/\.\s/)[0] : tone === 'unreach' ? word : ''), doing: r.unblocking ?? r.next, wrong: r.went_wrong, prs: [], open: `<button class="btn" data-release="${esc(r.id)}">Open the release ›</button>` });
   });
   const stepRows = m.steps.map((s) => row({ id: s.id, tone: s.tone, pill: pill[s.tone] ?? '', word: TONE_SAY[s.tone] ?? s.tone, name: s.title, delivers: s.delivers, state: s.state, blocker: s.blocker, doing: s.unblocking ?? s.next, wrong: s.went_wrong, prs: s.prs.map((p) => p.number ?? p), open: `<button class="btn" data-track="${esc(s.id)}">Open the step ›</button>` }));
   const head = '<div class="sthead"><span>Step</span><span>What it delivers</span><span>State</span><span>What blocks it</span><span>What we are doing</span><span>What went wrong so far</span></div>';
-  const q = (key, keep) => `<section class="card stanswer"><h3>${esc(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
+  const q = (key, keep) => `<section class="card stanswer"><h3>${inline(m.journeys[key].question)}</h3>${answerList(key, keep)}</section>`;
   return `<h2 class="sec">Status <span class="dim">steps as of ${clock(m.steps_at)} · tap a row for the detail</span></h2>
+    ${(() => { const r = rels.find((x) => !RELEASED.test(x.state)); return r ? `<p class="stwait">${releaseWait(r) || `${esc(r.name)} waits on nothing open`}</p>` : ''; })()}
     <div class="stanswers">${q('track')}${q('release', (l) => !/^R\d+ /.test(l.text))}</div>
     <section class="card stgroup"><h3>Releases</h3>${head}${relRows.join('')}</section>
     <section class="card stgroup"><h3>Plan steps</h3>${head}${stepRows.join('')}</section>`;
@@ -382,7 +391,9 @@ function mergeCard() {
   const merge = state.model.board.merge;
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3>${merge.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${esc(merge.summary)}</b></p>
+  const waiting = state.model.board.rows.filter((row) => verdictState(row) === 'you').length;
+  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
+    ${merge.summary ? `<details data-id="merge-note"${state.open.has('merge-note') ? ' open' : ''}><summary>The board's note</summary><p>${inline(merge.summary)}</p></details>` : ''}
     <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
     ${merge.pages.map((md) => markdown(md)).join('')}</div>`;
 }
@@ -395,9 +406,9 @@ function releases() {
   const row = (x, i) => {
     const [cls, word] = releaseWord(rels, i);
     const open = m.drive.prs.filter((e) => x.parts.includes(e.part) && e.state !== 'landed' && e.tree === m.tree_names[0]).length;
-    return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><b>${esc(x.id)}</b><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${esc(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
+    return `<li class="relrow ${cls}" data-release="${esc(x.id)}"><span class="rw">${word}</span><span class="rn">${esc(x.name)}${x.tonight ? '' : ' <em>after tonight</em>'}</span><span class="rs">${inline(x.state)}</span><span class="ro">${plural(open, 'open pull request')}</span></li>`;
   };
-  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><div class="ck">${routeStrip()}</div><ol class="rellist">${rels.map(row).join('')}</ol>
+  return `<h2 class="sec">Releases <span class="dim">state from the progress desk, ${clock(m.steps_at)}</span></h2><ol class="rellist">${rels.map(row).join('')}</ol>
     <details class="reldoc" data-id="rel-doc"${state.open.has('rel-doc') ? ' open' : ''}><summary class="sec">The full release plan ${r.updated ? `<span class="dim">revised ${clock(r.updated)}</span>` : ''}</summary><div class="prose">${markdown(r.markdown)}</div></details>`;
 }
 
@@ -449,7 +460,7 @@ function render() {
   const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
   const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
