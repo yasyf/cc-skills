@@ -29,18 +29,14 @@ REASONS = "The resubscribe hunks keep the fetched position across a cut, and eve
 SWEPT = REASONS + "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
 
 
-def patch(start: int) -> str:
-    return f"diff --git a/follow.go b/follow.go\nindex 1111111..2222222 100644\n--- a/follow.go\n+++ b/follow.go\n@@ -{start},2 +{start},2 @@\n-poll()\n+stream()\n"
-
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, diffs: dict | None = None, resolve: dict | None = None, failures: int = 0):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
         self.heads = list(heads)
-        self.own = {HEAD: [OWN]} if own is None else own
-        self.diffs = diffs or {}
+        self.own = {(BASE, HEAD): [OWN]} if own is None else own
         self.resolve = resolve or {}
         self.failures = failures
         self.calls: list[tuple[list[str], Path | None]] = []
@@ -78,9 +74,7 @@ class Fake:
                 raise subprocess.CalledProcessError(1, argv)
             return f"{full}\n"
         if argv[0] == "rev-list":
-            return "".join(f"{sha}\n" for sha in self.own.get(argv[-1].split("...")[1], []))
-        if argv[0] == "diff":
-            return self.diffs.get((argv[1], argv[2]), "")
+            return "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[-1].split("...")), []))
         raise AssertionError(f"unexpected git {argv}")
 
     def asks(self) -> list[tuple[list[str], Path | None]]:
@@ -125,7 +119,7 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
 
 def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_the_base_branchs_current_tip(tmp_path):
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [reply()], own={HEAD: [OWN, NEWER]})
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN, NEWER]})
     finder.main([str(directory)], shell)
     [rev_list] = [argv for argv, _ in shell.calls if argv[:2] == ["git", "rev-list"]]
     assert rev_list == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
@@ -164,12 +158,12 @@ def test_majors_past_ccis_limit_post_a_clipped_line_that_still_reads_major_with_
 def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_majors(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: major a269784 1 open: walk.go:9 skips the volume link"}
     directory = job(tmp_path, since=OLD, prior=prior)
-    shell = Fake(tmp_path, [reply()])
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OLD_OWN, OWN], (OLD, HEAD): [OWN, NEWER]})
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
     assert "Run nothing that builds" in question and "Change no file, branch, or ref" in question
     assert f"origin {HEAD} {BASE} {OLD}`" in question
-    assert f"`git diff {OLD} {HEAD}`" in question and f"`git range-diff {BASE} {OLD} {HEAD}`" in question
+    assert f"neither dev nor {OLD[:12]} carries by patch, each with `git show <sha>`: {OWN}." in question and f"`git diff {OLD_OWN}^ {HEAD}`" in question
     assert "cci #149302 from p8a-step9 at a269784" in question and "walk.go:9 skips the volume link" in question
     assert "/plans/durable/plan/plan.md" in question and finder.SCOPED_STEP in question
     assert "rows.md" not in question and not (directory / "rows.md").exists()
@@ -180,7 +174,7 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
 
 
 def test_a_reply_that_drops_a_row_key_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
-    dropped = reply(swept="rows met: rule/949e6be")
+    dropped = reply(swept=REASONS + "rows met: rule/949e6be")
     directory = job(tmp_path)
     shell = Fake(tmp_path, [dropped, reply()])
     finder.main([str(directory)], shell)
@@ -242,22 +236,22 @@ def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
     assert "TLS handshake timeout" in result(again)["error"]
 
 
-def test_a_fixed_head_whose_own_change_matches_the_graded_heads_by_patch_posts_nothing(tmp_path):
+def test_a_restacked_head_whose_every_own_commit_the_graded_head_carries_by_patch_posts_nothing(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
     directory = job(tmp_path, prior=prior)
-    shell = Fake(tmp_path, [], own={HEAD: [OWN], OLD: [OLD_OWN]}, diffs={(f"{OWN}^", HEAD): patch(40), (f"{OLD_OWN}^", OLD): patch(12)}, resolve={"a269784": OLD})
+    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (OLD, HEAD): [NEWER]}, resolve={"a269784": OLD})
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} is patch-identical to {OLD[:12]}, which cci #149302 graded"}
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} carries no commit {OLD[:12]} lacks, which cci #149302 graded"}
 
 
-def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_what_changed_since(tmp_path):
+def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_commits(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
     directory = job(tmp_path, prior=prior)
-    shell = Fake(tmp_path, [reply()], own={HEAD: [OWN], OLD: [OLD_OWN]}, diffs={(f"{OWN}^", HEAD): patch(40), (f"{OLD_OWN}^", OLD): patch(12).replace("stream", "push")}, resolve={"a269784": OLD})
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OLD_OWN, OWN], (OLD, HEAD): [OWN]}, resolve={"a269784": OLD})
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
-    assert f"`git diff {OLD} {HEAD}`" in question and finder.SCOPED_STEP in question
+    assert f"`git show <sha>`: {OWN}." in question and finder.SCOPED_STEP in question and not (directory / "rows.md").exists()
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
 
 

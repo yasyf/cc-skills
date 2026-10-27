@@ -8,8 +8,8 @@ this script detached. The job reads the PR through ccx's gateway, retrying a fai
 `RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
 PR's own commits as the head's commits no commit on the base branch's current tip matches by patch,
 so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
-graded is a fixed head: it reads only the change since that head, runs no row pass, and posts
-nothing when its own change is patch-identical to the graded head's. A whole pass writes the head's
+graded is a fixed head: it reads only its own commits the graded head lacks by patch, runs no row
+pass, and posts nothing when there are none. A whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
@@ -24,7 +24,6 @@ raised, and the runner settles the dispatch from it.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shlex
@@ -90,15 +89,13 @@ def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dic
     return full, {"seq": prior["seq"], "lane": prior["lane"], "head": prior["head"], "text": prior["text"]}
 
 
-def scope(job: dict, base: str, root: str, last: str) -> str:
-    head = job["head"]
-    whole = f"`git diff {root} {head}`"
+def scope(job: dict, view: dict, own: list[str], last: str, new: list[str]) -> str:
+    whole = f"`git diff {own[0]}^ {job['head']}`"
     if not last:
         return f"This pass reads the PR's whole change: {whole}."
     return (
-        f"The finder last graded {last}. This pass reads only what changed since: `git diff {last} {head}` when "
-        f"`git merge-base --is-ancestor {last} {head}` succeeds; otherwise the head was rebased, and "
-        f"`git range-diff {base} {last} {head}` names each commit that changed, which you read whole. "
+        f"The finder last graded {last}. This pass reads only the commits this head carries that neither "
+        f"{view['baseRefName']} nor {last[:12]} carries by patch, each with `git show <sha>`: {' '.join(new)}. "
         f"The PR's whole change, for context only, is {whole}."
     )
 
@@ -113,7 +110,7 @@ def prior_text(job: dict) -> str:
     )
 
 
-def prompt(job: dict, view: dict, base: str, root: str, last: str, rows: Path | None, plan: str) -> str:
+def prompt(job: dict, view: dict, base: str, own: list[str], last: str, new: list[str], rows: Path | None, plan: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
@@ -122,7 +119,7 @@ def prompt(job: dict, view: dict, base: str, root: str, last: str, rows: Path | 
         base_oid=base,
         checkout=job["checkout"],
         fetch=" ".join(filter(None, [job["head"], base, last])),
-        scope=scope(job, base, root, last),
+        scope=scope(job, view, own, last, new),
         prior=prior_text(job),
         rows_step=ROWS_STEP.read_text().format(rows=rows).rstrip() if rows else SCOPED_STEP,
         plan=plan or "none; the register names no plan",
@@ -174,15 +171,9 @@ def git(shell: Shell, job: dict, *argv: str) -> str:
     return shell.run(["git", *argv], cwd=Path(job["checkout"]), timeout=SLICE_SECONDS).strip()
 
 
-def own_root(shell: Shell, job: dict, base: str, head: str) -> str:
-    """The parent of the oldest commit `head` carries that no commit since its merge-base with `base` matches by patch, empty when there is none."""
-    own = git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{base}...{head}").split()
-    return f"{own[0]}^" if own else ""
-
-
-def patch_id(diff: str) -> str:
-    changed = (line.rstrip() for line in diff.splitlines() if line.startswith(("diff --git", "+", "-")) and not line.startswith(("+++", "---")))
-    return hashlib.sha256("\n".join(changed).encode()).hexdigest()
+def beyond(shell: Shell, job: dict, other: str, head: str) -> list[str]:
+    """The commits `head` carries, oldest first, that no commit since its merge-base with `other` matches by patch."""
+    return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split()
 
 
 def graded(shell: Shell, job: dict) -> str:
@@ -213,17 +204,18 @@ def run(directory: Path, shell: Shell) -> dict:
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
     last = graded(shell, job)
     git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, *filter(None, [last]))
-    if not (root := own_root(shell, job, base, head)):
+    if not (own := beyond(shell, job, base, head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
-    if last and (last_root := own_root(shell, job, base, last)) and patch_id(git(shell, job, "diff", last_root, last)) == patch_id(git(shell, job, "diff", root, head)):
-        return {"skipped": f"{pr} at {head[:12]} is patch-identical to {last[:12]}, which cci #{job['prior']['seq']} graded"}
+    new = [sha for sha in own if sha in set(beyond(shell, job, last, head))] if last else []
+    if last and not new:
+        return {"skipped": f"{pr} at {head[:12]} carries no commit {last[:12]} lacks, which cci #{job['prior']['seq']} graded"}
     rows = None if last else directory / "rows.md"
     keys: list[str] = []
     if rows:
         rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, root, last, rows, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, base, own, last, new, shell.run(rulings(job, "plan")).strip()))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
