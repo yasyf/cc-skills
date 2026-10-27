@@ -5,7 +5,7 @@
 .review-embed .pane { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
 .review-embed .verdict { position: sticky; top: 70px; }
 .review-embed .verdict iframe { display: block; width: 100%; height: 560px; border: 0; }
-.review-embed .code iframe { display: block; width: 100%; height: calc(100vh - 96px); border: 0; }
+.review-embed .code iframe { display: block; width: 100%; height: calc(100vh - 132px); border: 0; }
 .review-embed .pane-wait { padding: 24px; margin: 0; }
 .review-embed .pane-wait.bad { color: var(--bad); }
 @media (max-width: 1100px) {
@@ -49,3 +49,6 @@ body:has(#embed:not([hidden])) .foot { display: none; }
 .review-lists a { padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 650; }
 .review-lists a.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .review-lists a b { margin-left: 4px; font-weight: 700; opacity: .7; }
+.review-embed .assist-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
+.review-embed .assist-line b { color: var(--ink); font-weight: 600; }
+.review-embed .assist-line .on { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }

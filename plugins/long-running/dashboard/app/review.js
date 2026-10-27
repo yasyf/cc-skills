@@ -55,7 +55,7 @@ function reviewPR(n, tab) {
     const go = approvedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
-      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>`;
+      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>${prFacts(n)}`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
@@ -158,6 +158,7 @@ document.addEventListener('keydown', (e) => {
   else return;
   e.preventDefault();
 });
+const ASSISTANT_LINE = `<p class="assist-line"><i class="on"></i><b>Assistant connected.</b> Ask in the bar under the code; it answers from<span class="pill" title="The files and lines this pull request changes">the diff</span><span class="pill" title="This pull request's row on the merge board: change, plan, risk, review, blocker">its board row</span><span class="pill" title="Your recorded rulings that match the question">your rulings</span><span class="pill" title="The drive's records that name this pull request">the drive's records</span></p>`;
 function syncReviewEmbed(r) {
   const note = [...document.querySelectorAll('.hold-form input')].find((input) => input.offsetParent);
   if (note) {
@@ -187,10 +188,10 @@ function syncReviewEmbed(r) {
   code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
   fetch(`/api/review/${number}`, { cache: 'no-store' })
     .then((res) => res.json())
-    .then(({ url, error }) => {
+    .then(({ url, assistant, error }) => {
       if (embed.number !== number) return;
       code.innerHTML = url
-        ? `<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
+        ? `${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
         : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>`;
     });
 }

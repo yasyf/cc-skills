@@ -337,9 +337,8 @@ const HOME = { mac: 'Your Mac', cloud: 'The cloud', tools: 'Release and tools' }
 function sheet(body, small = '') {
   return `<div class="overlay" data-close="1"><div class="sheet${small}"><button class="btn close" data-close="1">Close</button>${body}</div></div>`;
 }
-function prSheet() {
+function prFacts(n) {
   const m = state.model;
-  const n = ov.pr;
   const e = driveEntry(n) ?? { number: n, state: prState(n) };
   const pr = m.prs[n] ?? {};
   const step = m.steps.find((s) => s.id === e.step);
@@ -348,17 +347,24 @@ function prSheet() {
   const w = m.workers.find((x) => x.lane === lane);
   const row = boardRow(n);
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
-  const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
   const word = latestOn(n);
-  return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
-    <dl class="facts"><dt>Where it stands</dt><dd>${stands}</dd>
+  return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
     <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
     ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
     ${e.state === 'failing' ? `<dt>Which check</dt><dd><a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its failing checks on GitHub ↗</a></dd>` : ''}
     <dt>Who is on it</dt><dd>${w ? `<button class="linkish" data-worker="${esc(w.lane)}">${esc(w.lane)}</button>, ${agoWords(lane === e.worker?.lane ? e.worker.at : w.at)}` : 'Nobody right now'}</dd>
-    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>
+    ${word ? `<dt>Latest word on it</dt><dd>${said(word, 260)} <small class="dim">${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}</dl>`;
+}
+function prSheet() {
+  const m = state.model;
+  const n = ov.pr;
+  const e = driveEntry(n) ?? { number: n, state: prState(n) };
+  const row = boardRow(n);
+  const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
+  return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
+    ${prFacts(n)}
     <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
 }
 function partSheet() {
@@ -608,7 +614,8 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .rellist')) return;
+  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts')) return;
+  const away = () => (route().screen === 'overview' ? render() : (location.hash = '#/'));
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
   if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
@@ -617,11 +624,11 @@ document.addEventListener('click', (e) => {
   const scrubTo = e.target.closest('[data-scrubto]');
   if (scrubTo) return setScrub(Number(scrubTo.dataset.scrubto));
   const partEl = e.target.closest('[data-part-open], .ck .pl');
-  if (partEl) { ov.part = partEl.dataset.partOpen ?? partEl.closest('[data-part]')?.dataset.part; if (ov.part) { state.overlay = 'part'; return render(); } }
+  if (partEl) { ov.part = partEl.dataset.partOpen ?? partEl.closest('[data-part]')?.dataset.part; if (ov.part) { state.overlay = 'part'; return away(); } }
   const workerEl = e.target.closest('[data-worker]');
-  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
+  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return away(); }
   const trackEl = e.target.closest('[data-track]');
-  if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return render(); }
+  if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return away(); }
   const planEl = e.target.closest('[data-plan]');
   if (planEl) { state.overlay = 'plan'; ov.planTab = planEl.dataset.plan || 'steps'; return render(); }
   if (e.target.closest('[data-desks]')) { e.preventDefault(); state.overlay = 'desks'; return render(); }
