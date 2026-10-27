@@ -151,6 +151,8 @@ CAPTURE_STAMP = "%Y-%m-%d %I:%M %p PT"
 PLAIN_WORDS = 3
 PLACEMENT = re.compile(
     r"\b(?:lives?|belongs?|goes|put|puts|placed?|home)\b(?:\W+\w+){0,6}?\W+(?:in|into|inside|outside|under)\b"
+    r"(?=\W+(?:[\w.-]*/[\w./-]*\w|\w+(?:[-_]\w+)+|\w+\.(?:py|js|jsx|ts|tsx|go|rs|swift|md|toml|json|ya?ml|sh)\b"
+    r"|(?:\w+\s+){0,2}(?:crates?|packages?|trees?|files?|modules?|repos?|director(?:y|ies)|folders?|apps?)\b))"
     r"|\b(?:not in|out of|in) scope\b|\bonly (?:in|on)\b|\bnever (?:in|on)\b"
     r"|\bjargon\b|\bterms?\b|\bcall(?:ed|ing)? (?:it|them)\b|\bplain (?:words|english)\b",
     re.IGNORECASE,

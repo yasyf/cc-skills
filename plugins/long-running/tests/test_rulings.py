@@ -487,6 +487,29 @@ def test_classify_refuses_an_order_for_repeat_or_placement_words(home: Path, pac
     assert shell.writes() == []
 
 
+def test_put_in_with_no_code_object_is_no_placement(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = "put yourself in the humans shoes"
+    captured(state, capture("6", words))
+    shell = RegisterShell(seeded(package))
+
+    code, out = classify(tmp_path, capsys, shell, {"digest": "6" * 16, "kind": "order", "words": words})
+
+    assert code == 0, out
+    assert shell.rows[PROMPT_KEY]["words"] == words
+
+
+def test_put_in_a_crate_path_is_a_placement(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
+    words = "put the mint in rust/crates/relay-api"
+    captured(state, capture("6", words))
+
+    code, out = classify(tmp_path, capsys, RegisterShell(seeded(package)), {"digest": "6" * 16, "kind": "order", "words": words})
+
+    assert (code, out.strip()) == (
+        1,
+        f"ORDER-IS-SCOPE {'6' * 16}: the words carry a placement rule (put the mint in); a repeat extends its row and a placement is a scope row",
+    )
+
+
 def test_classify_refuses_words_that_are_not_in_the_capture(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("3", "the uploader goes in relay-journal"))
 
