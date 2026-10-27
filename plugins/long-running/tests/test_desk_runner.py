@@ -5201,6 +5201,18 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     assert "yet it is not in the queue after 6 minutes" in line
 
 
+def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqueued(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.check_pr["33001"] = (1, RESERVED)
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.endswith("it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224)")
+
+
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
