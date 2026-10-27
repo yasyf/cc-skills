@@ -356,7 +356,7 @@ class Drive:
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
         row = next((r for r in self.board()["rows"] if r["number"] == number), {})
-        return self.assistant.review_url(number, row.get("head") or pr.get("head"), pr.get("state") == "landed")
+        return self.assistant.review_url(number, pr.get("head") or row.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
         entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
@@ -475,7 +475,6 @@ class Drive:
                 self.dirty_at = 0.0
             try:
                 model = self.build(refresh_slow=stale)
-                self.assistant.refresh([(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
             except Exception as error:
                 failure = f"{type(error).__name__}: {error}"
                 if self.errors.get("build") != failure:

@@ -133,6 +133,19 @@ function onDecide(e) {
 }
 document.addEventListener('click', onDecide);
 document.addEventListener('submit', (e) => {
+  const asking = e.target.closest('[data-ask-pr]');
+  if (asking) {
+    e.preventDefault();
+    const n = asking.dataset.askPr;
+    const question = asking.q.value.trim();
+    if (!question) return;
+    const answer = asking.nextElementSibling;
+    answer.innerHTML = '<p class="dim">Thinking…</p>';
+    fetch('/api/asked', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `${question} (on #${n})` }) });
+    assistAsk(`About pull request #${n}, ${plainTitle(n)}: ${question}`, [], (text) => (answer.innerHTML = `<p>${inline(text).replace(/\n/g, '<br>')}</p>`))
+      .catch((failure) => (answer.innerHTML = `<p class="bad">The answer stopped: ${esc(failure.message)}</p>`));
+    return;
+  }
   const form = e.target.closest('[data-hold]');
   if (!form) return;
   e.preventDefault();
@@ -193,7 +206,8 @@ function syncReviewEmbed(r) {
       if (embed.number !== number) return;
       code.innerHTML = url
         ? `${stale ? STALE_LINE : ''}${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
-        : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>`;
+        : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>
+          <form class="assist-line pr-ask" data-ask-pr="${number}"><input name="q" placeholder="Ask about #${number}: it answers from its facts, your rulings and the drive's records"><button class="btn pri">Ask</button></form><div class="pr-answer"></div>`;
     });
 }
 window.addEventListener('message', (e) => {
