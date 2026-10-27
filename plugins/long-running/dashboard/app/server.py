@@ -154,14 +154,14 @@ def next_action(state, pr, row, owner, base, base_landed, hold):
     if state == "you":
         return f"Your tap on the merge board at {row['head'][:7]}{f', and {who} rebases it onto its base' if pr.get('mergeable_state') == 'dirty' else ''}."
     if hold:
-        return f"Held: {hold}."
+        return f"Held by root: {plain_hold(hold)}."
     if pr.get("mergeable_state") == "dirty":
         return f"{who} rebases it onto its base."
     if state == "failing":
         checks = ", ".join(check["name"] for check in pr.get("failing_checks") or [])
         return f"{who} fixes {checks or 'its failing tests'}."
     if state == "held":
-        return f"Held{': ' + pr['hold_reason'] if pr.get('hold_reason') else ' by your verdict on the merge board'}."
+        return f"Held by root: {plain_hold(pr['hold_reason'])}." if pr.get("hold_reason") else "Held by your verdict on the merge board."
     if base and not base_landed:
         return f"Lands after #{base} lands."
     if state == "queued":
@@ -169,6 +169,10 @@ def next_action(state, pr, row, owner, base, base_landed, hold):
     if state == "doing":
         return f"{who} is working on it."
     return "Waits its turn in its stack."
+
+
+def plain_hold(text):
+    return re.sub(r"\s*\([^()]*#\d{6}[^()]*\)", "", re.sub(r"^(root cci hold:|lane:\S+)\s*", "", text)).rstrip(". ")
 
 
 def hold_reasons(entries, prs):
@@ -350,7 +354,7 @@ def drive_workers(records, prs, steps, now, desks=False):
 
 def step_tone(step, prs, workers, untracked):
     states = {entry["state"] for entry in prs}
-    if prs and states == {"landed"} and not untracked:
+    if prs and states == {"landed"} and (not untracked or step["tone"] == "done"):
         return "done"
     for tone in ("you", "failing", "held"):
         if tone in states:
