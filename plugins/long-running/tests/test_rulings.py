@@ -670,7 +670,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert (result["key"], result["how"], result["kind"], result["status"]) == (PROMPT_KEY, "new", "scope", "in-force")
     assert result["hits"] == [f"open {PROMPT_KEY} {state / 'briefs' / 'lane-a.md'}:2 desktop shell"]
     row = shell.rows[PROMPT_KEY]
-    assert (row["words"], row["global"], row["steps"], row["proof"], row["at"]) == ("uploads stay out of the desktop shell.", "yes", '["all"]', f"proof:prompt:{'4' * 16}", "Oct 23 5:30 AM PT")
+    assert (row["words"], row["global"], row["steps"], row["proof"], row["at"]) == ("uploads stay out of the desktop shell. keep them in the journal", "yes", '["all"]', f"proof:prompt:{'4' * 16}", "Oct 23 5:30 AM PT")
     assert [item["state"] for item in json.loads(row["implications"])] == ["proposed"] * 3
     card = json.loads((state / "cards" / "prompt:1023-053000.json").read_text())
     assert card == {
@@ -685,7 +685,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     announced = Path(post[post.index("--path") + 1]).read_text().splitlines()
     assert announced[0] == f"Register classify, 1 rows: new {PROMPT_KEY}."
     assert f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim." in announced
-    assert "> uploads stay out of the desktop shell." in announced
+    assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
 
@@ -768,7 +768,7 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert json.loads(row["names"]) == ["relay-server", "parked worker", "relay hook"]
     assert [(item["n"], item["text"]) for item in json.loads(row["implications"])][-1] == (4, "relay-server exposes no relay hook.")
     assert json.loads(row["repeats"]) == [
-        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": entry["words"], "proof": f"proof:prompt:{'5' * 16}", "repeat": True}
+        {"key": PROMPT_KEY, "answer": [], "at": "Oct 23 5:30 AM PT", "words": "how many times: no parked worker on relay-server, and no relay hook either", "proof": f"proof:prompt:{'5' * 16}", "repeat": True}
     ]
     brief = state / "briefs" / "lane-a.md"
     hits = json.loads(out)["hits"]
