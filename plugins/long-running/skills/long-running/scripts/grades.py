@@ -18,6 +18,7 @@ FINDER_ISSUES = "issues"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"\s*(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
@@ -25,6 +26,17 @@ GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 
 def names_head(named: str, sha: str) -> bool:
     return bool(sha) and (sha.startswith(named) or named.startswith(sha))
+
+
+def missing_grounds(text: str) -> str:
+    """The grounds a `fidelity: missing` line names: its first word after the head, the plan item or register row key `rulings.py grade` writes there."""
+    words = [word for word in text.removeprefix(FIDELITY_MISSING).split() if word != "at" and not SHORT_SHA.fullmatch(word)]
+    return words[0].rstrip(".,:;") if words else ""
+
+
+def owner_grounded(text: str) -> bool:
+    """Whether a `fidelity: missing` line rests on plan text or the owner's words: every comma-joined key it names is a plan line or item, or a register row other than a `design/` row, never a bare word or a cci seq."""
+    return all(GROUND_KEY.fullmatch(key) for key in missing_grounds(text).split(",")) if missing_grounds(text) else False
 
 
 def graded_head(text: str) -> str:

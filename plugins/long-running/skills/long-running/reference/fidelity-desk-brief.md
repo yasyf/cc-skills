@@ -107,7 +107,8 @@ reports READY, or when the runner's `blocker` names it ungraded.
    `--ground <id>=plan:<line>` or `--ground <id>=<owner row key>`, or set it aside
    with `--not-a-mechanism <id>=<why>`; an id may be a glob. Ground a mechanism
    the scan missed with `--ground <file>:<line>=...` all the same. Name each row
-   the head breaks with `--missing <key>=<one line>`.
+   the head breaks with `--missing <key>=<one line>`, where the key is a plan line
+   `plan:<n>` or an owner row; `grade` refuses any other key.
 5. Post each line of the file. An ok is
    `fidelity: ok <head7> checked <key>,<key>... names <name>|<name>...`, and a
    failure is one `fidelity: missing <head7> <key> <one line>` per failing row
@@ -121,7 +122,10 @@ prints beside its mechanism, so the grade shows what the plan says. An owner row
 or a board pick. A cci seq, a root note, a `design/` row and a pending row are
 root rulings. `grade` rejects them with "root rulings are not grounds; put it on
 the owner's board", and the desk posts the mechanism to the root as a `finding`
-for a board card.
+for a board card. Post only the lines `grade` writes. The runner sends a
+`fidelity: missing` line whose key is a bare word such as `owner-words`, a cci
+seq, or a `design/` row to the root and the graders, never to the lane, because
+it changes no code until it rests on plan text or the owner's words.
 
 A restack whose patch is identical to a head already graded ok gets the same line
 the minute it is asked, without a re-read of the diff ([SKILL.md](../SKILL.md), "A

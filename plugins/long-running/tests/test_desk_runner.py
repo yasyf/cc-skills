@@ -2553,6 +2553,18 @@ def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path
     assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; fidelity-desk graded this head on cci #{seq}: fidelity: missing F307 at cccc333 (View fix). It carries no test."
 
 
+@pytest.mark.parametrize("grounds", ["owner-words. root #131110 keeps this missing", "design/s9 the plan's design row", "#131668 root's tap-carry rule"])
+def test_a_missing_that_names_no_plan_line_or_owner_row_goes_to_root_and_the_graders_never_the_lane(shell, config, tmp_path, grounds):
+    lone_green_pr(shell)
+    seq = grade(shell, "29020", f"missing cccc333 {grounds}")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "root,fidelity-desk"
+    key = grounds.split()[0].rstrip(".")
+    assert blocker["text"].endswith(f"cci #{seq}: fidelity: missing cccc333 {grounds} | it rests on `{key}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board")
+
+
 def test_an_ok_at_an_older_head_only_is_blocked(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at bbbb222.")

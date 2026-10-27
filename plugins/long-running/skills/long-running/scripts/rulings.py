@@ -2114,8 +2114,8 @@ def cmd_grade(args: argparse.Namespace, shell: ledger.Shell) -> int:
     grounds = assignments(args.ground, "--ground")
     asides = assignments(args.not_a_mechanism, "--not-a-mechanism")
     missing = assignments(args.missing, "--missing")
-    for key, _ in missing:
-        loaded.row(key)
+    if ungrounded := [said for key, _ in missing for ok, said in [grounded(loaded, plan, key)] if not ok]:
+        raise SystemExit(f"--missing takes a plan line plan:<n> or an owner row: {'; '.join(ungrounded)}")
     found, scanned, skipped = mechanisms(diff)
     if stray := [target for target, _ in asides if not any(fnmatch.fnmatch(mechanism.id, target) for mechanism in found)]:
         raise SystemExit(f"--not-a-mechanism names no listed mechanism: {', '.join(stray)}")
