@@ -144,6 +144,7 @@ def register(home: Path, **fields) -> dict:
         "state_dir": str(home / "scratch" / "release-v3"),
         "cci_drive": None,
         "root_terminal": ROOT,
+        "slack_cards": True,
     } | fields
     drive.save(entry)
     return entry
@@ -240,6 +241,16 @@ def test_the_dialogs_text_stays_in_an_owner_only_file_under_the_drives_state_dir
     everything_else = [whole(post) for post in shell.posts] + [call[6] for call in shell.sends] + [json.dumps(card) for card in shell.cards] + shown(shell, capsys) + [json.dumps(rows)]
     assert [post["--to"] for post in shell.posts] == ["codex-supervisor"] and len(shell.cards) == 1 and len(shell.sends) == 1
     assert not [text for text in everything_else for words in DIALOG_WORDS if words in text]
+
+
+def test_a_drive_started_without_slack_cards_posts_no_card_for_the_coordinators_prompt(home, shell):
+    register(home, slack_cards=False)
+    unbound(shell)
+    coordinator(shell, "waiting", "coordinator.approval")
+
+    rows = poll(shell, 2)
+
+    assert (shell.cards, shell.posts, rows[ROOT]["alerts"]) == ([], [], {})
 
 
 def test_with_no_supervisor_the_coordinators_prompt_is_one_needs_you_card_in_the_newest_root_sessions_status_thread(home, shell):

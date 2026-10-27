@@ -3196,7 +3196,9 @@ so it identifies nothing.
   session, through `cc-slack dm-status`, when no supervisor can take the prompt. That
   covers a drive with no supervisor, a supervisor that is itself at a prompt, unknown,
   or unreachable, and a wake Orca refuses. A prompt still open five minutes after the
-  supervisor's record gets one too.
+  supervisor's record gets one too. The card goes out only in a drive whose watch was
+  started with `prompt_watch.py start --slack-cards`; without it, the owner gets no
+  Slack message for a dialog.
 
 The wake goes out once per prompt, and only to a supervisor that can take it. Orca has
 to read the terminal `tui-idle`, and the screen has to read `idle`.

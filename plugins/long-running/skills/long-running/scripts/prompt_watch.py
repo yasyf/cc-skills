@@ -37,9 +37,9 @@ a worker's or desk's prompt is a `blocker` to `root`, and one `report` to `root`
 when the prompt is still open ten minutes later. A question on the coordinator's terminal
 is the coordinator asking the owner there, so it raises no record. The coordinator cannot be
 woken by its own approval, so its approval is a `blocker` to the registered supervisor desk
-while that desk's own terminal reads clear or stale. It is a `needs_you` card in the owner's DM,
-posted with `cc-slack dm-status` into the status thread of the drive's newest root session,
-when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
+while that desk's own terminal reads clear or stale. In a drive started with `--slack-cards`, it is a
+`needs_you` card in the owner's DM, posted with `cc-slack dm-status` into the status thread of the
+drive's newest root session, when no supervisor is registered, when the supervisor is itself at a prompt, unknown, or
 unreachable, and when the prompt is still open five minutes after the supervisor was told.
 A supervisor that holds a foreground wait is never idle, so it keeps
 `cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
@@ -111,6 +111,7 @@ SCRIPT = Path(__file__).resolve()
 LANE = "prompt-watch"
 ROOT = "root"
 OWNER = "owner"
+SLACK_CARDS = "slack_cards"
 COORDINATOR = "coordinator"
 SUPERVISOR = "supervisor"
 DESK = "desk"
@@ -482,7 +483,7 @@ class Watch:
         else:
             why = f"supervisor {supervisor.subject.name} got the line {minutes}m ago, {REACHED[row['wake']['reached']]}, and it is still open"
         text = self.prompt_text(row, seen, f"It froze the coordinator; {why}. Answer it in that terminal.")
-        if self.card(entry, "needs_you", f"The {subject.name} terminal waits on {WAITS_ON[seen.state]}", text):
+        if entry.get(SLACK_CARDS) and self.card(entry, "needs_you", f"The {subject.name} terminal waits on {WAITS_ON[seen.state]}", text):
             alerts[OWNER] = row["episode"]
 
     def settle(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
@@ -729,8 +730,9 @@ def cmd_run(args: argparse.Namespace, shell: Shell) -> int:
 def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
     if not (entry := drive.find(args.drive, None)):
         raise SystemExit(f"no drive {args.drive} in {drive.drives_dir()}")
-    if args.root_terminal and entry.get("root_terminal") != args.root_terminal:
-        drive.save(entry | {"root_terminal": args.root_terminal})
+    changed = ({"root_terminal": args.root_terminal} if args.root_terminal else {}) | ({SLACK_CARDS: True} if args.slack_cards else {})
+    if any(entry.get(key) != value for key, value in changed.items()):
+        drive.save(entry | changed)
     log = watch_dir(entry) / LOG_FILE
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a") as sink:
@@ -745,6 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
     start = verbs.add_parser("start", help="detach a watch for the drive; a second one exits at once")
     start.add_argument("--drive", required=True)
     start.add_argument("--root-terminal", metavar="HANDLE", help="record the coordinator's Orca terminal in the registry first")
+    start.add_argument("--slack-cards", action="store_true", help="also card the owner's DM when the coordinator's own prompt has no supervisor to answer it")
     start.set_defaults(handler=cmd_start)
     run = verbs.add_parser("run", help="poll in the foreground until the drive ends")
     run.add_argument("--drive", required=True)
