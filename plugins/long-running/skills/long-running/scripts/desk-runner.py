@@ -497,6 +497,7 @@ import lanes
 import merge_queue
 import prompt_screen
 from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, old_app_grades_in, precondition_sentences, repo_prs, standing
+from grades import QUOTED_BLOCK, QUOTED_SPAN
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import withdraws
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
@@ -564,6 +565,10 @@ RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:r
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
+DEQUEUE_READ = "dequeue-read"
+DEQUEUE_ORDERS = "dequeue-orders"
+PULLED_HEADS = "pulled-heads"
+DEQUEUE_ORDER = re.compile(r"(?:\A\s*|\b(?:landing-desk|desk-runner):\s*)dequeue\s+#(\d+)\b", re.IGNORECASE)
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
@@ -641,7 +646,8 @@ HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
 TRUNK_REREAD = timedelta(minutes=5)
-STATUS_SETTLED = frozenset({"queued", "landed"})
+QUEUED_STATE = "queued"
+STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 STATUS_WAITS = frozenset({"ci-pending", "conflict", "changes-requested", "unapproved"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 0.05
@@ -3980,6 +3986,11 @@ def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at
     incident.action(key).response["posted"][step] = seq
 
 
+def pull_action(incident: actions.Incident, key: str, pr: str, why: str, at: str) -> None:
+    kept = incident.action(key).response
+    incident.action(key).response = {**kept, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": at}, "flaky": {n: h for n, h in kept.get("flaky", {}).items() if n != pr}, "flaky_due": {n: h for n, h in kept.get("flaky_due", {}).items() if n != pr}}
+
+
 def verdictless(gate: merge_queue.Gate) -> bool:
     return bool(gate.code) and not gate.verdicts
 
@@ -4196,6 +4207,78 @@ class Landing:
         if trees := [tree for tree in self.stack_trees(rows, held) if holds_any(open_rows, tree, gone)]:
             self.gate_trees(rows, held, trees)
         return gone
+
+    def pull_ordered(self, rows: dict[str, dict]) -> set[str]:
+        """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
+        if DEQUEUE_READ not in self.book.load(LANDING).facts:
+            self.book.edit(LANDING, lambda incident: incident.facts.setdefault(DEQUEUE_READ, self.started))
+        facts = self.book.load(LANDING).facts
+        statuses = self.pr_statuses()
+        if statuses is not None:
+            found, read = self.dequeue_orders(facts[DEQUEUE_READ])
+
+            def remember(incident: actions.Incident) -> None:
+                incident.facts.setdefault(DEQUEUE_ORDERS, {}).update({key: order for key, order in found.items() if key not in incident.facts[DEQUEUE_ORDERS]})
+                incident.facts[DEQUEUE_READ] = read
+
+            self.book.edit(LANDING, remember)
+            for key, order in self.book.load(LANDING).facts.get(DEQUEUE_ORDERS, {}).items():
+                self.settle_order(key, order, rows, statuses)
+        facts = self.book.load(LANDING).facts
+        latched = facts.get(PULLED_HEADS, {})
+        return {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in latched.items() if rows.get(pr, {}).get("head", "").startswith(head)}
+
+    def settle_order(self, key: str, order: dict, rows: dict[str, dict], statuses: dict[str, dict]) -> None:
+        pr, why = order["pr"], order["why"]
+        row, queue = rows.get(pr, {}), statuses.get(pr, {}).get("queue")
+        head = row.get("head", "")
+
+        def said(label: str, text: str) -> None:
+            self.runner.escalate(f"dequeue:{key}", label, f"#{pr}", f"#{pr} at {head[:10] or 'no open row'}, {why}: {text}")
+            self.book.edit(LANDING, lambda incident: incident.facts[DEQUEUE_ORDERS].pop(key))
+
+        if row.get("state") == "landed" or queue == "landed":
+            return said("DEQUEUE-FAILED", "it landed before the dequeue took")
+        if "sent" in order:
+            if queue is None or actions.parse_stamp(order["sent"]) >= self.statuses_floor:
+                return None
+            if queue == QUEUED_STATE:
+                return said("DEQUEUE-FAILED", "the status read after the dequeue still finds it queued")
+            if queue in OUT_OF_QUEUE:
+                self.tell_stopped(pr, row, f"{why}: {order['line']}")
+                return said("DEQUEUED", f"the status read after the dequeue finds it {queue}; its head stays out until mq.py requeue")
+            return None
+        if queue is None:
+            return said("DEQUEUE-FAILED", "it has no open row in this drive's ledger, so its queue state was not read and nothing was taken out")
+        if queue in OUT_OF_QUEUE:
+            self.latch_pulled(pr, head, why)
+            return said("DEQUEUED", f"the status read finds it {queue}, so nothing was taken out; its head stays out until mq.py requeue")
+        if queue != QUEUED_STATE:
+            return None
+        released, line = self.release_pr(pr, why)
+        if not released:
+            return said("DEQUEUE-FAILED", line)
+        self.latch_pulled(pr, head, why)
+        self.book.edit(LANDING, lambda incident: incident.facts[DEQUEUE_ORDERS][key].update({"sent": self.book.stamp(), "line": line}))
+        return None
+
+    def dequeue_orders(self, read: int | str) -> tuple[dict[str, dict], int | str]:
+        """Each order a root record on this drive posted after `read` gives, keyed by record and PR, and the read to start from next time: the newest seq read, else `read`."""
+        drive = self.runner.config.drive
+        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=read) if record["lane"] == ROOT and record["drive"] == drive]
+        orders = {
+            f"{record['seq']}:{pr}": {"pr": pr, "why": f"root #{record['seq']} ordered it out"}
+            for record in records
+            for pr in DEQUEUE_ORDER.findall(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))
+        }
+        return orders, max((record["seq"] for record in records), default=read)
+
+    def latch_pulled(self, pr: str, head: str, why: str) -> None:
+        """Keep `pr` at `head` out of every check and enqueue until `mq.py requeue`, and mark each finished enqueue that admitted it at that head `pulled`, dropping its flaky retries."""
+        self.book.edit(LANDING, lambda incident: incident.facts.setdefault(PULLED_HEADS, {}).update({pr: head}))
+        for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
+            if (sha := enqueued_heads(action.action_id).get(pr)) and head.startswith(sha):
+                self.book.attempt(LANDING, lambda incident, key=action.action_id: pull_action(incident, key, pr, why, self.book.stamp()))
 
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
         """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
@@ -5732,7 +5815,15 @@ class Landing:
             self.runner.cci_post("stopped", f"DEQUEUED #{pr} by {self.runner.config.drive}: {text}", to, f"#{pr}", f"stopped:{pr}:{drive}:{self.book.stamp()}", pr=f"{self.repo}#{pr}", drive=drive)
 
     def dequeue_pr(self, pr: str, why: str) -> tuple[bool, str]:
-        """Take `pr` out of the queue for `mq dequeue`: refused when this drive's queue does not answer for it, naming the drives whose records do; otherwise through the adapter, telling every drive that names it, and marking each enqueue that admitted it `pulled`, so the desk does not put the same head back without `mq requeue`."""
+        """Take `pr` out of the queue for `mq dequeue` through `release_pr`, telling every drive that names it."""
+        released, line = self.release_pr(pr, why)
+        if not released:
+            return False, line
+        self.tell_stopped(pr, self.ledger_rows.get(pr, {}), f"{why}: {line}")
+        return True, f"dequeued #{pr}: {line}"
+
+    def release_pr(self, pr: str, why: str) -> tuple[bool, str]:
+        """Take `pr` out of the queue through the adapter, refused when this drive's queue does not answer for it, naming the drives whose records do, and mark each enqueue that admitted it `pulled`, so the desk does not put the same head back without `mq requeue`. Returns the adapter's line, or the refusal."""
         rows = self.rows() or {}
         if not self.owned(pr, rows):
             others = self.naming_drives(pr)[1:]
@@ -5743,14 +5834,16 @@ class Landing:
             return False, f"the {self.adapter.kind} queue did not let #{pr} go: {line}"
         for key, prs in self.believed_queued(rows).items():
             if pr in prs:
-                self.book.attempt(LANDING, lambda incident, key=key: setattr(incident.action(key), "response", {**incident.action(key).response, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": self.book.stamp()}}))
-        self.tell_stopped(pr, rows.get(pr, {}), f"{why}: {line}")
-        return True, f"dequeued #{pr}: {line}"
+                self.book.attempt(LANDING, lambda incident, key=key: pull_action(incident, key, pr, why, self.book.stamp()))
+        return True, line
 
     def requeue_pr(self, pr: str) -> tuple[bool, str]:
         """Let `mq requeue` put `pr` back at its current head: a flaky head goes back in through the adapter at once, and a pulled, ejected, or go-awaiting head becomes retryable once the adapter releases whatever latch it keeps on that head, so the next pass enqueues it once every check passes."""
         rows = self.rows() or {}
         head = rows.get(pr, {}).get("head", "")
+        latched = pr in self.book.load(LANDING).facts.get(PULLED_HEADS, {})
+        if latched:
+            self.book.edit(LANDING, lambda incident: incident.facts[PULLED_HEADS].pop(pr))
         cleared = []
         for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
             response = action.response
@@ -5767,7 +5860,7 @@ class Landing:
             if response["outcome"] in (PULLED, "ejected") or pr in response.get("awaiting_go", {}) or pr in response.get("ejected", {}):
                 cleared.append(action.action_id)
         if not cleared:
-            return True, f"#{pr} {head[:10] or 'has no row'}: nothing holds this head out of the queue"
+            return True, f"#{pr} {head[:10] or 'has no row'}: " + ("its dequeue latch is cleared; the next pass enqueues it once every check passes" if latched else "nothing holds this head out of the queue")
         released, line = self.adapter.release(pr, head)
         if not released:
             return False, f"#{pr} {head[:10]}: the {self.adapter.kind} queue still refuses this head, so nothing was cleared: {line}"
@@ -6111,7 +6204,7 @@ class Landing:
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
-        barred = sorted({*(held or []), *self.no_go}, key=int)
+        barred = sorted({*(held or []), *self.no_go, *self.pull_ordered(rows)}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()
