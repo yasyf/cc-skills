@@ -31,7 +31,8 @@ CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMO
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 CHECK_PR_TIMEOUT_SECONDS = 60
 GREEN_EXCEPT = re.compile(r"\bgreen (?:except|apart from|other than|save for|but for)\b|\bknown[- ]red\b|\bred[- ]by[- ]design\b|\bdesign[- ]red\b", re.IGNORECASE)
-GRADED_KINDS = frozenset({"report", "ready", "head", "go", "decide", "decision"})
+RULING_KINDS = frozenset({"ready", "go", "decide", "decision"})
+READY_TEXT = re.compile(r"^\W*READY\b")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 ACTIVE = [CompactionState(active=True)]
@@ -399,12 +400,14 @@ def option(args: tuple[str, ...], name: str) -> list[str]:
 
 
 def green_except(call: Call) -> str | None:
-    """The phrase in a lane's READY report or a root ruling that grades a red head green: `ledger.py report`'s text, or a `cci post` text of a kind that grades or rules on a head."""
+    """The phrase in a lane's READY report or a root ruling that grades a red head green: `ledger.py report`'s text, a `cci post` report whose text opens READY, or any `cci post` text of a kind that rules on a head."""
     run = program((call.name, *call.args))
     if not run:
         return None
     name, args = Path(run[0]).name, run[1:]
-    if not (name == "ledger.py" and "report" in args) and not (name == "cci" and args[:1] == ("post",) and set(option(args, "--kind")) & GRADED_KINDS):
+    kinds = set(option(args, "--kind"))
+    ruling = name == "cci" and args[:1] == ("post",) and bool(kinds & RULING_KINDS or ("report" in kinds and any(READY_TEXT.match(arg.removeprefix("--text=")) for arg in args)))
+    if not (name == "ledger.py" and "report" in args) and not ruling:
         return None
     return next((found[0] for text in args if (found := GREEN_EXCEPT.search(text))), None)
 
@@ -435,6 +438,7 @@ def trunk_clause(entry: dict) -> str:
         Input(command="cci post --drive d --lane x --kind report 'READY #43163: green except the publish job'", env=DRIVE_ENV): Block(pattern=r"`green except`"),
         Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green on build 82560'", env=DRIVE_ENV): Allow(),
         Input(command="cci post --drive d --lane x --kind note --text 'retro: lanes graded green except the known red by hand'", env=DRIVE_ENV): Allow(),
+        Input(command="cci post --drive d --lane x --kind report --text 'DONE: the hook now refuses green except and known red claims'", env=DRIVE_ENV): Allow(),
         Input(command="ledger.py report --pr 43163 --text 'READY CI green except the known red'"): Allow(),
     },
 )
