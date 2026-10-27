@@ -503,3 +503,17 @@ def test_an_open_pr_in_the_approved_list_needs_a_go_and_a_fidelity_ok_at_its_hea
     block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "- #42740: One writer per run."})
 
     assert gate(tmp_path, shell, block, "--check") == failing
+
+
+@pytest.mark.parametrize(("other_title", "same_group", "failing"), [("Runs one background server per environment", False, 1), ("Runs one background server per environment", True, 0), ("Keeps each staging folder apart", False, 0)])
+def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, shell: FakeShell, other_title: str, same_group: bool, failing: int) -> None:
+    shell.pull("42593")
+    shell.graded("42593")
+    block = groups(pr_row("42590", title="Runs one background server for each environment"))
+    second = pr_row("42593", title=other_title)
+    if same_group:
+        block["children"][0]["groups"][0]["prs"].append(second)
+    else:
+        block["children"][0]["groups"].append({"id": "g2", "title": "Another group", "summary": "One line.", "prs": [second]})
+
+    assert gate(tmp_path, shell, block, "--check") == failing

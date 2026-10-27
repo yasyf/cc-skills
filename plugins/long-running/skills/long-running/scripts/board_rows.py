@@ -33,6 +33,10 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     one tap   a row's or its group's words say one tap approves several PRs, and one they name or
               group with it is rejected on the board or no longer open on GitHub
 
+Two `pr-groups` rows in different groups whose titles share more than half the words of the shorter
+title, counting words of four letters or more, both fail with `alike`: he reads them as duplicates
+(root #138624), so they belong in one group with titles that name each piece.
+
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
 list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
@@ -90,6 +94,7 @@ REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
 APPROVED_LIST = "approved"
+TITLE_WORD = 4
 UNSETTLED = re.compile(r"\bpending\b|\bbeing reworked\b", re.IGNORECASE)
 LISTED = re.compile(r"^\s*[-*] #(\d+):", re.MULTILINE)
 MERGED = "MERGED"
@@ -146,6 +151,7 @@ class Row:
     sentence: str
     facts: dict[str, str]
     words: str = ""
+    group: str = ""
     required: tuple[str, ...] = FIELDS
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -172,7 +178,7 @@ def triage_items(node: object) -> Iterator[tuple[str, dict]]:
 def pr_group_rows(node: object) -> Iterator[tuple[str, dict]]:
     if isinstance(node, dict):
         if node.get("type") == PR_GROUPS:
-            yield from ((node["id"], pr) for group in node.get("groups", []) for pr in group.get("prs", []))
+            yield from ((node["id"], group.get("id", ""), pr) for group in node.get("groups", []) for pr in group.get("prs", []))
         for value in node.values():
             yield from pr_group_rows(value)
     elif isinstance(node, list):
@@ -195,10 +201,10 @@ def rows_of(block: dict) -> list[Row]:
         label = item.get("label", "")
         words = "\n".join([label, item.get("hint", ""), item.get("md", ""), *facts.values()])
         rows.append(Row(item["id"], block_id, named["pr"], head["sha"] if head else "", item.get(TEXT_AT, ""), label, first_sentence(item.get("md", ""), LABEL_NUMBER.sub("", label)), facts, words))
-    for block_id, pr in pr_group_rows(block):
+    for block_id, group, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
         words = "\n".join([pr.get("title", ""), pr.get("md", ""), *facts.values()])
-        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, PR_FIELDS))
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, PR_FIELDS))
     return rows
 
 
@@ -227,6 +233,17 @@ def listed_prs(node: object) -> Iterator[tuple[str, str]]:
     elif isinstance(node, list):
         for value in node:
             yield from listed_prs(value)
+
+
+def title_words(row: Row) -> set[str]:
+    return {word for word in WORD.findall(row.label.lower()) if len(word) >= TITLE_WORD}
+
+
+def alike(rows: list[Row]) -> Iterator[tuple[Row, Row]]:
+    for one, other in itertools.combinations([row for row in rows if row.group], 2):
+        mine, theirs = title_words(one), title_words(other)
+        if one.group != other.group and mine and theirs and len(mine & theirs) * 2 > min(len(mine), len(theirs)):
+            yield one, other
 
 
 def blocker_prs(row: Row) -> set[str]:
@@ -517,6 +534,9 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         for block_id, anchor, _, members in claims:
             if (reason := claim_reason(members, newest, pulls)) and (owner := next((row for row in rows if row.block == block_id and row.pr == anchor), None)):
                 owner.reasons.append(reason)
+    for one, other in alike(rows):
+        one.reasons.append(f"alike: its title shares most of its words with #{other.pr} in group {other.group}")
+        other.reasons.append(f"alike: its title shares most of its words with #{one.pr} in group {one.group}")
     found = flags(rows)
     newest = newest_by_pr(verdicts) if verdicts is not None else {}
     for block_id, pr in listed:
