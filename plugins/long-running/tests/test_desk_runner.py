@@ -3290,9 +3290,8 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020@cccc333333:reserved/user-data #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts ")
     assert f"(merge mode {mode}); only the tap authorizes reserved/user-data" in line
-    message = Path(next(post["path"] for post in shell.posts if post["to"] == "root")).read_text()
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
-    assert "; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`" in message
+    assert line.endswith("; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`")
     shell.clock += timedelta(minutes=1)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
