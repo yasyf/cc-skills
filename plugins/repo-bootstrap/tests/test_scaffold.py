@@ -349,8 +349,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Exceptional only: the most sensitive local implementation" in claude
     assert "synthesis/accept-reject" in claude
-    assert "never down-route writing" in claude
-    assert "written by Claude Opus 5.5" in claude
+    assert "gemini-4-argon writes long-form copy" in claude
     assert "security review/audit" in claude
     assert "verification of security-sensitive code" in claude
     assert "the most sensitive local implementation" in claude

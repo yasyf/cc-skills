@@ -125,10 +125,10 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   haiku-tier `model`, unless the prompt reads as single-fact mechanical work
   (classify/label/tag one thing per item). Recovery is in the deny message: use
   `sonnet` — dropping `model` runs opus, not the session model.
-- **Prose gate (block).** Denies an `Agent`/`Task` spawn whose deliverable is prose
-  unless the writer runs on Claude Opus 5.5 (`model: opus`). A `codex:codex-wrapper`
-  spawn or a sonnet, haiku, or fable pin that would write the prose is blocked;
-  spawn the writer with `model: opus` and a self-contained writing brief.
+- **Prose nudge (LLM, warn).** An `Agent`/`Task` spawn whose deliverable is long-form
+  copy gets a reminder that gemini-4-argon writes it: the lane hands the facts and
+  rules to `gemini -m gemini-4-argon -p` and lands the reply verbatim. PR titles and
+  bodies and commit messages stay with the shipping lane.
 - **Explore auto-upgrade (rewrite).** An `Explore` or `claude-code-guide` subagent
   spawned without a `model` param silently runs haiku; this rewrite fills in
   `model: sonnet` (never touching an explicit choice) and notes the upgrade in
@@ -141,7 +141,7 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   pattern-matched — only the most sensitive local implementation stays on fable;
   browser automation, QA sweeps, and other sustained tool-driving delegate to an
   opus `xhigh` subagent instead (code/diff review and security review route to
-  gpt-6.1-sol via their own nudges, prose to an Opus writer); when uncertain it
+  gpt-6.1-sol via their own nudges, long-form copy to gemini-4-argon); when uncertain it
   stays silent.
 - **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
   run code/diff review, a security review/audit or verification of security-sensitive
@@ -158,9 +158,8 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   mechanical map/apply steps only — an unpinned stage runs opus, not the session
   model, so judgment-bearing stages need an explicit pin or route up.
 - **Workflow prose nudge (warn).** A `Workflow` whose script runs a stage that
-  would write prose on anything but Claude Opus 5.5 gets the matching reminder: a
-  `codex:codex-wrapper` stage or a sonnet, haiku, or fable pin. Pin the writing
-  stage to `model: 'opus'` with a self-contained writing brief.
+  writes long-form copy gets the matching reminder: the stage hands the facts and
+  rules to `gemini -m gemini-4-argon -p` and lands the reply verbatim.
 
 Remove or tailor by overriding with a local `models` hook. If a repo legitimately
 runs haiku fleets (bulk single-fact classification), the gate already allows

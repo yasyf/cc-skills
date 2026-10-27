@@ -193,7 +193,7 @@ The executor posts each event as a cci `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
-the copy through an Opus writer subagent (`Agent` with `model: opus`) and posts it with
+the copy through gemini-4-argon (`gemini -m gemini-4-argon -p` with the facts and the voice rules) and posts its reply verbatim with
 `cc-slack reply --url <thread> --text <copy>`. For the `channel`
 surface it posts with `cc-slack send --channel <channel id> --text <copy>`. Consecutive replies under one thread grant need no human message between
 them. It then answers the entry:
@@ -242,9 +242,8 @@ Do:
      Record the picks with picked, owner, and PR links or a named lane. Fill
      Remediation with what stops the incident and the follow-up lanes before
      writing prose. The first retro PR includes these records.
-  6. You run on Opus, so write every prose field in place yourself, run
-     `retro.py prose <dir> --record` with no separate prose pass, then
-     `retro.py publish <dir>`. It runs the
+  6. Run `retro.py prose <dir>`, which writes every prose field through
+     gemini-4-argon, then `retro.py publish <dir>`. It runs the
      gates, opens a ready PR, enables squash auto-merge, and waits for merge
      and the rendered-URL check. On exit 75, resume the printed AWAIT: command.
      Hand only the URL from the final RENDERED: line to <root agent name> and
