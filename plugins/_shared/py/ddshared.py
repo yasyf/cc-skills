@@ -410,7 +410,7 @@ def github_get(path: str):
         raise RuntimeError("set GITHUB_TOKEN or install ccx to resolve GitHub links")
     p = subprocess.run(["ccx", "vcs", "gh", "--max-age", "5m", "--", "api", path], capture_output=True, text=True, env={**os.environ, "CCX_CALLER": os.environ.get("CCX_CALLER", "ddshared-links")})
     if p.returncode:
-        if "404" in p.stderr or "Not Found" in p.stderr:
+        if "HTTP 404" in p.stderr:
             return None
         raise RuntimeError(p.stderr.strip() or f"gh api {path} failed")
     return json.loads(p.stdout)

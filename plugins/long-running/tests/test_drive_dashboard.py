@@ -443,7 +443,22 @@ def test_the_catch_up_answer_says_what_each_landing_and_approval_freed():
 
     lines = journeys(drive, [], [], [], records, prs, {}, TREES, NOW)["since"]["lines"]
 
-    assert [(line["text"], line["next"]) for line in lines] == [("Approved #42786 sand: child", "lets #42786 move"), ("#42766 sand: signal landed", "#42786 can now land")]
+    assert [(line["text"], line["next"]) for line in lines] == [("Approved #42786 sand: child at c182871", "#42786 can land"), ("#42766 sand: signal landed", "#42786 can now land")]
+
+
+def test_a_release_whose_named_blockers_all_landed_lists_none_and_tonight_names_its_stop_and_proof():
+    drive = journey_drive({"number": 42700, "state": "landed"}, {"number": 42999, "state": "failing"})
+    releases = [
+        {"id": "R1", "name": "Cloud", "state": "Waits on #42700.", "parts": ["api"], "word": "now", "tonight": True},
+        {"id": "R3", "name": "Desktop", "state": "Paused by you at 7:49 AM", "parts": ["app"], "word": "held", "tonight": True},
+    ]
+    proof = {"result": "old-app set PASS", "checked_at": "2026-10-27T17:40:00Z", "how": "release-vm run", "link": "#147640"}
+
+    out = journeys(drive, [], releases, [], [], {"42700": {"state": "landed"}, "42999": {}}, {"preservation": proof}, TREES, NOW)
+
+    assert [line["text"][:2] for line in out["release"]["lines"]] == ["R1", "R3"]
+    assert [line["text"].split(":")[0] for line in out["track"]["lines"][2:]] == ["Old app and flagged users", "Tonight's gate", "Tonight's stop"]
+    assert (out["track"]["lines"][2]["source"]["href"], out["track"]["missing"]) == ("/record/147640", [])
 
 
 def merge_board(*groups):

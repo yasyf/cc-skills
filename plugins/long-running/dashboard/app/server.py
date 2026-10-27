@@ -180,7 +180,7 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
     active = activity(records, now, prs)
     spoke = {}
     said = {}
-    for record in sorted(records, key=lambda record: record["at"]):
+    for record in sorted(records, key=lambda record: (at(record["at"]), record["seq"])):
         spoke[record["lane"]] = max(spoke.get(record["lane"], ""), record["at"])
         for number in {*PR_MENTION.findall(record["text"]), *([record["topic"]] if re.fullmatch(r"\d{5}", record.get("topic") or "") else [])}:
             said[(record["lane"], number)] = {"seq": record["seq"], "at": record["at"], "text": record["text"][:600]}
@@ -244,8 +244,8 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
         if release["word"] == "held":
             release_lines.append(answer_line(f"{release['id']} {release['name']} is held: {release['state']}", who="you", href="#/releases", label="Release plan"))
             break
-        named = [entry for entry in map(open_entry, plan_prs(release["state"])) if entry]
-        blockers = named or [entry for entry in drive["prs"] if entry["state"] != "landed" and entry["tree"] == tree_names[0] and entry["part"] in release["parts"]]
+        named = plan_prs(release["state"])
+        blockers = [entry for entry in map(open_entry, named) if entry] if named else [entry for entry in drive["prs"] if entry["state"] != "landed" and entry["tree"] == tree_names[0] and entry["part"] in release.get("parts", [])]
         release_lines.append(answer_line(f"{release['id']} {release['name']}: {release['state']}", href="#/releases", label="Release plan"))
         release_lines += [pr_line(entry, prs) for entry in blockers]
         release_missing += [f"#{entry['number']}: what clears its place in the merge queue (landing-desk queue_clears)" for entry in blockers if entry["next"] == QUEUED_NEXT and not prs.get(str(entry["number"]), {}).get("queue_clears")]
@@ -270,43 +270,49 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
     for number, pr in prs.items():
         if pr.get("landed_at") and at(pr["landed_at"]) >= since:
             freed = [entry["number"] for entry in drive["prs"] if entry["base"] == int(number) and entry["state"] != "landed"]
-            done = [step["label"] for step in steps if int(number) in [item["number"] for item in step["prs"]] and step["tone"] == "done"]
+            done = [step["label"] for step in steps if step["tone"] == "done" and number == max((str(item["number"]) for item in step["prs"]), key=lambda n: prs.get(n, {}).get("landed_at") or "")]
             happened.append((pr["landed_at"], answer_line(
                 f"#{number} {pr.get('title', '')} landed",
                 since=pr["landed_at"], next="; ".join([*(f"#{n} can now land" for n in freed), *(f"finishes step {label}" for label in done)]) or None, href=f"#/review/{number}", label=f"#{number}",
             )))
     latest = {}
     for record in records:
-        named = [n for n in dict.fromkeys(PR_MENTION.findall(record["text"])) if n in prs]
         if record["kind"] not in TONIGHT_KINDS or record["kind"] == "landed" or at(record["at"]) < since:
             continue
-        if record["kind"] in ("go", "blocker") and not (named and (record["kind"] == "go" or "root" in record.get("to", []))):
+        approved = GO.match(record["text"]) if record["kind"] == "go" else None
+        if record["kind"] == "go" and not (approved and approved[1] in prs):
             continue
-        latest[(record["kind"], named[0] if record["kind"] == "go" else record["seq"])] = record
-    for record in latest.values():
+        if record["kind"] == "blocker" and not ("root" in record.get("to", []) and any(n in prs for n in PR_MENTION.findall(record["text"]))):
+            continue
+        latest[(record["kind"], approved[1] if approved else record["seq"])] = (record, approved)
+    for record, approved in latest.values():
         named = [n for n in dict.fromkeys(PR_MENTION.findall(record["text"])) if n in prs]
         happened.append((record["at"], answer_line(
-            f"Approved #{named[0]} {prs[named[0]].get('title', '')}" if record["kind"] == "go" else f"{TONIGHT_KINDS[record['kind']]}: {record['text'][:240]}",
+            f"Approved #{approved[1]} {prs[approved[1]].get('title', '')} at {approved[2]}" if approved else f"{TONIGHT_KINDS[record['kind']]}: {record['text'][:240]}",
             who=record["lane"], since=record["at"],
-            next=f"lets {', '.join(f'#{n}' for n in named[:4])} move" if named and record["kind"] in ("go", "lift", "fix-live") else None, href=f"/record/{record['seq']}", label=f"record #{record['seq']}",
+            next=f"#{approved[1]} can land" if approved else f"lets {', '.join(f'#{n}' for n in named[:4])} move" if named and record["kind"] in ("lift", "fix-live") else None,
+            href=f"/record/{record['seq']}", label=f"record #{record['seq']}",
         )))
 
     new_tree = [entry for entry in drive["prs"] if entry["tree"] == tree_names[0]]
     tonight = [release for release in releases if release.get("tonight")]
     proof = progress_now.get("preservation")
+    held = next((release for release in releases if release.get("word") == "held"), None)
+    gates = [release for release in (stop, held) if release][: 1 if stop is held else 2]
     track_lines = [
         answer_line(f"{sum(entry['state'] == 'landed' for entry in new_tree)} of {len(new_tree)} new-app changes merged", href="#/", label="the plan"),
         answer_line(f"{sum(release.get('word') == 'out' for release in tonight)} of {len(tonight)} releases out tonight", href="#/releases", label="Release plan"),
-        *([answer_line(f"Old app and flagged users: {proof['result']}", since=proof.get("checked_at"), next=proof.get("how"), href=proof.get("link"), label="proof")] if proof else []),
-        *([answer_line(f"Tonight's gate: {stop['id']} {stop['name']}, {stop['state']}", who="you" if stop["word"] == "held" else None, href="#/releases", label="Release plan")] if stop else []),
+        *([answer_line(f"Old app and flagged users: {proof['result']}", since=proof.get("checked_at"), next=proof.get("how"), href=f"/record/{proof['link'][1:]}" if re.fullmatch(r"#\d+", proof.get("link") or "") else proof.get("link"), label="proof")] if proof else []),
+        *[answer_line(f"Tonight's {'stop' if release['word'] == 'held' else 'gate'}: {release['id']} {release['name']}, {release['state']}", who="you" if release["word"] == "held" else None, href="#/releases", label="Release plan") for release in gates],
     ]
 
     labels = {step["id"]: step["label"] for step in steps}
+    released = {(line["source"] or {}).get("href") for line in release_lines}
     waits = [
         *([answer_line(f"{len(needs)} decisions in Needs you", who="you", next="those pull requests and questions move", href="#/now", label="Needs you")] if needs else []),
         *[line for line in release_lines if line["who"]],
-        *[answer_line(f"#{entry['number']} {prs.get(str(entry['number']), {}).get('title', '')}: {entry['next']}", who=entry["owner"], since=(entry["word"] or {}).get("at"), next=f"unblocks step {labels[entry['step']]}" if entry["step"] in labels else None, href=f"#/review/{entry['number']}", label=f"#{entry['number']}") for entry in drive["prs"] if entry["state"] == "held"],
-        *[answer_line(item.get("what", ""), who=item.get("who"), since=item.get("since"), next=item.get("unblocks"), href=item.get("link"), label=item.get("link") and "source") for item in progress_now.get("waiting", [])],
+        *[answer_line(f"#{entry['number']} {prs.get(str(entry['number']), {}).get('title', '')}: {entry['next']}", who=entry["owner"], since=(entry["word"] or {}).get("at"), next=f"unblocks step {labels[entry['step']]}" if entry["step"] in labels else None, href=f"#/review/{entry['number']}", label=f"#{entry['number']}") for entry in drive["prs"] if entry["state"] == "held" and f"#/review/{entry['number']}" not in released],
+        *[answer_line(item.get("what", ""), who=item.get("owed_by"), since=item.get("since"), next=item.get("unblocks"), href=item.get("link"), label=item.get("link") and "source") for item in progress_now.get("waiting", [])],
     ]
 
     stamp = now.isoformat()

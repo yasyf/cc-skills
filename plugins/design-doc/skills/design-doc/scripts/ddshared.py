@@ -1,4 +1,4 @@
-# built by plugins/_shared/build.py from py/ddshared.py sha256:dafe7ad511de — do not edit
+# built by plugins/_shared/build.py from py/ddshared.py sha256:9565b0a2e7c0 — do not edit
 """Names design.py and retro.py share: the check report, link normalisation and GitHub state,
 the ai.json validator, the component schema validator, the plain-twin and capitalisation lints,
 the summary-fragment text extractor, and the file digest. Lifted verbatim from design.py.
@@ -411,7 +411,7 @@ def github_get(path: str):
         raise RuntimeError("set GITHUB_TOKEN or install ccx to resolve GitHub links")
     p = subprocess.run(["ccx", "vcs", "gh", "--max-age", "5m", "--", "api", path], capture_output=True, text=True, env={**os.environ, "CCX_CALLER": os.environ.get("CCX_CALLER", "ddshared-links")})
     if p.returncode:
-        if "404" in p.stderr or "Not Found" in p.stderr:
+        if "HTTP 404" in p.stderr:
             return None
         raise RuntimeError(p.stderr.strip() or f"gh api {path} failed")
     return json.loads(p.stdout)
