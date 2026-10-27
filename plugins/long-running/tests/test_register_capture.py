@@ -4,7 +4,6 @@ import hashlib
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -254,9 +253,8 @@ def answers(root: Root, *recorded: dict) -> None:
     root.routes[("ccn", "-R", str(root.home), "answer", "list")] = json.dumps(list(recorded))
 
 
-def answer(body: str = KEEP, age: timedelta = timedelta()) -> dict:
-    stamp = (datetime.now(UTC) - age).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {"id": PICK_ANSWER, "title": ASKED, "body": f"{body}\nOptions: {KEEP} | Drop it", "updated_at": stamp}
+def answer(body: str = KEEP, title: str = ASKED) -> dict:
+    return {"id": PICK_ANSWER, "title": title, "body": f"{body}\nOptions: {KEEP} | Drop it"}
 
 
 def pick(root: Root, note: str = "") -> None:
@@ -282,8 +280,8 @@ def test_an_owner_pick_lands_with_the_answer_cc_notes_records_for_it(root):
     ]
 
 
-@pytest.mark.parametrize("recorded", [[], [answer(body="Drop it")], [answer(age=timedelta(hours=1))]], ids=["none", "another pick", "an earlier turn"])
-def test_an_owner_pick_with_no_answer_recorded_this_turn_lands_without_one_at_stop(root, recorded):
+@pytest.mark.parametrize("recorded", [[], [answer(body="Drop it")], [answer(title="Drop the nightly report?")]], ids=["none", "another pick", "another question"])
+def test_an_owner_pick_with_no_answer_recorded_for_it_lands_without_one_at_stop(root, recorded):
     answers(root, *recorded)
     pick(root)
     root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})

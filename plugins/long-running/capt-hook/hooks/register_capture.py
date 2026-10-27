@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from itertools import dropwhile, takewhile
 from pathlib import Path
 
@@ -51,7 +51,6 @@ CREDENTIAL = re.compile(
 REDACTED = "[credential redacted]"
 ANSWER_SOURCE = "answer"
 ANSWER_LABEL = "source:askuserquestion"
-ANSWER_WINDOW = timedelta(minutes=1)
 ANSWER_LIMIT = "20"
 DIGEST_CHARS = 16
 ASKED_KEEP = {"questions": [{"question": "Keep it?", "options": [{"label": "Keep"}]}]}
@@ -164,7 +163,6 @@ def record_owner_picks(evt: BaseHookEvent) -> HookResult | None:
 def recorded_answer(evt: BaseHookEvent, prompt: dict) -> str | None:
     listed = ccn(str(evt.cwd), "answer", "list", "--json", "--label", ANSWER_LABEL, "--limit", ANSWER_LIMIT)
     listed.check_returncode()
-    since = datetime.strptime(prompt["at"], STAMP).replace(tzinfo=UTC) - ANSWER_WINDOW
     return next(
         (
             answer["id"]
@@ -172,7 +170,6 @@ def recorded_answer(evt: BaseHookEvent, prompt: dict) -> str | None:
             if answer["title"]
             and prompt["question"].startswith(answer["title"])
             and answer["body"].split("\n", 1)[0] == prompt["picked"]
-            and datetime.fromisoformat(answer["updated_at"]) >= since
         ),
         None,
     )
