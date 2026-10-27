@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -94,12 +95,19 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
 def record_relayed_quote(evt: BaseHookEvent) -> HookResult | None:
     if not (relay := RELAY.search(evt.user_prompt or "")) or not OWNER.search(relay["body"]) or not drive_args(evt):
         return None
-    if not (quotes := [found["line"] or found["inner"] for found in QUOTED.finditer(relay["body"])]):
-        return None
     with PendingPrompts.mutate(evt) as pending:
-        pending.prompts.append(
-            {"digest": digest_of(evt), "session": evt.session_id, "source": "relay", "relayed_from": relay["name"] or relay["sender"], "stamp": evt.user_prompt or "", "text": "\n".join(quotes)}
-        )
+        pending.prompts += [
+            {
+                "digest": hashlib.sha256(f"{evt.session_id}\0{quote}".encode()).hexdigest()[:16],
+                "session": evt.session_id,
+                "source": "relay",
+                "relayed_from": relay["name"] or relay["sender"],
+                "stamp": evt.user_prompt or "",
+                "text": quote,
+            }
+            for found in QUOTED.finditer(relay["body"])
+            if (quote := found["line"] or found["inner"])
+        ]
     return None
 
 
@@ -110,7 +118,7 @@ def overlaps(left: str, right: str) -> bool:
 
 def repeated(capture: dict, relays: list[dict]) -> list[str]:
     typed = folded(capture["text"])
-    return [relay["digest"] for relay in relays if any(overlaps(folded(line), typed) for line in relay["text"].splitlines())]
+    return [relay["digest"] for relay in relays if overlaps(folded(relay["text"]), typed)]
 
 
 def stamps(evt: BaseHookEvent) -> dict[str, datetime]:

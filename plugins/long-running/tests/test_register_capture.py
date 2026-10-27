@@ -163,13 +163,13 @@ RELAY = (
 
 @pytest.mark.parametrize("delivered", ["queued", "typed"])
 def test_a_relayed_owner_quote_lands_alone_tagged_with_its_sender(root, delivered):
-    text = RELAY if delivered == "queued" else f"Another Claude session sent a message: {RELAY}"
+    text = RELAY if delivered == "queued" else f"Another Claude session sent a message:\n{RELAY}"
     getattr(root, delivered)(text, "2026-10-27T05:21:00.000Z")
     root.prompt(text)
     root.fire(StopEvent)
 
     assert root.captures() == [
-        {"digest": digest(text), "at": "2026-10-27T05:21:00Z", "session": SESSION, "source": "relay", "text": OWNER_WORDS, "relayed_from": "ai-oncall-improvement-plan"}
+        {"digest": digest(OWNER_WORDS), "at": "2026-10-27T05:21:00Z", "session": SESSION, "source": "relay", "text": OWNER_WORDS, "relayed_from": "ai-oncall-improvement-plan"}
     ]
 
 
@@ -182,16 +182,18 @@ def test_a_relayed_lane_report_lands_nothing(root):
     assert root.captures() == []
 
 
-def test_the_owner_typing_relayed_words_in_root_chat_supersedes_the_relay(root):
-    root.queued(RELAY, "2026-10-27T05:21:00.000Z")
-    root.prompt(RELAY)
+def test_the_owner_typing_one_relayed_quote_in_root_chat_supersedes_only_that_quote(root):
+    second = "keep the old tree until cutover"
+    relay = RELAY.replace("Please answer him.", f'He added: "{second}".')
+    root.queued(relay, "2026-10-27T05:21:00.000Z")
+    root.prompt(relay)
     root.fire(StopEvent)
     typed = f"{OWNER_WORDS}. why djent you carch this?"
     root.typed(typed, "2026-10-27T05:24:00.000Z")
     root.prompt(typed)
     root.fire(StopEvent)
 
-    assert [(capture["source"], capture.get("supersedes")) for capture in root.captures()] == [("relay", None), ("prompt", [digest(RELAY)])]
+    assert [(capture["text"], capture.get("supersedes")) for capture in root.captures()] == [(OWNER_WORDS, None), (second, None), (typed, [digest(OWNER_WORDS)])]
 
 
 def test_a_what_is_question_marks_its_block_and_names_the_rows_bearing_on_it(root):
