@@ -3283,6 +3283,36 @@ def test_a_root_go_carries_along_the_fidelity_desks_carried_grades_to_the_replay
     assert [call[1:] for call in shell.enqueues()] == ([["33001", "--partial"]] if lands else [])
 
 
+@pytest.mark.parametrize("words", ["ok cccc333 carried from aaaa111 (patch-identical replay)", "ok cccc333 patch-identical to, with no root go at, aaaa111 (#143075), patch-identical (patch-id 6424ab2b7f99). Carried under root #131054."], ids=["carried-from", "patch-identical-to"])
+@pytest.mark.parametrize(("old_app", "lands"), [(None, False), ("old-app: unchanged cccc333 go/sand/next only", True), ("old-app: CHANGES cccc333 the bundled server writes a new journal format", False)], ids=["ungraded", "unchanged", "changes"])
+def test_with_the_old_app_check_a_root_go_carries_on_either_desks_carry_words_once_the_head_grades_old_app_unchanged(shell, config, tmp_path, words, old_app, lands):
+    merge_mode(config, "every")
+    old_app_checked(config)
+    shell.rows = [{"pr": "33001", "lane": LANE, "branch": "c/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    merge_go(shell, "33001", "go #33001 at aaaa111")
+    grade(shell, "33001", words)
+    if old_app:
+        shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": [33001]}, "text": old_app, "at": actions.stamp(shell.clock)})
+    shell.gates["33001"] = [gate("#33001 GREEN cccc333333 graphite READY", would="#33001")]
+    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == ([["33001", "--partial"]] if lands else [])
+
+
+def test_a_newer_old_app_change_a_head_record_binds_to_the_carried_head_stops_the_carry(shell, config, tmp_path):
+    merge_mode(config, "every")
+    old_app_checked(config)
+    shell.rows = [{"pr": "33001", "lane": LANE, "branch": "c/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    merge_go(shell, "33001", "go #33001 at aaaa111")
+    grade(shell, "33001", "ok cccc333 carried from aaaa111 (patch-identical replay)")
+    for lane, kind, text in (("fidelity-desk", "review", "old-app: unchanged cccc333"), (LANE, "head", "#33001 cccc333333"), ("fidelity-desk", "review", "old-app: CHANGES the retry button moves")):
+        shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "refs": {"prs": [33001]}, "text": text, "at": actions.stamp(shell.clock)})
+    shell.gates["33001"] = [gate("#33001 GREEN cccc333333 graphite READY", would="#33001")]
+    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
 def test_a_withdrawn_root_go_lets_nothing_merge(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
