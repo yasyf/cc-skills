@@ -39,5 +39,5 @@ git -C "$repo" archive --format=tar "$ref" "$@" | gzip -1 |
     done
     mkdir -p $target $src && touch $target && tar -xz -m -C $src"
 
-sprite exec -s "$sprite" --no-stdin --dir "$src" --env "CARGO_TARGET_DIR=$target,CARGO_TERM_COLOR=never" -- sh -c "{ $command
-}; status=\$?; rm -rf $src; exit \$status"
+sprite exec -s "$sprite" --no-stdin --dir "$src" --env "CARGO_TARGET_DIR=$target,CARGO_TERM_COLOR=never" -- sh -c "( $command
+); status=\$?; rm -rf $src; exit \$status"

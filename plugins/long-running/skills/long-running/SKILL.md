@@ -2801,7 +2801,7 @@ and workspace after completion. A local lane the root has decided is done ends u
 worker process; local Fable keeps existing Mac interactive authentication.
 
 A local lane that sends a build to a shared Sprite runs it with
-`scripts/sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never
+`sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...`, never
 a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>`, so two
 lanes never clobber each other's build-script output, and every call removes the
 targets and source trees idle for more than six hours, so idle lanes do not fill
