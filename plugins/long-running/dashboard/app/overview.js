@@ -170,7 +170,7 @@ function track(s) {
   const tone = ov.scrub > 0 && m.steps.indexOf(s) < ov.scrub ? 'done' : s.tone;
   return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
     <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}</span>
-    <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<b class="badge">▶${ws.length}</b>` : ''}</span>
+    <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
     <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
