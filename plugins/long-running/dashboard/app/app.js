@@ -285,7 +285,7 @@ function needOther(item) {
   return `<li class="nother ${item.kind}"><span class="nmark">${item.kind === 'card' ? '?' : '!'}</span><div><div class="nt">${esc(item.kind === 'card' ? item.card.title : item.ask.what)}</div><p class="nwhy">${esc(item.why)}</p>
     ${record ? `<details data-id="ask-${record.seq}"${state.open.has(`ask-${record.seq}`) ? ' open' : ''}><summary>Full ask from ${esc(record.lane)} at ${clock(record.at)}</summary><div class="nfull">${inline(record.text)}</div></details>` : ''}</div>${sourceLink(item.source)}</li>`;
 }
-const factGrid = (facts) => facts.length ? `<dl class="bfacts">${facts.map((f) => `<dt>${inline(f.label.replace(/\.$/, ''))}</dt><dd>${inline(f.value)}</dd>`).join('')}</dl>` : '';
+const factGrid = (facts) => facts.length ? `<dl class="bfacts">${facts.map((f) => `<dt>${inline((f.label ?? '').replace(/\.$/, ''))}</dt><dd>${inline(f.value)}</dd>`).join('')}</dl>` : '';
 function pickedLabel(part) {
   const a = part.answer;
   return [...a.optionIds.map((id) => part.options.find((o) => o.id === id)?.label ?? id), ...(a.other ? [`“${a.other}”`] : [])].join(', ');
@@ -311,7 +311,10 @@ function boardPart(part, card) {
       <form class="note" data-approval="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Note, optional"><button class="btn pri" value="approved"${busy}>✓ Approve</button><button class="btn ghost" value="rejected"${busy}>✕ Reject</button></form></section>`;
   }
   if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You answered</span> “${esc(part.answer.text)}”</section>`;
-  return `<section class="bpick"><h4>${inline(part.label)}</h4><form class="note" data-input="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="${esc(part.placeholder || 'Your answer')}"><button class="btn pri"${busy}>Send</button></form></section>`;
+  const field = part.multiline
+    ? `<textarea name="text" rows="3" data-draft="${esc(part.id)}" placeholder="${esc(part.placeholder || 'Your answer')}">${esc(ov.drafts[part.id] ?? '')}</textarea>`
+    : `<input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="${esc(part.placeholder || 'Your answer')}">`;
+  return `<section class="bpick"><h4>${inline(part.label)}</h4><form class="note" data-input="${esc(part.id)}">${field}<button class="btn pri"${busy}>Send</button></form></section>`;
 }
 function boardCard(item) {
   const c = item.card;
@@ -327,6 +330,7 @@ function syncCardEmbed(r) {
   host.hidden = !card;
   if (!card) {
     ov.embedCard = null;
+    delete host.dataset.card;
     host.replaceChildren();
     return;
   }

@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import deque
@@ -48,7 +49,8 @@ PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page"}
-OTHER = re.compile(r"^other\b", re.I)
+OTHER = re.compile(r"^other$", re.I)
+MERGE_ONLY = re.compile(r"^(waits? (for|on)|lands? after|after|stacked on)[\s#\d,\-–and]+(to (merge|land))?( first)?\.?$", re.I)
 MERGE_CARD = "card-merge-triage"
 ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
@@ -276,8 +278,8 @@ def paths_current(cached, pr):
 def with_conflicts(rows, prs):
     def blocker(row):
         board = row.get("blocker") or ""
-        named = PR_MENTION.findall(board)
-        if named and all(prs.get(n, {}).get("state") == "landed" for n in named):
+        named = plan_prs(board)
+        if named and MERGE_ONLY.match(board.strip()) and all(prs.get(str(n), {}).get("state") == "landed" for n in named):
             board = f"Nothing now: {', '.join(f'#{n}' for n in named)} landed."
         merge = prs.get(str(row["number"]), {}).get("mergeable_state")
         clear = not board or re.match(r"nothing", board, re.I)
@@ -332,10 +334,10 @@ def card_part(child, answer):
         return {"kind": "page", "id": child["id"], "md": child.get("md", "")}
     if kind == "choice":
         options = [{"id": option["id"], "label": option["label"], "hint": option.get("hint", ""), "facts": option.get("facts", []), "recommended": bool(option.get("recommended"))} for option in child.get("options", []) if not OTHER.match(option["label"])]
-        return {"kind": "choice", "id": child["id"], "prompt": child.get("prompt", ""), "multi": bool(child.get("multi")), "options": options, "answer": answer}
+        return {"kind": "choice", "id": child["id"], "prompt": child.get("prompt", ""), "options": options, "answer": answer}
     if kind == "approval":
         return {"kind": "approval", "id": child["id"], "prompt": child.get("prompt", ""), "detail": child.get("detail") or {}, "answer": answer}
-    return {"kind": "input", "id": child["id"], "label": child.get("label", ""), "placeholder": child.get("placeholder", ""), "answer": answer}
+    return {"kind": "input", "id": child["id"], "label": child.get("label", ""), "placeholder": child.get("placeholder", ""), "multiline": bool(child.get("multiline")), "answer": answer}
 
 
 def needs(rows, cards, asks, board_url, landed):
@@ -660,12 +662,12 @@ class Drive:
             choice = next((child for child in asks if child["type"] == "choice" and not answers[child["id"]]), None)
             options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", []) if not OTHER.match(option["label"])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
-            embed = any(child["type"] not in NATIVE for child in children)
+            embed = any(child["type"] not in NATIVE or child.get("multi") for child in children)
             cards.append({
                 "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [],
                 "recommended": recommended, "choice": choice and choice["id"], "options": options,
                 "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
-                "embed": f"{self.config['board_url']}?block={block['id']}&theme=dark" if embed else None,
+                "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
         return {"rows": rows, "cards": cards, "merge": merge, "url": self.config["board_url"]}
 

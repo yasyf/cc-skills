@@ -1,5 +1,6 @@
 import datetime as dt
 import queue
+import urllib.parse
 
 import pytest
 from holds import Entry
@@ -106,11 +107,19 @@ def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
     assert out["embed"] is None
 
 
-def test_a_card_with_a_block_the_dashboard_does_not_draw_embeds_the_board_rendering():
-    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(card("plan", ("table", "rows"), ("choice", "ok"))))["cards"][0]
+@pytest.mark.parametrize("block_id", ["plan", "plan&x#1"])
+def test_a_card_with_a_block_the_dashboard_does_not_draw_embeds_the_board_rendering(block_id):
+    out = Drive({"board_url": "http://board/p/x"}, None).read_board(board(card(block_id, ("table", "rows"), ("choice", "ok"))))["cards"][0]
 
     assert out["parts"] == []
-    assert out["embed"] == "http://board/p/x?block=plan&theme=dark"
+    assert urllib.parse.parse_qs(out["embed"].split("?", 1)[1]) == {"block": [block_id], "theme": ["dark"]}
+
+
+def test_a_card_with_a_multiple_choice_pick_embeds_the_board_rendering():
+    picks = card("picks", ("choice", "many"))
+    picks["children"][0]["multi"] = True
+
+    assert Drive({"board_url": "http://board/p/x"}, None).read_board(board(picks))["cards"][0]["parts"] == []
 
 
 @pytest.mark.parametrize(
@@ -418,9 +427,16 @@ def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked(
 def test_a_board_blocker_whose_named_pull_requests_all_landed_reads_cleared():
     rows = [board_row(42786, "you") | {"blocker": "Waits for #42766 to merge first."}, board_row(42787, "you") | {"blocker": "Waits for #42766 and #42770."}]
 
-    out = with_conflicts(rows, {"42766": {"state": "landed"}, "42770": {"state": "open"}})
+    rows += [board_row(42788, "you") | {"blocker": "Waits on #42780-#42782."}, board_row(42789, "you") | {"blocker": "Waits for #42766 to merge first, and the red test build must turn green."}]
 
-    assert [row["blocker"] for row in out] == ["Nothing now: #42766 landed.", "Waits for #42766 and #42770."]
+    out = with_conflicts(rows, {"42766": {"state": "landed"}, "42770": {"state": "open"}, "42780": {"state": "landed"}, "42781": {"state": "open"}, "42782": {"state": "landed"}})
+
+    assert [row["blocker"] for row in out] == [
+        "Nothing now: #42766 landed.",
+        "Waits for #42766 and #42770.",
+        "Waits on #42780-#42782.",
+        "Waits for #42766 to merge first, and the red test build must turn green.",
+    ]
 
 
 def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():
