@@ -29,7 +29,10 @@ A row with no fidelity grade or no finder review at its head gets a `WARN` line 
 nothing: the grade gates the enqueue, never the row. Grades and finder reviews are read from one
 scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
 finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
-review too. `--finders` names that directory, `finders/` beside the config by default. Two rows whose first sentences of five words or more, the label when there is none, share
+review too. `--finders` names that directory, `finders/` beside the config by default. A carry
+counts as both at its head: a `review`, `head` or root record that says carried or patch-identical
+in the sentence or the stretch of text where `#<pr> <head>` or `#<pr> <old>-><head>` appears, or a
+record whose one PR ref is the PR, naming the head and saying carried or patch-identical. Two rows whose first sentences of five words or more, the label when there is none, share
 a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
 root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints a `WARN` line and
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
@@ -64,6 +67,8 @@ LABEL_NUMBER = re.compile(r"^#\d+:\s*")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
+CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
+PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 FIELDS = ("For users", "Differs from plan", "Risk", "Finder", "Build (CI)", "Gate")
 PR_FIELDS = ("change", "plan", "risk", "review", "blocker")
@@ -293,7 +298,32 @@ def verdict_reasons(rows: list[Row], verdicts: dict[str, dict[str, str]], ruling
     return reasons
 
 
-def graded_warnings(reviews: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
+def sentence_at(text: str, at: int) -> str:
+    start = max((cut.end() for cut in SENTENCE.finditer(text) if cut.end() <= at), default=0)
+    end = next((cut.start() for cut in SENTENCE.finditer(text) if cut.start() >= at), len(text))
+    return text[start:end]
+
+
+def carries(record: dict, repo: str, pr: str, head: str) -> bool:
+    """Whether `record` says `pr`'s grade and finder carry to `head`: carried or patch-identical in the sentence or the stretch that ties `#<pr>` to `head`, or a record about only `pr` that names `head`."""
+    text = record["text"]
+    if not CARRY.search(text):
+        return False
+    pairs = list(PR_SHA.finditer(text))
+    for at, pair in enumerate(pairs):
+        if pair["pr"] != pr or not grades.names_head(pair["to"] or pair["sha"], head):
+            continue
+        stretch = text[pair.start() : pairs[at + 1].start() if at + 1 < len(pairs) else len(text)]
+        if CARRY.search(stretch) or CARRY.search(sentence_at(text, pair.start())):
+            return True
+    if pairs:
+        return False
+    return [named for named, _ in grades.repo_prs(record, repo)] == [pr] and any(grades.names_head(sha, head) for sha in grades.SHORT_SHA.findall(text))
+
+
+def graded_warnings(reviews: list[dict], carried: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
+    if any(record["drive"] == drive and carries(record, repo, row.pr, row.head) for record in carried):
+        return []
     warnings = []
     if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
         warnings.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
@@ -373,7 +403,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if reviews is not None:
-            row.warnings += graded_warnings(reviews, saved, drive, lanes, repo, row)
+            row.warnings += graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
     return rows, flags(rows), warnings
 
 
