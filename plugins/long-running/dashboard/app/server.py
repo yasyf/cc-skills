@@ -221,7 +221,10 @@ def release_path(releases):
 
 
 def with_conflicts(rows, prs):
-    return [{**row, "blocker": f"{CONFLICT} The merge board says: {row.get('blocker') or 'nothing'}"} if prs.get(str(row["number"]), {}).get("mergeable_state") == "dirty" else row for row in rows]
+    def blocker(row):
+        board = row.get("blocker") or ""
+        return CONFLICT if not board or re.match(r"nothing", board, re.I) else f"{CONFLICT} It also waits on: {board}"
+    return [{**row, "blocker": blocker(row)} if prs.get(str(row["number"]), {}).get("mergeable_state") == "dirty" else row for row in rows]
 
 
 def merge_needs(rows, board_url):

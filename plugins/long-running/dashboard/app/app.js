@@ -352,6 +352,7 @@ function render() {
   const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
   const screens = { overview, now: over(needsScreen), review: overRoute(r) ? over(reviewList) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
+  const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
@@ -360,6 +361,7 @@ function render() {
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   window.scrollTo(0, y);
+  for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   if ($('.overlay.route')) [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] = sheetY;
   syncReviewEmbed(r);
   if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();

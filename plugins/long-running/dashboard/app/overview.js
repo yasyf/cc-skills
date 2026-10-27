@@ -150,7 +150,7 @@ function destination() {
 }
 function replay() {
   const ticks = [...PAST_HOURS.map((h, i) => [-(i + 1), h === 24 ? '1 day ago' : h > 24 ? `${h / 24} days ago` : `${h}h ago`, '']).reverse(), [0, 'Now', ''], ...state.model.steps.map((s, i) => [i + 1, s.label, `If steps 1–${i + 1} land`])];
-  return `<div class="replay"><span class="rl">Replay</span><div class="ticks">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
+  return `<div class="replay"><span class="rl">Replay</span><div class="ticks" data-keep-scroll="replay">${ticks.map(([v, label, hint]) => `<button class="tk ${v < 0 ? 'past' : v > 0 ? 'fut' : 'now'}${v === ov.scrub ? ' on' : ''}" data-scrubto="${v}"${hint ? ` title="${esc(hint)}"` : ''}><i></i>${esc(label)}</button>`).join('')}</div></div>`;
 }
 const ONLY = {
   landed: ['landed', (e) => seen(e) === 'landed'],
@@ -276,7 +276,7 @@ function crew() {
   const order = (w) => state.model.steps.findIndex((s) => s.id === w.step) >>> 0;
   const live = state.model.workers.filter((w) => w.live && w.prs.length).sort((a, b) => order(a) - order(b) || a.lane.localeCompare(b.lane));
   if (!live.length && !state.model.desks.length) return '';
-  return `<section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} active</span><a href="#/workers">all workers ›</a></div><div class="strip">${desksTile()}${live.map(workerTile).join('')}</div></section>`;
+  return `<section class="crew"><div class="crew-h"><b>Working now</b><span>${plural(live.length, 'worker')} active</span><a href="#/workers">all workers ›</a></div><div class="strip" data-keep-scroll="crew">${desksTile()}${live.map(workerTile).join('')}</div></section>`;
 }
 function desksSheet() {
   const m = state.model;

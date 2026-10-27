@@ -316,12 +316,15 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
 
 
 def test_a_row_whose_pull_request_conflicts_with_its_base_never_reads_unblocked():
-    rows = [board_row(43203, "you") | {"blocker": "Nothing; lands on your tap."}, board_row(43204, "you")]
+    rows = [board_row(43203, "you") | {"blocker": "Nothing; lands on your tap."}, board_row(42786, "you") | {"blocker": "Waits for #42766 to merge first."}, board_row(43204, "you")]
 
-    out = with_conflicts(rows, {"43203": {"mergeable_state": "dirty"}, "43204": {"mergeable_state": "clean"}})
+    out = with_conflicts(rows, {"43203": {"mergeable_state": "dirty"}, "42786": {"mergeable_state": "dirty"}, "43204": {"mergeable_state": "clean"}})
 
-    assert out[0]["blocker"] == "Conflicts with its base, so it cannot land until its worker rebases it. The merge board says: Nothing; lands on your tap."
-    assert out[1]["blocker"] == "B43204"
+    assert [row["blocker"] for row in out] == [
+        "Conflicts with its base, so it cannot land until its worker rebases it.",
+        "Conflicts with its base, so it cannot land until its worker rebases it. It also waits on: Waits for #42766 to merge first.",
+        "B43204",
+    ]
 
 
 def test_a_landed_pull_request_with_a_stale_tap_row_is_not_a_need():
