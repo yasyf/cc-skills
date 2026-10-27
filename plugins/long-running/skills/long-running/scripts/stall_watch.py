@@ -13,8 +13,9 @@ its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, and no hold covers a PR
               below it; the stall belongs to the first PR of its stack, from the bottom, with no go
-              or with a red, conflicting or unfinished build, else to the landing desk, and the gos
-              one PR keeps out share one stall
+              or with a red, conflicting or unfinished build, else to the landing desk, and every go
+              in one stack shares one stall naming the stack's bottom and that blocker; a go a
+              fidelity carry moved to a new head counts from the carry grade, not the go
     tap       the owner's board tap approves the head, and no go names it
     finder    a `head` record names the head, and no finder review does
     fidelity  a `head` record names the head, and no fidelity grade does
@@ -22,18 +23,20 @@ its ledger row names, it finds:
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               and the board holds no row or card for it at that head
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
-              one, and the board holds no row for it at this head
+              one, and the board holds no row for it at this head; a head that adds only a review
+              fix keeps his tap (rule 399b5fa) and waits on root's go, and only new behavior re-asks
 
 and, across the drive:
 
     lane      a lane owning an in-progress task on the root's task list posted nothing past the time
-              its last record promised, or for `stall.minutes.lane`
+              its last record promised, or for `stall.minutes.lane`, counted for a lane with no
+              record yet from when its task file was last written
     ask       a lane's `ask` to root is open, and no root record answers it
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 15, lane 30, ask 15. Two questions need judgment, and one headless Claude call per pass
 (`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
-a patch-identical restack of the tapped one, read from its lane's `head` records, and whether a quiet
+a patch-identical restack of the tapped one or adds only a review fix, read from its lane's `head` records, and whether a quiet
 lane's last record explains its silence and by when it promised its next state. A verdict is kept
 against the records it read, so no question is asked twice; a call that fails leaves each question to
 its mechanical answer.
@@ -107,6 +110,7 @@ SCHEMA = json.dumps(
                     "properties": {
                         "id": {"type": "string"},
                         "restack": {"type": "boolean"},
+                        "fix": {"type": "boolean"},
                         "explained": {"type": "boolean"},
                         "promised": {"type": "string"},
                         "why": {"type": "string"},
@@ -120,7 +124,7 @@ SCHEMA = json.dumps(
 )
 PROMPT = """You read coordination records from a multi-agent software drive and answer each question below. It is {now} UTC ({pacific} Pacific).
 
-A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. An added commit, a behavior change, a conflict resolution that changes code, or records that do not say, is restack false.
+A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when head adds only review fixes: commits that answer a finding a reviewer, a reviewer bot, the finder, or a red CI build raised on the tapped change, with their tests, and no new behavior of their own; the owner's rule keeps his approval over a review fix. Answer both false when head adds new behavior that is not a review fix, or the records do not say.
 
 A question of kind "silence": a lane has posted nothing for minutes_silent minutes since last_record. Answer promised with the RFC 3339 UTC time by which that record says the lane's next state or result will come, such as "next state by 1:30 PM", "back in 20 minutes", or "ETA 13:05", reading a time with no zone as Pacific and a relative time from last_at; leave promised empty when it names none. Answer explained true only when the record names something the lane waits on that takes this long, such as a CI build, a release, or a long command it runs; a record that reports finished work, asks a question, or says nothing of what comes next is explained false.
 
@@ -254,14 +258,14 @@ def root_session(drive_name: str) -> str | None:
     return next((entry["sessions"][-1] for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry.get("sessions")), None)
 
 
-def task_owners(session: str) -> dict[str, list[str]]:
+def task_owners(session: str) -> dict[str, list[tuple[str, datetime]]]:
     tasks = drive.drives_dir().parents[1] / "tasks"
-    owners: dict[str, list[str]] = {}
+    owners: dict[str, list[tuple[str, datetime]]] = {}
     for directory in (tasks / session, tasks / f"session-{session[:8]}"):
         for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
             task = json.loads(path.read_text())
             if task.get("status") == "in_progress" and task.get("owner"):
-                owners.setdefault(task["owner"], []).append(str(task["id"]))
+                owners.setdefault(task["owner"], []).append((str(task["id"]), datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)))
     return owners
 
 
@@ -407,7 +411,7 @@ class Pass:
         cards = set(facts.get(MERGE_CARDS, {}))
         stalls: list[Stall] = []
         questions: list[Question] = []
-        waiting: dict[tuple[str, str, str], list[tuple[str, datetime]]] = {}
+        waiting: dict[str, list[tuple[str, datetime, int, tuple[str, str, str]]]] = {}
 
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
@@ -423,8 +427,10 @@ class Pass:
             lane = row.get("lane") or (announced[-1]["lane"] if announced else ROOT)
             if going := grades.gone_at(gos, pr, head):
                 below = downstack(rows, row)
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, going[-1], head_at, queued, lane)):
-                    waiting.setdefault(waits_on[0], []).append((pr, waits_on[1]))
+                ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
+                since = max(ready, head_at) if head_at else ready
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane)):
+                    waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             tap = (board.taps.get(pr) if board else None) or {}
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
@@ -463,15 +469,17 @@ class Pass:
             card = f"merge:{pr}:{short(head)}"
             told = f"; the landing desk recorded its card {card} as posted, yet the board holds none" if card in cards else ""
             stalls.append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok and fidelity ok since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr))
-        for (blocker, owner, step), group in waiting.items():
-            named = [f"#{pr}" for pr, _ in group]
+        for bottom, group in waiting.items():
+            group.sort(key=lambda entry: entry[2])
+            blocker, owner, step = group[0][3]
+            named = [f"#{pr}" for pr, *_ in group]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
+            stack = f" in the stack from #{bottom}" if bottom != blocker or len(named) > 1 else ""
             sha = short(rows[blocker]["head"])
-            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}, and no QUEUED record does", (owner,), step, blocker))
+            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", (owner,), step, blocker))
         return stalls, questions
 
-    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], go: dict, head_at: datetime | None, queued: set[tuple[str, str]], lane: str) -> tuple[tuple[str, str, str], datetime] | None:
-        since = max(at(go), head_at) if head_at else at(go)
+    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str) -> tuple[str, str, str] | None:
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
@@ -479,14 +487,14 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return (member, ROOT, f"{named} has no go, and a stack enqueues from the bottom"), since
+                return member, ROOT, f"{named} has no go, and a stack enqueues from the bottom"
             if other.get("test_state") == "failure":
-                return (member, owns, f"fix the red build of {named}; the go waits on it"), since
+                return member, owns, f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":
-                return (member, owns, f"restack {named}: GitHub reads it as conflicting against its base"), since
+                return member, owns, f"restack {named}: GitHub reads it as conflicting against its base"
             if other.get("test_state") != "success":
-                return (member, owns, f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"), since
-        return (pr, RUNNER, f"the landing desk has not queued it: read its newest GO-UNQUEUED, BELOW-BLOCKED or BELOW-HELD line for #{pr} and the runner's heartbeat (`drive.py digest`)"), since
+                return member, owns, f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"
+        return pr, RUNNER, f"the landing desk has not queued it: read its newest GO-UNQUEUED, BELOW-BLOCKED or BELOW-HELD line for #{pr} and the runner's heartbeat (`drive.py digest`)"
 
     def carry(self, pr: str, head: str, head_at: datetime, tap: tuple[str, str], about: list[dict], newest: dict, fidelity_lanes: list[str]) -> Question:
         tapped, how = tap
@@ -496,14 +504,18 @@ class Pass:
         key = f"carry:{pr}:{short(head)}"
         carry_line = f"`fidelity: ok {short(head)} carried from {short(tapped)}`"
 
+        go_line = f"`go #{pr} at {short(head)}` naming the fix once fidelity grades it, and the row lists the fix"
+
         def settle(verdict: dict | None) -> Stall:
             if verdict is None:
-                return Stall(key, "carry", head_at, subject, what, (*fidelity_lanes, ROOT), f"post {carry_line} if it is a patch-identical restack; else root re-asks the owner at {short(head)}", pr)
+                return Stall(key, "carry", head_at, subject, what, (*fidelity_lanes, ROOT), f"post {carry_line} if it is a patch-identical restack; if it adds only a review fix, his tap keeps (rule 399b5fa) and root posts {go_line}; else root re-asks the owner at {short(head)}", pr)
             if verdict.get("restack"):
                 return Stall(key, "carry", head_at, subject, what, tuple(fidelity_lanes), f"post {carry_line}: {clip(verdict['why'])}", pr)
-            return Stall(key, "carry", head_at, subject, what, (ROOT,), f"re-ask the owner at {short(head)}; the tap at {short(tapped)} does not carry: {clip(verdict['why'])}", pr)
+            if verdict.get("fix"):
+                return Stall(key, "carry", head_at, subject, what, (ROOT,), f"his tap at {short(tapped)} keeps over a review fix (rule 399b5fa): root posts {go_line}: {clip(verdict['why'])}", pr)
+            return Stall(key, "carry", head_at, subject, what, (ROOT,), f"re-ask the owner at {short(head)}; it adds new behavior beyond the tapped change: {clip(verdict['why'])}", pr)
 
-        return Question(f"carry:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
+        return Question(f"tap-carry:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
 
     def lanes(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question]]:
         if session is None:
@@ -518,9 +530,11 @@ class Pass:
                 continue
             named = successor_of(lane)
             last = max((record for name, record in newest.items() if named.fullmatch(name)), key=lambda record: record["seq"], default=None)
-            owned = ", ".join(f"#{task}" for task in tasks)
+            owned = ", ".join(f"#{task}" for task, _ in tasks)
             if last is None:
-                stalls.append(Stall(f"lane:{lane}", "lane", self.now - self.watch.window, lane, f"it owns task {owned} in progress and posted nothing in {int(self.watch.window.total_seconds() // 3600)} h", (ROOT,), f"close task {owned} or relaunch {lane}"))
+                given = max(when for _, when in tasks)
+                if self.now - given >= self.watch.age("lane"):
+                    stalls.append(Stall(f"lane:{lane}", "lane", given, lane, f"it owns task {owned} in progress, given it by {pacific(given)}, and has posted nothing since", (ROOT,), f"close task {owned} or relaunch {lane}"))
             elif last["kind"] not in ENDED and self.now - at(last) >= PROMISE_FLOOR:
                 questions.append(self.silence(lane, last, owned))
         return stalls, questions

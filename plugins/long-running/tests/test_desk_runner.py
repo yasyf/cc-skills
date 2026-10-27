@@ -3225,36 +3225,79 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
 
+def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
+    seq = 0
+    for kind, text in said:
+        if kind == "head":
+            seq = head_record(shell, "29020", text)
+        elif kind == "withdraw":
+            seq = 34766 + len(shell.records)
+            shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
+        else:
+            seq = grade(shell, "29020", text)
+    return seq
+
+
 @pytest.mark.parametrize(
     "said",
     [
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")],
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major")],
         [("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")],
-        [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical")],
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff patch-identical"), ("withdraw", "wrong: one commit changed"), ("head", "HEAD #29020 cccc333333 (was aaaa111111): one commit changed in the restack")],
-        [("fidelity", "ok F307 at cccc333.")],
+        [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical"), ("fidelity", "ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.")],
         [("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")],
     ],
 )
-def test_a_board_tap_never_carries_to_a_fixed_head_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
+def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    for kind, text in said:
-        if kind == "head":
-            head_record(shell, "29020", text)
-        elif kind == "withdraw":
-            shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
-        else:
-            grade(shell, "29020", text)
+    seq = said_on(shell, said)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert note["text"] == "TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows does not carry to cccc333333, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #29020 at cccc333333"
+    assert note["text"] == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior; the board needs a new row for #29020 at cccc333333"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"), ("fidelity", "ok cccc333333 a fixed version of aaaa111111: a nil check answers the finder's major.")],
+        [("fidelity", "ok F307 at cccc333.")],
+    ],
+)
+def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_its_go(shell, config, tmp_path, said):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    seq = said_on(shell, said)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == []
+    [note] = tap_notes(shell)
+    assert note["to"] == "root,board-refresher"
+    assert note["text"] == f"TAP-KEPT #29020: the owner's tap at aaaa111111 on board block merge-rows keeps at cccc333333, a review fix with no new behavior per fidelity grade cci #{seq} (rule 399b5fa); root posts `go #29020 at cccc333333` naming the fix, and the row lists the fix"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff patch-identical"), ("withdraw", "wrong: one commit changed"), ("head", "HEAD #29020 cccc333333 (was aaaa111111): one commit changed in the restack")],
+    ],
+)
+def test_a_board_tap_at_an_ungraded_fixed_head_asks_for_nothing_until_its_grade_says_fix_or_new_behavior(shell, config, tmp_path, said):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    said_on(shell, said)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == [] and tap_notes(shell) == []
 
 
 def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, config, tmp_path):
@@ -5428,6 +5471,40 @@ def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
         "BELOW-HELD stack of #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, which a hold covers, so nothing in the stack is enqueued; the stack waits for each hold to lift"
     ]
+
+
+def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued_naming_the_bottom(shell, config, tmp_path):
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.gates["29031"] = [gate("#29020 BLOCKED cccc333333 merge conflict (graphite CONFLICT)", "#29031 GREEN dddd444444 graphite READY")]
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.startswith("GO-UNQUEUED go-unqueued:29020 #29020: #29020 is green at cccc333333 and root go #")
+    assert line.endswith("; #29031 above it in the stack from #29020 wait on it too")
+
+
+def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_the_carry_grade(shell, config, tmp_path):
+    merge_mode(config, "every")
+    shell.rows = [{"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"}]
+    shell.gates["33001"] = [gate("#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")]
+    shell.queue["33001"] = "not queued"
+    merge_go(shell, "33001", "merge #33001 at 9999999")
+    shell.sleep(10 * 60)
+    grade(shell, "33001", "ok aaaa111111 carried from 9999999, patch-identical replay onto dev.")
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert "yet it is not in the queue after 6 minutes" in line
 
 
 def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):

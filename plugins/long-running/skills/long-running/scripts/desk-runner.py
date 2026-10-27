@@ -458,8 +458,10 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to
-the same lanes says the board needs a new row, unless a root `go` or a patch-identical fidelity carry grade names that head. A board that does not read, or a carry cc-present refuses, logs `TAP-CARRY-FAILED` once per
+names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
+behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
+`TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa); a root `go` or a
+patch-identical fidelity carry grade naming that head draws neither. A board that does not read, or a carry cc-present refuses, logs `TAP-CARRY-FAILED` once per
 cause and tries again next pass. Under `every` the runner
 then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
@@ -524,7 +526,7 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
-from grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import QUOTED_BLOCK, QUOTED_SPAN
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import withdraws
@@ -5466,7 +5468,7 @@ class Landing:
         return [configured] if isinstance(configured, str) else list(configured)
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row. A head a root `go` or a patch-identical fidelity carry grade already names is settled: it gets no such note, and a carry onto a merge block the board no longer holds is skipped without `TAP-CARRY-FAILED` (root #151003)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). A head a root `go` or a patch-identical fidelity carry grade already names is settled: it gets no such note, and a carry onto a merge block the board no longer holds is skipped without `TAP-CARRY-FAILED` (root #151003)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         if not (session := self.root_session()):
@@ -5494,8 +5496,15 @@ class Landing:
             settled = bool(self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves))
             if chain := patch_chain(moves, head, entry["head"]):
                 self.carry_tap(session, block, pr, tapped, head, chain, to, settled)
-            elif not settled and (any(names_head(new, head) for new, *_ in moves) or graded) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since no head or fidelity record calls that head patch-identical to it; the board needs a new row for #{pr} at {head[:10]}", pr)
+                continue
+            if settled:
+                continue
+            said = {seq for new, _, _, seq in moves if names_head(new, head)}
+            adds = [record for record in reviews if (record["seq"] in said or graded and record["seq"] == graded["seq"]) and ADDS_BEHAVIOR.search(full_text(record))]
+            if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
+                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior; the board needs a new row for #{pr} at {head[:10]}", pr)
+            elif not adds and graded and graded["text"].startswith(FIDELITY_OK) and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, chain: list[int], to: str, settled: bool) -> None:
         cited = ", ".join(f"cci #{seq}" for seq in chain)
@@ -5849,15 +5858,16 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head for every open, green, unheld PR a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, whoever enqueued it, naming the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
+        stuck: dict[str, list[tuple[int, str, str, list[dict], datetime, str]]] = {}
         for pr, row in rows.items():
             head = row.get("head", "")
-            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or downstack(open_rows, pr) - {pr} & self.below_blocking:
+            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or (stack := downstack(open_rows, pr)) - {pr} & self.below_blocking:
                 continue
-            if not (gos := self.head_gos(pr, head)) or now - (at := min(actions.parse_stamp(go["at"]) for go in gos)) < GO_TO_QUEUE:
+            if not (gos := self.head_gos(pr, head)) or now - (at := min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos)) < GO_TO_QUEUE:
                 continue
             if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE:
                 continue
@@ -5869,7 +5879,13 @@ class Landing:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             else:
                 why = "no enqueue was accepted for it since the go"
-            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(at)} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}", f"go-unqueued:{pr}")
+            bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
+            stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
+        for bottom, group in stuck.items():
+            _, pr, head, gos, at, why = min(group)
+            above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
+            waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
+            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}", f"go-unqueued:{pr}")
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
