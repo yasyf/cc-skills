@@ -1377,7 +1377,11 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
         fields = loaded.row(args.key)
         answers = listed(fields.get("answer"))
-        added = [found for identity in args.answer if (found := ccn(loaded.shell, loaded.repo, "answer", "show", identity)["id"]) not in answers]
+        known, added = {str(answer)[:SHORT] for answer in answers}, []
+        for identity in args.answer:
+            if (found := ccn(loaded.shell, loaded.repo, "answer", "show", identity)["id"])[:SHORT] not in known:
+                known.add(found[:SHORT])
+                added.append(found)
         implications = listed(fields.get("implications"))
         edits = [{"at": stamp(), "answer": added}] if added else []
         if args.implication is not None:
