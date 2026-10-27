@@ -19,6 +19,7 @@ REBUILD_AFTER = 2.0
 SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
+GO = re.compile(r"^go #(\d+) at (\w+)")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 ASK_URL = "https://api.cerebras.ai/v1/chat/completions"
@@ -85,6 +86,7 @@ class Drive:
         self.dirty_at = time.monotonic()
         self.errors = {}
         self.paths = {}
+        self.reported = set()
 
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
@@ -135,8 +137,8 @@ class Drive:
             for number, head in stale:
                 try:
                     paths = run(["gh", "api", f"repos/{self.config['repo']}/pulls/{number}/files", "--paginate", "--jq", ".[].filename"]).split()
-                except subprocess.CalledProcessError as error:
-                    self.errors["paths"] = f"#{number}: {error.stderr.strip()[:200]}"
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                    self.errors["paths"] = f"#{number}: {str(error)[:200]}"
                     continue
                 cache[number] = {"head": head, "trees": trees(paths, self.config["trees"])}
                 cache_file.write_text(json.dumps(cache))
@@ -151,7 +153,7 @@ class Drive:
 
     def touch(self, slow=False):
         with self.lock:
-            self.dirty_at = time.monotonic()
+            self.dirty_at = self.dirty_at or time.monotonic()
             if slow:
                 self.slow_at = 0.0
 
@@ -180,6 +182,20 @@ class Drive:
                 self.version += 1
                 self.changed.notify_all()
 
+    def check_gos(self, records):
+        gos = {}
+        for record in records:
+            if record["kind"] == "go" and (found := GO.match(record["text"])):
+                gos[int(found[1])] = found[2]
+        for row in self.slow["board"]["rows"]:
+            row["go_head"] = gos.get(row["number"])
+            verdict = row["verdict"] or {}
+            stored = verdict.get("verdict") == "approved" and row["head"].startswith(verdict.get("head", "")[:7] or "-")
+            key = (row["number"], row["head"])
+            if row["go_head"] and row["head"].startswith(row["go_head"][:7]) and not stored and key not in self.reported:
+                self.reported.add(key)
+                self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", "root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
 
@@ -190,6 +206,7 @@ class Drive:
         with self.lock:
             records = list(self.records)
         lanes = cci("lanes", drive=self.config["drive"])
+        self.check_gos(records)
         return {
             **self.slow,
             "title": self.config["title"],
@@ -237,7 +254,7 @@ class Drive:
             for child in groups:
                 for group in child["groups"]:
                     for row in group["prs"]:
-                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(f"pr-{row['number']}")})
+                        rows.append({**row, "group": group["title"], "group_summary": group.get("summary", ""), "block": child["id"], "verdict": verdicts.get(child["id"], {}).get(str(row["number"]))})
             if not groups and block.get("status") == "open":
                 choice = next((child for child in block.get("children", []) if child["type"] == "choice"), None)
                 recommended = next((option["label"] for option in (choice or {}).get("options", []) if option.get("recommended")), None)

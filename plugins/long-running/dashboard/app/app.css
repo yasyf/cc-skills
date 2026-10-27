@@ -172,6 +172,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .foot { margin-top: 28px; font-size: 12px; color: var(--ink-3); }
 
 @media (max-width: 900px) {
+  .glance { grid-template-columns: 1fr; }
   .lives { grid-template-columns: 1fr 1fr; }
   .zones, .zones.three { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); }
   .facts { grid-template-columns: 1fr; }

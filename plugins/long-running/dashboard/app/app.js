@@ -52,10 +52,9 @@ function boardRow(n) {
 }
 function verdictState(row) {
   const v = row.verdict;
-  if (!v || v.verdict === 'cleared') return 'you';
-  const current = (v.head ?? '').slice(0, 7) === row.head.slice(0, 7);
-  if (!current) return 'you';
-  return v.verdict === 'approved' ? 'approved' : 'held';
+  const atHead = (sha) => Boolean(sha) && sha.slice(0, 7) === row.head.slice(0, 7);
+  if (v && v.verdict !== 'cleared' && atHead(v.head)) return v.verdict === 'approved' ? 'approved' : 'held';
+  return atHead(row.go_head) ? 'approved' : 'you';
 }
 function prState(n) {
   const pr = state.model.prs[n];
@@ -184,7 +183,8 @@ function endState() {
   const view = state.map;
   let body;
   if (view === 'tree') {
-    const columns = state.model.tree_names.map((tree) => {
+    const [target, ...rest] = state.model.tree_names;
+    const columns = [...rest, target].map((tree) => {
       const nums = numbers.filter((n) => (state.model.trees[n] ?? []).includes(tree));
       return `<div class="zone tree-${tree.split(' ')[0].toLowerCase()}"><div class="zone-h">${esc(tree)}<span class="dim">${TREE_NOTE[tree] ?? ''}</span></div>${partBoxes(nums) || '<div class="dim">Reading each pull request\'s files…</div>'}</div>`;
     });
@@ -294,6 +294,16 @@ async function ask(question) {
   state.asking = true;
   render();
   const answer = state.chat[state.chat.length - 1];
+  try {
+    await streamAnswer(question, history, answer);
+  } catch (error) {
+    answer.content += `\n\nThe answer stopped: ${error.message}`;
+  } finally {
+    state.asking = false;
+    render();
+  }
+}
+async function streamAnswer(question, history, answer) {
   const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }) });
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -312,8 +322,6 @@ async function ask(question) {
     }
     if (route().screen === 'ask') $('#main .chat').innerHTML = chatTurns();
   }
-  state.asking = false;
-  render();
 }
 
 function route() {
@@ -333,7 +341,7 @@ function render() {
   const y = window.scrollY;
   $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   window.scrollTo(0, y);
-  for (const e of timeline()) state.seen.add(e.id);
+  state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
 }
 function tickFresh() {
