@@ -1509,10 +1509,13 @@ The orca desk runner posts that record itself once `runner.json` carries a `find
 object: `{"model": "sol", "concurrent": 2, "checkout": "<repo checkout>", "to": ["<lane>"],
 "timeout_minutes": 60}`, every member optional. On every `head` record it starts one
 codex finder for that PR and head at once, beside the fidelity desks, never after them:
-over `<base>...<head>`, or over what changed since the head the PR's last finder record
-read, from `reference/finder-desk-brief.md`, which forbids any local build or test. It
-posts `finder: ok <head>` or `finder: major <head> <n> open: …` under lane
-`finder-desk` to the head's lane. A head reaches the finder once, a head some lane's
+over the head's own commits, those no commit on the base branch's current tip matches by
+patch, from `reference/finder-desk-brief.md`, which forbids any local build or test. A head
+after one the PR's last finder record graded reads only what changed since, with no row
+pass, and posts nothing when its own change is patch-identical to the graded head's. A
+head the PR no longer carries when the pass starts or finishes posts nothing. It posts
+`finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
+the head's lane. A head reaches the finder once, a head some lane's
 finder record already names gets no second pass, and the runner holds at most
 `concurrent` passes at once, queueing the rest. A failed pass is one `FINDER-FAILED`
 to root, and the lane runs that head's pass by hand.

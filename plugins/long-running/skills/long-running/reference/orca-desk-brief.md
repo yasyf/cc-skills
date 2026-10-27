@@ -740,8 +740,9 @@ full head; two records naming one head queue it once. The newest queued head of 
 starts at once, beside the fidelity desks, while fewer than `finder.concurrent` run, and
 an older queued head of the same PR settles as superseded. A head some lane's `finder:`
 record already names starts nothing. Each pass runs `finder.py` detached, which runs
-`codex-ask --schema findings` from `reference/finder-desk-brief.md` over `<base>...<head>`,
-or since the head the PR's last finder record read, and posts `finder: ok <head> …` or
+`codex-ask --schema findings` from `reference/finder-desk-brief.md` over the head's own
+commits against the base branch's current tip, or only since the head the PR's last finder
+record graded, skipping a patch-identical restack and a head the PR no longer carries, and posts `finder: ok <head> …` or
 `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane. A pass
 that fails, or writes no result within `finder.timeout_minutes`, posts one
 `FINDER-FAILED` to the root; the lane then runs that head's pass by hand. `show` lists
