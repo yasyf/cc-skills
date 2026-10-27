@@ -22,7 +22,7 @@ text under 400 characters. Put a longer body in a file and attach it with `--pat
 | kind | means | text | to |
 | --- | --- | --- | --- |
 | `decision` | a call your lane made that another lane could build on or contradict | the decision; link a durable decision with `--ccn` | the lanes it binds, or broadcast |
-| `head` | the current head of a PR or branch you own | the full 40-hex SHA | broadcast |
+| `head` | the current head of a PR or branch you own | the full 40-hex SHA; for a PR whose head replaced an earlier one, `<new> (was <old>): <what changed>`, saying `patch-identical` for a restack whose range-diff changes no patch, which carries the owner's board tap | broadcast |
 | `contract` | an interface, schema, name, or invariant another lane consumes | the contract, with a longer body attached by `--path` | broadcast |
 | `blocker` | something that stops a lane and needs another lane's act | what is stuck and who can clear it | the lane that can clear it |
 | `ask` | a question another lane must answer | the question | the lane asked |

@@ -1640,16 +1640,32 @@ landed or rejected PR, and a landed PR left in any list; the script's docstring 
 each refusal. A refusal goes to root and the row is fixed before the push, never pushed
 as it stands.
 
-His tap carries. When the change since his approved head is a patch-identical replay or
-a review fix, the root posts `go #<n> at <new head>` naming the fix, and the row lists
-his approved head in `carried` and names the fix in one plain line, so he is never asked
-again. A head that adds behavior asks again, with one line saying what is new. Every
-verdict is read live from the cc-present store (`cc-present outcomes`) and the root's
-`go` records at the moment it is used; no writer, row, card, or dashboard keeps a copy.
+His tap carries. With `landing.merge_ask_surface` set to `board`, the landing runner
+carries it across a restack itself on every pass, and no lane carries a tap by hand.
+Take an approval on a `pr-groups` row at an older head of an open PR, with no verdict at
+the PR's current head. The runner moves it to the current head with `cc-present verdict
+carry` when records chain the two heads and call each move patch-identical. A lane's
+`head` record reading `<new> (was <old>): restack, range-diff patch-identical` is one
+such move. A fidelity grade reading `fidelity: ok <new> patch-identical to <old>`, or
+`carried from <old>` with patch-identical and no new behavior, is another. One
+`TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`
+names, one lane or a list. A new head that a record names but no such chain reaches is a
+fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
+lanes says the board needs a new row at that head. For a review fix, the
+root posts `go #<n> at <new head>` naming the fix, and the row lists his approved head in
+`carried` and names the fix in one plain line, so he is never asked again. A head that
+adds behavior asks again, with one line saying what is new. Every verdict is read live
+from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
+moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
+27: "for each Biggest blocker, how are you fixing it structurally for future e.g. the
+taps never showing up on board for approval".
 
 *Prevents Oct 26 11:26 PM to 12:15 AM: the board asked three times for taps he had
 already given and once for a head he had rejected, because rows were pushed from a
-cached approved list and a root go at a moved head never reached the row.*
+cached approved list and a root go at a moved head never reached the row. Prevents Oct
+27 to 12:20 PM: seven PRs he had tapped sat 3 to 4 hours after patch-identical restacks
+moved their heads, because the runner saw no tap at the new head until a lane carried
+each one by hand.*
 
 A repository the runner's own GitHub account owns, the login `gh api user` prints,
 lands once green under every merge mode, with no card (de6c88c). A reserved touch
