@@ -450,7 +450,9 @@ an incident fix's plain squash included. A reserved touch puts the first sentenc
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
 stops naming, and a root `go` never does, whatever it names (C224). A quiet pass writes nothing.
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
-using the default six-hour window.
+using the default six-hour window. While `runner.json` holds a `stall` object, read every pass so an edit needs no
+restart, the orca runner starts `stall_watch.py --config <config>` detached every `stall.every_minutes` (default 5)
+once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`.
 Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
 plugin version the runner runs. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
@@ -659,6 +661,8 @@ QUOTA_RESOURCES = ("core", "graphql")
 QUOTA_URGENT = 1500
 TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
+STALL_WATCH = SCRIPTS / "stall_watch.py"
+STALL_EVERY_MINUTES = 5
 HEARTBEATS = drive.HEARTBEATS
 WATCHDOG = "drive-watchdog"
 ALIVE_EVERY = timedelta(minutes=1)
@@ -1509,6 +1513,8 @@ class Runner:
         self.passes: Counter[str] = Counter()
         self.raised: dict[str, tuple[str, int]] = {}
         self.alive_posted: dict[str, datetime] = {}
+        self.stall_pass: subprocess.Popen | None = None
+        self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1637,6 +1643,13 @@ class Runner:
         flight = self.shell.in_flight()
         doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
         self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}")
+
+    def stall_watch(self) -> None:
+        stall = json.loads(self.config.source.read_text()).get("stall")
+        if not stall or (self.stall_pass and self.stall_pass.poll() is None) or self.now() - self.stall_started < timedelta(minutes=stall.get("every_minutes", STALL_EVERY_MINUTES)):
+            return
+        self.stall_started = self.now()
+        self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], self.config.desk_inbox.with_name("stall-watch.log"), {})
 
     def keep_alive(self, desk: str) -> threading.Event:
         """Post the alive record every minute from a daemon thread, whatever the pass is doing, until the returned event is set."""
@@ -6413,6 +6426,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.orca_back()
         runner.aged_holds()
         runner.stalled_launches()
+        runner.stall_watch()
         behind = runner.stale()
         runner.flush()
         runner.write_view()
