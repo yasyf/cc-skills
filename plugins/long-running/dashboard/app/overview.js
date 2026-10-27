@@ -172,9 +172,9 @@ function track(s) {
   const ws = m.workers.filter((w) => w.live && w.step === s.id);
   const tone = ov.scrub > 0 && m.steps.indexOf(s) < ov.scrub ? 'done' : s.tone;
   return `<div class="trk tn-${tone}" data-track="${esc(s.id)}" tabindex="0"><span class="no">${m.steps.indexOf(s) + 1}</span><span class="nm">${esc(s.label)}</span>
-    <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}</span>
+    <span class="tdots">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</span>
     <span class="tws">${ws.slice(0, 2).map(strip).join('')}${ws.length > 2 ? `<em>+${ws.length - 2}</em>` : ''}${ws.length ? `<button class="badge" data-worker="${esc(ws[0].lane)}" aria-label="${esc(ws[0].lane)}'s last hour">▶${ws.length}</button>` : ''}</span>
-    <span class="ct">${t.landed}/${t.total}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
+    <span class="ct">${t.landed}/${t.total + s.untracked.length}</span><span class="g">${TONE_GLYPH[tone] ?? ''}</span><i class="into"></i></div>`;
 }
 function tracks() {
   const m = state.model;
@@ -297,13 +297,13 @@ function waits() {
   return [
     ...(taps ? [{ who: '<b>You</b>', what: `<a href="#/now">${plural(taps, 'decision')} in Needs you</a>`, unblocks: 'those pull requests and questions move' }] : []),
     ...(held ? [{ who: '<b>You, this morning</b>', what: `<button class="linkish" data-release="${esc(held.id)}">${esc(held.id)} ${esc(held.name)}</button>`, unblocks: rels.filter((r) => r.word === 'unreachable').map((r) => r.id).join(', ') }] : []),
-    ...named.map((n) => ({ who: ownerOf(n) ? `<button class="linkish" data-worker="${esc(ownerOf(n))}">${esc(ownerOf(n))}</button>` : 'Nobody named', what: `${dot(n)} #${n} ${esc(shortName(n) ?? plainTitle(n))}`, unblocks: `${next.id} ${next.name}`, since: latestOn(n)?.at })),
+    ...named.map((n) => ({ who: ownerOf(n) ? `<button class="linkish" data-worker="${esc(ownerOf(n))}">${esc(ownerOf(n))}</button>` : 'Nobody named', what: `${dot(n)} #${n} ${esc(shortName(n) ?? plainTitle(n))}`, next: truth(n).next, unblocks: `${next.id} ${next.name}`, since: truth(n).owner_at })),
     ...(m.now.waiting ?? []).map((w) => ({ who: esc(w.owed_by ?? 'Nobody named'), what: esc(w.what), unblocks: w.unblocks ?? '', since: null, at: w.since, expected: w.expected })),
   ];
 }
 function waitingOn() {
   const items = waits();
-  return `<section class="waiting"><h4>Waiting on</h4>${items.length ? `<ul>${items.map((w) => `<li><span class="who">${w.who}</span><span class="what">${w.what}</span><em>${w.unblocks ? `unblocks ${esc(w.unblocks)}` : ''}${w.since ? ` · last word ${agoWords(w.since)}` : w.at ? ` · since ${esc(w.at)}` : ''}${w.expected ? (overdue(w.expected) ? ` · <strong>overdue, expected ${esc(w.expected)}</strong>` : ` · expected ${esc(w.expected)}`) : ''}</em></li>`).join('')}</ul>` : '<p class="dim">Nobody: nothing is waiting on a person right now.</p>'}</section>`;
+  return `<section class="waiting"><h4>Waiting on</h4>${items.length ? `<ul>${items.map((w) => `<li><span class="who">${w.who}</span><span class="what">${w.what}${w.next ? `<small>${inline(w.next)}</small>` : ''}</span><em>${w.unblocks ? `unblocks ${esc(w.unblocks)}` : ''}${w.since ? ` · last word ${agoWords(w.since)}` : w.at ? ` · since ${esc(w.at)}` : ''}${w.expected ? (overdue(w.expected) ? ` · <strong>overdue, expected ${esc(w.expected)}</strong>` : ` · expected ${esc(w.expected)}`) : ''}</em></li>`).join('')}</ul>` : '<p class="dim">Nobody: nothing is waiting on a person right now.</p>'}</section>`;
 }
 function releaseTrunk() {
   const rels = state.model.now.releases ?? [];
@@ -339,25 +339,23 @@ function sheet(body, small = '') {
 }
 function prFacts(n) {
   const m = state.model;
-  const e = driveEntry(n) ?? { number: n, state: prState(n) };
+  const t = truth(n);
   const pr = m.prs[n] ?? {};
-  const step = m.steps.find((s) => s.id === e.step);
-  const part = m.parts.find((p) => p.key === e.part);
-  const owner = ownerOf(n);
-  const w = m.workers.find((x) => x.lane === owner);
+  const step = m.steps.find((s) => s.id === t.step);
+  const part = m.parts.find((p) => p.key === t.part);
   const row = boardRow(n);
-  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[e.state]}${e.state === 'failing' ? redWhy(n) : ''}${e.base ? ` · stacked on #${e.base}${e.base_failing ? ', whose tests fail' : ''}` : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
+  const w = m.workers.find((x) => x.lane === t.owner);
   const word = latestOn(n);
-  const status = statusOf(n);
-  const ownerAt = m.records.filter((r) => r.lane === owner).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null)?.at;
-  return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}</dd>
+  const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[t.state]}${t.base ? ` · stacked on #${t.base}${t.base_failing ? ', whose tests fail' : ''}` : ''}`;
+  return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.head ? ` <small class="dim">at ${esc(t.head)}${t.read_at ? `, read ${agoWords(t.read_at)}` : ''}</small>` : ''}</dd>
+    ${t.blocker ? `<dt>What blocks it</dt><dd class="${/^GitHub has not/.test(t.blocker) ? 'warn' : 'bad'}">${inline(t.blocker)}</dd>` : ''}
+    ${t.checks.length ? `<dt>Which check failed</dt><dd>${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}</dd>` : ''}
+    ${t.next ? `<dt>What happens next</dt><dd>${inline(t.next)}</dd>` : ''}
+    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>, ${w?.live ? 'working now' : t.owner_at ? `last word ${agoWords(t.owner_at)}` : 'no word from it in the last day'}` : 'No worker named'}</dd>
+    ${word ? `<dt>Its latest word on this</dt><dd>${said(word, 260)} <small class="dim">${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small></dd>` : ''}
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
-    <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd>
-    ${row?.blocker && !/^nothing/i.test(row.blocker) ? `<dt>What blocks it</dt><dd class="bad">${inline(row.blocker)}</dd>` : ''}
-    ${e.state === 'failing' ? `<dt>Which check</dt><dd>${pr.failing_checks?.length ? pr.failing_checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} failed ↗</a>`).join(', ') : `<a href="https://github.com/${esc(m.repo)}/pull/${n}/checks" target="_blank" rel="noopener">Its checks on GitHub ↗</a>`}</dd>` : ''}
-    <dt>Who is on it</dt><dd>${owner ? `<button class="linkish" data-worker="${esc(owner)}">${esc(owner)}</button>, ${w?.live ? 'working now' : ownerAt ? `last word ${agoWords(ownerAt)}` : 'no word from it in the last day'}` : 'No worker named'}</dd>
-    ${word || status ? `<dt>Where it stands, what is next</dt><dd>${status ? inline(status) : said(word, 260)}${word ? ` <small class="dim">from ${esc(word.lane)}, ${clock(word.at)} · <a href="/record/${word.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</dd>` : ''}</dl>`;
+    <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd></dl>`;
 }
 function prSheet() {
   const m = state.model;
@@ -408,8 +406,8 @@ function planSheet() {
   ].join('');
   const stepCards = m.steps.map((s, i) => {
     const t = tally(s.prs);
-    return `<article class="stc tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${share(s)}"><header><span class="si">${i + 1}</span><b>${esc(s.title)}</b><em>${t.total ? `${t.landed}/${t.total} landed` : ''}</em></header>
-      ${s.prs.length ? `<div class="sd">${byLight(s.prs).map((e) => dot(e.number)).join('')}</div>` : ''}
+    return `<article class="stc tn-${s.tone}" data-track="${esc(s.id)}" style="--p:${share(s)}"><header><span class="si">${i + 1}</span><b>${esc(s.title)}</b><em>${t.total + s.untracked.length ? `${t.landed}/${t.total + s.untracked.length} landed` : ''}</em></header>
+      ${s.prs.length + s.untracked.length ? `<div class="sd">${byLight(s.prs).map((e) => dot(e.number)).join('')}${s.untracked.map(dot).join('')}</div>` : ''}
       <p><em class="tone">${esc(TONE_SAY[s.tone] ?? s.tone)}.</em> ${inline(s.state)}</p>${s.blocker || s.next ? `<p class="dim">${s.blocker ? `Waits on: ${inline(s.blocker)}. ` : ''}${s.next ? `Next: ${inline(s.next)}` : ''}</p>` : ''}</article>`;
   }).join('');
   const relCards = planRows().map(([n, name, reach, targets, who]) => {
@@ -465,6 +463,7 @@ function stepCard(s) {
   return `<section class="stepcard tn-${s.tone}"><div class="kick">${TONE_GLYPH[s.tone] ?? ''} ${TONE_SAY[s.tone] ?? ''}</div><h3>${esc(s.title)}</h3>
     <dl class="facts">${red.length ? `<dt>Red now</dt><dd class="bad">${red.map((p) => `${prLink(p.number)} ${esc(shortName(p.number) ?? plainTitle(p.number))}${(state.model.prs[p.number]?.failing_checks ?? []).map((c) => ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join('')}`).join('<br>')}</dd>` : ''}<dt>Where it stands</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${blockerNow(s.blocker)}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
     ${ws.length ? `<h4 class="sc-h">Who is on it <span>${plural(ws.filter((w) => w.live).length, 'worker')} active in the last 20 minutes</span></h4><ul class="wlist">${ws.map(lastWord).join('')}</ul>` : '<p class="dim">No worker has reported on this step.</p>'}
+    ${s.untracked.length ? `<p class="dim">Not tracked by the merge ledger yet: ${s.untracked.map(prLink).join(', ')}</p>` : ''}
     ${s.prs.length ? `<h4 class="sc-h">Pull requests <span><b>${t.landed}</b> landed · <b>${t.queued}</b> approved · <b>${t.you}</b> your tap · ${t.total} in all</span></h4><ul class="prlist">${[...s.prs].sort((a, b) => ATTENTION.indexOf(a.state) - ATTENTION.indexOf(b.state)).map((p) => prRow(p, ['failing', 'held', 'you'].includes(p.state) ? ownerLine(p.number) : '')).join('')}</ul>` : ''}
     <p class="dim">Desk note written ${clock(state.model.steps_at)}.</p></section>`;
 }
@@ -484,8 +483,11 @@ function trackSheet() {
 function shortShas(text) {
   return String(text).replace(/\b([0-9a-f]{7})[0-9a-f]{5,33}\b/g, '$1');
 }
+function truth(n) {
+  return driveEntry(n) ?? { number: Number(n), state: prState(n), owner: state.model.prs[n]?.lane, next: null, blocker: null, checks: [] };
+}
 function ownerOf(n) {
-  return driveEntry(n)?.worker?.lane ?? state.model.prs[n]?.lane;
+  return truth(n).owner;
 }
 function recordsOn(n) {
   const lanes = [ownerOf(n), state.model.prs[n]?.lane];
@@ -494,35 +496,16 @@ function recordsOn(n) {
 function latestOn(n) {
   return recordsOn(n)[0] ?? null;
 }
-function statusOf(n) {
-  const m = state.model;
-  const pr = m.prs[n] ?? {};
-  const row = boardRow(n);
-  const recs = recordsOn(n).slice(0, 4);
-  const facts = [
-    `State: ${STATE_WORD[prState(n)]}${pr.landed_at ? `, landed ${clock(pr.landed_at)}` : ''}`,
-    `What it changes: ${shortName(n) ?? plainTitle(n)}`,
-    row?.blocker && `What blocks it: ${row.blocker}`,
-    pr.mergeable_state === 'dirty' && 'It conflicts with its base',
-    pr.test_state && `Its own tests: ${pr.test_state}${pr.failing_checks?.length ? `, failing ${pr.failing_checks.map((c) => c.name).join(', ')}` : ''}`,
-    ownerOf(n) && `Worker: ${ownerOf(n)}`,
-    ...recs.map((r) => `${clock(r.at)} ${r.kind}: ${firstSentences(shortShas(r.text), 400)}`),
-  ].filter(Boolean).join('\n');
-  return prStatus(n, facts);
-}
 function said(r, max) {
   return inline(plainWord(r) ?? firstSentences(shortShas(r.text), max));
 }
 function ownerLine(n) {
-  const lane = ownerOf(n);
-  const r = latestOn(n);
-  const status = statusOf(n);
-  return `<span class="own">${lane ? `<button class="linkish" data-worker="${esc(lane)}">${esc(lane)}</button>` : 'No worker named'}${status ? `: ${inline(status)}` : r ? `: ${said(r, 160)}` : ''}${r ? ` <small class="dim">${clock(r.at)} · <a href="/record/${r.seq}" target="_blank" rel="noopener">record ↗</a></small>` : ''}</span>`;
+  const t = truth(n);
+  return `<span class="own">${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}">${esc(t.owner)}</button>` : 'No worker named'}${t.next ? `: ${inline(t.next)}` : ''}${t.owner_at ? ` <small class="dim">last word ${agoWords(t.owner_at)}</small>` : ''}</span>`;
 }
 function redWhy(n) {
-  const r = state.model.records.filter((x) => x.kind === 'blocker' && x.text.includes(`#${n} `)).reduce((a, b) => (!a || b.seq > a.seq ? b : a), null);
-  const check = r && /CI is red: (.+)$/.exec(r.text)?.[1];
-  return r ? ` · ${check ? `check ${esc(check)} failed` : esc(firstSentences(r.text.replace(/^.*?:\s*/, ''), 60))} at ${clock(r.at)}` : '';
+  const checks = truth(n).checks.map((c) => c.name);
+  return checks.length ? ` · ${esc(checks.join(', '))} failed` : '';
 }
 function prRow(p, extra = '') {
   const pr = state.model.prs[p.number] ?? {};

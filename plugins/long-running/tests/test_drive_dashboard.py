@@ -3,7 +3,7 @@ import queue
 
 import pytest
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, verdict_state, with_conflicts
+from server import Drive, drive_prs, drive_workers, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, read_holds, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -108,8 +108,8 @@ def ledger(**rows):
     return {number.removeprefix("pr"): {"title": "ci: x", "head": "h" * 8, **fields} for number, fields in rows.items()}
 
 
-def listed(prs, rows=(), gos=None, records=(), trees=None, steps=()):
-    return {entry["number"]: entry for entry in drive_prs(prs, list(rows), gos or {}, list(records), trees or {}, TREES, list(steps), PARTS, NOW)["prs"]}
+def listed(prs, rows=(), gos=None, records=(), trees=None, steps=(), holds=None):
+    return {entry["number"]: entry for entry in drive_prs(prs, list(rows), gos or {}, list(records), trees or {}, TREES, list(steps), PARTS, holds or {}, NOW)["prs"]}
 
 
 def test_every_drive_pull_request_is_one_light_and_closed_ones_are_none():
@@ -194,10 +194,51 @@ def test_a_release_held_for_the_morning_stops_every_release_after_it():
     assert [release["word"] for release in release_path(releases)] == ["now", "after", "held", "unreachable", "unreachable"]
 
 
+def test_a_live_release_reads_out_while_an_earlier_one_is_unfinished_and_a_pause_stops_the_rest():
+    releases = [
+        {"id": "R1", "state": "First part complete: the second part waits on #42723"},
+        {"id": "R2", "state": "Live at 7:27 AM; during its rollout it failed customer runs"},
+        {"id": "R3", "state": "Paused by you at 7:49 AM until you read the retro"},
+        {"id": "R4", "state": "Paused by you at 7:49 AM until you read the retro"},
+    ]
+
+    assert [release["word"] for release in release_path(releases)] == ["now", "out", "held", "unreachable"]
+
+
 def test_a_release_path_with_nothing_held_marks_the_first_unreleased_release():
     releases = [{"id": "R1", "state": "Released 4:33 AM"}, {"id": "R2", "state": "Waits on #43196"}, {"id": "R3", "state": "Waits for release 2"}]
 
     assert [release["word"] for release in release_path(releases)] == ["out", "blocked", "after"]
+
+
+@pytest.mark.parametrize(
+    ("fields", "row_state", "base_state", "next_step"),
+    [
+        ({"state": "landed"}, None, None, "Nothing: it has landed."),
+        ({"state": "open", "mergeable_state": "dirty", "test_state": "failure"}, None, None, "p8a-step7 rebases it onto its base."),
+        ({"state": "open", "test_state": "failure", "failing_checks": [{"name": "buildkite/test", "url": "u"}]}, None, None, "p8a-step7 fixes buildkite/test."),
+        ({"state": "open"}, "you", None, "Your tap on the merge board at hhhhhhh."),
+        ({"state": "open", "mergeable_state": "dirty"}, "you", None, "Your tap on the merge board at hhhhhhh, and p8a-step7 rebases it onto its base."),
+        ({"state": "open"}, "approved", "open", "Lands after #42001 lands."),
+        ({"state": "open"}, "approved", "landed", "Lands when the merge queue reaches it."),
+        ({"state": "open", "hold_reason": "held for the cutover", "hold_until": "2026-10-30T00:00:00Z"}, None, None, "Held: held for the cutover."),
+    ],
+)
+def test_every_pull_request_carries_one_next_action_from_its_own_state(fields, row_state, base_state, next_step):
+    base = {"pr42001": {"state": base_state, "branch": "base"}} if base_state else {}
+    prs = ledger(**base, pr42002={"lane": "p8a-step7", "branch": "child", **({"base": "base"} if base_state else {}), **fields})
+    rows = [{"number": 42002, "state": row_state, "head": "h" * 8, "title": "T", "block": "b", "blocker": "Nothing; lands on your tap."}] if row_state else []
+
+    light = listed(prs, rows)[42002]
+
+    assert (light["next"], light["owner"], light["head"]) == (next_step, "p8a-step7", "hhhhhhh")
+
+
+def test_a_root_hold_is_the_next_action_even_on_a_red_conflicted_pull_request():
+    holds = read_holds("#42780 readers-first: after #42745 lands\n#42900 held for cutover (root #142864): lands with the P8f reader cutover, not before\n")
+    prs = ledger(pr42900={"state": "open", "lane": "p8f-replica", "test_state": "failure", "mergeable_state": "dirty"})
+
+    assert listed(prs, holds=holds)[42900]["next"] == "Held: held for cutover (root #142864): lands with the P8f reader cutover, not before."
 
 
 def step(prs, lanes=(), tone="later", step_id="s"):
@@ -217,7 +258,7 @@ def step(prs, lanes=(), tone="later", step_id="s"):
     ],
 )
 def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
-    drive = {"prs": [{"number": n, "state": state} for n, state in states.items()]}
+    drive = {"prs": [{"number": n, "state": state} for n, state in states.items()], "tracked": [*states, 99]}
     workers = [{"lane": "p8a-step7", "at": "2026-10-27T07:55:00Z", "prs": [], "step": "s", "live": live}]
 
     row = step_rows([step([*states, 99])], drive, workers)[0]
@@ -227,7 +268,7 @@ def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
 
 
 def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
-    drive = {"prs": [{"number": 42001, "state": "landed"}, {"number": 42002, "state": "failing"}]}
+    drive = {"prs": [{"number": 42001, "state": "landed"}, {"number": 42002, "state": "failing"}], "tracked": [42001, 42002]}
 
     row = step_rows([{**step([42001]), "blocker": "a fix for what the check found in #42002"}], drive, [])[0]
 
@@ -235,11 +276,11 @@ def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
 
 
 def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_done():
-    drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}]}
+    drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}], "tracked": [42712, 42714]}
 
-    row = step_rows([{**step([42712, 42714]), "blocker": "a fix for what the plan check found in #43197"}], drive, [])[0]
+    row = step_rows([{**step([42712, 42714, 43196]), "blocker": "a fix for what the plan check found in #43197"}], drive, [])[0]
 
-    assert row["tone"] == "waiting"
+    assert (row["tone"], row["untracked"]) == ("waiting", [43196, 43197])
 
 
 def record(lane, minutes_ago, kind="state", text="", topic=""):

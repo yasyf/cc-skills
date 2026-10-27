@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:6c857c488b2d — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:0b22bedc9c5e — do not edit; edit the source and rerun -->
 .kbtn + .fresh { margin-left: 0; }
 .kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
 .kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
@@ -593,7 +593,7 @@ async function filterBy(sentence){
  }catch(e){box.innerHTML=`<span class="dim">The assistant could not filter: ${esc(e.message)}</span>`}
 }
 const SHORT={name:"short",schema:{type:"object",additionalProperties:false,required:["names"],properties:{names:{type:"array",items:{type:"object",additionalProperties:false,required:["pr","name"],properties:{pr:{type:"integer"},name:{type:"string"}}}}}}};
-const shortKey=n=>`drive-assist:short:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
+const shortKey=n=>`drive-assist:name:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
 const shortWanted=new Set(),shortAsked=new Set();
 function shortName(n){
  const key=shortKey(n);
@@ -606,7 +606,7 @@ function nameBatch(){
  const batch=[...shortWanted].slice(0,40);
  batch.forEach(n=>{shortWanted.delete(n);shortAsked.add(shortKey(n))});
  if(!batch.length)return;
- aiOnce(compose(`Give each pull request a short name of at most six plain words that says what it changes for a person using the product. No pull request numbers, no jargon, no trailing period.\n\n${batch.map(n=>{const r=boardRow(n);return `#${n} ${plainTitle(n)}${r?`. ${short(r.change,240)}`:""}`}).join("\n")}`),{schema:SHORT}).then(out=>{
+ aiOnce(compose(`Give each pull request a short name of at most six plain words that says what it changes for a person using the product. Keep its direction: a change that removes, drops or deletes something must say so. No pull request numbers, no jargon, no trailing period.\n\n${batch.map(n=>{const r=boardRow(n);return `#${n} ${plainTitle(n)}${r?`. ${short(r.change,240)}`:""}`}).join("\n")}`),{schema:SHORT}).then(out=>{
   out.names.filter(x=>batch.includes(x.pr)).forEach(x=>localStorage.setItem(shortKey(x.pr),x.name.split(/\s+/).slice(0,6).join(" ").replace(/\.$/,"")));
   render();
  }).catch(()=>{}).finally(nameBatch);
@@ -628,17 +628,6 @@ function plainBatch(){
   out.lines.filter(x=>batch.some(r=>r.seq===x.seq)).forEach(x=>localStorage.setItem(plainKey(x.seq),x.line.trim()));
   render();
  }).catch(()=>{}).finally(plainBatch);
-}
-const statusAsked=new Set();
-function prStatus(n,facts){
- const key=`drive-assist:status:${n}:${aiHash(facts)}`;
- const hit=localStorage.getItem(key);
- if(hit)return hit;
- if(AI.key&&!statusAsked.has(key)){
-  statusAsked.add(key);
-  aiOnce(compose(`In at most 40 plain words, say where pull request #${n} stands and what happens next or who must act, using only these facts about it. Lead with its state exactly as given. If its tests fail, name what fails when the facts say. Never say nothing is needed unless it has landed. No commit hashes, record numbers, lane names or tool names.\n\n${facts}`)).then(t=>{localStorage.setItem(key,t.trim());render()}).catch(()=>{});
- }
- return null;
 }
 function entries(){
  const m=state.model;
@@ -767,6 +756,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 window.addEventListener("pagehide",()=>{if(Date.now()-seenAt>8000)saveSeen()});
 window.addEventListener("hashchange",closePal);
 try{since=JSON.parse(localStorage.getItem(SEEN_KEY)||"null")}catch(e){}
-Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord,prStatus});
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
 })();
 </script>

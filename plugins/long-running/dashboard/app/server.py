@@ -38,7 +38,7 @@ ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blo
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
-HELD = re.compile(r"^hold", re.I)
+HELD = re.compile(r"^(hold|held|paused|stopped)", re.I)
 WAITS = re.compile(r"^(waits? on|blocked)", re.I)
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
@@ -132,9 +132,40 @@ def part_of(title, parts):
     return next((part["key"] for part in parts if scope in part["scopes"]), parts[-1]["key"])
 
 
-def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
+def next_action(state, pr, row, owner, base, base_landed, hold):
+    who = owner or "Its worker"
+    if state == "landed":
+        return "Nothing: it has landed."
+    if state == "you":
+        return f"Your tap on the merge board at {row['head'][:7]}{f', and {who} rebases it onto its base' if pr.get('mergeable_state') == 'dirty' else ''}."
+    if hold:
+        return f"Held: {hold}."
+    if pr.get("mergeable_state") == "dirty":
+        return f"{who} rebases it onto its base."
+    if state == "failing":
+        checks = ", ".join(check["name"] for check in pr.get("failing_checks") or [])
+        return f"{who} fixes {checks or 'its failing tests'}."
+    if state == "held":
+        return f"Held{': ' + pr['hold_reason'] if pr.get('hold_reason') else ' by your verdict on the merge board'}."
+    if base and not base_landed:
+        return f"Lands after #{base} lands."
+    if state == "queued":
+        return "Lands when the merge queue reaches it."
+    if state == "doing":
+        return f"{who} is working on it."
+    return "Waits its turn in its stack."
+
+
+def read_holds(text):
+    return {found[1]: found[2].strip() for found in re.finditer(r"^#(\d{5})\s+(.+)$", text, re.M)}
+
+
+def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, now):
     by_number = {str(row["number"]): row for row in rows}
     active = activity(records, now, prs)
+    spoke = {}
+    for record in records:
+        spoke[record["lane"]] = max(spoke.get(record["lane"], ""), record["at"])
     by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
     listed = []
     for number, pr in sorted(prs.items()):
@@ -143,7 +174,10 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
         found = trees.get(number, [])
         base = by_branch.get(pr.get("base"))
         inherited = base and pr.get("test_state") == "failure" and prs[base].get("test_state") == "failure"
-        state = pr_state({**pr, "test_state": None} if inherited else pr, by_number.get(number), gos.get(int(number)), active.get(number), now)
+        row = by_number.get(number)
+        state = pr_state({**pr, "test_state": None} if inherited else pr, row, gos.get(int(number)), active.get(number), now)
+        owner = (active.get(number) or {}).get("lane") or pr.get("lane")
+        blocker = row["blocker"] if row and row.get("blocker") and not re.match(r"nothing", row["blocker"], re.I) else CONFLICT if pr.get("mergeable_state") == "dirty" else None
         listed.append({
             "number": int(number),
             "state": state,
@@ -153,8 +187,15 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, now):
             "part": part_of(pr.get("title"), parts),
             "step": next((step["id"] for step in steps if int(number) in step["prs"]), None),
             "worker": active.get(number),
+            "head": (pr.get("head") or "")[:7],
+            "owner": owner,
+            "owner_at": spoke.get(owner),
+            "blocker": blocker,
+            "checks": pr.get("failing_checks") or [],
+            "next": next_action(state, pr, row, owner, base, bool(base) and prs[base].get("state") == "landed", holds.get(number)),
+            "read_at": pr.get("last_refresh"),
         })
-    return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed}
+    return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "tracked": sorted(int(number) for number in prs)}
 
 
 def drive_workers(records, prs, steps, now, desks=False):
@@ -195,21 +236,22 @@ def step_tone(step, prs, workers, untracked):
 
 def step_rows(steps, drive, workers):
     by_number = {entry["number"]: entry for entry in drive["prs"]}
+    tracked = set(drive["tracked"])
     rows = []
     for step in steps:
         named = [int(n) for n in PR_MENTION.findall(step.get("blocker") or "")]
         prs = [by_number[n] for n in dict.fromkeys([*step["prs"], *named]) if n in by_number]
         on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
-        untracked = [n for n in named if n not in by_number]
-        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "tone": step_tone(step, prs, on, untracked), "workers": on})
+        untracked = [n for n in dict.fromkeys([*step["prs"], *named]) if n not in tracked]
+        rows.append({**step, "prs": [{"number": entry["number"], "state": entry["state"]} for entry in prs], "untracked": untracked, "tone": step_tone(step, prs, on, untracked), "workers": on})
     return rows
 
 
 def release_path(releases):
-    upcoming = next((i for i, release in enumerate(releases) if not RELEASED.match(release["state"])), len(releases))
     stop = next((i for i, release in enumerate(releases) if HELD.match(release["state"])), len(releases))
+    upcoming = next((i for i, release in enumerate(releases) if i < stop and not RELEASED.match(release["state"])), None)
     def word(i, release):
-        if i < upcoming:
+        if RELEASED.match(release["state"]):
             return "out"
         if i == stop:
             return "held"
@@ -488,7 +530,7 @@ class Drive:
         now = dt.datetime.now(dt.timezone.utc)
         progress = json.loads(Path(self.config["steps"]).read_text())
         activity_records = [*model["records"], *model["lanes"]]
-        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], now)
+        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], read_holds(Path(self.config["holds"]).read_text()), now)
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
         return {
             **model,
