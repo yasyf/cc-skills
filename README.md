@@ -58,18 +58,19 @@ Hand-typed demo GIFs lie, and they go stale the first time your output changes. 
 Record an animated terminal demo of `trimmy --help` for the README
 ```
 
-The skill writes a `.tape` script, renders it with `evp`, inspects still keyframes, and refines in a loop. On Linux x86_64 the render runs natively; on macOS/ARM it runs under Docker `linux/amd64`. The tape is committed, so the demo regenerates whenever the output drifts.
+The skill writes a `.tape` script, renders it with `evp`, inspects still keyframes, and refines in a loop. On Linux x86_64 the render runs natively; on macOS/ARM it runs under Docker `linux/amd64`. Only the exported SVG is committed, and rerunning the skill regenerates it when the output drifts.
 
 ---
 
 ## Plugins
 
-The table below is the full catalog; the `SKILL.md` inside each plugin dir carries prerequisites and the full flow.
+The table below is the full catalog; each plugin's own README covers install, prerequisites, example prompts, and what it ships.
 
 | Plugin | What you get |
 |---|---|
 | [slop-cop](plugins/slop-cop) | Catches LLM prose tells in any file, from filler intensifiers to negation pivots. A `SessionStart` hook fetches the prebuilt binary. |
 | [codex](plugins/codex) | A second opinion from OpenAI's Codex CLI when you're stuck, plus image generation via its `$imagegen` skill. Needs `codex` on `PATH`. On Linux amd64, owner wakes need `codex-ask supervise` running in the foreground; any process of the same user can reach its daemon, so run it only on a single-user machine. |
+| [open-pr](plugins/open-pr) | Opens pull requests matched to the repo's merged PR history and contribution guidelines, then watches CI and bot reviews in the background until the PR is ready to merge. Needs `ccx`, `gh`, `jq`, and the `captain-hook` plugin. |
 | [repo-bootstrap](plugins/repo-bootstrap) | A new repo with agent docs, guard hooks, brand images, and opinionated Python, Go, or Swift layers, scaffolded in one pass. |
 | [llm-prompts](plugins/llm-prompts) | Research-backed prompt-writing guidance, refreshed with current per-provider model behaviors. |
 | [writing-docs](plugins/writing-docs) | Diataxis modes, a technical-builder voice, and the README skeleton this file follows. |
@@ -78,8 +79,8 @@ The table below is the full catalog; the `SKILL.md` inside each plugin dir carri
 | [repo-summaries](plugins/repo-summaries) | A Claude-written summaries sidecar that turns real commit and release data into one-line suffixes. |
 | [cli-demo](plugins/cli-demo) | Animated SVG terminal demos via `evp`. Write a tape, render, inspect keyframes, refine. |
 | [agent-browser-with-cookies](plugins/agent-browser-with-cookies) | Authenticated `agent-browser` sessions off your local browser login, one Touch ID tap. macOS only. |
-| [long-running](plugins/long-running) | Five hard rules that keep an orchestrator's context intact across many lanes, plus templates for the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan. |
-| [live-dashboard](plugins/live-dashboard) | A live dashboard assembled per task from typed components, with built-ins for the PR review queue, Slack test threads, bot latency percentiles, and design gates, plus local components written for the job at hand. The long-running drive dashboard runs on it. |
+| [long-running](plugins/long-running) | Twenty-four hard rules that keep an orchestrator's context intact across many lanes, plus templates for the lane brief, scoped resume, sequencer lane, merge train lane, polling loop, and compaction handoff. |
+| [live-dashboard](plugins/live-dashboard) | A live dashboard assembled per task from typed components, with built-ins for the PR review queue, Slack test threads, bot latency percentiles, and design gates, plus local components written for the job at hand. |
 | [show](plugins/show) | Picks the right delivery surface for a deliverable, whether prose, AskUserQuestion, an Artifact page, or a live cc-present board. |
 | [design-doc](plugins/design-doc) | An assumptions-first design method with stable-ID registers and question rounds, shipped as an interactive doc with a drawn system card, readable citations in parentheses, claim-first numbers tables, source previews on every cited path and line, declared components, PR links with live GitHub state, an interview replay, and a whole-document assistant with grounded follow-ups behind a deployed key, plus a PDF. Needs Chrome for the PDF step. |
 | [incident-retro](plugins/incident-retro) | Incident retrospectives as an interactive page rendered from one canonical `retro.json`: outage windows and time-to-detect, mitigate, and resolve tiles derived from timestamps, a swimlane timeline with Slack quotes, root and contributing causes with evidence, action items with live GitHub state, committed Datadog notebook and monitor snapshots drawn in the page, reader comments, an in-page assistant, and a Google Docs postmortem importer. Shares its assistant, link chips, and component kit with design-doc. Needs Chrome for render checks and the PDF. |
