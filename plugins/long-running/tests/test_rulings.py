@@ -1698,11 +1698,19 @@ def test_authorize_refuses_a_merge_card_tap_for_a_reserved_row_its_pr_does_not_t
 BOARD_TAP_AT = "2026-10-27T02:23:40Z"
 
 
-def board_of(words: str, **tap: str) -> dict:
-    row = {"number": 12, "title": "Drain on close", "head": "cafef00d", "md": words, "change": "Drains the pool.", "plan": "", "risk": "", "review": "", "blocker": ""}
+def pool_row(head: str, words: str) -> dict:
+    return {"number": 12, "title": "Drain on close", "head": head, "md": words, "change": "Drains the pool.", "plan": "", "risk": "", "review": "", "blocker": ""}
+
+
+def pool_block(*rows: dict) -> dict:
+    return {"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "pool", "prs": list(rows)}]}
+
+
+def board_of(words: str, past: list[tuple[str, str]] = (), **tap: str) -> dict:
     verdict = {"verdict": "approved", "head": "cafef00d", "at": BOARD_TAP_AT} | tap
     return {
-        "doc": {"blocks": [{"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "pool", "prs": [row]}]}]},
+        "doc": {"blocks": [pool_block(pool_row("cafef00d", words))]},
+        "rounds": {"history": [{"number": number, "blocks": [pool_block(pool_row(head, said))]} for number, (head, said) in enumerate(past, 1)]},
         "interactions": {"triage": {"merge-prs": {"12": verdict}}},
     }
 
@@ -1728,7 +1736,7 @@ def test_authorize_records_the_owner_answer_for_an_approved_board_merge_row_quot
 def test_authorize_honors_a_carried_board_tap_and_reuses_the_answer_it_already_recorded(home: Path, package: Path, state: Path, registered: Path, reserved: dict, capsys) -> None:
     transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board posted."}]}})
     recorded = dict(OWNER_TAP, body="Owner approved #12 at cafef00d, carried from 1234567: merge also authorizes rule/aaaaaaa.", tags=["from:owner", "program:brook", f"proof:board:merge-prs:12:{BOARD_TAP_AT}"])
-    shell = RegisterShell(reserved, answers=[recorded], diff=DIFF, board=board_of(QUOTING_CARD, carriedFrom="1234567", carryNote="patch-identical restack, per cci #1"))
+    shell = RegisterShell(reserved, answers=[recorded], diff=DIFF, board=board_of("The pool drains now.", past=[("1234567", QUOTING_CARD)], carriedFrom="1234567", carryNote="patch-identical restack, per cci #1"))
 
     assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", BOARD_TAP_AT) == (0, "authorized rule/aaaaaaa by 1111111\n")
     assert len(shell.answers) == 1
@@ -1741,8 +1749,9 @@ def test_authorize_honors_a_carried_board_tap_and_reuses_the_answer_it_already_r
         (board_of(QUOTING_CARD, verdict="rejected"), BOARD_TAP_AT, "AUTHORIZE-NOT-AFFIRMATIVE"),
         (board_of("The pool drains on close now."), BOARD_TAP_AT, "AUTHORIZE-CARD-NAMES-NO-ROW"),
         (board_of(QUOTING_CARD), BOARD_TAP_AT, "AUTHORIZE-ROW-UNTOUCHED"),
+        (board_of(QUOTING_CARD, past=[("1234567", "The pool drains now.")], carriedFrom="1234567"), BOARD_TAP_AT, "AUTHORIZE-CARD-NAMES-NO-ROW"),
     ],
-    ids=["no-tap-at-that-time", "rejected-row", "row-quoting-nothing", "head-touching-nothing"],
+    ids=["no-tap-at-that-time", "rejected-row", "row-quoting-nothing", "head-touching-nothing", "carried-from-a-row-quoting-nothing"],
 )
 def test_authorize_refuses_a_board_tap_that_is_missing_rejected_unquoting_or_untouching(home: Path, package: Path, state: Path, registered: Path, reserved: dict, capsys, board: dict, at: str, verdict: str) -> None:
     transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board posted."}]}})
