@@ -7508,6 +7508,19 @@ def test_a_lane_silent_past_a_root_order_logs_one_lane_gone(shell, config, tmp_p
         assert lines[0].endswith(("cci last saw it 20 min ago; " + LANE_GONE_ADVICE, "cci lists no session for it; " + LANE_GONE_ADVICE))
 
 
+def test_with_a_desk_lane_a_repeat_lane_gone_still_reaches_root(shell, config, tmp_path):
+    desk_lane(config)
+    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    shell.gone.add("p8-lane")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: and drop the old shim", at=actions.stamp(shell.clock - timedelta(minutes=1)))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert heard(shell, "LANE-GONE") == ["root", f"root,{DESK},p8-lane"]
+
+
 @pytest.mark.parametrize("answer", [{"lane": "p8-lane-2", "kind": "note", "text": "taking over"}, {"kind": "stand-down", "to": ["p8-lane"], "text": "p8-lane: stand down"}])
 def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, config, tmp_path, answer):
     cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))

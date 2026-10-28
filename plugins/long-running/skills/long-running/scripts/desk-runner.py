@@ -3460,7 +3460,7 @@ class Runner:
                 sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
                 orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
                 key, subject = f"lane-gone:{lane}:{unanswered[-1]['seq']}", f"lane-gone:{lane}"
-                to = ",".join(dict.fromkeys([*desks, *self.landing_lanes("board_lane"), lane])) if self.raised_before(key, subject) and (desks := self.landing_lanes("desk_lane")) else ""
+                to = ",".join(dict.fromkeys([ROOT, *desks, *self.landing_lanes("board_lane"), lane])) if self.raised_before(key, subject) and (desks := self.landing_lanes("desk_lane")) else ""
                 self.escalate(key, "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", subject, to)
         except CciTailFailed as failure:
             self.tail_failed(failure)
