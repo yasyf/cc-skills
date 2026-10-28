@@ -35,16 +35,16 @@ and, across the drive:
 
     lane      a lane owning an in-progress task on the root's task list posted nothing past the time
               its last record promised, or for `stall.minutes.lane`, counted for a lane with no
-              record yet from when its task file was last written; a lane whose every open PR waits
-              on the owner's tap, directly or through its hold, and that no record since its last
-              addresses owes nothing and is idle
+              record yet from when its task file was last written; a lane with open PRs owes nothing
+              and is idle unless one of them is red, conflicting, needs a restack, or waits on its
+              answer to the reviewer bot, or a record since its last addresses it
     ask       a lane's `ask` to root is open, and no root record answers it
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
               other stall names it, a green PR whose merge row waits on the owner's tap at its head,
               and a held PR whose holds-file line names open PRs that each wait on that tap, sit in
-              the merge queue, or are held the same way, post one `state` record to root per head
+              the merge queue, are held the same way, or are stacked on such a PR, post one `state` record to root per head
               instead, a PR that waits on the PR below it posts nothing itself and is listed on the
               stale PR its stack waits on, and a PR whose owning lane has no live record in the
               window goes to root; a changed state on the same head counts from the pass that saw
@@ -127,6 +127,12 @@ TAP_WAIT = "waits on the owner's tap"
 IN_QUEUE = "in the merge queue"
 HELD = "held: "
 OWNER_WAITS = frozenset({TAP_WAIT, IN_QUEUE})
+RED = "red on "
+CONFLICTS = "conflicts with its base"
+RESTACK = "needs a restack: the PR below it landed"
+BOT_HOLDS = "the reviewer bot holds it"
+NO_VERDICT = "no reviewer bot verdict on this head"
+LANE_OWES = (RED, CONFLICTS, RESTACK, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
 MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
@@ -334,19 +340,19 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     elif held:
         state, step = f"{HELD}{clip(row.get('hold_reason') or 'a hold record covers it')}", f"lift the hold on #{pr} or do what it waits on"
     elif row.get("base", "").startswith("graphite-base/"):
-        state, step = "needs a restack: the PR below it landed", f"restack {named} onto its new parent with `ccx vcs ship --tip-only` and post HEAD"
+        state, step = RESTACK, f"restack {named} onto its new parent with `ccx vcs ship --tip-only` and post HEAD"
     elif row.get("mergeable_state") == "dirty":
-        state, step = "conflicts with its base", f"restack {named} and post HEAD"
+        state, step = CONFLICTS, f"restack {named} and post HEAD"
     elif row.get("test_state") == "failure":
-        state, step = f"red on {red}", f"fix the red build of {named}"
+        state, step = f"{RED}{red}", f"fix the red build of {named}"
     elif below:
         state, step, waits = f"waits on #{below} below it", f"land #{below} first", below
     elif row.get("test_state") != "success":
         state, step = "its build has not finished", f"read the build of {named}"
     elif row.get("ai_review") in REVIEW_HELD:
-        state, step = "the reviewer bot holds it", f"answer each blocking finding on #{pr} with a fix or a one-line rebuttal"
+        state, step = BOT_HOLDS, f"answer each blocking finding on #{pr} with a fix or a one-line rebuttal"
     elif row.get("ai_review") != "success":
-        state, step = "no reviewer bot verdict on this head", f"re-request the reviewer bot's review of {named}"
+        state, step = NO_VERDICT, f"re-request the reviewer bot's review of {named}"
     elif going:
         state, step = "green with a go, not queued", f"the landing desk enqueues {named}"
     elif tapping:
@@ -599,7 +605,7 @@ class Pass:
         for record in records:
             newest[record["lane"]] = record
         self.states, self.stack, self.tap_waits, standing = {}, [], {}, {}
-        states = {found["pr"]: found["state"] for found in entries}
+        found_by_pr = {found["pr"]: found for found in entries}
         for found in entries:
             pr, head_at = found["pr"], found.pop("head_at")
             signature = f"{found['head']} {found['state']}"
@@ -618,7 +624,7 @@ class Pass:
             subject = f"#{pr} at {short(found['head'])}"
             if stale and found["state"] == TAP_WAIT:
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since)}")
-            elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, states, {pr})):
+            elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, found_by_pr, {pr})):
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(f'#{gate}' for gate in sorted(gates))}, each waiting on the owner's tap or {IN_QUEUE}, since {pacific(since)}")
             elif stale and pr not in stalled:
                 standing[pr] = (found, since, live)
@@ -642,23 +648,28 @@ class Pass:
             stalls.append(Stall(f"stale:{pr}:{short(found['head'])}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr))
         return stalls
 
-    def owner_gates(self, pr: str, states: dict[str, str], seen: set[str]) -> set[str] | None:
-        named = [gate for gate in self.hold_gates.get(pr, []) if gate in states]
+    def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
+        named = [gate for gate in self.hold_gates.get(pr, []) if gate in found_by_pr]
         if not named:
             return None
         gates: set[str] = set()
         for gate in dict.fromkeys(named):
             if gate in seen:
                 continue
-            if states[gate].startswith(HELD):
-                if (reached := self.owner_gates(gate, states, seen | {gate})) is None:
-                    return None
-                gates |= reached
-            elif states[gate] in OWNER_WAITS:
-                gates.add(gate)
-            else:
+            if (reached := self.waits_on_owner(gate, found_by_pr, seen | {gate})) is None:
                 return None
+            gates |= reached
         return gates
+
+    def waits_on_owner(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
+        found = found_by_pr[pr]
+        if found["state"] in OWNER_WAITS:
+            return {pr}
+        if found["state"].startswith(HELD):
+            return self.owner_gates(pr, found_by_pr, seen)
+        if below := found["waits"]:
+            return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
+        return None
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str) -> tuple[str, str, str] | None:
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
@@ -713,7 +724,6 @@ class Pass:
             newest[record["lane"]] = record
         stalls: list[Stall] = []
         questions: list[Question] = []
-        states = {found["pr"]: found["state"] for found in entries}
         for lane, tasks in sorted(task_owners(session).items()):
             if lane in NOT_LANES:
                 continue
@@ -721,7 +731,7 @@ class Pass:
             last = max((record for name, record in newest.items() if named.fullmatch(name)), key=lambda record: record["seq"], default=None)
             prs = [found for found in entries if named.fullmatch(found["owner"])]
             owed = [record for record in records if record["lane"] != LANE and record["seq"] > (last["seq"] if last else 0) and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])]
-            if prs and all(found["state"] == TAP_WAIT or found["state"].startswith(HELD) and self.owner_gates(found["pr"], states, {found["pr"]}) for found in prs) and not owed:
+            if prs and not owed and not any(found["state"].startswith(LANE_OWES) for found in prs):
                 continue
             owned = ", ".join(f"#{task}" for task, _ in tasks)
             if last is None:
