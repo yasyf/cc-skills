@@ -43,9 +43,10 @@ STOP_SCHEMA = {
 NODE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["id", "text", "state", "how", "item", "since"],
+    "required": ["id", "text", "state", "how", "item", "change", "since"],
     "properties": {
         "id": {"type": "string"},
+        "change": {"type": "integer", "description": "the number from open_changes of the change this node is about, or 0"},
         "text": {"type": "string", "description": "what is stuck or what must happen, at most 10 words"},
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
         "how": {"type": "string", "description": "who acts next and what they do, at most 12 words, such as 'The cloud runs worker rebuilds the fix, then the review rechecks'"},
@@ -118,7 +119,7 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
-- coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record.
+- coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record. Each entry of open_changes carries the latest ruling about it and its fixers; a node about a change with fixers is fixing and its how names them by their work.
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
@@ -173,7 +174,28 @@ def named_changes(model):
 
 
 def open_changes(model):
-    return [{"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": e.get("worker") or e.get("owner"), "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing")} for e in model["drive"]["prs"] if e["state"] != "landed"]
+    lanes = {r["lane"] for r in model["records"]} | {w["lane"] for w in model["workers"]}
+    active = {w["lane"] for w in model["workers"]}
+    rulings = {}
+    for r in model["records"]:
+        if r["lane"] in ROOT:
+            for n in PR_MENTION.findall(r["text"]):
+                rulings[int(n)] = r
+    changes = []
+    for e in model["drive"]["prs"]:
+        if e["state"] == "landed":
+            continue
+        worker = e.get("worker") or e.get("owner")
+        ruling = rulings.get(e["number"])
+        named = sorted(lane for lane in lanes - ROOT if ruling and re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", ruling["text"]))
+        changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": worker, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
+                        "coordinator_ruling": ruling and f"{clock(at(ruling['at']))}: {clip(ruling['text'], 500)}", "fixers": named or ([worker] if worker in active else [])})
+    return changes
+
+
+def unassigned(brief, changes):
+    fixers = {c["number"]: c["fixers"] for c in changes if c["fixers"]}
+    return [(i, j, node, fixers[node["change"]]) for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] == "nobody" and node.get("change") in fixers]
 
 
 def digest(model, config, previous, now):
@@ -259,12 +281,15 @@ class Curator:
         facts = digest(model, self.config, self.brief, now)
         lanes = facts["worker_names"]
         prompt = json.dumps(facts, indent=1)
-        brief = run_model(self.config.get("curator_model", "claude-opus-5-5"), prompt, SCHEMA)
-        problems = gate(brief, lanes)
+        model_name = self.config.get("curator_model", "claude-opus-5-5")
+        brief = run_model(model_name, prompt, SCHEMA)
+        problems = gate(brief, lanes) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
         if problems:
-            brief = run_model(self.config.get("curator_model", "claude-opus-5-5"), prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
+            brief = run_model(model_name, prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
             problems = gate(brief, lanes)
         brief = self.keep_passing(brief, problems, lanes)
+        for _, _, node, _ in unassigned(brief, facts["open_changes"]):
+            node["state"] = "fixing"
         brief["at"] = now.isoformat()
         brief["violations"] = problems
         self.write(brief)

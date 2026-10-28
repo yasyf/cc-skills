@@ -40,10 +40,10 @@ function band(b) {
   if (!m.needs.length) return '';
   const rows = m.needs.slice(0, 2).map(needLine).join('');
   const more = m.needs.length - 2;
-  return `<div class="nw-band needs nw-needs"><span class="tag">Needs you</span><div class="rows">${rows}</div>${more > 0 ? `<a class="more" href="#/now">${more} more decision${more === 1 ? '' : 's'} ›</a>` : ''}</div>`;
+  return `<div class="nw-band needs nw-needs"><div class="side"><span class="tag">Needs you</span>${more > 0 ? `<a class="more" href="#/now">${more} more ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
 }
 function needLine(item) {
-  const line = (what, why, acts) => `<div class="nl"><span class="what" title="${esc(why ? `${what}. ${why}` : what)}">${esc(what)}</span><span class="acts">${acts}</span></div>`;
+  const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
   if (item.kind === 'prs' && item.prs.length === 1) {
     const r = item.prs[0];
     const busy = pending.number === r.number && !pending.error;
@@ -52,9 +52,10 @@ function needLine(item) {
   if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/now">Review them</a>');
   if (item.kind === 'card') {
     const c = item.card;
-    const options = [...c.options].sort((a, b) => b.recommended - a.recommended).slice(0, 1);
+    const rec = c.options.find((o) => o.recommended);
     const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
-    return line(c.title, item.why, `${options.map((o) => { const label = o.label.replace(/\s*\(Recommended\)\s*$/i, ''); return `<button class="nbtn${o.recommended ? ' pri' : ''}" title="${esc(label)}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(label)}</button>`; }).join('')}<a class="nbtn" href="#/now">Other answers</a>`);
+    if (!rec) return line(c.title, item.why, '<a class="nbtn" href="#/now">Choose an answer</a>');
+    return line(c.title, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/now">Other answers</a>`, `Recommended: ${rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
   }
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/now">Details</a>');
 }

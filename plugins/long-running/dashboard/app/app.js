@@ -392,7 +392,7 @@ function boardPart(part, card) {
 }
 function boardCard(item) {
   const c = item.card;
-  const header = `<header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>`;
+  const header = `<header><h3>${esc(words(c.title))}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>`;
   if (c.embed) return `<article class="card bcard" id="card-${esc(c.id)}">${header}${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div></article>`;
   const settled = (part) => part.answer || part.kind === 'record' || part.kind === 'page';
   const back = c.parts.filter(settled);
@@ -436,7 +436,7 @@ function mergeCard() {
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   const waiting = state.model.board.rows.filter((row) => verdictState(row) === 'you').length;
-  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
+  return `<div class="card prose mergecard bcard"><header><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
     ${merge.summary ? `<details data-id="merge-note"${state.open.has('merge-note') ? ' open' : ''}><summary>The board's note</summary><p>${inline(merge.summary)}</p></details>` : ''}
     <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
     ${merge.pages.map((md) => markdown(md)).join('')}</div>`;

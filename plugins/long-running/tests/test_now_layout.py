@@ -1,0 +1,93 @@
+import threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+from playwright.sync_api import sync_playwright
+
+APP = Path(__file__).resolve().parents[1] / "dashboard" / "app"
+MODEL = Path(__file__).resolve().parent / "fixtures" / "now-model.json"
+LAPTOP = {"width": 1440, "height": 900}
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(APP), **kwargs)
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path == "/api/model":
+            return self.reply(MODEL.read_bytes(), "application/json")
+        if path.startswith("/api/"):
+            return self.reply(b"", "text/event-stream")
+        return super().do_GET()
+
+    def reply(self, body, kind):
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def page():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome")
+        page = browser.new_page(viewport=LAPTOP)
+        page.goto(f"http://127.0.0.1:{server.server_port}/#/")
+        page.wait_for_selector(".nw-cols")
+        yield page
+        browser.close()
+    server.shutdown()
+
+
+def now(page):
+    page.goto(page.url.split("#")[0] + "#/")
+    page.wait_for_selector(".nw-cols")
+
+
+def test_status_progress_blockers_and_work_fit_a_laptop_screen(page):
+    now(page)
+    for selector in (".nw-status", ".nw-read", ".nw-journey", ".nw-chart", ".nw-work"):
+        box = page.locator(selector).bounding_box()
+        assert box["y"] + box["height"] <= LAPTOP["height"], selector
+
+
+def test_the_needs_you_band_shows_every_word(page):
+    now(page)
+    cut = page.evaluate("""() => [...document.querySelectorAll('.nw-band .what, .nw-band .sub, .nw-band .nbtn')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || getComputedStyle(el).textOverflow === 'ellipsis')
+        .map((el) => el.className)""")
+    assert page.locator(".nw-band .nl").count() >= 2
+    assert cut == []
+
+
+def test_the_needs_you_sheet_frames_each_question_once(page):
+    page.goto(page.url.split("#")[0] + "#/now")
+    page.wait_for_selector(".bcard")
+    nested = page.evaluate("""() => {
+        const framed = (el) => el.matches('section, article, div') && parseFloat(getComputedStyle(el).borderTopWidth) > 0 && parseFloat(getComputedStyle(el).borderTopLeftRadius) > 0;
+        return [...document.querySelectorAll('.bcard *')].filter((el) => {
+          if (!framed(el)) return false;
+          let depth = 0;
+          for (let up = el.parentElement; up && !up.classList.contains('sheet'); up = up.parentElement) if (framed(up)) depth += 1;
+          return depth > 1;
+        }).map((el) => el.className);
+    }""")
+    assert nested == []
+
+
+def test_needs_you_headings_are_one_neutral_color(page):
+    page.goto(page.url.split("#")[0] + "#/now")
+    page.wait_for_selector(".bcard")
+    loud = page.evaluate("""() => [...document.querySelectorAll('.bcard > header h3')]
+        .filter((h) => h.querySelector('.nmark, a, i') || [...h.querySelectorAll('*')].some((el) => getComputedStyle(el).color !== getComputedStyle(h).color))
+        .map((h) => h.textContent)""")
+    assert page.locator(".bcard > header .nmark").count() == 0
+    assert loud == []
