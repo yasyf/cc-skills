@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -340,7 +341,9 @@ var embeddedAgentsMd string
 // pluginRoots lists the plugin roots whose disk copies override the embedded
 // fallbacks, most authoritative first: the root the binrun shim exports (under
 // binrun the binary runs from a cache shard, so neither path layout resolves),
-// then the invocation layout, then the resolved-binary layout.
+// then the invocation layout, then the resolved-binary layout. A candidate
+// without the plugin manifest is someone else's directory, such as the
+// Homebrew prefix above /opt/homebrew/bin, and never supplies a file.
 func pluginRoots() []string {
 	var roots []string
 	if root := os.Getenv("BINRUN_PLUGIN_ROOT"); root != "" {
@@ -349,7 +352,10 @@ func pluginRoots() []string {
 	if exe, err := invocationPath(); err == nil {
 		roots = append(roots, filepath.Dir(filepath.Dir(exe)))
 	}
-	return append(roots, filepath.Dir(filepath.Dir(selfPath)))
+	roots = append(roots, filepath.Dir(filepath.Dir(selfPath)))
+	return slices.DeleteFunc(roots, func(root string) bool {
+		return !isRegularFile(filepath.Join(root, ".claude-plugin", "plugin.json"))
+	})
 }
 
 func readAgentsMd() string {
