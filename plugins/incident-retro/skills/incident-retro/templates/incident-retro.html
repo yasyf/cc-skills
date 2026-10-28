@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:63b6e75eee43 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:0bab55b77b2e — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -469,6 +469,7 @@ html[data-view=live] .viewsw{margin:var(--s-4) 0 0}
 .lv-pulse[data-k=alive]{--tone:var(--ok)}
 .lv-pulse[data-k=alive] i{animation:sbpulse 1.6s ease-in-out infinite}
 .lv-pulse[data-k=quiet]{--tone:var(--warn)}
+.lv-pulse[data-k=watch]{--tone:var(--accent)}
 .lv-pulse[data-k=down]{--tone:var(--crit);font-weight:600}
 
 .lv-strip{position:relative;margin:var(--s-3) 0 0;user-select:none}
@@ -2993,9 +2994,9 @@ function lvPulse(s){
  if(s.state==="down")return {k:"down",label:"Down"};
  if(s.state==="draining")return {k:"quiet",label:"Wrapping up"};
  const age=Date.now()-(tsOf(s.beatAt)||0);
- if(age<LV_BEAT_OK_MS)return {k:"alive",label:"Working"};
- if(age<LV_BEAT_DOWN_MS)return {k:"quiet",label:"Quiet"};
- return {k:"down",label:"Not responding"};
+ if(age>=LV_BEAT_DOWN_MS)return {k:"down",label:"Not responding"};
+ if(s.waiting)return {k:"watch",label:"Watching"};
+ return age<LV_BEAT_OK_MS?{k:"alive",label:"Working"}:{k:"quiet",label:"Quiet"};
 }
 function lvAgo(iso){
  const t=tsOf(iso);
@@ -3180,6 +3181,8 @@ function lvRenderBar(){
  if(stale)warn.textContent=`This page last synced ${lvAgo(LIVE.updatedAt)}, so the statuses below may be out of date. Check the incident channel.`;
 }
 function lvFixSteps(s){
+ if(s.waiting)return `<p class="lv-stepl">Stood down, waiting on <b>${esc(s.waiting.from)}</b> since ${esc(fmtClock(tsOf(s.waiting.since)))}: ${esc(s.waiting.on)}</p>`;
+ if(s.phase==="applied")return `<p class="lv-stepl"><b>Fix applied</b>, confirming it worked</p>`;
  const off=LV_FIX_OFF[s.phase],at=off?LV_FIX_AT[s.phase]:LV_FIX_STEPS.findIndex(([k])=>k===s.phase);
  const done=s.phase==="shipped";
  return `<ol class="lv-steps" aria-hidden="true">`+LV_FIX_STEPS.map(([,label],i)=>

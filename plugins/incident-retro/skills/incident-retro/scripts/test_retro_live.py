@@ -271,6 +271,16 @@ class LiveFeeds(unittest.TestCase):
     def test_a_sync_without_them_writes_none(self):
         self.assertNotIn("sessions", self.live())
 
+    def test_a_watching_fixer_carries_what_it_waits_on_and_from_whom(self):
+        waiting = {"on": "Verafin access restored for SoFi's saved logins", "from": "SoFi's FDEs",
+                   "since": "2026-09-02T14:20:00-07:00"}
+        watching = {**self.SESSIONS[0], "phase": "watching", "waiting": waiting}
+        live = self.live(sessions=[watching, {"role": "ic", "state": "running", "waiting": waiting}])
+        self.assertEqual([each["waiting"] for each in live["sessions"]], [waiting, waiting])
+
+    def test_an_applied_fixer_passes_the_check(self):
+        self.assertEqual(self.live(sessions=[{**self.SESSIONS[0], "phase": "applied"}])["sessions"][0]["phase"], "applied")
+
 
 class MonitorSnapshot(unittest.TestCase):
     """The live view previews each paging monitor's state and the series it alerts on."""
