@@ -23,7 +23,11 @@ function rewritten(kind, key) {
   return (curated('review')?.[kind] ?? []).find((entry) => entry.key === key);
 }
 function pageHead(title, written, extra = '') {
-  return `<header class="pg-h"><h1>${title}</h1>${written ? `<span class="pg-at">Written from the drive's records at ${clock(written.at)}</span>` : ''}${extra}</header>`;
+  return `<header class="pg-h"><div><h1>${title}</h1>${written ? `<span class="pg-at">Written from the drive's records at ${clock(written.at)}</span>` : ''}</div>${extra}</header>`;
+}
+function ring(done, total, label) {
+  const p = total ? Math.round((done / total) * 100) : 0;
+  return `<div class="pg-ringwrap"><div class="pg-ring" style="--p:${p}"><b>${p}<small>%</small></b></div><span>${done} of ${total} ${label}</span></div>`;
 }
 function writing(title) {
   return `<div class="pg">${pageHead(title)}<p class="pg-wait">Writing this page from the drive's records. It appears here within a few minutes.</p></div>`;
@@ -123,7 +127,7 @@ function planScreen(focus) {
   const open = p.parts.filter((part) => part.state !== 'done' && part.state !== 'later');
   const later = p.parts.filter((part) => part.state === 'later');
   const done = p.parts.filter((part) => part.state === 'done');
-  return `<div class="pg">${pageHead('Plan', p)}<p class="pg-lead">${esc(p.summary)}</p>
+  return `<div class="pg">${pageHead('Plan', p, ring(p.parts.filter((x) => x.state === 'done').length, p.parts.length, 'parts done'))}<p class="pg-lead">${esc(p.summary)}</p>
     <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${milestones.join('')}</div></section>
     <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'What we are doing to unblock it')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
     ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
@@ -194,7 +198,7 @@ function workScreen(item) {
   return `<div class="pg">${pageHead('Work', p)}
     <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
     ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`, p.running.slice(RUNNING_AT_REST).some((w) => w.item === item)) : ''}</section>
-    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<p class="wk-caption">${dotted('Stuck', 'bad')} These have sat in one state for two hours or more.</p><div class="pg-list">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
+    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<p class="wk-caption">${dotted('Stuck', 'bad')} These have sat in one state for two hours or more.</p><div class="pg-list wk-stuck">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
     ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
     ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`, p.finished.some((w) => w.item === item))}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
