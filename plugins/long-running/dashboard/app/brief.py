@@ -18,6 +18,7 @@ WORDS_WINDOW = dt.timedelta(hours=2)
 TROUBLE_WINDOW = dt.timedelta(hours=3)
 TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "decision", "hold", "lift"}
 SUCCESSOR = re.compile(r"-\d+$")
+ROOT = {"root", "main"}
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
@@ -117,6 +118,7 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
+- coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record.
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
@@ -181,7 +183,9 @@ def digest(model, config, previous, now):
     for worker in model["workers"][:14]:
         mine = [r for r in records if r["lane"] == worker["lane"]][-3:]
         workers.append({"worker": worker["lane"], "last_report": clock(at(worker["at"])), "pull_requests": worker["prs"][:6], "records": [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 280)}" for r in mine]})
-    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 700 if r['lane'] in ('root', 'main') else 260)}" for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")][-30:]
+    recent = [r for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")]
+    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in recent if r["lane"] not in ROOT][-30:]
+    rulings = [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 700)}" for r in recent if r["lane"] in ROOT][-15:]
     states = {}
     for entry in model["drive"]["prs"]:
         states[entry["state"]] = states.get(entry["state"], 0) + 1
@@ -195,6 +199,7 @@ def digest(model, config, previous, now):
         "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
         "workers": workers,
         "recent_trouble": trouble,
+        "coordinator_rulings": rulings,
         "review_findings": [f"{clock(at(r['at']))} from {r['lane']}: {clip(r['text'], 300)}" for r in records if r["kind"] == "review" and now - at(r["at"]) <= WORDS_WINDOW and FINDING.search(r["text"])][-10:],
         "owner_words": [f"{clock(at(w['at']))}: {clip(w['title'] + ' ' + w['text'], 300)}" for w in model["words"] if now - at(w["at"]) <= WORDS_WINDOW][-12:],
         "drive_summary": {k: model["story"].get(k) for k in ("now", "users_now")},
