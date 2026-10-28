@@ -49,6 +49,15 @@ def test_an_active_worker_is_the_fixer_when_no_ruling_names_one():
     assert change["fixers"] == ["p8a-step7"]
 
 
+def test_a_successor_of_the_changes_worker_is_its_fixer():
+    m = model()
+    m["records"] = [r for r in m["records"] if "#43421" not in r["text"]]
+    m["drive"]["prs"][0]["worker"] = {"lane": "p8f-replica-6", "at": T0.isoformat()}
+    m["workers"].append({"lane": "p8f-replica-7", "at": T0.isoformat(), "prs": []})
+    [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
+    assert change["fixers"] == ["p8f-replica-7"]
+
+
 def test_a_blocker_on_a_change_with_fixers_never_reads_no_one_assigned(tmp_path, monkeypatch):
     prompts = []
 

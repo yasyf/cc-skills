@@ -192,7 +192,7 @@ def open_changes(model):
         ruling = rulings.get(e["number"])
         named = sorted(lane for lane in lanes - ROOT if ruling and re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", ruling["text"]))
         changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": worker, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
-                        "coordinator_ruling": ruling and f"{clock(at(ruling['at']))}: {clip(ruling['text'], 500)}", "fixers": named or ([worker] if worker in active else [])})
+                        "coordinator_ruling": ruling and f"{clock(at(ruling['at']))}: {clip(ruling['text'], 500)}", "fixers": named or sorted(lane for lane in active if worker and base_lane(lane) == base_lane(worker))})
     return changes
 
 
