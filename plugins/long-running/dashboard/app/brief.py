@@ -131,6 +131,7 @@ RULES = """Rules for every string:
 - Lead with what a person can now do or what is still broken for them. Leave build and runtime mechanisms out (credentials, tokens, timers, polling, query plans, packages, crates, build checks, machines, hosts, ports, description footers, stacked changes) unless the decision is about that mechanism; say the behavior instead.
 - A problem says whether it is still open and who is on it, or when and how it was settled.
 - Never "shared fixes", "the fixes", "its dependencies" or "other changes" alone: name each one by what it does and who lands it.
+- A newer record that takes a change out of the merge queue, holds it, or withdraws its go overrides every older record saying it is queued, approved or landing; say it is out of the queue and what puts it back.
 - Never guess. If a fact is not known, say "not known".
 - Name each reviewer as what it is: codex, the reviewer bot, or Yasyf; never "the automated review" or "a second AI model".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
