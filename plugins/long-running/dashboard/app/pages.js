@@ -273,7 +273,7 @@ function rowWords(row) {
 function verdictPill(row) {
   const when = row.verdict?.at ? ` at ${clock(row.verdict.at)}` : '';
   if (verdictState(row) === 'held') return dotted(`You held it${when}`, 'warn');
-  return dotted(row.ci_fix_go || boardRow(row.number)?.ci_fix_go ? 'CI fix, landing without your tap' : `You approved${when}`, 'ok');
+  return dotted(row.ci_fix_go || boardRow(row.number)?.ci_fix_go ? 'Landing under the CI-fix exemption' : `You approved${when}`, 'ok');
 }
 function rowFacts(row) {
   const w = rowWords(row);
