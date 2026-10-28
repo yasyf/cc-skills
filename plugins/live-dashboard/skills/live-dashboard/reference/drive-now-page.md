@@ -152,6 +152,8 @@ Every named thing links to its own page. A milestone opens `#/plan/m<i>` and a p
 
 A helper's page takes the name of what it keeps. Every pull request row on Work and every PR page shows its latest word, naming who last posted about it and when, with a link to that record. A record opens at `/record/<seq>` and a work item's transcript at `/api/transcript/<item>`, both as pages in the app's style. A change opens `#/review/<number>` and an open board question `#/review/q/<card id>`.
 
+An `evidence` record names a pull request with `--pr` and carries `state`, `owner`, `since` and `next` attributes. The newest one is that change's state, owner and clock on the Work, PR, and worker pages, and in the Work curator's digest. The progress desk posts one whenever a change's state, owner or clock moves.
+
 Escape closes the open modal, question card, or story without adding a Back step, and Back then returns to the page before it. A live update keeps the focused control focused. Every card, table, and list uses the end-state panel's surface, with its dotted face, a lit outline, and a glow in the card's tone, amber when it waits on the owner and red when its tests fail. Do not add a second card style.
 
 Plan, Work, History, and Review each have their own curator using the same machinery as the Now page. Each curator makes one model call per page when a record that can change that page arrives. At most one run happens per page at a time, never on a timer, and each page enforces its own minimum gap between runs. Every output passes the plain-words gate. A failing string goes back to the model once and otherwise keeps its last passing text.
