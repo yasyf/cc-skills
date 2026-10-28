@@ -33,7 +33,7 @@ import holds
 HERE = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff", "evidence"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
@@ -528,6 +528,7 @@ class Drive:
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
         self.latest_words = {}
+        self.evidence = {}
         self.version = 0
         self.model = {}
         self.slow = {}
@@ -661,10 +662,23 @@ class Drive:
         with self.lock:
             return dict(self.latest_words)
 
+    def note_evidence(self, record):
+        if record["kind"] != "evidence":
+            return
+        attrs = record["fields"]["attrs"]
+        with self.lock:
+            for number in (record.get("refs") or {}).get("prs") or []:
+                self.evidence[str(number)] = {"state": attrs["state"], "owner": attrs["owner"], "since": attrs["since"], "next": attrs.get("next", ""), "at": record["at"], "seq": record["seq"]}
+
+    def evidences(self):
+        with self.lock:
+            return dict(self.evidence)
+
     def load_records(self):
         self.records.extend(self.fetch(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
         for record in self.records:
             self.note_word(record)
+            self.note_evidence(record)
         return self.records[-1]["seq"] if self.records else 0
 
     def follow_records(self, after):
@@ -679,6 +693,7 @@ class Drive:
                             after = record["seq"]
                             self.note_go(record)
                             self.note_word(record)
+                            self.note_evidence(record)
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
@@ -887,6 +902,7 @@ class Drive:
             "status_table": Path(self.config["status_table"]).read_text(),
             "register_log": "register" in self.config,
             "latest_words": self.words(),
+            "evidence": self.evidences(),
             "pages": {name: curator.brief for name, curator in self.pages.items()},
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],

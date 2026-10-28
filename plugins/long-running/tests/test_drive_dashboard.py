@@ -752,3 +752,11 @@ def test_a_pull_requests_latest_word_is_the_newest_record_naming_it_outside_the_
     drive.note_word({"seq": 2, "at": "2026-10-28T15:02:00Z", "lane": "dashboard-user-test-2", "kind": "report", "text": "#43876 row is stale", "refs": {}})
     drive.note_word({"seq": 3, "at": "2026-10-28T15:03:00Z", "lane": "root", "kind": "decide", "text": "go #161978 is withdrawn", "refs": {"prs": ["pr:Forge-AI/monorepo#44087"]}})
     assert {n: w["seq"] for n, w in drive.words().items()} == {"43876": 1, "44087": 3}
+
+
+def test_the_newest_evidence_record_is_a_pull_requests_state_owner_and_clock():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    record = {"seq": 9, "at": "2026-10-28T20:20:00Z", "lane": "progress-desk-2", "kind": "evidence", "text": "row", "refs": {"prs": [44087]}}
+    drive.note_evidence({**record, "fields": {"attrs": {"state": "Waits on his tap", "owner": "p8a-step5-5", "since": "2026-10-28T19:00:00Z", "next": "He taps it"}}})
+    drive.note_evidence({**record, "seq": 10, "fields": {"attrs": {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z"}}})
+    assert drive.evidences()["44087"] == {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z", "next": "", "at": "2026-10-28T20:20:00Z", "seq": 10}
