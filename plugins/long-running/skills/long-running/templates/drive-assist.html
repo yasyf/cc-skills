@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:7beda465b753 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:1bad373150c2 — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
 #pal { margin-top: 18px; }
@@ -584,7 +584,7 @@ function entries(){
  Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
  m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
  m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
- [["","Now"],["plan","Plan"],["work","Work"],["review","Review"],["history","History"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ [["","Now"],["plan","Plan"],["status","Status"],["work","Work"],["review","Review"],["history","History"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
  openCards().slice(0,3).forEach(c=>add("Needs you","?",(m.pages?.review?.cards??[]).find(x=>x.key===c.key)?.question??c.title,"answer it on Review",()=>{location.hash="#/review"},c.summary));
  if(openCards().length>3)add("Needs you","→",`All ${openCards().length} questions waiting on you`,"on Review",()=>{location.hash="#/review"});

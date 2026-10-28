@@ -32,6 +32,9 @@ function ring(done, total, label) {
 function writing(title) {
   return `<div class="pg">${pageHead(title)}<p class="pg-wait">Writing this page from the drive's records. It appears here within a few minutes.</p></div>`;
 }
+function light(stage) {
+  return stage === 'you' ? 'you' : STATE_TONE[stage] ?? '';
+}
 function dotted(label, tone) {
   return `<span class="pg-state ${tone ?? ''}">${esc(label)}</span>`;
 }
@@ -171,13 +174,23 @@ function liveSince(table) {
   };
   return [head, rule, ...rows.map((row) => row.split('|').map((cell, i) => (i === col ? ` ${timed(cell.trim())} ` : cell)).join('|'))].join('\n');
 }
+function statusRows() {
+  const split = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const [head, , ...rows] = liveSince(state.model.status_table.split(/\n\s*\n/)[0]).trim().split('\n').map(split);
+  return { head, rows };
+}
+function statusStep(row) {
+  const { head } = statusRows();
+  return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${inline(c)}</dd>`).join('')}</dl></div>`;
+}
 function statusScreen() {
   const m = state.model;
+  const steps = statusRows();
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
   const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${esc(problem(pr))}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
   return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table">${markdown(liveSince(m.status_table.split(/\n\s*\n/)[0]))}</div></section>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr>${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j ? inline(c) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {
@@ -186,12 +199,13 @@ function sameWorker(a, b) {
 function workerScreen(lane) {
   const m = state.model;
   const prs = Object.entries(m.prs).filter(([, pr]) => sameWorker(pr.lane, lane) && pr.state === 'open').map(([n]) => Number(n));
-  const said = m.records.findLast((r) => sameWorker(r.lane, lane));
+  const posted = m.records.filter((r) => sameWorker(r.lane, lane)).slice(-8).reverse();
+  const said = posted[0];
   const work = curated('work');
   const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)));
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
-    ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
-    ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
+    ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
+    ['What it posted lately', posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing today'],
   ]);
 }
 function workScreen(item) {
@@ -243,7 +257,7 @@ function mergeRow(row) {
   const acts = verdictState(row) === 'you'
     ? `<button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${row.number}"${busy ? ' disabled' : ''}>Hold</button>`
     : verdictPill(row);
-  return `<article class="mr"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}</article>`;
+  return `<article class="mr t-${verdictState(row)}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}</article>`;
 }
 function reviewScreen(list) {
   const m = state.model;

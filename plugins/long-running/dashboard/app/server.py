@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import html
 import json
 import os
 import queue
@@ -49,6 +50,7 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go")
@@ -988,10 +990,10 @@ def handler(drive):
                 transcript = work and drive.stories.transcript(work["workers"])
                 if transcript is None:
                     return self.send(404, "text/plain; charset=utf-8", b"This worker's transcript is not on this Mac.")
-                return self.send(200, "text/plain; charset=utf-8", run(["cc-transcript", "show", str(transcript), "--no-junk", "--width", "300"]).encode())
+                return self.source("The transcript this story reads", run(["cc-transcript", "show", str(transcript), "--no-junk", "--width", "300"]))
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
-                    return self.send(200, "text/plain; charset=utf-8", run(["cci", "show", found[1]]).encode())
+                    return self.source("The record this links to", run(["cci", "show", found[1]]))
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "text/plain; charset=utf-8", error.stderr.encode())
             if found := PR_ROUTE.fullmatch(path):
@@ -1015,6 +1017,9 @@ def handler(drive):
             else:
                 status, out = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps(out).encode())
+
+        def source(self, title, text):
+            return self.send(200, "text/html; charset=utf-8", SOURCE_PAGE.format(title=title, text=html.escape(text)).encode())
 
         def send(self, status, kind, body):
             self.send_response(status)
