@@ -63,3 +63,27 @@ def test_slots_cover_every_rendered_field():
 
 def test_an_unnamed_part_fails():
     assert violations("The first milestone's second part waits on two changes", "headline") == ["an unnamed part"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The merge process names the finding; the agent machines worker answers it",
+        "The agent machines worker answers the review",
+        "The cloud runs worker fixes its failing tests",
+    ],
+)
+def test_a_fix_that_does_not_say_what_it_is_fails(text):
+    assert "a fix that does not say what it fixes" in violations(text, "how")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The agent machines worker makes a failed restore retry",
+        "The cloud runs worker moves 22 files off the deleted session store",
+        "The worker answers the review's finding that restores can fail",
+    ],
+)
+def test_a_fix_that_says_what_it_is_passes(text):
+    assert violations(text, "how") == []
