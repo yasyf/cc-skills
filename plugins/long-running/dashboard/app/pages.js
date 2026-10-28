@@ -89,7 +89,9 @@ function latestWord(n) {
 }
 function workWord(item) {
   const lanes = workItem(item)?.workers ?? [];
-  return lanes.length ? state.model.records.findLast((r) => lanes.some((lane) => sameWorker(r.lane, lane))) : null;
+  const prs = Object.entries(state.model.prs).filter(([, pr]) => pr.state === 'open' && lanes.some((lane) => sameWorker(pr.lane, lane))).map(([n]) => n);
+  if (!prs.length) return lanes.length ? state.model.records.findLast((r) => lanes.some((lane) => sameWorker(r.lane, lane))) : null;
+  return prs.map(latestWord).filter(Boolean).sort((a, b) => new Date(a.at) - new Date(b.at)).at(-1) ?? null;
 }
 function wordAt(r) {
   return r ? `latest word ${clock(r.at)}` : '';
