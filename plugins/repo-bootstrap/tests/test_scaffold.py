@@ -447,7 +447,7 @@ def test_codex_ask_pins_model_and_quiet_exec(templates_dir):
             "syscall.Flock",
             "syscall.LOCK_SH",
             "syscall.LOCK_EX",
-            # --ps prunes only codex-ask's own minted dirs
+            # --sweep prunes only codex-ask's own minted dirs
         "runPrefixes",
         # exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
@@ -1372,9 +1372,18 @@ def _ps_records(script, runs):
     return recs
 
 
-def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
+def _sweep(script, runs):
+    run = subprocess.run(
+        [str(script), "--sweep"], env={**os.environ, "CODEX_ASK_RUNS_DIR": str(runs)},
+        text=True, capture_output=True, timeout=30,
+    )
+    assert run.returncode == 0, run.stderr
+
+
+def test_codex_ask_ps_lists_and_sweep_prunes(templates_dir, tmp_path):
     # --ps walks the runs base, emits one JSONL record per run with the right
-    # state, tolerates an empty dir, and prunes long-terminal (never live) runs.
+    # state, tolerates an empty dir, and deletes nothing; only --sweep prunes
+    # long-terminal (never live) runs.
     script = _codex_ask(templates_dir)
     runs = tmp_path / "runs"
     runs.mkdir()
@@ -1388,8 +1397,9 @@ def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
     assert recs["empty"]["state"] == "no-run"
     assert recs["done"]["reply_file"].endswith("codex-r-x")
 
-    # a codex-ask-minted terminal run past the prune age is deleted; a
-    # caller-named lane (no codex-ask prefix) is emitted but never auto-pruned
+    # a codex-ask-minted terminal run past the prune age survives --ps and is
+    # deleted only by --sweep; a caller-named lane (no codex-ask prefix) is
+    # emitted but never pruned by either
     old = _craft_lane(runs / "codex-ask.old", reply="x\n", status="0", log=COMPLETED)
     safe = _craft_lane(runs / "notmine", reply="x\n", status="0", log=COMPLETED)
     stale = time.time() - 10 * 24 * 3600
@@ -1397,10 +1407,10 @@ def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
         for p in [d, *d.rglob("*")]:
             os.utime(p, (stale, stale))
     recs2 = _ps_records(script, runs)
-    assert "codex-ask.old" not in recs2, "long-terminal codex-ask run should be pruned"
-    assert not old.exists()
+    assert recs2["codex-ask.old"]["state"] == "completed"
+    assert old.exists(), "--ps must never prune a run"
     assert recs2["notmine"]["state"] == "completed"
-    assert safe.exists(), "a non-codex-ask-named dir must never be pruned"
+    assert safe.exists()
 
     # a non-terminal run is never pruned, however old, even with the prefix: an aged
     # pid-less lane reads died once the registration grace lapses, and died is not
@@ -1411,6 +1421,15 @@ def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
     recs3 = _ps_records(script, runs)
     assert recs3["codex-ask.oldpending"]["state"] == "died"
     assert pend.exists()
+
+    _sweep(script, runs)
+    assert not old.exists(), "--sweep prunes a long-terminal codex-ask run"
+    assert safe.exists(), "a non-codex-ask-named dir must never be pruned"
+    assert pend.exists(), "a non-terminal run is never pruned"
+    recs4 = _ps_records(script, runs)
+    assert "codex-ask.old" not in recs4
+    assert recs4["notmine"]["state"] == "completed"
+    assert recs4["codex-ask.oldpending"]["state"] == "died"
 
 
 def test_codex_ask_reply_tmp_removed_on_failure(templates_dir, tmp_path):
@@ -1672,7 +1691,7 @@ def test_codex_ask_ps_expands_fanout_root(templates_dir, tmp_path):
 
 
 def test_codex_ask_runs_dir_guard(templates_dir, tmp_path):
-    # CODEX_ASK_RUNS_DIR must be absolute and outside the repo, so --ps prune can
+    # CODEX_ASK_RUNS_DIR must be absolute and outside the repo, so a --sweep prune can
     # never rmtree source dirs.
     script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
