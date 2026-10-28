@@ -145,7 +145,7 @@ function chart(path, index) {
   const name = state.model.milestones[path.milestone] ?? 'the next milestone';
   const key = `p${index}`;
   const edges = [...[...out].flatMap(([from, tos]) => tos.map((to) => [from, to])), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="grid-template-columns:repeat(${layers.length}, minmax(0, 1fr)) 112px"><svg class="arrows" aria-hidden="true"></svg>
+  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="grid-template-columns:repeat(${layers.length}, minmax(0, 1fr)) 92px"><svg class="arrows" aria-hidden="true"></svg>
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
     <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal">${esc(name)}</div></div></div>`;
 }
