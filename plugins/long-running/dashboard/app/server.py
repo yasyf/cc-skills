@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -651,6 +652,8 @@ class Drive:
         while self.curator.running:
             time.sleep(1)
         self.stories.stop_all()
+        for pid in subprocess.run(["pgrep", "-P", str(os.getpid()), "-f", "^cc-(present|review) watch "], capture_output=True, text=True).stdout.split():
+            os.kill(int(pid), signal.SIGTERM)
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
     def follow_paths(self):
