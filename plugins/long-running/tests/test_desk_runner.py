@@ -2965,8 +2965,8 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
-@pytest.mark.parametrize("tapped", [False, True])
-def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_at_that_head(shell, config, tapped):
+@pytest.mark.parametrize("row", ["", "29020", "merge-row-29020-cccc333"])
+def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_at_that_head(shell, config, row):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
     raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
@@ -2975,12 +2975,12 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     lone_green_pr(shell)
     shell.files["29020"] = ["go/sand/next/vm/run.go"]
     grade(shell, "29020", "ok F307 at cccc333.")
-    tap(shell, "29020", "cccc333333" if tapped else "bbbb222222")
+    shell.board["merge-rows"] = {row or "29020": {"verdict": "approved", "head": "cccc333333" if row else "bbbb222222", "at": "2026-10-01T17:40:00Z"}}
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
     refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    if tapped:
+    if row:
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
         return
     assert shell.enqueues() == []

@@ -4613,7 +4613,7 @@ class Landing:
             for pr in DEQUEUE_ORDER.findall(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))
         }
         if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
-            admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in BELIEVED_QUEUED for pr, sha in enqueued_heads(action.action_id).items()]
+            admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in {*BELIEVED_QUEUED, PULLED} for pr, sha in enqueued_heads(action.action_id).items()]
             for go in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go"):
                 if go["seq"] in withdrawn and (go["lane"], go["drive"], go["kind"]) == (ROOT, drive, "go"):
                     orders |= {
@@ -5516,7 +5516,7 @@ class Landing:
         for pr, found in touching.items():
             if not (found := [rule for rule in found if register.get(rule, {}).get("status", "in-force") == "in-force"]):
                 continue
-            if verdicts is not None and any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if row == pr):
+            if verdicts is not None and any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
             unread = "the root's board did not read" if verdicts is None else f"no approval on the root's board names {heads[pr][:10]}"
             waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {unread}"
