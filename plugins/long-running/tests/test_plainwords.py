@@ -25,6 +25,8 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "Fixed the typecheck that broke getSession",
         "Writes land through sandsql-journal-next",
         "Threads link Sentry issues through cc-slack",
+        "Codex: the pause hit a stand-in; sleep loop now waits on events",
+        "Server-acknowledgement ask declined.",
         "Blob storage credentials re-mint after an hour",
         "Two release-order footers are wrong",
         "Step 11 waits on the replica",
