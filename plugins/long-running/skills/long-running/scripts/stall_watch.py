@@ -44,11 +44,12 @@ and, across the drive:
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
               other stall names it, a green PR whose merge row waits on the owner's tap at its head,
               and a held PR whose holds-file line names open PRs that each wait on that tap, sit in
-              the merge queue, are held the same way, or are stacked on such a PR, post one `state` record to root per head
-              instead, a PR that waits on the PR below it posts nothing itself and is listed on the
-              stale PR its stack waits on, and a PR whose owning lane has no live record in the
-              window goes to root; a changed state on the same head counts from the pass that saw
-              it change
+              the merge queue, are held the same way, or are stacked on such a PR, or that names a
+              board card or pick, by its block id or by a card holding the PR, the owner has not
+              answered, post one `state` record to root per head instead, a PR that waits on the PR
+              below it posts nothing itself and is listed on the stale PR its stack waits on, and a
+              PR whose owning lane has no live record in the window goes to root; a changed state on
+              the same head counts from the pass that saw it change
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
@@ -134,6 +135,8 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 LANE_OWES = (RED, CONFLICTS, RESTACK, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
+ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
+BLOCK_WORD = re.compile(r"[\w-]+")
 MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
@@ -263,9 +266,18 @@ class Question:
 class Board:
     heads: set[tuple[str, str]]
     taps: dict[str, dict]
+    cards: list[tuple[str, set[str], set[str]]]
+    answered: set[str]
 
     def shows(self, pr: str, head: str) -> bool:
         return any(named == pr and grades.names_head(sha, head) for named, sha in self.heads)
+
+    def open_asks(self, pr: str, line: str) -> set[str]:
+        words = set(BLOCK_WORD.findall(line))
+        named = {choice for card, choices, _ in self.cards for choice in choices if card in words or choice in words}
+        if not named and ASK_WORD.search(line):
+            named = {choice for _, choices, prs in self.cards if pr in prs for choice in choices}
+        return named - self.answered
 
 
 def at(record: dict) -> datetime:
@@ -294,6 +306,17 @@ def block_ids(node: object) -> Iterator[str]:
     elif isinstance(node, list):
         for value in node:
             yield from block_ids(value)
+
+
+def typed(node: object, kind: str) -> Iterator[dict]:
+    if isinstance(node, dict):
+        if node.get("type") == kind:
+            yield node
+        for value in node.values():
+            yield from typed(value, kind)
+    elif isinstance(node, list):
+        for value in node:
+            yield from typed(value, kind)
 
 
 def lanes_of(value: str | list[str]) -> list[str]:
@@ -376,6 +399,7 @@ class Pass:
         self.stack: list[dict] | None = None
         self.tap_waits: dict[str, tuple[str, str]] | None = None
         self.hold_gates: dict[str, list[str]] = {}
+        self.hold_asks: dict[str, set[str]] = {}
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -483,8 +507,11 @@ class Pass:
         doc = outcomes.get("doc") or {}
         heads = {(row.pr, row.head) for row in board_rows.rows_of(doc) if row.head}
         heads |= {(found[1], found[2]) for key in block_ids(doc) if (found := MERGE_CARD.match(key))}
-        verdicts = {block: {row: entry for row, entry in rows.items() if entry.get("verdict")} for block, rows in (outcomes.get("interactions", {}).get("triage") or {}).items()}
-        return Board(heads, board_rows.newest_by_pr(verdicts))
+        interactions = outcomes.get("interactions", {})
+        verdicts = {block: {row: entry for row, entry in rows.items() if entry.get("verdict")} for block, rows in (interactions.get("triage") or {}).items()}
+        cards = [(card["id"], {choice["id"] for choice in typed(card, "choice")}, {str(found["number"]) for found in typed(card, "pr")}) for card in typed(doc, "card")]
+        answered = {block for block, choice in (interactions.get("choices") or {}).items() if choice and (choice.get("optionIds") or choice.get("other"))}
+        return Board(heads, board_rows.newest_by_pr(verdicts), cards, answered)
 
     def rows(self) -> dict[str, dict] | None:
         landing = self.watch.landing
@@ -517,6 +544,8 @@ class Pass:
         for entry in hold_lines:
             for named in entry.prs:
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
+                if board:
+                    self.hold_asks.setdefault(named, set()).update(board.open_asks(named, entry.line))
         facts = self.landing_facts()
         waits = {pr: wait["key"] for pr, wait in facts.get(MERGE_WAITS, {}).items()}
         cards = set(facts.get(MERGE_CARDS, {}))
@@ -625,7 +654,7 @@ class Pass:
             if stale and found["state"] == TAP_WAIT:
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since)}")
             elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, found_by_pr, {pr})):
-                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(f'#{gate}' for gate in sorted(gates))}, each waiting on the owner's tap or {IN_QUEUE}, since {pacific(since)}")
+                self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(sorted(gates))}, each waiting on the owner's tap, his board answer, or the merge queue, since {pacific(since)}")
             elif stale and pr not in stalled:
                 standing[pr] = (found, since, live)
         rows = {found["pr"]: found for found in self.stack}
@@ -650,9 +679,9 @@ class Pass:
 
     def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
         named = [gate for gate in self.hold_gates.get(pr, []) if gate in found_by_pr]
-        if not named:
+        gates = set(self.hold_asks.get(pr, ()))
+        if not named and not gates:
             return None
-        gates: set[str] = set()
         for gate in dict.fromkeys(named):
             if gate in seen:
                 continue
@@ -664,7 +693,7 @@ class Pass:
     def waits_on_owner(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
         found = found_by_pr[pr]
         if found["state"] in OWNER_WAITS:
-            return {pr}
+            return {f"#{pr}"}
         if found["state"].startswith(HELD):
             return self.owner_gates(pr, found_by_pr, seen)
         if below := found["waits"]:

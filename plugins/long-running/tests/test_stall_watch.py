@@ -50,6 +50,7 @@ class FakeShell(stall_watch.Shell):
         self.rows = rows
         self.doc: dict = {"blocks": []}
         self.triage: dict = {}
+        self.choices: dict = {}
         self.answer = lambda question: {}
         self.judge_code = 0
         self.ledger_code = 0
@@ -69,7 +70,7 @@ class FakeShell(stall_watch.Shell):
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
         if argv[:2] == ["cc-present", "outcomes"]:
             assert argv[argv.index("--session") + 1] == SESSION
-            return stall_watch.Done(0, json.dumps({"doc": self.doc, "interactions": {"triage": self.triage}}), "")
+            return stall_watch.Done(0, json.dumps({"doc": self.doc, "interactions": {"triage": self.triage, "choices": self.choices}}), "")
         if argv[0] == "claude":
             assert argv[argv.index("--model") + 1] == stall_watch.MODEL and argv[argv.index("--effort") + 1] == "low"
             self.prompts.append(stdin)
@@ -488,7 +489,32 @@ def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_lis
 
     assert sorted(topic for topic in shell.topics() if topic.startswith("stale:")) == stales
     if not stales:
-        assert shell.post("tap-wait:202:abc1234") == {"to": "root", "kind": "state", "text": "#202 at abc1234 is held on #301, #303, each waiting on the owner's tap or in the merge queue, since 10:30 AM"}
+        assert shell.post("tap-wait:202:abc1234") == {"to": "root", "kind": "state", "text": "#202 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"}
+
+
+@pytest.mark.parametrize(
+    ("line", "pr_block", "answer", "topic"),
+    [
+        ("#401 off the merge card until his pick on the eviction-card question", True, None, "tap-wait:401:abc1234"),
+        ("#401 waits on eviction-route-choice", False, None, "tap-wait:401:abc1234"),
+        ("#401 off the merge card until his pick on the eviction-card question", True, {"optionIds": ["eviction-route-app"]}, "stale:401:abc1234"),
+    ],
+    ids=["card-holding-the-pr-unanswered", "block-id-unanswered", "card-answered"],
+)
+def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_once_he_answers(config, tmp_path, line, pr_block, answer, topic):
+    merge_mode(config, "ask")
+    (tmp_path / "holds.md").write_text(line + "\n")
+    shell = FakeShell(graded(1, "401", HEAD, 150), [row("401")])
+    children = [{"id": "eviction-route-choice", "type": "choice", "options": [{"id": "eviction-route-app"}]}, *([{"id": "eviction-route-pr", "type": "pr", "number": 401}] if pr_block else [])]
+    shell.doc = {"blocks": [{"id": "card-eviction", "type": "card", "children": children}]}
+    shell.choices = {"eviction-route-choice": answer}
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert shell.topics() == [topic]
+    if topic.startswith("tap-wait:"):
+        assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"
 
 
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
