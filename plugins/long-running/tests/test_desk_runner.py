@@ -5446,14 +5446,22 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     squash = incident(tmp_path, "desk-landing").actions[f"land:36650@{INCIDENT_HEAD}"]
     assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
 
-
-
 def test_a_root_decide_taking_an_incident_fix_off_the_incident_path_stops_its_squash_and_logs_once(shell, config, tmp_path):
     incident_pr(shell)
     shell.records.append({"seq": 9500, "drive": "d1", "lane": "root", "kind": "decide", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": "#36650 is NOT an incident fix; take it off the incident path; it lands only on his tap", "at": actions.stamp(shell.clock)})
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert merges(shell) == [] and shell.enqueues() == []
+    assert [line.split(" ", 1)[0] for line in escalations(shell) if "INCIDENT-TAG-CLEARED" in line] == ["INCIDENT-TAG-CLEARED"]
+
+
+@pytest.mark.parametrize("kind", ["go", "hold", "lift"])
+def test_a_root_go_hold_or_lift_saying_not_an_incident_fix_stops_its_squash(shell, config, tmp_path, kind):
+    incident_pr(shell)
+    shell.records.append({"seq": 9501, "drive": "d1", "lane": "root", "kind": kind, "status": "open", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": f"{kind} #36650 at {INCIDENT_HEAD[:7]}: normal queue landing at that head only, not an incident fix, off the incident path: no squash", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == []
     assert [line.split(" ", 1)[0] for line in escalations(shell) if "INCIDENT-TAG-CLEARED" in line] == ["INCIDENT-TAG-CLEARED"]
 
 
