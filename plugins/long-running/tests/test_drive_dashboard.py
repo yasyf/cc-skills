@@ -759,4 +759,6 @@ def test_the_newest_evidence_record_is_a_pull_requests_state_owner_and_clock():
     record = {"seq": 9, "at": "2026-10-28T20:20:00Z", "lane": "progress-desk-2", "kind": "evidence", "text": "row", "refs": {"prs": [44087]}}
     drive.note_evidence({**record, "fields": {"attrs": {"state": "Waits on his tap", "owner": "p8a-step5-5", "since": "2026-10-28T19:00:00Z", "next": "He taps it"}}})
     drive.note_evidence({**record, "seq": 10, "fields": {"attrs": {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z"}}})
+    drive.note_evidence({**record, "seq": 11, "kind": "evidence", "text": "another lane's evidence with no row attributes"})
+    drive.note_evidence({**record, "seq": 12, "fields": {"attrs": {"actor": "platy"}}})
     assert drive.evidences()["44087"] == {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z", "next": "", "at": "2026-10-28T20:20:00Z", "seq": 10}
