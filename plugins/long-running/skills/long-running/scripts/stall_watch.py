@@ -37,8 +37,8 @@ and, across the drive:
     lane      a lane owning an in-progress task on the root's task list posted nothing past the time
               its last record promised, or for `stall.minutes.lane`, counted for a lane with no
               record yet from when its task file was last written; a lane owes a reply to an open
-              ask, decide, correction, blocker or urgent record addressed to it since its last
-              record, and stalls once the oldest is `stall.minutes.lane` old; a lane that owes no
+              ask addressed to it since its last record, or to a decide or correction that gives it
+              an order as `<lane>: ...`, and stalls once the oldest is `stall.minutes.lane` old; a lane that owes no
               reply and whose open PRs are none red, conflicting, needing a restack, or waiting on
               its answer to the reviewer bot is idle when it has open PRs or its last record is a
               done or READY one
@@ -141,7 +141,6 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 LANE_OWES = (RED, CONFLICTS, RESTACK, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
-ASKING = frozenset({"ask", "decide", "correction", "blocker", "urgent"})
 SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
@@ -784,7 +783,7 @@ class Pass:
                 record
                 for record in records
                 if record["lane"] != LANE
-                and record["kind"] in ASKING
+                and grades.owes(record, lane)
                 and record.get("status") != "closed"
                 and record["seq"] > (last["seq"] if last else 0)
                 and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])
