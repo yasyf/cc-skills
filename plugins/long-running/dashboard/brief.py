@@ -11,12 +11,12 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 
-CURATOR_KINDS = {"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "owner", "defect", "state", "report", "opened"}
+CURATOR_KINDS = {"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "owner", "defect", "state", "report", "opened", "decision"}
 MIN_GAP = 120
 HISTORY = 50
 WORDS_WINDOW = dt.timedelta(hours=2)
 TROUBLE_WINDOW = dt.timedelta(hours=3)
-TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "hold", "lift"}
+TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "decision", "hold", "lift"}
 SUCCESSOR = re.compile(r"-\d+$")
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
@@ -181,7 +181,7 @@ def digest(model, config, previous, now):
     for worker in model["workers"][:14]:
         mine = [r for r in records if r["lane"] == worker["lane"]][-3:]
         workers.append({"worker": worker["lane"], "last_report": clock(at(worker["at"])), "pull_requests": worker["prs"][:6], "records": [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 280)}" for r in mine]})
-    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner"][-30:]
+    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")][-30:]
     states = {}
     for entry in model["drive"]["prs"]:
         states[entry["state"]] = states.get(entry["state"], 0) + 1

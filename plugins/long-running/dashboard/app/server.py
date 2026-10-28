@@ -31,7 +31,7 @@ import holds
 HERE = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
