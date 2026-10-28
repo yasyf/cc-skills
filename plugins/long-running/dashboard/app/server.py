@@ -1,6 +1,7 @@
 import argparse
 import datetime as dt
 import gzip
+import hashlib
 import html
 import json
 import os
@@ -53,6 +54,8 @@ PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
 AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
+BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
+CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
@@ -172,6 +175,14 @@ def pr_state(pr, row, go_head, active, now):
     if (row and row["state"] == "approved") or (go_head and (pr.get("head") or "").startswith(go_head[:7])):
         return "queued"
     return "doing" if active or pr.get("test_state") == "pending" else "waiting"
+
+
+def lean(records):
+    return [{k: r[k] for k in CLIENT_RECORD if k in r} for r in records]
+
+
+def browser_view(model):
+    return {**{k: v for k, v in model.items() if k != "words"}, "words_at": max((w["at"] for w in model["words"]), default=None), "records": lean(model["records"]), "lanes": lean(model["lanes"])}
 
 
 def part_of(title, parts):
@@ -567,7 +578,7 @@ class Drive:
     def follow_mirror(self):
         while True:
             try:
-                with urllib.request.urlopen(f"{self.config['mirror']}/api/model", timeout=60) as response:
+                with urllib.request.urlopen(f"{self.config['mirror']}/api/model?full=1", timeout=60) as response:
                     model = json.load(response)
             except urllib.error.URLError:
                 time.sleep(30)
@@ -587,7 +598,8 @@ class Drive:
     def work(self, item):
         work = self.pages["work"].brief or {}
         finished = [{**w, "status": "Finished", "latest": w["result"]} for w in work.get("finished", [])]
-        return next((w for w in [*(self.curator.brief or {}).get("work", []), *work.get("running", []), *finished] if w["item"] == item), None)
+        found = next((w for w in [*(self.curator.brief or {}).get("work", []), *work.get("running", []), *finished] if w["item"] == item), None)
+        return found and {**found, "workers": list(dict.fromkeys([*(lane for n in found.get("changes", []) if (lane := self.model["prs"].get(str(n), {}).get("lane"))), *found["workers"]]))}
 
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
@@ -952,7 +964,6 @@ class Drive:
             "plan": plan,
             "plan_at": plan_at,
             "story": story,
-            "releases": self.read_doc(self.config["release_doc"]),
             "words": list({a["id"]: {"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for label in ("program", "drive") for a in json.loads(self.ccn("answer", "list", "--label", f"{label}:{self.config['drive']}", "--json"))}.values()),
         }
 
@@ -972,11 +983,6 @@ class Drive:
             if plan := parse_plan(self.ccn("doc", "show", line.split("\t")[0])):
                 return plan
         return None, []
-
-    def read_doc(self, ref):
-        body = self.ccn("doc", "show", ref)
-        meta, _, markdown = body.partition("\n\n")
-        return {"markdown": markdown, "updated": next((row.split(": ", 1)[1] for row in meta.splitlines() if row.startswith("updated: ")), None)}
 
     def read_board(self, board):
         interactions = board["interactions"]
@@ -1027,12 +1033,18 @@ def handler(drive):
                 if name == "index.html":
                     for asset, _ in STATIC.values():
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
-                    body = body.replace("</body>", ASSIST.read_text() + "</body>")
+                    body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">', 1)
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 with drive.lock:
                     model = {"version": drive.version, **drive.model}
-                return self.send(200, "application/json", json.dumps(drive.live(model) if "prs" in model else model).encode())
+                if "prs" in model:
+                    model = drive.live(model)
+                return self.send(200, "application/json", json.dumps(model if "full=1" in self.path or "prs" not in model else browser_view(model)).encode())
+            if path == "/api/words":
+                with drive.lock:
+                    words = drive.model.get("words", [])
+                return self.send(200, "application/json", json.dumps(words).encode())
             if path == "/api/stream":
                 return self.stream()
             if found := REVIEW_ROUTE.fullmatch(path):
@@ -1148,6 +1160,7 @@ def handler(drive):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
+            self.wfile.write(f"event: build\ndata: {BUILD}\n\n".encode())
             seen = -1
             while True:
                 with drive.changed:

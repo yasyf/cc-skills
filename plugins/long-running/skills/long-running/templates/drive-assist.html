@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:568ea851dcbc — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:6a7e0d3cb5df — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
 #pal { margin-top: 18px; }
@@ -313,7 +313,7 @@ const ai={};
 const pal={i:0,items:[],busy:null};
 let sheet=null;
 const short=(s,n)=>{const t=String(s??"").replace(/\s+/g," ").trim();return t.length<=n?t:t.slice(0,t.lastIndexOf(" ",n))+"…"};
-const words=()=>state.model.words??[];
+const words=()=>state.words??[];
 const waiting=()=>state.model.board.rows.filter(r=>verdictState(r)==="you");
 const openCards=()=>state.model.board.cards;
 function digest(){

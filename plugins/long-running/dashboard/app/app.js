@@ -330,8 +330,8 @@ function load() {
   });
 }
 async function fetchModel() {
-  const res = await fetch('/api/model', { cache: 'no-store' });
-  const model = await res.json();
+  const model = await (window.firstModel ?? fetch('/api/model', { cache: 'no-store' }).then((res) => res.json()));
+  window.firstModel = null;
   state.fetched = model.version;
   if (!model.prs) return setTimeout(load, 1000);
   if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
@@ -342,6 +342,15 @@ async function fetchModel() {
   state.version = model.version;
   if (state.pressing) state.owed = true;
   else render();
+  if (model.words_at !== state.wordsAt) {
+    state.wordsAt = model.words_at;
+    fetch('/api/words', { cache: 'no-store' }).then((res) => res.json()).then((words) => { state.words = words; });
+  }
+}
+function reloadWhenIdle() {
+  const typing = document.activeElement?.matches('input, textarea') && document.activeElement.value;
+  if (typing || state.pressing || state.asking || (pending.number && !pending.error)) setTimeout(reloadWhenIdle, 2000);
+  else location.reload();
 }
 document.addEventListener('pointerdown', () => { state.pressing = true; }, true);
 for (const type of ['pointerup', 'pointercancel']) {
@@ -352,6 +361,7 @@ for (const type of ['pointerup', 'pointercancel']) {
 }
 function connect() {
   const es = new EventSource('/api/stream');
+  es.addEventListener('build', (e) => { if (e.data !== $('meta[name="build"]').content) reloadWhenIdle(); });
   es.addEventListener('version', (e) => {
     state.wanted = Number(e.data);
     if (state.wanted !== state.version) load();

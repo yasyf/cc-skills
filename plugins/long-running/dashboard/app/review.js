@@ -32,6 +32,7 @@ function reviewPR(n, tab) {
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
+  for (const r of [rows[index - 1], rows[index + 1], next]) if (r) describe(r.number);
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
@@ -128,7 +129,7 @@ async function decide(row, verdict, note, advance = true) {
   pending.number = null;
   const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const from = location.hash;
-  if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 700);
+  if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 300);
   tapped({ seq: out.seq, block: row.block, number: row.number, head: row.head, verdict: verdict === 'cleared' ? null : { verdict, head: row.head, note, at: new Date().toISOString() }, state: verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held' });
 }
 function onDecide(e) {
