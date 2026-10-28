@@ -32,7 +32,7 @@ function reviewPR(n, tab) {
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
-  const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
+  const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
@@ -46,9 +46,11 @@ function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
 }
 const described = {};
-function prText(n) {
-  const head = boardRow(n)?.head ?? state.model.prs[n]?.head ?? '';
-  const key = `${n}@${head}`;
+function describedKey(n) {
+  return `${n}@${boardRow(n)?.head ?? state.model.prs[n]?.head ?? ''}`;
+}
+function describe(n) {
+  const key = describedKey(n);
   if (!(key in described)) {
     described[key] = null;
     fetch(`/api/pr/${n}`, { cache: 'no-store' })
@@ -56,14 +58,47 @@ function prText(n) {
       .catch((failure) => ({ error: failure.message }))
       .then((out) => { described[key] = out; render(); });
   }
-  const pr = described[key];
+  return described[key];
+}
+function prBody(pr) {
+  return (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
+}
+function prText(n) {
+  const pr = describe(n);
   if (!pr) return '<p class="dim pr-wait">Reading the description and the reviewer bot’s summary…</p>';
   if (pr.error) return `<p class="pr-wait">The description is unavailable right now${/rate limit/i.test(pr.error) ? ': GitHub is limiting requests' : ''}. <a href="https://github.com/${esc(state.model.repo)}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub ↗</a></p>`;
-  const bot = pr.eli5 ?? pr.summary;
   const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
-  const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
-  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'What it does, from the reviewer bot' : 'The reviewer bot’s summary'}</div>${reviewed || ''}<div class="md">${markdown(bot)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : ''}
+  const bot = pr.eli5 || pr.diagram
+    ? `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}${pr.eli5 ? `<div class="md">${markdown(pr.eli5)}</div>` : ''}${pr.diagram ? diagramFigure(pr.diagram) : ''}</section>`
+    : pr.summary ? `<section class="pr-read pr-eli5"><div class="kick muted">The reviewer bot’s summary</div>${reviewed || ''}<div class="md">${markdown(pr.summary)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : '';
+  const body = prBody(pr);
+  return `${bot}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
+}
+const diagrams = new Map();
+let mermaidLoad;
+function diagramFigure(diagram) {
+  if (!diagrams.has(diagram.source)) {
+    diagrams.set(diagram.source, null);
+    mermaidLoad ??= import('https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.esm.min.mjs').then(({ default: mermaid }) => {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', fontFamily: getComputedStyle(document.body).getPropertyValue('--sans'), flowchart: { curve: 'basis', padding: 14, useMaxWidth: false }, themeVariables: { darkMode: true, background: '#0d1015', primaryColor: '#121a24', primaryTextColor: '#eceff3', primaryBorderColor: '#3ddc97', lineColor: '#6b7480', secondaryColor: '#151a21', tertiaryColor: '#11151b', edgeLabelBackground: '#0d1015', fontSize: '13px' } });
+      return mermaid;
+    });
+    const id = `diagram-${diagrams.size}`;
+    mermaidLoad
+      .then((mermaid) => mermaid.render(id, diagram.source))
+      .then(({ svg }) => svg, () => `<pre><code>${esc(diagram.source)}</code></pre>`)
+      .then((drawn) => { diagrams.set(diagram.source, drawn); render(); });
+  }
+  return `<figure class="bot-diagram" data-keep-scroll="diagram"><figcaption>${esc(diagram.title)}</figcaption>${diagrams.get(diagram.source) ?? '<div class="dg-wait">Drawing the diagram…</div>'}</figure>`;
+}
+function prPeek(n) {
+  const pr = described[describedKey(n)];
+  if (!pr) return '<div class="mr-peek dim">Reading what it does…</div>';
+  if (pr.error) return '<div class="mr-peek dim">What it does is unavailable right now.</div>';
+  const body = prBody(pr);
+  const [kick, text] = pr.eli5 ? ['What it does, from the reviewer bot', pr.eli5] : body ? ['From its description', body] : ['', ''];
+  return text ? `<div class="mr-peek"><div class="kick muted">${kick}</div><div class="md">${markdown(text)}</div></div>` : '<div class="mr-peek dim">Its author wrote no description.</div>';
 }
 function decideBar(row, v) {
   const busy = pending.number === row.number && !pending.holding && !pending.error;
@@ -75,7 +110,7 @@ function decideBar(row, v) {
   if (v === 'approved' || v === 'held') {
     return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ Landing under the CI-fix exemption' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict?.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" title="A">✓ Approve</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
+  return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}">✓ Approve<kbd>A</kbd></button><button class="btn hold" data-decide="hold">‖ Hold<kbd>H</kbd></button>${error}`;
 }
 const DECIDE_WORD = { approved: 'Approving', rejected: 'Holding', cleared: 'Undoing' };
 async function decide(row, verdict, note, advance = true) {
@@ -200,3 +235,13 @@ setInterval(() => {
   const r = route();
   if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
 }, 5 * 60 * 1000);
+const PR_KEYS = { a: '[data-decide="approved"]', h: '[data-decide="hold"]', n: '[data-key="n"]', j: '[data-key="j"]', k: '[data-key="k"]' };
+document.addEventListener('keydown', (e) => {
+  const r = route();
+  const pick = PR_KEYS[e.key.toLowerCase()];
+  if (!pick || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || r.screen !== 'review' || !/^\d+$/.test(r.id ?? '') || state.overlay) return;
+  const target = $(`#main ${pick}`);
+  if (!target) return;
+  e.preventDefault();
+  target.click();
+});

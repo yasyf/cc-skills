@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import gzip
 import html
 import json
 import os
@@ -75,7 +76,7 @@ BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {st
 ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
 BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
 BOT_COMPANION = "<!-- pr-reviewer bot companion -->"
-COMPANION_TITLE = re.compile(r"^### (?!ELI5)(.+)\n+```mermaid", re.M)
+COMPANION_DIAGRAM = re.compile(r"^### (?!ELI5)(.+)\n+```mermaid\n(.*?)\n```", re.S | re.M)
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page"}
@@ -107,10 +108,11 @@ def cci(path, **query):
 
 
 def bot_words(comments):
-    eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None) or next((found[1] for body in comments if body.startswith(BOT_COMPANION) and (found := COMPANION_TITLE.search(body))), None)
+    eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None)
+    diagram = next(({"title": found[1].strip(), "source": found[2]} for body in comments if body.startswith(BOT_COMPANION) and (found := COMPANION_DIAGRAM.search(body))), None)
     summary = next((body for body in comments if body.startswith(BOT_SUMMARY)), "").partition("<details>")[0]
     lead = [part.strip() for part in summary.split("\n\n") if part.strip() and not part.lstrip().startswith((">", "**Since", "<!--", "No new findings"))]
-    return {"eli5": eli5, "summary": "\n\n".join(lead) or None}
+    return {"eli5": eli5, "diagram": diagram, "summary": "\n\n".join(lead) or None}
 
 
 def plan_prs(text):
@@ -1087,8 +1089,13 @@ def handler(drive):
             return self.send(200, "text/html; charset=utf-8", SOURCE_PAGE.format(title=title, text=html.escape(text)).encode())
 
         def send(self, status, kind, body):
+            zipped = len(body) > 4096 and "gzip" in self.headers.get("Accept-Encoding", "")
+            if zipped:
+                body = gzip.compress(body, 5)
             self.send_response(status)
             self.send_header("Content-Type", kind)
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
