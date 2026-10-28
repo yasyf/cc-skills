@@ -224,4 +224,5 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .nw-path .nd.you .w::before { border: 0; background: var(--you); box-shadow: 0 0 6px var(--you); }
 .nw-path .nd.nobody .w::before { border-color: var(--bad); box-shadow: 0 0 6px color-mix(in srgb, var(--bad) 60%, transparent); }
 .nw-path .nd.goal .w::before { display: none; }
-
+.st-table tr[data-step] { cursor: pointer; }
+.st-table tr[data-step]:hover td { background: rgba(255, 255, 255, .02); }
