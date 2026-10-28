@@ -58,6 +58,7 @@ RESULT = "result.json"
 LOG = "job.log"
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
+TEXT_PR = re.compile(r"(?:\b([\w.-]+/[\w.-]+))?#(\d+)\b")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
 RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
 DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
@@ -84,9 +85,16 @@ class Shell:
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
-    """Each `(pr, head)` a `head` record names: its `commit` field, else the first full sha of its text that no `was` precedes, for each PR its refs name in `repo`."""
+    """Each `(pr, head)` a `head` record names: its `commit` field, else the first full sha of its text that no `was` precedes, for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
     head = (record.get("fields") or {}).get("commit") or next(iter(HEAD_SHA.findall(record["text"])), "")
-    return [(pr, head) for pr, _ in repo_prs(record, repo)] if FULL_SHA.fullmatch(head) else []
+    prs = [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
+    return [(pr, head) for pr in prs] if FULL_SHA.fullmatch(head) else []
+
+
+def text_pr(text: str, repo: str) -> list[str]:
+    """The first `repo#N` the text names, else its first bare `#N`."""
+    named = TEXT_PR.findall(text)
+    return next(([number] for owner, number in named if owner.lower() == repo.lower()), next(([number] for owner, number in named if not owner), []))
 
 
 def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dict | None]:

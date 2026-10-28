@@ -3427,7 +3427,7 @@ class Runner:
             for record in records:
                 if record["lane"] == ROOT and record["kind"] in LANE_ORDER_KINDS:
                     for lane in record.get("to") or []:
-                        if lane not in (ROOT, "main", "all", RUNNER, ORCA_DESK) and not lane.startswith("peer:"):
+                        if lane not in (ROOT, "main", "all", RUNNER, ORCA_DESK, finder.LANE) and not lane.startswith("peer:"):
                             orders.setdefault(lane, []).append(record)
             sessions: list[dict] = []
             if orders:

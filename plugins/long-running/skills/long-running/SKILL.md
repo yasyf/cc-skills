@@ -1508,7 +1508,8 @@ major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 The orca desk runner posts that record itself once `runner.json` carries a `finder`
 object: `{"model": "sol", "concurrent": 2, "checkout": "<repo checkout>", "to": ["<lane>"],
 "timeout_minutes": 60}`, every member optional. On every `head` record it starts one
-codex finder for that PR and head at once, beside the fidelity desks, never after them:
+codex finder for that PR and head at once, taking the PR from the record's PR refs or,
+when it has none, from the first `<owner/repo>#<n>` or `#<n>` of its text, beside the fidelity desks, never after them:
 over the head's own commits, those no commit on the base branch's current tip matches by
 patch, from `reference/finder-desk-brief.md`, which forbids any local build or test. A head
 after one the PR's last finder record graded reads only what changed since, with no row
@@ -1518,7 +1519,8 @@ head the PR no longer carries when the pass starts or finishes posts nothing. It
 the head's lane. A head reaches the finder once, a head some lane's
 finder record already names gets no second pass, and the runner holds at most
 `concurrent` passes at once, queueing the rest. A failed pass is one `FINDER-FAILED`
-to root, and the lane runs that head's pass by hand.
+to root, and the lane runs that head's pass by hand. `finder-desk` posts once per pass, so `LANE-GONE` never counts it
+as a lane.
 
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
 --pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass and holds no

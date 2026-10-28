@@ -306,6 +306,20 @@ def test_a_head_record_names_its_commit_field_else_its_first_full_sha_no_was_pre
     assert finder.heads({"refs": {"prs": ["yasyf/cc-skills#836"]}, "text": f"dashboard-tap-fast {HEAD}"}, REPO) == []
 
 
+@pytest.mark.parametrize(
+    ("refs", "text", "expected"),
+    [
+        ({}, f"dar-p5-api-cred-503 {HEAD} #43832 (was 814e3cd): test-only review fix", [("43832", HEAD)]),
+        ({"refs": {}}, f"finder pass wanted at {HEAD} pr:{REPO}#43923 after #43900 landed", [("43923", HEAD)]),
+        ({}, f"{HEAD} yasyf/cc-skills#836 then #43929", [("43929", HEAD)]),
+        ({"refs": {"prs": ["yasyf/cc-skills#836"]}}, f"{HEAD} #43929", []),
+        ({}, f"HEAD {HEAD} restacked onto dev", []),
+    ],
+)
+def test_a_head_record_without_pr_refs_takes_the_pr_its_text_names(refs, text, expected):
+    assert finder.heads(refs | {"text": text}, REPO) == expected
+
+
 def test_since_names_the_full_head_the_newest_finder_record_at_another_head_read():
     older = {"seq": 10, "lane": "p8a-step9", "head": "cfe6544", "text": "finder: ok cfe6544"}
     newest = {"seq": 12, "lane": "p8a-step9-2", "head": "a269784", "text": "finder: major a269784 1 open: walk.go:9"}
