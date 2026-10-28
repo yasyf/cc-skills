@@ -141,3 +141,17 @@ def test_each_change_carries_the_newest_records_about_it():
     [change] = digest(m, {"milestones": []}, None, T0 + dt.timedelta(minutes=30))["open_changes"]
     assert "waits on the replay onto dev, due 8:01 PM" in change["newest_records"][-1]
     assert change["next"] == ""
+
+
+def test_a_headline_without_how_long_the_blocker_has_waited_is_sent_back(tmp_path, monkeypatch):
+    prompts = []
+
+    def reply(name, prompt, schema):
+        prompts.append(prompt)
+        return blocked("fixing")
+
+    monkeypatch.setattr(brief, "run_model", reply)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
+    curator.curate()
+    assert "headline: say the one thing in the way and how long it has waited" in prompts[1]

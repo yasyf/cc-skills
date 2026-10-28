@@ -21,6 +21,7 @@ SUCCESSOR = re.compile(r"-\d+$")
 ROOT = {"root", "main"}
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
 CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
+WAITED = re.compile(r"\bfor \d+ (?:min|minutes?|hours?|h)\b|\bsince \d{1,2}:\d{2} [AP]M\b")
 CHECK_PLACEHOLDER = re.compile(r"\bfixes [\w-]+/[\w-]+\.?$")
 BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner", "stall-watch")
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
@@ -135,7 +136,7 @@ Rules for every string:
 - Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
 
 Fields:
-- headline: one sentence, at most 25 words, that a person could read aloud at standup: where we are, what is next, what is in the way.
+- headline: one sentence, at most 25 words, written from the Main work entry of status_paragraphs, that a person could read aloud at standup: where we are, what is next, and the one thing in the way with how long it has waited, such as "for 51 minutes, since 6:58 PM".
 - because: up to three short sentences naming the facts the headline rests on.
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
 - progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
@@ -205,6 +206,11 @@ def undated(brief):
     nodes = [f"paths.{i}.nodes.{j}.since" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] != "done" and not CLOCK.fullmatch(node.get("since", ""))]
     rows = [f"work.{i}.since" for i, row in enumerate(brief["work"]) if not CLOCK.fullmatch(row.get("since", ""))]
     return [f"{path}: empty; give the Pacific clock time of the record that started this wait" for path in nodes + rows]
+
+
+def unwaited(brief):
+    stuck = any(node["state"] != "done" for path in brief["paths"] for node in path["nodes"])
+    return ["headline: say the one thing in the way and how long it has waited, such as 'for 51 minutes, since 6:58 PM'"] if stuck and not WAITED.search(brief["headline"]) else []
 
 
 def phantoms(brief, needs):
@@ -318,7 +324,7 @@ class Curator:
         prompt = json.dumps(facts, indent=1)
         model_name = self.config.get("curator_model", "claude-opus-5-5")
         brief = run_model(model_name, prompt, SCHEMA)
-        problems = gate(brief, lanes) + undated(brief) + phantoms(brief, facts["waiting_on_owner"]) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
+        problems = gate(brief, lanes) + undated(brief) + unwaited(brief) + phantoms(brief, facts["waiting_on_owner"]) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
         if problems:
             brief = run_model(model_name, prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
             problems = gate(brief, lanes)
