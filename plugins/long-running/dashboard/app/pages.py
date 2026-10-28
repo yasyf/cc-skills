@@ -6,7 +6,7 @@ import json
 import re
 
 import plainwords
-from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, clip, clock, listing, open_changes, owner_asks, rulings, said, strict, string, trouble, unasked
+from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, change_records, clip, clock, listing, mentioned, open_changes, owner_asks, pr_stages, rulings, said, strict, string, trouble, unasked
 
 WORK_WINDOW = dt.timedelta(hours=12)
 MIN_DAY = dt.timedelta(hours=8)
@@ -169,6 +169,7 @@ def plan_digest(model, config, previous, now):
             for s in model["steps"]
         ],
         "open_questions": open_questions(model),
+        "pull_request_stages": pr_stages(model),
         "recent_trouble": trouble(model["records"], now),
         "coordinator_rulings": rulings(model["records"], now),
         "previous": previous_of(previous, PLAN_SCHEMA),
@@ -196,7 +197,8 @@ def work_settle(brief, facts):
             row["status"] = "Stuck"
 
 
-def ledger_rows(model):
+def ledger_rows(model, records):
+    rulings, mentions = mentioned(records)
     return [
         {
             "number": int(row["pr"]),
@@ -205,7 +207,8 @@ def ledger_rows(model):
             "ledger_stage": row["state"],
             "ledger_next": row["next"],
             "ledger_since": clock(at(row["since"])),
-            "newest_records": [said(r, 220) for r in model["records"] if int(row["pr"]) in ((r.get("refs") or {}).get("prs") or [])][-3:],
+            "coordinator_rulings": [said(r, 300) for r in rulings.get(int(row["pr"]), [])[-2:]],
+            "newest_records": [said(r, 220) for r in mentions.get(int(row["pr"]), [])[-3:]],
         }
         for row in model["stack"]
     ]
@@ -240,15 +243,16 @@ def work_digest(model, config, previous, now):
         for lane, mine in sorted(lanes.items(), key=lambda item: item[1][-1]["at"], reverse=True)
     ][:90]
     brief = model.get("brief") or {}
+    changes = change_records(model, now)
     return {
         "now": clock(now),
         "window": f"since {clock(now - WORK_WINDOW)}",
         "main_page_work": [{k: w[k] for k in ("item", "title", "workers")} for w in brief.get("work", [])],
         "waiting_on_owner": owner_asks(model["needs"]),
         "coordinator_rulings": rulings(model["records"], now),
-        "open_changes": open_changes(model),
+        "open_changes": open_changes(model, changes),
         "workers": workers,
-        "ledger_pull_requests": ledger_rows(model),
+        "ledger_pull_requests": ledger_rows(model, changes),
         "previous": previous_of(previous, WORK_SCHEMA),
         "worker_names": worker_names(model),
     }
@@ -280,7 +284,7 @@ def history_digest(model, config, previous, now):
         "approved": list({m[1]: {"at": clock(at(r["at"])), "number": int(m[1]), "title": pr_title(model, m[1])} for r in records if r["kind"] == "go" and (m := GO.match(r["text"]))}.values()),
         "releases": [{k: r.get(k) for k in ("name", "state", "went_wrong")} for r in model["now"].get("releases", [])],
         "coordinator_rulings": rulings(model["records"], now),
-        "open_changes": open_changes(model),
+        "open_changes": open_changes(model, change_records(model, now)),
         "landed": [
             {"at": clock(at(pr["landed_at"])), "number": int(n), "title": pr.get("title"), "part": steps.get(entries.get(int(n), {}).get("step"))}
             for n, pr in sorted(model["prs"].items(), key=lambda item: item[1].get("landed_at") or "")
@@ -337,11 +341,11 @@ def review_digest(model, config, previous, now):
     ]
     if all(entry["previous_rewrite"] for entry in (*rows, *groups, *cards)):
         return None
-    return {"now": clock(now), "rows": rows, "groups": groups, "cards": cards, "open_changes": open_changes(model), "worker_names": list(lanes)}
+    return {"now": clock(now), "rows": rows, "groups": groups, "cards": cards, "open_changes": open_changes(model, change_records(model, now)), "worker_names": list(lanes)}
 
 PAGES = (
     Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180),
-    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go"}), 180, work_checks, work_settle),
+    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),
 )

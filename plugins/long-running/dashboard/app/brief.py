@@ -26,6 +26,8 @@ CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
 WAITED = re.compile(r"\bfor \d+ (?:min|minutes?|hours?|h)\b|\bsince \d{1,2}:\d{2} [AP]M\b")
 CHECK_PLACEHOLDER = re.compile(r"\bfixes [\w-]+/[\w-]+\.?$")
 BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner", "stall-watch")
+CHANGE_KINDS = {"decide", "decision", "hold", "lift", "blocker", "go", "landed", "head", "review", "fix-live", "answer", "mechanism", "opened"}
+CHANGE_WINDOW = dt.timedelta(hours=6)
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -140,7 +142,8 @@ RULES = """Rules for every string:
 - status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
-- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule. A string about a change has changed facts when a coordinator ruling or one of its newest_records says something the string does not, such as a new reason it is red, a restack done, or a new step it waits on; rewrite it from the newest of them."""
+- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule. A string about a change has changed facts when a coordinator ruling or one of its newest_records says something the string does not, such as a new reason it is red, a restack done, or a new step it waits on; rewrite it from the newest of them.
+- pull_request_stages, when the facts carry it, is the one current account of each open pull request: anything you write about one of those changes, as a blocker, a work row, a part or a change's state, says what its stage and next say."""
 
 PROMPT = """You write the main page of a live dashboard that a busy engineering lead reads at a glance. It answers four questions: overall progress, what is being worked on, the biggest blockers, and how each blocker is being unblocked. The user message is the drive's facts as JSON. Return one JSON object matching the schema.
 
@@ -210,13 +213,28 @@ def named_changes(model):
     return [{"number": n, "title": model["prs"].get(n, {}).get("title"), "state": states.get(n, {}).get("state"), "next": states.get(n, {}).get("next")} for n in sorted(numbers)]
 
 
-def open_changes(model):
-    active = {w["lane"] for w in model["workers"]}
+def change_records(model, now):
+    unique = {(r["at"], r["lane"], r["text"]): r for r in [*model["fetch"](CHANGE_KINDS, now - CHANGE_WINDOW), *model["records"]] if not r["text"].startswith("Register classify")}
+    return sorted(unique.values(), key=lambda r: at(r["at"]))
+
+
+def mentioned(records):
     rulings, mentions = {}, {}
-    for r in model["records"]:
-        for n in set(PR_MENTION.findall(r["text"])):
+    for r in records:
+        refs = {re.search(r"(\d+)$", str(ref))[1] for ref in (r.get("refs") or {}).get("prs") or []}
+        for n in set(PR_MENTION.findall(r["text"])) | refs:
             if r["lane"] in ROOT or not r["lane"].startswith(BYSTANDERS):
                 (rulings if r["lane"] in ROOT else mentions).setdefault(int(n), []).append(r)
+    return rulings, mentions
+
+
+def pr_stages(model):
+    return [{k: pr[k] for k in ("number", "stage", "next")} for pr in (model["pages"].get("work") or {}).get("pull_requests", [])]
+
+
+def open_changes(model, records):
+    active = {w["lane"] for w in model["workers"]}
+    rulings, mentions = mentioned(records)
     changes = []
     for e in model["drive"]["prs"]:
         if e["state"] == "landed":
@@ -289,7 +307,8 @@ def digest(model, config, previous, now):
         "plan_steps": [{k: s.get(k) for k in ("label", "title", "state", "tone", "blocker", "next", "delivers")} | {"pull_requests": [p["number"] if isinstance(p, dict) else p for p in s.get("prs", [])][:8]} for s in model["steps"]],
         "code": {"tracked_changes": len(model["drive"]["prs"]), "by_state": states},
         "changes_named_by_milestones": named_changes(model),
-        "open_changes": open_changes(model),
+        "open_changes": open_changes(model, change_records(model, now)),
+        "pull_request_stages": pr_stages(model),
         "waiting_on_owner": owner_asks(model["needs"]),
         "workers": workers,
         "recent_trouble": trouble(records, now),

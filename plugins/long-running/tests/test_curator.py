@@ -22,6 +22,8 @@ def model():
         "now": {"releases": []},
         "steps": [],
         "needs": [],
+        "fetch": lambda kinds, since: [],
+        "pages": {},
         "words": [],
         "story": {},
         "status_now": {"at": T0.isoformat(), "paragraphs": [{"label": "Main work", "text": "The cloud viewer reading chats through the storage engine passed its tests and can land."}]},

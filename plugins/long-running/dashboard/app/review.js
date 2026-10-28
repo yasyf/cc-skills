@@ -35,14 +35,12 @@ function reviewPR(n, tab) {
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
-  const node = blockerNode(n);
-  const since = verdictState(row) === 'you' || !SETTLED.test(w.blocker.trim()) ? waitingSince(row.number) : null;
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
   return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${stackFacts(n)}<dt>Blocks landing</dt><dd>${node ? `${esc(node.text)}${forSince(node.since)}` : `${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}`}</dd>${node?.how ? `<dt>What happens next</dt><dd>${esc(node.how)}</dd>` : ''}</dl></div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
