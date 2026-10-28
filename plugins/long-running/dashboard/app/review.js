@@ -62,7 +62,7 @@ function prText(n) {
   const bot = pr.eli5 ?? pr.summary;
   const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
   const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
-  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'In plain words, from the reviewer bot' : 'The reviewer bot’s summary'}</div>${reviewed || ''}<div class="md">${markdown(bot)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : ''}
+  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'What it does, from the reviewer bot' : 'The reviewer bot’s summary'}</div>${reviewed || ''}<div class="md">${markdown(bot)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : ''}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
 }
 function decideBar(row, v) {

@@ -83,14 +83,26 @@ function prTruth(n) {
   const e = state.drive.get(Number(n));
   return { blocks: e?.blocker ?? '', next: e?.next ?? '', since: null };
 }
+const WORD_KINDS = new Set(['decide', 'decision', 'owner', 'answer', 'hold', 'lift', 'go', 'blocker', 'head', 'review', 'landed', 'opened', 'report']);
+function latestWord(n) {
+  const mention = new RegExp(`#${n}(?!\\d)`);
+  return state.model.records.findLast((r) => WORD_KINDS.has(r.kind) && !/^(dashboard|register|cc-present|desk-runner|stall-watch)/.test(r.lane) && ((r.refs?.prs ?? []).some((p) => String(p).replace(/.*#/, '') === String(n)) || mention.test(r.text)));
+}
+function wordLine(r) {
+  const who = r.kind === 'owner' ? 'You' : workerName(r.lane);
+  const did = r.kind === 'owner' ? 'answered' : (SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind).toLowerCase();
+  return `${esc(who)} ${esc(did)} at ${clock(r.at)} <a href="/record/${r.seq}" target="_blank" rel="noopener">Read it ↗</a>`;
+}
 function truthFacts(n, landed) {
   const t = prTruth(n);
-  return `<dt>Blocks landing</dt><dd>${t.blocks ? `${esc(t.blocks)}${t.since ? `<small class="pg-for">${blockedFor(t.since)}</small>` : ''}` : landed ? 'Nothing: it landed' : 'Nothing'}</dd>${t.next ? `<dt>What happens next</dt><dd>${esc(t.next.replace(/^./, (c) => c.toUpperCase()))}</dd>` : ''}`;
+  const word = latestWord(n);
+  return `${word ? `<dt>Latest word</dt><dd>${wordLine(word)}</dd>` : ''}<dt>Blocks landing</dt><dd>${t.blocks ? `${esc(t.blocks)}${t.since ? `<small class="pg-for">${blockedFor(t.since)}</small>` : ''}` : landed ? 'Nothing: it landed' : 'Nothing'}</dd>${t.next ? `<dt>What happens next</dt><dd>${esc(t.next.replace(/^./, (c) => c.toUpperCase()))}</dd>` : ''}`;
 }
 function stackLine(row) {
   const t = prTruth(row.pr);
   const l = { stage: t.blocks, next: t.next, since: t.since };
-  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}</span></div>`;
+  const word = latestWord(row.pr);
+  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}${word ? `<br><a class="wk-word" href="/record/${word.seq}" target="_blank" rel="noopener">Latest word ${clock(word.at)} ↗</a>` : ''}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
@@ -196,16 +208,25 @@ function statusScreen() {
 function sameWorker(a, b) {
   return Boolean(a && b) && a.replace(/-\d+$/, '') === b.replace(/-\d+$/, '');
 }
+const posts = {};
+function lanePosts(lane) {
+  const key = `${lane}@${Math.floor(Date.now() / 60000)}`;
+  if (!(key in posts)) {
+    posts[key] = posts[Object.keys(posts).findLast((k) => k.startsWith(`${lane}@`))] ?? null;
+    fetch(`/api/lane/${encodeURIComponent(lane)}`, { cache: 'no-store' }).then((res) => res.json()).then((out) => { posts[key] = out; render(); });
+  }
+  return posts[key];
+}
 function workerScreen(lane) {
   const m = state.model;
   const prs = Object.entries(m.prs).filter(([, pr]) => sameWorker(pr.lane, lane) && pr.state === 'open').map(([n]) => Number(n));
-  const posted = m.records.filter((r) => sameWorker(r.lane, lane)).slice(-8).reverse();
-  const said = posted[0];
+  const posted = lanePosts(lane);
+  const said = m.records.findLast((r) => sameWorker(r.lane, lane));
   const work = curated('work');
   const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)));
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
-    ['What it posted lately', posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing today'],
+    ['What it posted lately', !posted ? 'Reading its records…' : posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing in the last day'],
   ]);
 }
 function workScreen(item) {
