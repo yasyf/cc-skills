@@ -15,11 +15,17 @@ function minutesOf(t) {
   const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
   return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm);
 }
-function waited(since) {
+function lasted(since) {
   if (!/^\d{1,2}:\d{2} [AP]M$/.test(since ?? '')) return '';
   const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
   const mins = (h * 60 + m - minutesOf(since) + 1440) % 1440;
-  return `for ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`}, since ${since}`;
+  return `for ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`}`;
+}
+function waited(since) {
+  return lasted(since) && `${lasted(since)}, since ${since}`;
+}
+function slug(status) {
+  return `st-${esc(status.toLowerCase().replace(/\s+/g, '-'))}`;
 }
 function storyHref(item) {
   return `#/story/${encodeURIComponent(item)}`;
@@ -34,10 +40,10 @@ function nowScreen() {
   return `<div class="nw">
     ${band(b)}
     ${page ? storyPage(r.id) : `
-    ${m.status_now ? `<div class="nw-status" title="Written at ${clock(m.status_now.at)}">${m.status_now.paragraphs.map((p) => `<span class="lb">${esc(p.label)}</span><p>${esc(p.text)}</p>`).join('')}</div>` : `<h1 class="nw-head">${esc(b.headline)}</h1>
-    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>`}
+    <h1 class="nw-head">${esc(b.headline)}</h1>
+    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress <span class="nw-hsub">${esc(m.milestones_label)}</span></h2>${readouts(b)}${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     <div class="nw-cols">
       <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
       <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
@@ -52,14 +58,14 @@ function band(b) {
   if (!m.needs.length) return '';
   const rows = m.needs.slice(0, 2).map(needLine).join('');
   const more = m.needs.length - 2;
-  return `<div class="nw-band needs nw-needs"><div class="side"><span class="tag">Needs you</span>${more > 0 ? `<a class="more" href="#/review">${more} more ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
+  return `<div class="nw-band needs"><div class="head"><span class="tag">Needs you</span><span class="count">${m.needs.length} decision${m.needs.length === 1 ? '' : 's'}</span>${more > 0 ? `<a class="more" href="#/review">${more} more on Review ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
 }
 function needLine(item) {
   const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
   if (item.kind === 'prs' && item.prs.length === 1) {
     const r = item.prs[0];
     const busy = pending.number === r.number && !pending.error;
-    return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`);
+    return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
   }
   if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/review">Review them</a>');
   if (item.kind === 'card') {
@@ -74,11 +80,6 @@ function needLine(item) {
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/review">Details</a>');
 }
 
-function readouts(b) {
-  const t = tally(state.model.drive.prs);
-  const live = stops(b).filter((s) => s.state === 'live').length;
-  return `<div class="nw-read"><span><b class="ok">${live}</b><i>/${state.model.milestones.length}</i> milestones live</span><span><b>${t.landed}</b><i>/${t.total}</i> changes merged</span><span><b>${pct(t)}%</b> of the end state landed</span></div>`;
-}
 function stops(b) {
   return state.model.milestones.map((name, i) => ({ name, ...(b.progress.stops[i] ?? { state: 'not', label: 'Not known', why: '' }) }));
 }
@@ -87,8 +88,10 @@ function journey(b) {
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
   const cur = list.findIndex((s) => s.state === 'next');
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
-  return `<div class="nw-panel">
+  const t = tally(state.model.drive.prs);
+  return `<div class="nw-panel"><p class="nw-lab"><span>${esc(state.model.milestones_label)}</span><span class="nw-code">Code: ${t.landed} of ${t.total} changes merged</span></p>
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
+    ${b.progress.sentence ? `<p class="nw-sent">${esc(b.progress.sentence)}</p>` : ''}
     </div>`;
 }
 function compact(b) {
@@ -185,16 +188,16 @@ function drawArrows() {
 }
 
 function workList(b) {
-  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}</span>` : ''}<span>${esc(w.latest)}</span></a>`).join('')}</div>`;
+  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}</span>` : ''}<span>${esc(w.latest)}</span></a>`).join('')}</div>`;
   const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
   const more = b.work.length - rows.length;
   if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
   return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/work">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
 }
 function workRow(w) {
-  return `<a class="wr" href="${storyHref(w.item)}">
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}${esc(w.latest)}</span></span>
-    <span class="side"><span class="open">Live story ›</span></span></a>`;
+  return `<a class="wr ${slug(w.status)}" href="${storyHref(w.item)}"><span class="pulse"></span>
+    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
+    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
 
 function follow(item) {
@@ -237,8 +240,8 @@ function storyBody(item) {
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
-  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}<b>Now:</b> ${esc(latest ? latest.line : w.latest)}</p>
-    ${latest ? `<p class="nw-sub">Latest update ${esc(latest.at)}</p>` : ''}</div>
+  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="meta"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(waited(w.since))}</p><p class="now"><b>Now</b>${esc(latest ? latest.line : w.latest)}</p>
+    ${latest ? `<p class="nw-sub"><i></i>Latest update ${esc(latest.at)} · new lines appear as it works</p>` : ''}</div>
     ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}
     ${shown.map((l) => `<div class="beat ${esc(l.mark)}"><span class="t">${esc(l.at)}</span><span class="mk">${MARK_WORD[l.mark]}</span><span class="ln">${esc(l.line)}</span></div>`).join('')}

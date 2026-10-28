@@ -60,9 +60,9 @@ def now(page):
     page.wait_for_selector(".nw-cols")
 
 
-def test_status_progress_blockers_and_work_fit_a_laptop_screen(page):
+def test_headline_progress_blockers_and_work_fit_a_laptop_screen(page):
     now(page)
-    for selector in (".nw-status", ".nw-read", ".nw-journey", ".nw-chart", ".nw-work"):
+    for selector in (".nw-head", ".nw-journey", ".nw-sent", ".nw-chart", ".nw-work"):
         box = page.locator(selector).bounding_box()
         assert box["y"] + box["height"] <= LAPTOP["height"], selector
 
