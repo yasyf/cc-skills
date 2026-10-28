@@ -40,6 +40,7 @@ From top to bottom:
 | `brief_dir` | Where the curated brief and its last 50 versions are written. |
 | `stories_dir` | Where each piece of work's story lines are saved, so reopening a story costs nothing. |
 | `transcripts` | The root session's `subagents` directory. The story for a piece of work reads the newest transcript named after its worker. |
+| `defects_to` | The lanes a build defect goes to, such as a root go with no approval on the board. Only the live copy sets it; a dev or test copy leaves it out and posts nothing. |
 | `curator_model`, `story_model` | Claude Opus 5.5 writes the page; Claude Sonnet 5.5 writes the stories. Change these only when the owner names another model. |
 | `parts`, `trees` | Feed the end-state diagram: which parts the drive builds and where each lives. |
 

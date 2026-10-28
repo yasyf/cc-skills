@@ -731,15 +731,25 @@ class Drive:
             after = page[-1]["seq"]
 
     def check_gos(self, rows):
+        suspects = []
         for row in rows:
             row["go_head"] = self.gos.get(row["number"])
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
             row["ci_fix_go"] = row["state"] == "approved" and not stored and row["number"] in self.ci_fixes
-            key = (row["number"], row["head"])
-            if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and key not in self.reported:
-                self.reported.add(key)
-                self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+            if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and (row["number"], row["head"]) not in self.reported:
+                suspects.append(row)
+        if not suspects:
+            return
+        now = {row["number"]: row for row in self.board_rows_now()}
+        for row in suspects:
+            if verdict_state({**now.get(row["number"], row), "go_head": None}) == "approved":
+                continue
+            self.reported.add((row["number"], row["head"]))
+            self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+
+    def board_rows_now(self):
+        return self.read_board(json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]])))["rows"]
 
     def store_seq(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
@@ -787,7 +797,9 @@ class Drive:
         }
 
     def report_defect(self, text):
-        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
+        if not self.config.get("defects_to"):
+            return
+        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", ",".join(self.config["defects_to"]), "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
 
     def build(self, refresh_slow):
         if refresh_slow or not self.slow:
