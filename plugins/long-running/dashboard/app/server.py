@@ -69,7 +69,7 @@ BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {st
 ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
 BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
 BOT_COMPANION = "<!-- pr-reviewer bot companion -->"
-COMPANION_TITLE = re.compile(r"^### (?!ELI5)(.+)$", re.M)
+COMPANION_TITLE = re.compile(r"^### (?!ELI5)(.+)\n+```mermaid", re.M)
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page"}
@@ -623,7 +623,8 @@ class Drive:
         found, query = [], {"drive": self.config["drive"], "lane": lane, "limit": 500, "since_time": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
         while len(page := cci("records", **query)) == 500:
             found, query = page, {"drive": self.config["drive"], "lane": lane, "limit": 500, "since": page[-1]["seq"]}
-        return [{k: r[k] for k in ("seq", "kind", "at")} for r in [*found, *page][-8:][::-1]]
+        records = [*found, *page]
+        return [{k: r[k] for k in ("seq", "kind", "at")} for r in ([r for r in records if r["kind"] != "state"] or records)[-8:][::-1]]
 
     def fetch(self, kinds, since):
         found, after = [], 0

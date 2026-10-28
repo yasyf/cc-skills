@@ -155,3 +155,8 @@ def test_without_an_eli5_the_companion_s_title_says_what_it_does_and_an_incremen
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`7bed615`](x):** Adds a fallback.\n\nNo new findings at this head. The existing thread still applies.\n\n<details></details>"
     assert bot_words([summary, companion]) == {"eli5": "GitHub merge state gates untracked dev PRs", "summary": None}
 
+
+def test_a_companion_section_that_is_not_a_diagram_title_is_not_taken_for_what_the_change_does():
+    companion = "<!-- pr-reviewer bot companion -->\n<!-- ships-with -->\n### Ships with\n- `api`, `dashboard` ship in the same release\n<!-- /ships-with -->"
+    assert bot_words([companion])["eli5"] is None
+
