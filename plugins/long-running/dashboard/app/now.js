@@ -56,9 +56,20 @@ function band(b) {
   const m = state.model;
   if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
   if (!m.needs.length) return '';
-  const rows = m.needs.slice(0, 2).map(needLine).join('');
-  const more = m.needs.length - 2;
-  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span><span class="count">${m.needs.length} decision${m.needs.length === 1 ? '' : 's'}</span>${more > 0 ? `<a class="more" href="#/review">${more} more on Review ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
+  const prs = m.needs.filter((item) => item.kind === 'prs').flatMap((item) => item.prs.map((pr) => ({ pr, item })));
+  const approvals = prs.length === 1 ? needLine({ ...prs[0].item, prs: [prs[0].pr] }) : prs.length ? approvalLine(prs) : '';
+  const rows = approvals + m.needs.filter((item) => item.kind !== 'prs').map(needLine).join('');
+  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
+}
+const FEATURE = { 'New tree': 'New app', 'Old tree': "Today's app", Shared: 'Shared code and CI' };
+function approvalLine(prs) {
+  const features = new Map();
+  for (const { pr, item } of prs) {
+    const feature = FEATURE[state.drive.get(pr.number)?.tree] ?? item.group;
+    features.set(feature, (features.get(feature) ?? 0) + 1);
+  }
+  const split = [...features].map(([feature, count]) => `${feature} ${count}`).join(' · ');
+  return `<div class="nl"><span class="what">${prs.length} changes wait on your approval<span class="sub">${esc(split)}</span></span><span class="acts"><a class="nbtn pri" href="#/review">Review them</a></span></div>`;
 }
 function needLine(item) {
   const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
@@ -67,7 +78,6 @@ function needLine(item) {
     const busy = pending.number === r.number && !pending.error;
     return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
   }
-  if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/review">Review them</a>');
   if (item.kind === 'card') {
     const c = item.card;
     const rec = c.options.find((o) => o.recommended);
