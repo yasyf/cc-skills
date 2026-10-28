@@ -58,7 +58,9 @@ function band(b) {
   if (!m.needs.length) return '';
   const prs = m.needs.filter((item) => item.kind === 'prs').flatMap((item) => item.prs.map((pr) => ({ pr, item })));
   const approvals = prs.length === 1 ? needLine({ ...prs[0].item, prs: [prs[0].pr] }) : prs.length ? approvalLine(prs) : '';
-  const rows = approvals + m.needs.filter((item) => item.kind !== 'prs').map(needLine).join('');
+  const asks = m.needs.filter((item) => item.kind !== 'prs');
+  const questions = asks.length > 1 ? `<div class="nl"><span class="what">${asks.length} questions wait on your answer</span><span class="acts"><a class="nbtn pri" href="#/review">Answer them</a></span></div>` : asks.map(needLine).join('');
+  const rows = approvals + questions;
   return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
 }
 const FEATURE = { 'New tree': 'New app', 'Old tree': "Today's app", Shared: 'Shared code and CI' };
