@@ -25,7 +25,8 @@ its ledger row names, it finds:
     fidelity  a `head` record names the head, and no fidelity grade does
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
-              and the board holds no row or card for it at that head
+              the board holds no row or card for it at that head, and no root decide pulled its row
+              with no READY record about the PR since
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
               such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
@@ -35,9 +36,12 @@ and, across the drive:
 
     lane      a lane owning an in-progress task on the root's task list posted nothing past the time
               its last record promised, or for `stall.minutes.lane`, counted for a lane with no
-              record yet from when its task file was last written; a lane with open PRs owes nothing
-              and is idle unless one of them is red, conflicting, needs a restack, or waits on its
-              answer to the reviewer bot, or a record since its last addresses it
+              record yet from when its task file was last written; a lane owes a reply to an open
+              ask, decide, correction, blocker or urgent record addressed to it since its last
+              record, and stalls once the oldest is `stall.minutes.lane` old; a lane that owes no
+              reply and whose open PRs are none red, conflicting, needing a restack, or waiting on
+              its answer to the reviewer bot is idle when it has open PRs or its last record is a
+              done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
@@ -135,6 +139,10 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 LANE_OWES = (RED, CONFLICTS, RESTACK, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
+ASKING = frozenset({"ask", "decide", "correction", "blocker", "urgent"})
+SETTLED = frozenset({"done", "ready"})
+READY = re.compile(r"\b(?:READY|DONE)\b")
+PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
 MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
@@ -613,6 +621,9 @@ class Pass:
             ready = max(at(record) for record in [*finder_ok, *standing])
             if board.shows(pr, head) or self.now - ready < self.watch.age("board"):
                 continue
+            pulls = [record for record in records if record["lane"] in ROOT_NAMES and record["kind"] in ("decide", "decision") and grades.about_pr(record, repo, pr) and PULLED.search(grades.full_text(record))]
+            if pulls and not any(record["seq"] > pulls[-1]["seq"] and grades.about_pr(record, repo, pr) and (record["kind"] == "ready" or READY.search(record["text"])) for record in records):
+                continue
             card = f"merge:{pr}:{short(head)}"
             told = f"; the landing desk recorded its card {card} as posted, yet the board holds none" if card in cards else ""
             stalls.append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok and fidelity ok since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr))
@@ -759,10 +770,24 @@ class Pass:
             named = successor_of(lane)
             last = max((record for name, record in newest.items() if named.fullmatch(name)), key=lambda record: record["seq"], default=None)
             prs = [found for found in entries if named.fullmatch(found["owner"])]
-            owed = [record for record in records if record["lane"] != LANE and record["seq"] > (last["seq"] if last else 0) and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])]
-            if prs and not owed and not any(found["state"].startswith(LANE_OWES) for found in prs):
-                continue
+            owed = [
+                record
+                for record in records
+                if record["lane"] != LANE
+                and record["kind"] in ASKING
+                and record.get("status") != "closed"
+                and record["seq"] > (last["seq"] if last else 0)
+                and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])
+            ]
             owned = ", ".join(f"#{task}" for task, _ in tasks)
+            if owed:
+                if self.now - at(owed[0]) >= self.watch.age("lane"):
+                    listed = ", ".join(f"#{record['seq']} ({record['kind']} from {record['lane']} at {pacific(at(record))})" for record in owed[:LISTED])
+                    stalls.append(Stall(f"lane:{lane}", "lane", at(owed[0]), lane, f"it owes a reply to {listed}; it owns task {owned}", (lane,), f"{lane} answers with `cci post --re <seq>`; root pings it and relaunches it if no answer comes in 10 min"))
+                continue
+            settled = last is not None and (last["kind"] in SETTLED or bool(READY.search(last["text"])))
+            if (prs or settled) and not any(found["state"].startswith(LANE_OWES) for found in prs):
+                continue
             if last is None:
                 given = max(when for _, when in tasks)
                 if self.now - given >= self.watch.age("lane"):
