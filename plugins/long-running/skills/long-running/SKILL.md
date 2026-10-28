@@ -2358,7 +2358,8 @@ load.** The runner reads the 1-minute load before each Mac launch. Above the cor
 an Orca worktree checkout times out, so no launch starts. Each ten minutes of it posts one
 `LOAD-HIGH` blocker to the root, which moves the load that turn: a pass, backfill, dry
 run, or bulk rewrite goes to in-region compute (R15), never waits it out. An incident
-launch or one submitted with `--owner-directed` fails at once with `LAUNCH-FAILED`, and
+launch is never held: it starts under the load and posts one `LOAD-INCIDENT` report. A
+launch submitted with `--owner-directed` fails at once with `LAUNCH-FAILED`, and
 the root launches that lane in its own session. The pack's Agent hook lets that spawn
 through when it is named for the refused lane and, within 30 minutes, the runner posted
 `LAUNCH-FAILED … refused on load` for it, or a `LOAD-HIGH` and no verdict for it;
