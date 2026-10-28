@@ -101,6 +101,7 @@ import board_rows
 import cci
 import drive
 import ghread
+import grades
 import testfiles
 import ledger
 
@@ -1780,7 +1781,7 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
     except subprocess.CalledProcessError:
         outcomes = "{}"
     board = json.loads(outcomes[outcomes.index("{") :])
-    rows = {row.pr: row for row in board_rows.rows_of(board.get("doc") or {})}
+    shown = [*board_rows.rows_of(board.get("doc") or {}), *(row for past in board.get("rounds", {}).get("history", []) for row in board_rows.rows_of({"blocks": past.get("blocks", [])}))]
     taps = [
         (block, pr, tap)
         for block, verdicts in (board.get("interactions", {}).get("triage") or {}).items()
@@ -1796,8 +1797,9 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
         return None
     reasons = []
     for block, pr, tap in approved:
-        if not (row := rows.get(pr)) or not quotes_row(row.words, key, fields):
-            reasons.append(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the board row for #{pr} does not quote {key} and its words")
+        seen = tap.get("carriedFrom") or tap["head"]
+        if not any(row.pr == pr and grades.names_head(row.head, seen) and quotes_row(row.words, key, fields) for row in shown):
+            reasons.append(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the board row the owner tapped for #{pr} at {seen} does not quote {key} and its words")
         elif pr_head := untouched(args, shell, fields, f"merge:{pr}:{tap['head']}"):
             reasons.append(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
         else:
@@ -1806,7 +1808,7 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
             body = f"Owner approved #{pr} at {tap['head']}{carried} on board {session[:8]} block {block} at {args.action}; the row quotes {key}, so merging also authorizes {key}."
             made = [answer for answer in owner if proof in (answer.get("tags") or [])]
             return made or [ccn(shell, loaded.repo, "answer", "add", f"Merge #{pr}?", "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
-    print(reasons[0])
+    print("\n".join(reasons))
     return None
 
 
