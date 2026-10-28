@@ -86,6 +86,14 @@ func codexAskBin(t *testing.T) string {
 			binErr = err
 			return
 		}
+		if err := os.MkdirAll(filepath.Join(codexDir, ".claude-plugin"), 0o700); err != nil {
+			binErr = err
+			return
+		}
+		if err := os.WriteFile(filepath.Join(codexDir, ".claude-plugin", "plugin.json"), []byte(`{"name":"codex"}`), 0o600); err != nil { //nolint:gosec // writes under the test's own MkdirTemp root
+			binErr = err
+			return
+		}
 		out := filepath.Join(codexDir, "bin", "codex-ask")
 		build := exec.Command("go", "build", "-o", out, ".") //nolint:gosec // builds the package under test
 		build.Env = envWithoutGOROOT()
@@ -371,6 +379,7 @@ func TestDispatchThroughSymlinkFindsAgentsMd(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "symlink-layout developer instructions\n")
+	writePluginManifest(t, pluginRoot)
 	link := filepath.Join(pluginRoot, "bin", "codex-ask")
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
@@ -403,6 +412,54 @@ func TestDispatchThroughSymlinkFindsAgentsMd(t *testing.T) {
 	}
 }
 
+// TestDispatchFromForeignPrefixIgnoresItsAgentsMd provisions codex-ask the way
+// the Homebrew cask does, a symlink in <prefix>/bin where <prefix> is another
+// project's checkout with its own AGENTS.md, and proves codex gets the embedded
+// developer instructions rather than that project's.
+func TestDispatchFromForeignPrefixIgnoresItsAgentsMd(t *testing.T) {
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+
+	prefix := mustTempDir(t)
+	if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(prefix, "AGENTS.md"), "# Agent Instructions for Homebrew/brew\n")
+	cask := filepath.Join(mustTempDir(t), "codex-ask")
+	binary, err := os.ReadFile(codexAskBin(t)) //nolint:gosec // copies the test-built binary fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cask, binary, 0o755); err != nil { //nolint:gosec // test fixture binary must be executable
+		t.Fatal(err)
+	}
+	link := filepath.Join(prefix, "bin", "codex-ask")
+	if err := os.Symlink(cask, link); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(link, "ping") //nolint:gosec // drives the symlinked binary under test
+	c.Dir = scope
+	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("dispatch via foreign prefix: %v\nstderr: %s", err, stderr.String())
+	}
+	sdir := filepath.Dir(stdoutLine(stdout.String(), "REPLY_FILE: "))
+	t.Cleanup(func() { killLane(sdir) })
+	got := developerInstructions(t, sdir)
+	if strings.Contains(got, "Homebrew") {
+		t.Fatalf("developer instructions came from the foreign prefix's AGENTS.md: %q", got)
+	}
+	if !strings.Contains(got, "agent-browser") {
+		t.Fatalf("developer instructions missing the embedded agent-browser sentinel: %q", got)
+	}
+}
+
 func TestCollectAwaitUsesInvokePath(t *testing.T) {
 	bin := codexAskBin(t)
 	target, err := filepath.EvalSymlinks(bin)
@@ -417,6 +474,7 @@ func TestCollectAwaitUsesInvokePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "symlink-layout developer instructions\n")
+	writePluginManifest(t, pluginRoot)
 	link := filepath.Join(pluginRoot, "bin", "codex-ask")
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
@@ -514,6 +572,7 @@ func TestDispatchEnvPluginRootOverridesEmbed(t *testing.T) {
 
 	pluginRoot := mustTempDir(t)
 	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "binrun-layout developer instructions\n")
+	writePluginManifest(t, pluginRoot)
 	if err := os.MkdirAll(filepath.Join(pluginRoot, "lanes"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1020,6 +1079,14 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // test fixture file
 		t.Fatal(err)
 	}
+}
+
+func writePluginManifest(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".claude-plugin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, ".claude-plugin", "plugin.json"), `{"name":"codex"}`)
 }
 
 func serveInProcess(t *testing.T) *daemon.Server {
