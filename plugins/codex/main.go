@@ -39,11 +39,10 @@ const (
 )
 
 const usageStr = "usage: codex-ask [-m sol|luna|astra] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane CONTRACT] [--schema NAME|FILE] " +
-	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR"
+	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR | --ps [RUN[/LANE] | ABS_DIR]..."
 
 var terminal = []string{"completed", "failed", "no-run"}
 
-// runPrefixes: --ps prunes only codex-ask's own minted dirs, never a caller lane.
 var runPrefixes = []string{"codex-ask.", "codex-root.", runDirPrefix}
 
 // selfPath is the resolved absolute path of this binary (Python's SELF).
@@ -74,8 +73,8 @@ func main() {
 		mintRootMode(args[1:])
 	case len(args) >= 1 && args[0] == "--mint-run":
 		mintRunMode(args[1:])
-	case len(args) == 1 && args[0] == "--ps":
-		psMode()
+	case len(args) >= 1 && args[0] == "--ps":
+		psMode(args[1:])
 	case len(args) >= 1 && args[0] == "--reap":
 		reapMode(args[1:])
 	case len(args) == 1 && args[0] == "--sweep":

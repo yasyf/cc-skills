@@ -372,9 +372,16 @@ absolute and outside any repo). The filesystem is the registry:
   never woken is *not* lost: any session can find it here and recover with
   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await <run-dir>` (single run)
   or `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect <root>` (fan-out
-  root). To monitor a single run or lane, use
-  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch RUN/LANE` instead of
-  repeatedly polling `--ps` and filtering all runs.
+  root). Pass one or more run/lane names or absolute run directories to
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps RUN/LANE...` to resolve only
+  the selected runs or lanes before classification (`RUN` expands to its lanes;
+  `RUN/LANE` selects that lane) and return a nonblocking status snapshot. For a
+  watcher polling both a CCI inbox and Codex status, poll
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps RUN/LANE` for targeted
+  nonblocking status instead of repeatedly running global `--ps` and filtering
+  all runs. When waiting only for Codex completion, use
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch RUN/LANE`, which blocks
+  until the watched runs settle and cannot replace a multiplexed poll loop.
 - Before re-dispatching anything that "seems dead", check `--ps` first — a
   wedged run is visible (old log age, live pid) and killable; a completed one
   has its reply on disk.

@@ -394,7 +394,19 @@ func runMtime(d string) float64 {
 	return newest
 }
 
-func psMode() {
+func psMode(targets []string) {
+	if len(targets) > 0 {
+		seen := map[string]bool{}
+		for _, target := range targets {
+			for _, directory := range watchTargets(target, "--ps") {
+				if !seen[directory] {
+					seen[directory] = true
+					emitWatchRecord(directory, classify(directory))
+				}
+			}
+		}
+		os.Exit(0)
+	}
 	base := runsBase()
 	now := nowSec()
 	entries, _ := os.ReadDir(base)
@@ -532,7 +544,7 @@ func watchMode(args []string) {
 		}
 	} else {
 		for _, tgt := range targets {
-			watched = append(watched, watchTargets(tgt)...)
+			watched = append(watched, watchTargets(tgt, "--watch")...)
 		}
 	}
 	settled := map[string]bool{}
@@ -576,13 +588,11 @@ func watchMode(args []string) {
 	}
 }
 
-// watchTargets resolves one --watch operand: a run dir watches itself, a fan-out
-// root watches its lane children — the same split --collect makes.
-func watchTargets(root string) []string {
-	root = resolveRunOperand(root, "--watch")
-	rejectOutsideScratch(root, "--watch target")
-	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --watch target
-		die(fmt.Sprintf("codex-ask: --watch: no such directory: %s", root), 2)
+func watchTargets(root, flag string) []string {
+	root = resolveRunOperand(root, flag)
+	rejectOutsideScratch(root, flag+" target")
+	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's validated run target
+		die(fmt.Sprintf("codex-ask: %s: no such directory: %s", flag, root), 2)
 	}
 	if isFile(join(root, "meta")) || isFile(join(root, "status")) || isFile(join(root, "pid")) {
 		return []string{root}
@@ -595,7 +605,7 @@ func watchTargets(root string) []string {
 		}
 	}
 	if len(lanes) == 0 {
-		die(fmt.Sprintf("codex-ask: --watch: %s has no run state and no lane dirs", root), 2)
+		die(fmt.Sprintf("codex-ask: %s: %s has no run state and no lane dirs", flag, root), 2)
 	}
 	return lanes
 }

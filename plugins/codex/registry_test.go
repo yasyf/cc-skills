@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -315,6 +317,68 @@ func runPs(t *testing.T, runs string) {
 	c.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
 	if out, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("--ps: %v\n%s", err, out)
+	}
+}
+
+func TestPsScopedDoesNotClassifyOtherLanes(t *testing.T) {
+	bin := codexAskBin(t)
+	runs := canonicalScope(t)
+	selected := agedNamedLane(t, filepath.Join(runs, "codex-run.selected"), "review")
+	unrelated := agedNamedLane(t, filepath.Join(runs, "codex-run.other"), "blocked")
+	writeFile(t, filepath.Join(unrelated, "pid"), strconv.Itoa(os.Getpid()))
+	if err := syscall.Mkfifo(filepath.Join(unrelated, "lstart"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, bin, "--ps", "selected/review") //nolint:gosec // drives the built binary under test
+	command.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
+	out, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("scoped --ps: %v\n%s", err, out)
+	}
+	var record psRecord
+	if err := json.Unmarshal(bytes.TrimSpace(out), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Dir != selected || record.State != "completed" {
+		t.Fatalf("unexpected scoped record: %s", out)
+	}
+	for _, lane := range []string{selected, unrelated} {
+		if !isFile(filepath.Join(lane, "meta")) || exists(filepath.Join(lane, "lane.lock")) {
+			t.Fatalf("scoped --ps mutated lane %s", lane)
+		}
+	}
+}
+
+func TestPsScopedExpandsOnlyRequestedRootAndDeduplicates(t *testing.T) {
+	runs := canonicalScope(t)
+	root := filepath.Join(runs, "codex-run.selected")
+	first := agedNamedLane(t, root, "first")
+	second := agedNamedLane(t, root, "second")
+	agedNamedLane(t, filepath.Join(runs, "codex-run.other"), "excluded")
+
+	command := exec.Command(codexAskBin(t), "--ps", "selected", "selected/first", second) //nolint:gosec // drives the built binary under test
+	command.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
+	out, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("scoped --ps: %v\n%s", err, out)
+	}
+	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("want two selected records, got %s", out)
+	}
+	seen := map[string]bool{}
+	for _, line := range lines {
+		var record psRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.State != "completed" || (record.Dir != first && record.Dir != second) || seen[record.Dir] {
+			t.Fatalf("unexpected scoped record: %s", line)
+		}
+		seen[record.Dir] = true
 	}
 }
 
