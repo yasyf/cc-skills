@@ -41,7 +41,7 @@ From top to bottom:
 | `stories_dir` | Where each piece of work's story lines are saved, so reopening a story costs nothing. |
 | `transcripts` | The root session's `subagents` directory. The story for a piece of work reads the newest transcript named after its worker. |
 | `defects_to` | The lanes a build defect goes to, such as a root go with no approval on the board. Only the live copy sets it; a dev or test copy leaves it out and posts nothing. |
-| `stack` | The stall watch's open-PR ledger, `<drive dir>/inbox/stack.json`. The Work page lists its rows, the ones stuck two hours first, and each PR page shows its landing stage, how long it has sat there, and the next step with its owner. |
+| `stack` | The stall watch's open-PR ledger, `<drive dir>/inbox/stack.json`. The Work page lists its rows, the ones stuck two hours first, and each PR page shows its landing stage, how long it has sat there, and the next step with its owner. The Work curator rewrites each row's stage and next step from the newest records about that PR, because the ledger trails the coordinator's later decisions; a row it has not rewritten yet shows the ledger's own words. |
 | `mirror` | The live copy's base URL, such as `http://<host>:61210`. A dev or test copy sets it and then runs no model of its own: it reads the live copy's curated pages every 30 seconds and relays its live stories. Only the live copy leaves it out. |
 | `curator_model`, `story_model` | Claude Opus 5.5 writes the page; Claude Sonnet 5.5 writes the stories. Change these only when the owner names another model. |
 | `parts`, `trees` | Feed the end-state diagram: which parts the drive builds and where each lives. |

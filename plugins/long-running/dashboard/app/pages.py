@@ -68,6 +68,7 @@ WORK_SCHEMA = strict({
     "running": listing(strict({**WORK_ITEM, "status": STATUS, "latest": string(), "started": string("Pacific clock time, such as 1:05 PM"), "blocked_since": string("Pacific clock time it started waiting, or empty")})),
     "finished": listing(strict({**WORK_ITEM, "outcome": {"enum": ["delivered", "stopped"]}, "result": string(), "at": string("Pacific clock time")})),
     "helpers": listing(strict({"workers": listing(string()), "name": string(), "latest": string()})),
+    "pull_requests": listing(strict({"number": {"type": "integer"}, "stage": string(), "next": string(), "since": string("Pacific clock time")})),
 })
 
 WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a busy engineering lead reads. It lists every piece of work in the drive today: what runs now, what finished and its result, and the helpers that keep the drive running.", fields="""- A piece of work is what is being made, never a worker. Several workers on one thing, and a worker's successor (a name ending in -2 or -3), are one piece.
@@ -76,7 +77,8 @@ WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a 
 - finished: only work that delivered its result, or stopped for good with nothing left to do, newest first. Work stopped to wait for a decision is running with status Stuck or Ready for you. Work that still waits on a release, an approval, tests, a merge or another worker is running, never finished; so is work whose merge is not known. outcome: delivered or stopped. title as above. result: at most 16 words, what it delivered for users, or for stopped work why it stopped and who took it over. at: the Pacific clock time of its last report.
 - Leave out any piece of work whose purpose the facts do not say. Rolling out means a deploy is running now; a change that ships with the next release is Waiting for release.
 - Name whoever acts by their job, such as "the cloud runs worker", "codex" or "the merge process", never just "a worker".
-- helpers: the workers that keep the drive running rather than build something (the merge process, board upkeep, review graders, monitors, the dashboard's own workers, release checks). One entry per job, at most eight, jobs whose latest report is a failure or waits on someone first. name: at most 6 words for the job, such as "Merge process" or "Board upkeep". latest: at most 16 words, its state now with the time, such as "Landed the cloud runs fix at 4:40 PM"; never an old failure that a later report settled.""")
+- helpers: the workers that keep the drive running rather than build something (the merge process, board upkeep, review graders, monitors, the dashboard's own workers, release checks). One entry per job, at most eight, jobs whose latest report is a failure or waits on someone first. name: at most 6 words for the job, such as "Merge process" or "Board upkeep". latest: at most 16 words, its state now with the time, such as "Landed the cloud runs fix at 4:40 PM"; never an old failure that a later report settled.
+- pull_requests: one entry per entry of ledger_pull_requests, same number. stage: at most 14 words, what holds the change now; next: at most 12 words, who acts next and what they do. Take both from the newest of its newest_records and coordinator_rulings when they say something its ledger_stage or ledger_next does not, else put the ledger's words in plain terms. A hold names what must happen for it to lift, never "the hold" or "a dependency" alone. Name the change below by what it does, never by number. since: the Pacific clock time of the record that started this stage, or ledger_since when no newer record changed it.""")
 
 HISTORY_SCHEMA = strict({
     "since": string("copy day_starts"),
@@ -120,7 +122,7 @@ def pr_title(model, number):
 
 
 def previous_of(previous, schema):
-    return previous and {k: previous[k] for k in schema["required"]}
+    return previous and {k: previous[k] for k in schema["required"] if k in previous}
 
 
 def plan_slot(path):
@@ -179,7 +181,24 @@ def work_slot(path):
         return {"title": "title", "latest": "latest", "result": "latest"}.get(path[-1])
     if path[:1] == ("helpers",):
         return {"name": "title", "latest": "latest"}.get(path[-1])
+    if path[:1] == ("pull_requests",):
+        return {"stage": "latest", "next": "latest"}.get(path[-1])
     return None
+
+
+def ledger_rows(model):
+    return [
+        {
+            "number": int(row["pr"]),
+            "title": row["title"],
+            "worker": row["owner"],
+            "ledger_stage": row["state"],
+            "ledger_next": row["next"],
+            "ledger_since": clock(at(row["since"])),
+            "newest_records": [said(r, 220) for r in model["records"] if int(row["pr"]) in ((r.get("refs") or {}).get("prs") or [])][-3:],
+        }
+        for row in model["stack"]
+    ]
 
 
 def waiting_since(records, number):
@@ -219,6 +238,7 @@ def work_digest(model, config, previous, now):
         "coordinator_rulings": rulings(model["records"], now),
         "open_changes": open_changes(model),
         "workers": workers,
+        "ledger_pull_requests": ledger_rows(model),
         "previous": previous_of(previous, WORK_SCHEMA),
         "worker_names": worker_names(model),
     }

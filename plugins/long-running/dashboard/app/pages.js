@@ -64,13 +64,21 @@ function ledgerWords(text) {
 function stackRow(n) {
   return state.model.stack.find((row) => row.pr === String(n));
 }
+function landing(row) {
+  const said = curated('work')?.pull_requests?.find((pr) => pr.number === Number(row.pr));
+  if (said) return { stage: said.stage, next: said.next, since: sinceClock(said.since) ?? row.since, by: '' };
+  const by = `, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}`;
+  return { stage: ledgerWords(row.state), next: /^land #\d+ first$/.test(row.next) ? '' : ledgerWords(row.next), since: row.since, by };
+}
 function stackFacts(n) {
   const row = stackRow(n);
   if (!row) return '';
-  return `<dt>Landing stage</dt><dd>${esc(ledgerWords(row.state))}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(ledgerWords(row.next).replace(/^./, (c) => c.toUpperCase()))}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
+  const l = landing(row);
+  return `<dt>Landing stage</dt><dd>${esc(l.stage)}<small class="pg-for">${blockedFor(l.since)}</small></dd>${l.next ? `<dt>Next to land it</dt><dd>${esc(l.next.replace(/^./, (c) => c.toUpperCase()))}${l.by}</dd>` : ''}`;
 }
 function stackLine(row) {
-  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(ledgerWords(row.state))}.${/^land #\d+ first$/.test(row.next) ? '' : ` Next, ${esc(ledgerWords(row.next))}.`}</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
+  const l = landing(row);
+  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(l.since)}</span></a>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
@@ -154,7 +162,7 @@ function workerScreen(lane) {
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
-    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li><a href="#/review/${e.number}">${esc(blockerNode(e.number)?.text ?? (stackRow(e.number) ? ledgerWords(stackRow(e.number).state) : e.blocker))}</a></li>`).join('')}</ul>` : 'Nothing'],
+    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li><a href="#/review/${e.number}">${esc(blockerNode(e.number)?.text ?? (stackRow(e.number) ? landing(stackRow(e.number)).stage : e.blocker))}</a></li>`).join('')}</ul>` : 'Nothing'],
   ]);
 }
 function workScreen(item) {
