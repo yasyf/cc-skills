@@ -358,7 +358,9 @@ class RegisterShell(ledger.Shell):
         answers: list[dict] | None = None,
         diff: str = "",
         records: list[dict] | None = None,
+        board: dict | None = None,
     ) -> None:
+        self.board = board or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
         self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
@@ -394,6 +396,12 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["ccn", "-R", "/repo", "answer", "supersede", _, "--by", _]:
                 return ""
+            case ["ccn", "-R", "/repo", "answer", "add", title, "--body", body, *labels, "--json"]:
+                made = {"id": "4444444" + "0" * 33, "title": title, "body": body, "tags": labels[1::2]}
+                self.answers.append(made)
+                return json.dumps(made)
+            case ["cc-present", "outcomes", "--session", "s-root"]:
+                return json.dumps(self.board)
             case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 return self.diff
             case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
@@ -1685,6 +1693,65 @@ def test_authorize_refuses_a_merge_card_tap_for_a_reserved_row_its_pr_does_not_t
     )
     assert "authorizes:rule/aaaaaaa" not in untouched.answers[0]["tags"]
     assert ran(capsys, RegisterShell(rows, answers=[OWNER_TAP], diff=DIFF), "authorize", "--row", "rule/aaaaaaa", "--action", TAP_TS) == (0, "authorized rule/aaaaaaa by 1111111\n")
+
+
+BOARD_TAP_AT = "2026-10-27T02:23:40Z"
+
+
+def board_of(words: str, **tap: str) -> dict:
+    row = {"number": 12, "title": "Drain on close", "head": "cafef00d", "md": words, "change": "Drains the pool.", "plan": "", "risk": "", "review": "", "blocker": ""}
+    verdict = {"verdict": "approved", "head": "cafef00d", "at": BOARD_TAP_AT} | tap
+    return {
+        "doc": {"blocks": [{"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "pool", "prs": [row]}]}]},
+        "interactions": {"triage": {"merge-prs": {"12": verdict}}},
+    }
+
+
+@pytest.fixture
+def reserved(package: Path) -> dict[str, dict[str, str]]:
+    rows = seeded(package)
+    rows["rule/aaaaaaa"] |= {"kind": "reserved", "ops": '["*drain*"]'}
+    return rows
+
+
+def test_authorize_records_the_owner_answer_for_an_approved_board_merge_row_quoting_the_row(home: Path, package: Path, state: Path, registered: Path, reserved: dict, capsys) -> None:
+    transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board posted."}]}})
+    shell = RegisterShell(reserved, diff=DIFF, board=board_of(QUOTING_CARD))
+
+    code, out = ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", BOARD_TAP_AT)
+
+    assert (code, out) == (0, "authorized rule/aaaaaaa by 4444444\n")
+    assert shell.answers[0]["tags"] == ["from:owner", "program:brook", f"proof:board:merge-prs:12:{BOARD_TAP_AT}", "authorizes:rule/aaaaaaa"]
+    assert "Owner approved #12 at cafef00d on board s-root" in shell.answers[0]["body"]
+
+
+def test_authorize_honors_a_carried_board_tap_and_reuses_the_answer_it_already_recorded(home: Path, package: Path, state: Path, registered: Path, reserved: dict, capsys) -> None:
+    transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board posted."}]}})
+    recorded = dict(OWNER_TAP, body="Owner approved #12 at cafef00d, carried from 1234567: merge also authorizes rule/aaaaaaa.", tags=["from:owner", "program:brook", f"proof:board:merge-prs:12:{BOARD_TAP_AT}"])
+    shell = RegisterShell(reserved, answers=[recorded], diff=DIFF, board=board_of(QUOTING_CARD, carriedFrom="1234567", carryNote="patch-identical restack, per cci #1"))
+
+    assert ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", BOARD_TAP_AT) == (0, "authorized rule/aaaaaaa by 1111111\n")
+    assert len(shell.answers) == 1
+
+
+@pytest.mark.parametrize(
+    ("board", "at", "verdict"),
+    [
+        (board_of(QUOTING_CARD), "2026-10-27T03:00:00Z", "AUTHORIZE-NO-TAP"),
+        (board_of(QUOTING_CARD, verdict="rejected"), BOARD_TAP_AT, "AUTHORIZE-NOT-AFFIRMATIVE"),
+        (board_of("The pool drains on close now."), BOARD_TAP_AT, "AUTHORIZE-CARD-NAMES-NO-ROW"),
+        (board_of(QUOTING_CARD), BOARD_TAP_AT, "AUTHORIZE-ROW-UNTOUCHED"),
+    ],
+    ids=["no-tap-at-that-time", "rejected-row", "row-quoting-nothing", "head-touching-nothing"],
+)
+def test_authorize_refuses_a_board_tap_that_is_missing_rejected_unquoting_or_untouching(home: Path, package: Path, state: Path, registered: Path, reserved: dict, capsys, board: dict, at: str, verdict: str) -> None:
+    transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Board posted."}]}})
+    shell = RegisterShell(reserved, diff=DIFF.replace("self.drain();", "self.close();") if verdict == "AUTHORIZE-ROW-UNTOUCHED" else DIFF, board=board)
+
+    code, out = ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--action", at)
+
+    assert (code, out.split(" ", 1)[0]) == (1, verdict)
+    assert not shell.answers
 
 
 @pytest.mark.parametrize("label", ["Hold", "Right", "Some wrong"])

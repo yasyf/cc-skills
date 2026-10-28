@@ -1692,6 +1692,9 @@ the row's key and the first sentence of its words. The card quotes both, and the
 owner's tap on it is the authorization. After a Merge tap the root runs
 `rulings.py authorize --drive <drive> --row <key> --action <the tap's ts>`, whose
 `authorizes:<key>` answer covers the row because `check-pr` then stops naming it.
+The ts is a Slack card's `action_ts`, or the `at` of an approved merge row on the
+root's cc-present board, which a carried tap keeps; a board row must quote the key
+and its words like a card, and `authorize` records the owner's answer for a board tap.
 A root `go` never covers a reserved row, whatever it names or whenever it was
 posted (C224).
 
