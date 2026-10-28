@@ -6,6 +6,7 @@ const pending = { number: null, holding: false, error: '', note: '' };
 function approvedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
 }
+const TEST_WORD = { success: 'Pass', failure: 'Failing', pending: 'Running' };
 function testPill(pr) {
   if (pr.test_state === 'success') return '<span class="pill ok">Tests pass</span>';
   if (pr.test_state === 'failure') return '<span class="pill bad">Tests failing</span>';
@@ -33,13 +34,13 @@ function reviewPR(n, tab) {
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
-  const waits = waitLine(row, w);
+  const since = verdictState(row) === 'you' || !SETTLED.test(w.blocker.trim()) ? waitingSince(row.number) : null;
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
   return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${waits}${carried}${rowFacts(row)}</div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd><dt>Blocks landing</dt><dd>${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</dd></dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
