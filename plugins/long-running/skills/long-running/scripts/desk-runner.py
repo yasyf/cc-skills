@@ -532,7 +532,7 @@ import prompt_screen
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import QUOTED_BLOCK, QUOTED_SPAN
 from grades import WITHDRAWN as WITHDRAWN_OPENING
-from grades import withdraws
+from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdraws
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -4167,7 +4167,7 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
 
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
-    review = f'checkSuites(last: 10, filterBy: {{checkName: "{grades.REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{grades.REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
+    review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
     fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description }} }} {review} }} }}' for index, sha in enumerate(shas))
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
@@ -6519,10 +6519,10 @@ class Landing:
     def review_bot(self, pr: str, head: str, row: dict) -> str:
         """What the review bot's newest `ai-review` run on `head`, from the pass's head read, says `pr` waits on, or empty; a Held verdict tells the owning lane once per head (root #154137)."""
         title = self.review_titles.get(head, "")
-        if not grades.REVIEW_BOT_HELD.search(title):
-            return grades.review_bot_wait(title, "")
+        if not REVIEW_BOT_HELD.search(title):
+            return review_bot_wait(title, "")
         lane = self.owner(pr, row)
-        why = grades.review_bot_wait(title, lane)
+        why = review_bot_wait(title, lane)
         self.route(f"bot-held:{pr}:{head[:10]}", lane, f"#{pr} {head}: {why}", pr)
         return why
 
