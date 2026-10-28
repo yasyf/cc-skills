@@ -37,7 +37,7 @@ def patch(*lines: str) -> str:
 
 
 DIFF = "".join(
-    f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -{line},0 +{line},3 @@\n+changed()\n"
+    f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -{line},0 +{line},4 @@\n+changed()\n"
     for path, line in [("go/sand/internal/replica/follow.go", 40), ("rust/crates/sandsql-journal/src/replica.rs", 2946), ("go/poll.go", 9), *((f"go/sand/file{index}.go", 1) for index in range(4))]
 )
 LANDED = {PARENT[:11]: "diff --git a/api/parent.go b/api/parent.go\n--- a/api/parent.go\n+++ b/api/parent.go\n@@ -0,0 +1 @@\n+landed()\n", f"{BASE}:api/parent.go": "landed()\n"}
@@ -193,7 +193,7 @@ def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the
     assert note["--kind"] == "note" and note["--lane"] == finder.LANE and note["--to"] == "root" and note["--id"] == f"finder-census:{REPO}#43299:{HEAD}"
     assert note["--text"] == f"finder census: 2 dev-only findings on #43299 appended to {census}"
     assert census.read_text() == f"- {REPO}#43299 {HEAD[:12]} go/sand/internal/replica/follow.go:12: the drain loop skips a closed mount\n- {REPO}#43299 {HEAD[:12]} go/poll.go:9: the poll interval predates this PR\n"
-    assert "- go/sand/internal/replica/follow.go: 40-42\n" in (directory / "question-1.md").read_text()
+    assert "- go/sand/internal/replica/follow.go: 40-43\n" in (directory / "question-1.md").read_text()
     assert result(directory)["census"] == "#150001"
 
 
