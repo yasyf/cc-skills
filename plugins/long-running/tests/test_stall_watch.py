@@ -471,6 +471,26 @@ def test_a_quiet_lane_whose_every_pr_waits_on_the_owners_tap_and_that_owes_no_re
     assert [topic for topic in shell.topics() if topic.startswith("lane:")] == stalls
 
 
+@pytest.mark.parametrize(
+    ("gate", "stales"),
+    [({}, []), ({"test_state": "failure"}, ["stale:201:abc1234", "stale:202:abc1234", "stale:302:abc1234"])],
+    ids=["gates-on-the-tap-list", "a-gate-is-red"],
+)
+def test_a_held_batch_whose_holds_line_names_prs_live_on_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_it(config, tmp_path, gate, stales):
+    merge_mode(config, "ask")
+    (tmp_path / "holds.md").write_text("#201 held (root #159418): lands after #301 and #302\n#202 held (root #159418): same batch as #201\n")
+    records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150)]
+    shell = FakeShell(records, [row("201"), row("202"), row("301"), row("302", **gate)])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 301, "head": HEAD[:7]}, {"number": 302, "head": HEAD[:7]}]}]}]}
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert sorted(topic for topic in shell.topics() if topic.startswith("stale:")) == stales
+    if not stales:
+        assert shell.post("tap-wait:202:abc1234") == {"to": "root", "kind": "state", "text": "#202 at abc1234 is held on #301, #302, each waiting on the owner's tap or in the merge queue, since 10:30 AM"}
+
+
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
     shell = FakeShell([*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300)], [row("101", mergeable_state="dirty"), row("102", OTHER, mergeable_state="dirty")])
     shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:102:{OTHER[:7]}", "type": "card", "children": []}]}
