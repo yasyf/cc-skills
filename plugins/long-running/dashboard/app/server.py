@@ -51,6 +51,7 @@ ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assi
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
+REGISTER_DAY = dt.timedelta(days=1)
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -619,6 +620,11 @@ class Drive:
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
 
+    def register_log(self):
+        since = time.time() - REGISTER_DAY.total_seconds()
+        entries = sorted((f for f in Path(self.config["register"]).glob("announce-*.md") if f.stat().st_mtime > since), key=lambda f: f.stat().st_mtime, reverse=True)
+        return "\n\n\n".join(f.read_text().strip() for f in entries) or "Nothing registered in the last day."
+
     def posted(self, lane):
         found, query = [], {"drive": self.config["drive"], "lane": lane, "limit": 500, "since_time": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
         while len(page := cci("records", **query)) == 500:
@@ -852,6 +858,7 @@ class Drive:
             "status_now": self.status_now,
             "stack": json.loads(Path(self.config["stack"]).read_text())["prs"],
             "status_table": Path(self.config["status_table"]).read_text(),
+            "register_log": "register" in self.config,
             "pages": {name: curator.brief for name, curator in self.pages.items()},
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
@@ -1001,6 +1008,8 @@ def handler(drive):
                 if transcript is None:
                     return self.send(404, "text/plain; charset=utf-8", b"This worker's transcript is not on this Mac.")
                 return self.source("The transcript this story reads", run(["cc-transcript", "show", str(transcript), "--no-junk", "--width", "300"]))
+            if path == "/register":
+                return self.source("The owner request log", drive.register_log())
             if found := LANE_ROUTE.fullmatch(path):
                 return self.send(200, "application/json", json.dumps(drive.posted(found[1])).encode())
             if found := RECORD_ROUTE.fullmatch(path):
