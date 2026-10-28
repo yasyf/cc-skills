@@ -184,6 +184,6 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .pg-ring::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--bg); }
 .pg-ring b { position: relative; font: 700 19px/1 var(--sans); color: var(--ink); letter-spacing: -.02em; }
 .pg-ring b small { font-size: 10px; color: var(--ink-2); margin-left: 1px; }
-.pg-ringwrap { display: flex; align-items: center; gap: 12px; color: var(--ink-3); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; max-width: 130px; line-height: 1.4; }
+.pg-ringwrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; color: var(--ink-3); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; max-width: 130px; line-height: 1.4; }
 .pg-h > div { display: flex; flex-direction: column; gap: 4px; }
 #modal-root .sheet { border: 1px solid color-mix(in srgb, var(--ok) 22%, var(--line)); box-shadow: var(--shadow), 0 0 40px -20px color-mix(in srgb, var(--ok) 60%, transparent); background-image: var(--lift); }
