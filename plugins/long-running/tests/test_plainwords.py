@@ -72,6 +72,7 @@ def test_an_unnamed_part_fails():
         "The agent machines worker answers the review",
         "The cloud runs worker fixes its failing tests",
         "The agent machines worker settles the review hold; merge process lands it",
+        "The cloud runs worker answers each automated review finding, then pushes",
     ],
 )
 def test_a_fix_that_does_not_say_what_it_is_fails(text):
