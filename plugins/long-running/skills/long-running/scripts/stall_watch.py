@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The stall watch: one pass over a drive that finds each piece of work that stopped moving, names the lane that owns its next step and that step, and posts one `urgent` cci record per stall to root until it clears.
+"""The stall watch: one pass over a drive that finds each piece of work that stopped moving, names the lane that owns its next step and that step, and posts one `urgent` cci record per stall to its owners, and to root unless desks own it, until it clears.
 
     stall_watch.py --config RUNNER_JSON [--dry-run]
 
@@ -55,8 +55,10 @@ its mechanical answer.
 A stall's id names its kind and subject, such as `finder:43439:abc1234` or `lane:fidelity-desk`, and it
 posts once while it stands: `cci post --lane stall-watch --kind urgent --to root,<owner>@<drive>` reading
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`, or `STALE <subject>, ...`
-for a stale PR. An id that no longer stands clears, and posts again if it stalls again; a source that does
-not read keeps the stalls it would have cleared. `stall.board_lane` (default root) owns missing board rows. State lives in
+for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
+its owners and not to root; one the desk runner owns goes to `landing.desk_lane` when the config names one.
+An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
+its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane` (default root) owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
 step in words, its owning lane and whether that lane is live, and since when the state stood; the
@@ -115,6 +117,8 @@ STATE = "stall-watch.json"
 QUEUED = re.compile(r"^QUEUED\b")
 MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
+DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
+REPEAT = timedelta(minutes=30)
 SCHEMA = json.dumps(
     {
         "type": "object",
@@ -203,6 +207,10 @@ class Watch:
     def age(self, kind: str) -> timedelta:
         return timedelta(minutes=self.minutes[kind])
 
+    @property
+    def desk_lanes(self) -> list[str]:
+        return lanes_of((self.landing or {}).get("desk_lane", []))
+
 
 @dataclass(frozen=True)
 class Stall:
@@ -219,8 +227,10 @@ class Stall:
         word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
-    def to(self, drive_name: str) -> str:
-        return ",".join(dict.fromkeys([ROOT, *(f"{lane}@{drive_name}" for lane in self.owner if lane not in (ROOT, RUNNER))]))
+    def to(self, drive_name: str, desk_lanes: list[str]) -> str:
+        lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
+        desks = lanes and all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner)
+        return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
 @dataclass(frozen=True)
@@ -373,11 +383,15 @@ class Pass:
 
     def report(self, standing: dict[str, Stall], saved: dict, verdicts: dict[str, dict], dry_run: bool) -> int:
         kept = {key: entry for key, entry in saved["open"].items() if key not in standing and entry["kind"] in self.unread}
+        last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
         failed = 0
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
             if stall.id in saved["open"]:
                 kept[stall.id] = saved["open"][stall.id]
                 print(f"open {stall.line(self.now)}")
+                continue
+            if stall.id in last:
+                print(f"held {stall.line(self.now)}: posted at {pacific(actions.parse_stamp(last[stall.id]))}")
                 continue
             print(f"new {stall.line(self.now)}")
             if dry_run:
@@ -388,9 +402,10 @@ class Pass:
                 print(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
+            last[stall.id] = actions.stamp(self.now)
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "verdicts": verdicts, "states": self.states}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states}, indent=1) + "\n")
             staged.replace(self.watch.state)
             if self.stack is not None:
                 stack = self.watch.state.with_name(drive.STACK)
@@ -400,7 +415,7 @@ class Pass:
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
-        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", stall.to(self.watch.drive), "--topic", stall.id]
+        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", stall.to(self.watch.drive, self.watch.desk_lanes), "--topic", stall.id]
         if stall.pr:
             argv += ["--pr", f"{self.watch.landing['repo']}#{stall.pr}"]
         return self.shell.run([*argv, "--text", stall.line(self.now)])

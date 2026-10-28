@@ -56,6 +56,7 @@ class FakeShell(stall_watch.Shell):
         self.posts: list[list[str]] = []
         self.prompts: list[str] = []
         self.review_titles: dict[str, str] = {}
+        self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
         if argv[:2] == ["cci", "tail"]:
@@ -84,7 +85,7 @@ class FakeShell(stall_watch.Shell):
         raise AssertionError(f"unexpected command {argv}")
 
     def now(self):
-        return NOW
+        return self.clock
 
     def topics(self) -> list[str]:
         return [post[post.index("--topic") + 1] for post in self.posts]
@@ -281,7 +282,7 @@ def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_
     assert len(shell.prompts) == 1
     assert restack in shell.prompts[0]
     assert shell.topics() == ["carry:101:abc1234"]
-    assert shell.post("carry:101:abc1234")["to"] == "root,fidelity-desk@d1"
+    assert shell.post("carry:101:abc1234")["to"] == "fidelity-desk@d1"
     assert "post `fidelity: ok abc1234 carried from 0123456`" in shell.post("carry:101:abc1234")["text"]
 
 
@@ -454,3 +455,42 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
         "live": True,
         "stale": True,
     }
+
+
+def desk_lane(config: Path, lane: str) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["desk_lane"] = lane
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize(
+    ("desk", "topic", "to"),
+    [("", "fidelity:101:abc1234", "fidelity-desk@d1"), ("", "go:201:abc1234", "root"), ("landing-desk-3", "go:201:abc1234", "landing-desk-3@d1")],
+    ids=["fidelity-desk", "runner-without-desk-lane", "runner-with-desk-lane"],
+)
+def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk, topic, to):
+    if desk:
+        desk_lane(config, desk)
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 35)]
+    records += [head(3, "201", HEAD, 30), finder(4, "201", HEAD, 25), fidelity(5, "201", HEAD, 25), record(6, "root", "go", f"go #201 at {HEAD[:7]}", 12)]
+    shell = FakeShell(records, [row("101"), row("201")])
+
+    watch(shell, config)
+
+    assert shell.post(topic)["to"] == to
+
+
+def test_a_stall_that_clears_and_comes_back_posts_again_only_thirty_minutes_after_its_last_post(config):
+    review = finder(3, "101", HEAD, 1)
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
+
+    watch(shell, config)
+    shell.records.append(review)
+    watch(shell, config)
+    shell.records.remove(review)
+    shell.clock += timedelta(minutes=29)
+    watch(shell, config)
+    assert shell.topics() == ["finder:101:abc1234"]
+    shell.clock += timedelta(minutes=1)
+    watch(shell, config)
+    assert shell.topics() == ["finder:101:abc1234", "finder:101:abc1234"]

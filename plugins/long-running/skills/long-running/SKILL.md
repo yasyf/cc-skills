@@ -1618,6 +1618,13 @@ verdict. A missing
 gate record is never the reason: a fidelity or finder carry at the new head (a restack
 carries its grade, below) is that gate's record there, and nobody re-grades it.
 
+**The landing desk hears the landing runner's routine records.** When
+`landing.desk_lane` in `runner.json` names a lane, one or a list, the runner's
+`QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK` and `BELOW-BLOCKED` records go to that
+lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
+successor, and not to root. A `GO-UNQUEUED` for a PR, or a `LANE-GONE` for a lane, goes to
+root the first time and to those lanes after. Without `landing.desk_lane` they go to root.
+
 *Prevents Oct 26 11:33 PM: a go'd, approved, all-green PR sat out of the queue for 45
 minutes because no desk checked how long a go had waited. Oct 27 7:07 PM: the bot held
 a green PR on 2 blocking findings five minutes after its push, and the runner and root read
@@ -2509,7 +2516,10 @@ drive's cci records, the landing ledger, the holds, the landing desk's store, th
 board, and the root's task list. For each stall it posts one `urgent` record from lane
 `stall-watch` to root and the owning lane:
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`. A stall
-posts again only after it clears and comes back.
+posts again only after it clears and comes back, and never sooner than 30 minutes after
+its last post. A stall whose owners are all desks, lanes named `<x>-desk` or
+`<x>-desk-<n>`, goes to those desks and not to root. A stall the landing desk owns goes
+to `landing.desk_lane` when `runner.json` names one, else to root.
 
 | Kind | Fires when | Minutes | Owner |
 |---|---|---|---|
