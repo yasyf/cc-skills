@@ -50,7 +50,9 @@ and, across the drive:
               and a held PR whose holds-file line names open PRs that each wait on that tap, sit in
               the merge queue, are held the same way, or are stacked on such a PR, or that names a
               board card or pick, by its block id or by a card holding the PR, the owner has not
-              answered, post one `state` record to root per head instead, a PR that waits on the PR
+              answered, post one `state` record to root per head instead, once while the PR stays open
+              at that head, and one digest record when several post in one pass; a tap row counts from
+              the earlier of its board row's write and the head's READY record; a PR that waits on the PR
               below it posts nothing itself and is listed on the stale PR its stack waits on, and a
               PR whose owning lane has no live record in the window goes to root; a changed state on
               the same head counts from the pass that saw it change
@@ -276,9 +278,13 @@ class Board:
     taps: dict[str, dict]
     cards: list[tuple[str, set[str], set[str]]]
     answered: set[str]
+    written: list[tuple[str, str, datetime]]
 
     def shows(self, pr: str, head: str) -> bool:
         return any(named == pr and grades.names_head(sha, head) for named, sha in self.heads)
+
+    def live_at(self, pr: str, head: str) -> datetime | None:
+        return min((when for named, sha, when in self.written if named == pr and grades.names_head(sha, head)), default=None)
 
     def open_asks(self, pr: str, line: str) -> set[str]:
         words = set(BLOCK_WORD.findall(line))
@@ -458,19 +464,19 @@ class Pass:
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
             last[stall.id] = actions.stamp(self.now)
-        told = saved.get("told", {}) if self.tap_waits is None else {key: stamp for key, stamp in saved.get("told", {}).items() if key in self.tap_waits}
-        for key, (pr, line) in (self.tap_waits or {}).items():
-            if key in told:
-                continue
+        heads = None if self.stack is None else {f"{found['pr']}:{short(found['head'])}" for found in self.stack}
+        told = {key: stamp for key, stamp in saved.get("told", {}).items() if heads is None or key in heads}
+        fresh = {key: wait for key, wait in (self.tap_waits or {}).items() if key not in told}
+        for _, line in fresh.values():
             print(f"state {line}")
-            if dry_run:
-                continue
-            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "state", "--to", ROOT, "--topic", f"tap-wait:{key}", "--pr", f"{self.watch.landing['repo']}#{pr}", "--text", line])
+        if fresh and not dry_run:
+            topic, text = (f"tap-wait:{next(iter(fresh))}", next(iter(fresh.values()))[1]) if len(fresh) == 1 else ("tap-wait:digest", f"{len(fresh)} heads wait on the owner's tap: {'; '.join(line for _, line in fresh.values())}")
+            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "state", "--to", ROOT, "--topic", topic, *(arg for pr, _ in fresh.values() for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", text])
             if done.code:
                 failed += 1
-                print(f"cci post exited {done.code} for tap-wait:{key}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
-                continue
-            told[key] = actions.stamp(self.now)
+                print(f"cci post exited {done.code} for {topic}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+            else:
+                told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
             staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told}, indent=1) + "\n")
@@ -519,7 +525,8 @@ class Pass:
         verdicts = {block: {row: entry for row, entry in rows.items() if entry.get("verdict")} for block, rows in (interactions.get("triage") or {}).items()}
         cards = [(card["id"], {choice["id"] for choice in typed(card, "choice")}, {str(found["number"]) for found in typed(card, "pr")}) for card in typed(doc, "card")]
         answered = {block for block, choice in (interactions.get("choices") or {}).items() if choice and (choice.get("optionIds") or choice.get("other"))}
-        return Board(heads, board_rows.newest_by_pr(verdicts), cards, answered)
+        written = [(row.pr, row.head, when) for row in board_rows.rows_of(doc) if row.head and (when := board_rows.parsed(row.text_at))]
+        return Board(heads, board_rows.newest_by_pr(verdicts), cards, answered, written)
 
     def rows(self) -> dict[str, dict] | None:
         landing = self.watch.landing
@@ -575,7 +582,9 @@ class Pass:
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
             lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
-            entries.append(stack_row(pr, row, rows, lane, holding(pr), bool(going), in_queue, tapping) | {"head_at": head_at})
+            readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
+            tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
+            entries.append(stack_row(pr, row, rows, lane, holding(pr), bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
@@ -647,7 +656,7 @@ class Pass:
         self.states, self.stack, self.tap_waits, standing = {}, [], {}, {}
         found_by_pr = {found["pr"]: found for found in entries}
         for found in entries:
-            pr, head_at = found["pr"], found.pop("head_at")
+            pr, head_at, tap_at = found["pr"], found.pop("head_at"), found.pop("tap_at")
             signature = f"{found['head']} {found['state']}"
             was = saved.get(pr)
             if was and was["signature"] == signature:
@@ -656,6 +665,7 @@ class Pass:
                 since = self.now
             else:
                 since = head_at or self.now
+            since = min(since, tap_at) if tap_at and found["state"] == TAP_WAIT else since
             self.states[pr] = {"signature": signature, "since": actions.stamp(since)}
             last = max((record for name, record in newest.items() if successor_of(found["owner"]).fullmatch(name)), key=lambda record: record["seq"], default=None)
             live = last is not None and last["kind"] not in ENDED

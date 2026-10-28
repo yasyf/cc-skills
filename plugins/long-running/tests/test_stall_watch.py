@@ -489,7 +489,8 @@ def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_lis
 
     assert sorted(topic for topic in shell.topics() if topic.startswith("stale:")) == stales
     if not stales:
-        assert shell.post("tap-wait:202:abc1234") == {"to": "root", "kind": "state", "text": "#202 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"}
+        assert [topic for topic in shell.topics() if topic.startswith("tap-wait:")] == ["tap-wait:digest"]
+        assert shell.post("tap-wait:digest")["text"].startswith("4 heads wait on the owner's tap: #201 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM; #202 at abc1234 is held on #301, #303")
 
 
 @pytest.mark.parametrize(
@@ -548,6 +549,57 @@ def test_a_merge_row_root_pulled_by_a_decide_is_not_missing_until_the_lane_posts
     watch(shell, config)
 
     assert shell.topics() == stalls
+
+
+def tap_row(pr: str, sha: str = HEAD, written: float | None = None) -> dict:
+    return {"number": int(pr), "head": sha[:7]} | ({"textAt": stamp(written)} if written is not None else {})
+
+
+def tap_board(*rows: dict) -> dict:
+    return {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": list(rows)}]}]}
+
+
+@pytest.mark.parametrize(("written", "ready", "since"), [(140, None, "10:40 AM"), (None, 130, "10:50 AM"), (140, 145, "10:35 AM")], ids=["row-write", "ready-record", "earlier-of-both"])
+def test_a_tap_row_counts_from_its_board_write_or_its_ready_record_not_from_the_pass_that_first_read_it(config, written, ready, since):
+    merge_mode(config, "ask")
+    state = config.parent / "inbox/stall-watch.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"open": {}, "verdicts": {}, "states": {"101": {"signature": f"{HEAD} waits on the owner's tap", "since": stamp(0)}}}))
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101")])
+    if ready is not None:
+        shell.records.append(record(4, "api-lane", "report", f"READY #101 at {HEAD[:7]}", ready, "101"))
+    shell.doc = tap_board(tap_row("101", written=written))
+
+    watch(shell, config)
+
+    assert shell.topics() == ["tap-wait:101:abc1234"]
+    assert shell.post("tap-wait:101:abc1234")["text"] == f"#101 at abc1234 waits on the owner's tap since {since}"
+
+
+def test_a_tap_wait_posts_once_per_head_across_passes_even_when_its_state_flaps(config):
+    merge_mode(config, "ask")
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101")])
+    shell.doc = tap_board(tap_row("101", written=140))
+
+    watch(shell, config)
+    shell.rows[0] = row("101", test_state="failure")
+    watch(shell, config)
+    shell.rows[0] = row("101")
+    watch(shell, config)
+
+    assert shell.topics() == ["tap-wait:101:abc1234"]
+
+
+def test_heads_that_become_tap_waits_in_one_pass_post_one_digest_record(config):
+    merge_mode(config, "ask")
+    shell = FakeShell([*graded(1, "101", HEAD, 150), *graded(4, "102", OTHER, 150)], [row("101"), row("102", OTHER)])
+    shell.doc = tap_board(tap_row("101"), tap_row("102", OTHER))
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert shell.topics() == ["tap-wait:digest"]
+    assert shell.post("tap-wait:digest") == {"to": "root", "kind": "state", "text": "2 heads wait on the owner's tap: #101 at abc1234 waits on the owner's tap since 10:30 AM; #102 at fedcba9 waits on the owner's tap since 10:30 AM"}
 
 
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
