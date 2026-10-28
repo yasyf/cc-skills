@@ -154,7 +154,7 @@ function workerScreen(lane) {
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
-    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li>${inline(e.blocker)}</li>`).join('')}</ul>` : 'Nothing'],
+    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li><a href="#/review/${e.number}">${esc(blockerNode(e.number)?.text ?? (stackRow(e.number) ? ledgerWords(stackRow(e.number).state) : e.blocker))}</a></li>`).join('')}</ul>` : 'Nothing'],
   ]);
 }
 function workScreen(item) {

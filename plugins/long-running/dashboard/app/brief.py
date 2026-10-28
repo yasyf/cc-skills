@@ -138,7 +138,7 @@ RULES = """Rules for every string:
 - status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
-- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule."""
+- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule. A string about a change has changed facts when a coordinator ruling or one of its newest_records says something the string does not, such as a new reason it is red, a restack done, or a new step it waits on; rewrite it from the newest of them."""
 
 PROMPT = """You write the main page of a live dashboard that a busy engineering lead reads at a glance. It answers four questions: overall progress, what is being worked on, the biggest blockers, and how each blocker is being unblocked. The user message is the drive's facts as JSON. Return one JSON object matching the schema.
 
