@@ -153,8 +153,8 @@ class FakeCcn(ledger.Shell):
         if verb == ["doc", "list"]:
             return json.dumps(
                 [
-                    {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
-                    for i, doc in enumerate(self.registers if self.register_label in labels else self.active)
+                    {key: self.record(doc)[key] for key in ("id", "title", "updated_at")}
+                    for doc in (self.registers if self.register_label in labels else self.active)
                 ]
             )
         if verb == ["doc", "show"]:
@@ -553,6 +553,7 @@ def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path
     shell = shell_with()
     shell.registers.insert(0, "e" * 40)
     shell.docs["e" * 40] = "# an older draft\n"
+    shell.updated["e" * 40] = "2026-09-30T00:00:00Z"
 
     before = generate(drive_home, shell, capsys=capsys)
     before_body = shell.docs[before["id"]]
