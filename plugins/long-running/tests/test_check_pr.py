@@ -482,6 +482,21 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
     assert check(capsys, CheckShell(rows, records=[FINDER_OK, opened, status])) == (0, ["BLOCKER no cci record names the lane of acme/app#12"])
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("readback: ok 7bed615 lane-a #12->#13 (replaces my not at #10). All three items match the code.", (0, [])),
+        ("readback: ok lane-a", (0, [])),
+        ("readback: ok 7bed615 lane-b all three items match", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
+        ("readback: missing 7bed615 lane-a", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: no reason given"])),
+    ],
+    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason"],
+)
+def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optional_stamp(package: Path, state: Path, registered: Path, capsys, text: str, expected: tuple[int, list[str]]) -> None:
+    rows = pinned(package)
+    assert check(capsys, CheckShell(rows, reviews=[dict(graded(current_stamp(rows, None)), text=text)])) == expected
+
+
 def test_a_desks_ok_stands_until_a_newer_grade_whatever_the_register_gains_after_it(package: Path, state: Path, registered: Path, capsys) -> None:
     rows = pinned(package)
     stamp = current_stamp(rows, None)

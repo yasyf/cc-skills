@@ -250,7 +250,7 @@ TEST_DEFINITION = re.compile(
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
-READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?P<lane>\S+) (?P<rest>.*)$")
+READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>\S+)(?: (?P<rest>.*))?$", re.DOTALL)
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
@@ -1563,7 +1563,7 @@ def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
         return "no fidelity desk has graded a read-back"
     record, newest = max(graded, key=lambda item: item[0]["seq"])
     if newest["verdict"] != "ok":
-        return f"the newest grade, #{record['seq']}, is missing: {newest['rest']}"
+        return f"the newest grade, #{record['seq']}, is missing: {newest['rest'] or 'no reason given'}"
     return None
 
 

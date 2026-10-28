@@ -358,3 +358,9 @@ def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_i
 
     assert card("“keep the desk copy on the laptop.”") is None
     assert 'card title has a drive word, "desk"' in card("“keep the desk copy on the phone.”").message
+
+
+def test_the_closeout_grep_passes_its_dash_led_pattern_after_a_double_dash():
+    argv = owner_facing.INCIDENT_CLOSEOUT
+    pattern = next(arg for arg in argv if "FIX-LIVE" in arg)
+    assert pattern.startswith("-") and argv[argv.index(pattern) - 1] == "--"
