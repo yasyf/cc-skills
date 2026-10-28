@@ -193,7 +193,7 @@ def test_the_hook_starts_the_prompt_watch_and_names_the_terminal_only_for_a_root
     hook.watch_prompts(SimpleNamespace(session_id="900424b6-0000"), entry)
     hook.watch_prompts(SimpleNamespace(session_id="0dd0bead-0000"), entry)
 
-    start = ["python3", str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
+    start = [sys.executable, str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
     assert spawned == [([*start, "--root-terminal", "term_root"], True), (start, True)]
     assert compaction_handoff.script("prompt_watch.py").is_file()
 
@@ -208,7 +208,7 @@ def test_session_start_and_drive_start_launch_the_prompt_watch_and_never_a_dashb
     assert hook.watch_prompts_on_session_start(started) is None
     assert hook.watch_prompts_on_drive_start(started) is None
 
-    watch = ["python3", str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
+    watch = [sys.executable, str(compaction_handoff.script("prompt_watch.py")), "start", "--drive", "900424b6"]
     assert spawned == [watch, watch]
 
 

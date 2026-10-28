@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The merge queue's CLI over a drive's landing desk: read why a PR waits, and steer what the queue holds.
 
     mq.py --config PATH status

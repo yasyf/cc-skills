@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -161,7 +162,7 @@ def test_the_recorder_starts_with_each_board_and_once_per_pushed_session(root: R
     ):
         gate.start_board_watch(root.event(PostToolUseEvent, command))
 
-    start = ["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session"]
+    start = [sys.executable, str(compaction_handoff.script("board_watch.py")), "start", "--session"]
     assert spawned == [([*start, "b1", "--drive", "brook"], True), ([*start, SESSION, "--drive", "brook"], True), ([*start, "b1", "--drive", "brook"], True)]
     assert compaction_handoff.script("board_watch.py").is_file()
 
@@ -176,4 +177,4 @@ def test_a_worker_recorder_names_its_drive(root: Root, monkeypatch: pytest.Monke
 
     gate.start_board_watch(worker.event(PostToolUseEvent, "cc-present push doc.json --session b1"))
 
-    assert spawned == [["python3", str(compaction_handoff.script("board_watch.py")), "start", "--session", "b1", "--drive", "900424b6"]]
+    assert spawned == [[sys.executable, str(compaction_handoff.script("board_watch.py")), "start", "--session", "b1", "--drive", "900424b6"]]

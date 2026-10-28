@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The lane bus for incident.py's comms, over cci: one cci drive per bus.
 
     bus.py post --bus DRIVE --from LANE --kind decision|head|contract|blocker|ask|answer|withdraw --topic T --text ... [--to LANE]... [--re SEQ]

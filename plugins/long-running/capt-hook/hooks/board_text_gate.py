@@ -5,6 +5,7 @@ import json
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -484,7 +485,7 @@ def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
     boards = [(first(values, "verb"), first(values, "session") or evt.session_id) for _, values, _, _ in calls(evt, WATCHED)]
     fresh = list(dict.fromkeys(session for verb, session in boards if verb == "start" or session not in started))
     for session in fresh:
-        argv = ["python3", str(script("board_watch.py")), "start", "--session", session, *which]
+        argv = [sys.executable, str(script("board_watch.py")), "start", "--session", session, *which]
         subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     if unseen := [session for session in fresh if session not in started]:
         with BoardWatches.mutate(evt) as state:

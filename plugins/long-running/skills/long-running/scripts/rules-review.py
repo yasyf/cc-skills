@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The landing desk's pre-merge rules review: one codex verdict per PR head against the owner's durable rulings.
 
     rules-review.py sweep --repo owner/name --ledger ID --checkout DIR [--inbox FILE]... [--state DIR] [--parallel N]

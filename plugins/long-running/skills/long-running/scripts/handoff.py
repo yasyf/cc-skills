@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Build a drive's progress record from its register, cci rules, inboxes, and live work.
 
     handoff.py generate --program SLUG --plan PATH [--inbox-dir DIR] [--ledger ID] [--session FILE|-]

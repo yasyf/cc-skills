@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Read, digest, and rotate desk inboxes without moving their cursors.
 
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...

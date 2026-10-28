@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The finder desk's job: one codex finder pass over one drive head, posted as the `finder:` record a lane would post.
 
     finder.py DIR

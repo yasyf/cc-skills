@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The prompt watch: one detached reader per drive that finds every terminal stopped at a prompt and tells whoever can act.
 
     prompt_watch.py start --drive ID [--root-terminal HANDLE]

@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Write a branch's PR title, PR body, and commit message with a headless Claude Opus 5.5, for a lane on a model that writes no prose.
 
     pr-prose.py [--base REF] [--brief PATH] [--notes PATH]... [--out DIR]
