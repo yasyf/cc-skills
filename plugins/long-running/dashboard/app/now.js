@@ -124,7 +124,7 @@ function unfinished(path) {
 function blockers(b) {
   const paths = b.paths.map(unfinished).filter((p) => p.nodes.length);
   if (!paths.length) return `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`;
-  return view('blockers') === 'cards' ? cards(paths) : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
+  return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
 }
 function laterPath(path) {
   const you = path.nodes.filter((n) => n.state === 'you').length;
