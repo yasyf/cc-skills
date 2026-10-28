@@ -188,7 +188,9 @@ def test_an_owner_slack_dm_lands_once_with_its_slack_time_and_no_prompt_hook(roo
     ]
 
 
-@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"kind": "thread"}])
+@pytest.mark.parametrize(
+    "fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"kind": "thread"}, {"text": "_(Yasyf's Claude)_ Merged #43807 after CI went green."}]
+)
 def test_a_slack_message_that_is_not_the_owners_dm_lands_nothing(root, fields):
     root.queued(slack_message(**fields), "2026-10-28T03:53:25.695Z")
 
