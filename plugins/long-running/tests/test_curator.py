@@ -17,7 +17,7 @@ def model():
     return {
         "records": [record(-30, "p8f-replica-3", "#43421 opened.", "opened"), *rulings, record(25, "p8a-step7", "Moving the run store callers.", "report")],
         "workers": [{"lane": "p8a-step7", "at": T0.isoformat(), "prs": []}, {"lane": "p8a-step5-4", "at": T0.isoformat(), "prs": []}],
-        "drive": {"prs": [{"number": 43421, "state": "failing", "worker": "p8f-replica-3", "next": "p8f-replica-3 fixes the tests."}]},
+        "drive": {"prs": [{"number": 43421, "state": "failing", "worker": {"lane": "p8f-replica-3", "at": T0.isoformat()}, "owner": "p8f-replica-3", "next": "p8f-replica-3 fixes the tests."}]},
         "prs": {"43421": {"title": "Cloud viewer reads chats through the replica"}},
         "now": {"releases": []},
         "steps": [],
@@ -44,7 +44,7 @@ def test_a_change_keeps_the_coordinators_ruling_after_many_later_rulings():
 def test_an_active_worker_is_the_fixer_when_no_ruling_names_one():
     m = model()
     m["records"] = [r for r in m["records"] if "#43421" not in r["text"]]
-    m["drive"]["prs"][0]["worker"] = "p8a-step7"
+    m["drive"]["prs"][0]["worker"] = {"lane": "p8a-step7", "at": T0.isoformat()}
     [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
     assert change["fixers"] == ["p8a-step7"]
 

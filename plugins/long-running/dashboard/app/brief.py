@@ -188,7 +188,7 @@ def open_changes(model):
     for e in model["drive"]["prs"]:
         if e["state"] == "landed":
             continue
-        worker = e.get("worker") or e.get("owner")
+        worker = (e.get("worker") or {}).get("lane") or e.get("owner")
         ruling = rulings.get(e["number"])
         named = sorted(lane for lane in lanes - ROOT if ruling and re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", ruling["text"]))
         changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": worker, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
