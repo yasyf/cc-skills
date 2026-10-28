@@ -61,7 +61,9 @@ Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence,
 ``digest`` prints one line per desk runner from its heartbeat in ``<state dir>/inbox``: its pid, the plugin version it
 runs, the version ``installed_plugins.json`` lists, and its last pass. A runner behind the installed version, or one whose
 heartbeat names no version, reads stale with the ``desk-runner.py handoff`` command that rotates it; the
-command exits 1 while any desk is stale or has no heartbeat.
+command exits 1 while any desk is stale or has no heartbeat. It then prints the stack ledger the stall watch wrote
+to ``<state dir>/inbox/stack.json`` on its last pass: one line per open PR with its head, the PR or branch it sits on,
+its state, its owning lane, since when, and its next step, marked ``STALE`` once that state has stood two hours.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
@@ -102,6 +104,7 @@ OUTSIDE_REPO = 3
 LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
 PLUGIN = Path(__file__).resolve().parents[3]
 HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
+STACK = "stack.json"
 VERSION_PART = re.compile(r"\d+")
 
 
@@ -457,6 +460,14 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
         current &= not late
         state = f"stale; rotate it with `desk-runner.py handoff --config {beat['config']} --desk {desk}`, which starts the next one" if late else "current"
         print(f"{desk}: pid {beat['pid']} runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last pass {beat['at']}: {state}")
+    if (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
+        written = load(stack)
+        prs = written["prs"]
+        print(f"stack at {written['at']}: {len(prs)} open PRs, {sum(row['stale'] for row in prs)} stale")
+        for row in prs:
+            sits = f"#{row['below']}" if row["below"] else row["base"]
+            owner = row["owner"] if row["live"] else f"{row['owner']}, not live"
+            print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next'] or 'none'}")
     return 0 if current else 1
 
 
