@@ -22,7 +22,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import plainwords
-from brief import COORDINATORS, Curator
+from brief import COORDINATORS, ROOT, Curator
 from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from story import Stories
@@ -43,6 +43,7 @@ PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
 CI_FIX = re.compile(r"\bCI fix\b", re.I)
+WITHDRAWN_GO = re.compile(r"\bgo\b[^.]*\bwithdr(?:aw|awn|ew)\b", re.I)
 CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
@@ -784,11 +785,16 @@ class Drive:
             self.carried[int(found[1])] = bool(set(re.findall(r"\b[0-9a-f]{7,40}\b", record["text"][found.end():])) - {found[2]})
             if CI_FIX.search(record["text"]):
                 self.ci_fixes.add(int(found[1]))
+        elif record["kind"] == "decide" and record["lane"] in ROOT and WITHDRAWN_GO.search(record["text"]):
+            for ref in (record.get("refs") or {}).get("prs") or []:
+                number = int(re.search(r"(\d+)$", str(ref))[1])
+                self.gos.pop(number, None)
+                self.ci_fixes.discard(number)
 
     def load_gos(self):
         after = 0
         while True:
-            page = cci("records", drive=self.config["drive"], kind="go", limit=500, since=after)
+            page = cci("records", drive=self.config["drive"], kind=["go", "decide"], limit=500, since=after)
             for record in page:
                 self.note_go(record)
             if len(page) < 500:
