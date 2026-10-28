@@ -694,6 +694,29 @@ def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments
     assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
 
 
+def test_a_go_whose_approval_lands_a_moment_later_reports_no_defect():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    reported = []
+    drive.report_defect = reported.append
+    drive.board_rows_now = lambda: [{"number": 43344, "head": "ebbe89c", "verdict": {"verdict": "approved", "head": "ebbe89c"}}]
+    drive.note_go({"kind": "go", "text": "go #43344 at ebbe89c (his tap on the board)"})
+    rows = [{"number": 43344, "head": "ebbe89c", "verdict": None}]
+
+    drive.check_gos(rows)
+
+    assert rows[0]["state"] == "approved"
+    assert reported == []
+
+
+def test_a_copy_without_defect_recipients_posts_nothing(monkeypatch):
+    calls = []
+    monkeypatch.setattr("server.subprocess.run", lambda *args, **kwargs: calls.append(args))
+    Drive({"board_url": "http://board/p/x", "drive": "d", "keeper_lane": "keeper"}, None).report_defect("a test board looks unapproved")
+    assert calls == []
+    Drive({"board_url": "http://board/p/x", "drive": "d", "keeper_lane": "keeper", "defects_to": ["keeper", "root"]}, None).report_defect("a real defect")
+    assert calls[0][0][calls[0][0].index("--to") + 1] == "keeper,root"
+
+
 def test_a_ci_fix_on_a_root_go_lands_without_his_tap_and_reports_no_defect():
     drive = Drive({"board_url": "http://board/p/x"}, None)
     reported = []
@@ -701,6 +724,7 @@ def test_a_ci_fix_on_a_root_go_lands_without_his_tap_and_reports_no_defect():
     drive.note_go({"kind": "go", "text": "go #43644 at a3f2ce2 (CI fix: tests and build fixes; lands on a root go without a tap)"})
     drive.note_go({"kind": "go", "text": "go #43700 at b4e5f6a (his tap on the board)"})
     rows = [{"number": n, "head": head, "verdict": None} for n, head in ((43644, "a3f2ce2"), (43700, "b4e5f6a"))]
+    drive.board_rows_now = lambda: rows
 
     drive.check_gos(rows)
 

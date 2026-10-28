@@ -2,6 +2,7 @@
  "title": "Your drive",
  "drive": "your-drive",
  "keeper_lane": "dashboard-keeper",
+ "defects_to": ["dashboard-keeper", "root"],
  "checkout": "/Users/you/code/monorepo",
  "ledger": "<cc-notes ledger id>",
  "board_session": "<root session id>",
