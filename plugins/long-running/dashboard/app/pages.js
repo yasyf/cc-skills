@@ -162,7 +162,7 @@ function partPage(part) {
 function liveSince(table) {
   const [head, rule, ...rows] = table.trim().split('\n');
   const col = head.split('|').findIndex((cell) => /blocked since/i.test(cell));
-  const stamp = /(\d{1,2}:\d{2} [AP]M)(?: ((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}))?/;
+  const stamp = /\bsince (?:about )?(\d{1,2}:\d{2} [AP]M)(?: ((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}))?/i;
   const timed = (cell) => {
     const found = stamp.exec(cell);
     if (!found) return cell;
