@@ -117,6 +117,8 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
+- Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
+- A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
@@ -168,6 +170,10 @@ def named_changes(model):
     return [{"number": n, "title": model["prs"].get(n, {}).get("title"), "state": states.get(n, {}).get("state"), "next": states.get(n, {}).get("next")} for n in sorted(numbers)]
 
 
+def open_changes(model):
+    return [{"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": e.get("worker") or e.get("owner"), "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing")} for e in model["drive"]["prs"] if e["state"] != "landed"]
+
+
 def digest(model, config, previous, now):
     records = model["records"]
     lanes = {r["lane"] for r in records}
@@ -185,6 +191,7 @@ def digest(model, config, previous, now):
         "plan_steps": [{k: s.get(k) for k in ("label", "title", "state", "tone", "blocker", "next", "delivers")} | {"pull_requests": [p["number"] if isinstance(p, dict) else p for p in s.get("prs", [])][:8]} for s in model["steps"]],
         "code": {"tracked_changes": len(model["drive"]["prs"]), "by_state": states},
         "changes_named_by_milestones": named_changes(model),
+        "open_changes": open_changes(model),
         "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
         "workers": workers,
         "recent_trouble": trouble,
