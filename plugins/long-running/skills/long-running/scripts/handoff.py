@@ -351,7 +351,7 @@ def lineage(progress_docs: list[dict], docs: list[dict]) -> list[dict]:
             supersedes.setdefault(newer, []).append(doc["id"])
     seen, shown, queue = set(), [], [doc["id"] for doc in docs]
     while queue:
-        if (doc_id := queue.pop()) in seen or doc_id not in by_id:
+        if (doc_id := queue.pop()) in seen:
             continue
         seen.add(doc_id)
         shown.append(doc := by_id[doc_id])
