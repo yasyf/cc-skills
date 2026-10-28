@@ -24,8 +24,9 @@ From top to bottom:
    standup.
 3. Overall progress: the drive's milestones, each with its state.
 4. Two columns, with blockers first. The path to the next milestone is a dependency chart
-   with arrows. Every later path lists each of its blockers on its own line, with what is
-   being done and who does it, so no blocker hides behind a count. Work comes second, as three rows that each open a live story in
+   with arrows. Every later path lists each of its blockers on its own line, joined into a
+   chain that ends at the milestone, with what is being done and who does it, so no
+   blocker hides behind a count. Work comes second, as three rows that each open a live story in
    place of the list. Every open blocker and work row says how long it has waited and since
    when.
 5. The drive's own diagram.
@@ -44,6 +45,7 @@ From top to bottom:
 | `defects_to` | The lanes a build defect goes to, such as a root go with no approval on the board. Only the live copy sets it; a dev or test copy leaves it out and posts nothing. |
 | `stack` | The stall watch's open-PR ledger, `<drive dir>/inbox/stack.json`. The Work page lists its rows, the ones stuck two hours first. The Work curator rewrites each row's stage and next step from the newest records about that PR, twelve hours deep, because the ledger trails the coordinator's later decisions. That rewrite is the one account of each pull request: the PR page's Blocks landing and What happens next, the worker page, and the Now and Plan curators all take it, except that a PR waiting on the owner's tap reads from the board. A row the curator has not reached shows the ledger's words. |
 | `status_table` | The progress desk's markdown status table, one row per plan step. The Status page renders it as written. |
+| `register` | Optional. The register lane's directory of `announce-*.md` files, which `/register` shows for the last day, newest first. The register lane's page links to it. |
 | `mirror` | The live copy's base URL, such as `http://<host>:61210`. A dev or test copy sets it and then runs no model of its own: it reads the live copy's curated pages every 30 seconds and relays its live stories. Only the live copy leaves it out. |
 | `curator_model`, `story_model` | Claude Opus 5.5 writes the page; Claude Sonnet 5.5 writes the stories. Change these only when the owner names another model. |
 | `parts`, `trees` | Feed the end-state diagram: which parts the drive builds and where each lives. |
@@ -145,7 +147,9 @@ The app cannot be restarted while a writer runs, so close story tabs before a de
 
 The app has six tabs, Now, Plan, Status, Work, Review, and History, and a Jump to anything button; each is a page with its own URL, and nothing in the nav bar opens a modal. Jump lives at `#/jump`, and Command-K opens it from any page. The Review count covers only what his board asks.
 
-Every named thing links to its own page. A milestone opens `#/plan/m<i>` and a plan part `#/plan/<part id>`. A worker opens `#/worker/<lane>`, which lists its pull requests with a state light and what each waits on, and the last eight records it posted in the past day, read from `/api/lane/<lane>`. Every pull request row on Work and every PR page shows its latest word, naming who last posted about it and when, with a link to that record. A record opens at `/record/<seq>` and a work item's transcript at `/api/transcript/<item>`, both as pages in the app's style. A change opens `#/review/<number>` and an open board question `#/review/q/<card id>`.
+Every named thing links to its own page. A milestone opens `#/plan/m<i>` and a plan part `#/plan/<part id>`. A worker opens `#/worker/<lane>`, which lists its pull requests with a state light and what each waits on, and the last eight records it posted in the past day, read from `/api/lane/<lane>`.
+
+A helper's page takes the name of what it keeps. Every pull request row on Work and every PR page shows its latest word, naming who last posted about it and when, with a link to that record. A record opens at `/record/<seq>` and a work item's transcript at `/api/transcript/<item>`, both as pages in the app's style. A change opens `#/review/<number>` and an open board question `#/review/q/<card id>`.
 
 Escape closes the open modal, question card, or story without adding a Back step, and Back then returns to the page before it. A live update keeps the focused control focused. Every card, table, and list uses the end-state panel's surface, with its dotted face, a lit outline, and a glow in the card's tone, amber when it waits on the owner and red when its tests fail. Do not add a second card style.
 

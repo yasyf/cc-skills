@@ -161,3 +161,8 @@
 .nw-parts .pc { color: var(--ink2); font-size: 12px; text-align: right; }
 .nw-parts .sub { grid-column: 2 / 4; color: var(--ink3); font-size: 12px; margin-top: -4px; }
 .nw .for { color: var(--ink2); margin-right: 2px; }
+.nw-later li { position: relative; }
+.nw-later li:not(:last-child)::after { content: ""; position: absolute; left: 3.5px; top: 15px; bottom: -6px; width: 1px; background: var(--line2); }
+.nw-later li.goal::before { content: "↓"; width: auto; height: auto; margin: -2px 0 0 -1px; border: 0; font-size: 11px; color: var(--ink3); }
+.nw-later li.goal b { font-weight: 500; color: var(--ink2); }
+

@@ -234,7 +234,10 @@ function workerScreen(lane) {
   const said = m.records.findLast((r) => sameWorker(r.lane, lane));
   const work = curated('work');
   const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)));
-  return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
+  const helper = work?.helpers?.find((h) => h.workers.some((x) => sameWorker(x, lane)));
+  return detailPage(['#/work', 'Work'], helper ? 'Keeping the drive running' : 'Worker', helper?.name ?? workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
+    ['Where it stands', helper ? esc(helper.latest) : ''],
+    ['The log', m.register_log && /^register/.test(lane) ? '<a href="/register" target="_blank" rel="noopener">Open the owner request log ↗</a>' : ''],
     ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['What it posted lately', !posted ? 'Reading its records…' : posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing in the last day'],
   ]);

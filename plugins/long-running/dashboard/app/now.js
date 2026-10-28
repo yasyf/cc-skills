@@ -142,7 +142,8 @@ function blockers(b) {
   return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
 }
 function laterPath(path) {
-  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><b>${esc(n.text)}</b><span title="${esc(NODE_WORD[n.state])}">${esc(n.how)}${lasted(n.since) ? ` · ${lasted(n.since)}` : ''}${nodeWord(n) ? ` · ${wordAt(nodeWord(n))}` : ''}</span></li>`).join('')}</ul></div>`;
+  const name = state.model.milestones[path.milestone] ?? 'a later milestone';
+  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(name)} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><b>${esc(n.text)}</b><span title="${esc(NODE_WORD[n.state])}">${esc(n.how)}${lasted(n.since) ? ` · ${lasted(n.since)}` : ''}${nodeWord(n) ? ` · ${wordAt(nodeWord(n))}` : ''}</span></li>`).join('')}<li class="goal"><b>Then ${esc(name)}</b></li></ul></div>`;
 }
 function depthOf(path) {
   const out = new Map(path.nodes.map((n) => [n.id, []]));
