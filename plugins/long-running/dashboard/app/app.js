@@ -43,13 +43,8 @@ function agoWords(iso) {
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
-function plainTitle(n) {
-  const row = boardRow(n);
-  if (row) return row.title;
-  const said = state.model.pages?.work?.pull_requests?.find((pr) => pr.number === Number(n))?.title;
-  if (said) return said;
-  const title = state.model.prs[n]?.title ?? `Pull request ${n}`;
-  return title.replace(/^[\w./-]+:\s*/, '').replace(/^[^\w#]+/, '').replace(/^./, (c) => c.toUpperCase());
+function prTitle(n) {
+  return state.model.prs[n]?.title ?? boardRow(n)?.title ?? `Pull request ${n}`;
 }
 function boardRow(n) {
   return state.model.board.rows.find((r) => r.number === Number(n));
@@ -117,7 +112,7 @@ function prHref(n) {
 function prLink(n) {
   const external = !state.model.prs[n];
   const s = prState(n);
-  return `<a class="prc ${s}" href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[s]}">${s === 'landed' ? '✓' : s === 'closed' ? '' : `<i class="lt ${s}"></i>`}#${n}</a>`;
+  return `<a class="prc ${s}" href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(prTitle(n))} · ${STATE_WORD[s]}">${s === 'landed' ? '✓' : s === 'closed' ? '' : `<i class="lt ${s}"></i>`}#${n}</a>`;
 }
 function words(text) {
   const rels = state.model?.now?.releases ?? [];

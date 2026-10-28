@@ -22,7 +22,7 @@ PAGE_PROMPT = """You write {what} The user message is the drive's facts as JSON.
 Fields:
 {fields}"""
 
-ROW_SLOTS = {"title": "node", "change": "latest", "plan": "latest", "risk": "latest", "review": "headline", "blocker": "latest"}
+ROW_SLOTS = {"change": "latest", "plan": "latest", "risk": "latest", "review": "headline", "blocker": "latest"}
 GROUP_SLOTS = {"title": "title", "relation": "latest"}
 CARD_SLOTS = {"question": "latest", "means": "headline", "answers": "title"}
 
@@ -69,7 +69,7 @@ WORK_SCHEMA = strict({
     "running": listing(strict({**WORK_ITEM, "status": STATUS, "latest": string(), "started": string("Pacific clock time, such as 1:05 PM"), "blocked_since": string("Pacific clock time it started waiting, or empty"), "asks": listing(string("the ask of a waiting_on_owner entry"))})),
     "finished": listing(strict({**WORK_ITEM, "outcome": {"enum": ["delivered", "stopped"]}, "result": string(), "at": string("Pacific clock time")})),
     "helpers": listing(strict({"workers": listing(string()), "name": string(), "latest": string()})),
-    "pull_requests": listing(strict({"number": {"type": "integer"}, "title": string(), "stage": string(), "next": string(), "since": string("Pacific clock time")})),
+    "pull_requests": listing(strict({"number": {"type": "integer"}, "stage": string(), "next": string(), "since": string("Pacific clock time")})),
 })
 
 WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a busy engineering lead reads. It lists every piece of work in the drive today: what runs now, what finished and its result, and the helpers that keep the drive running.", fields="""- A piece of work is what is being made, never a worker. Several workers on one thing, and a worker's successor (a name ending in -2 or -3), are one piece.
@@ -79,7 +79,7 @@ WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a 
 - Leave out any piece of work whose purpose the facts do not say. Rolling out means a deploy is running now; a change that ships with the next release is Waiting for release.
 - Name whoever acts by their job, such as "the cloud runs worker", "codex" or "the merge process", never just "a worker".
 - helpers: the workers that keep the drive running rather than build something (the merge process, board upkeep, review graders, monitors, the dashboard's own workers, release checks). One entry per job, at most eight, jobs whose latest report is a failure or waits on someone first. name: at most 6 words for the job, such as "Merge process" or "Board upkeep". latest: at most 16 words, its state now with the time, such as "Landed the cloud runs fix at 4:40 PM"; never an old failure that a later report settled.
-- pull_requests: one entry per entry of ledger_pull_requests, same number. When its evidence is present, that is the progress desk's record of this change's state: stage, next and since come from evidence.state, evidence.next and evidence.since, in plain words, and nothing older overrides them. title: at most 8 words, what the change does for users, never a code identifier, route, path or file name, and at least as specific as the pull request's own title: keep every system, screen and behavior it names, said plainly, and never a vaguer summary. stage: at most 25 words, what holds the change now, naming every prerequisite still open (each approval, hold, restack or change that must land first) by what it does; next: at most 12 words, who acts next and what they do. Take both from the newest of its newest_records and coordinator_rulings when they say something its ledger_stage or ledger_next does not, else put the ledger's words in plain terms. A hold names what must happen for it to lift, in the ruling's own terms, such as which release or which change landing; never "the hold", "a dependency" or "a later release" alone. A wait on another change landing first stays in stage until a record says that change landed. A worker a ruling stood down is never the one who acts next. Never say a change waits on Yasyf's approval unless its number is in waiting_on_owner; when a worker says it awaits approval and it is not there, its approval row is not up yet, so say who puts it up. Name the change below by what it does, never by number. since: the Pacific clock time of the record that started this stage, or ledger_since when no newer record changed it.""")
+- pull_requests: one entry per entry of ledger_pull_requests, same number. When its evidence is present, that is the progress desk's record of this change's state: stage, next and since come from evidence.state, evidence.next and evidence.since, in plain words, and nothing older overrides them. stage: at most 25 words, what holds the change now, naming every prerequisite still open (each approval, hold, restack or change that must land first) by what it does; next: at most 12 words, who acts next and what they do. Take both from the newest of its newest_records and coordinator_rulings when they say something its ledger_stage or ledger_next does not, else put the ledger's words in plain terms. A hold names what must happen for it to lift, in the ruling's own terms, such as which release or which change landing; never "the hold", "a dependency" or "a later release" alone. A wait on another change landing first stays in stage until a record says that change landed. A worker a ruling stood down is never the one who acts next. Never say a change waits on Yasyf's approval unless its number is in waiting_on_owner; when a worker says it awaits approval and it is not there, its approval row is not up yet, so say who puts it up. Name the change below by what it does, never by number. since: the Pacific clock time of the record that started this stage, or ledger_since when no newer record changed it.""")
 
 HISTORY_SCHEMA = strict({
     "since": string("copy day_starts"),
@@ -109,7 +109,7 @@ REVIEW_SCHEMA = strict({
 })
 
 REVIEW_PROMPT = PAGE_PROMPT.format(what="the Review page of a live dashboard: the pull requests, groups of pull requests and questions waiting on the owner, each said in a few short plain lines.", fields="""- Every entry copies its key. An entry with a previous_rewrite keeps it word for word.
-- rows: one entry per row in the facts. Rewrite only the fields listed in its problems; copy every other field word for word. title: under 10 words, what a person can now do, at least as specific as pr_title, the pull request's own title: keep every system, screen and behavior it names, said plainly, and never a vaguer summary. change: what is different for a user once it lands. plan: "Matches the plan." or the one difference. risk: who could be hurt and how, or "Low: " and why. blocker: "Nothing; lands on your approval." or what it waits for, named by what that does. review: name each reviewer (codex, the reviewer bot, Yasyf) and say each finding in a few words as what could have gone wrong for users and what changed, never a count and never the code mechanism; leave out a request that was declined unless Yasyf must decide on it; read review_records to find what each finding was and leave out one the records never name. change, plan, risk and blocker at most 15 words; review at most 25.
+- rows: one entry per row in the facts. Rewrite only the fields listed in its problems; copy every other field word for word. change: what is different for a user once it lands. plan: "Matches the plan." or the one difference. risk: who could be hurt and how, or "Low: " and why. blocker: "Nothing; lands on your approval." or what it waits for, named by what that does. review: name each reviewer (codex, the reviewer bot, Yasyf) and say each finding in a few words as what could have gone wrong for users and what changed, never a count and never the code mechanism; leave out a request that was declined unless Yasyf must decide on it; read review_records to find what each finding was and leave out one the records never name. change, plan, risk and blocker at most 15 words; review at most 25.
 - groups: one entry per group. title: at most 8 words, the feature its changes deliver for users. relation: at most 16 words, how its changes relate, such as which lands first, naming each change by what it does; never a number of changes.
 - cards: one entry per question. question: at most 16 words, the one decision still open, as a plain question. When the card says Yasyf already approved its plan, ask only the open step, such as which release to start now. means: at most 25 words: what the recommended answer changes for users and what the other answer would change, naming the changes it touches. answers: one label per entry of the question's answers, in the same order, each at most 8 words for what that answer does, with no tool, test or file names.""")
 
@@ -184,7 +184,7 @@ def work_slot(path):
     if path[:1] == ("helpers",):
         return {"name": "title", "latest": "latest"}.get(path[-1])
     if path[:1] == ("pull_requests",):
-        return {"title": "title", "stage": "story", "next": "latest"}.get(path[-1])
+        return {"stage": "story", "next": "latest"}.get(path[-1])
     return None
 
 
@@ -328,7 +328,6 @@ def review_digest(model, config, previous, now):
         mention = re.compile(rf"#{row['number']}\b")
         rows.append({
             **{k: row.get(k) for k in ("key", *ROW_SLOTS)},
-            "pr_title": model["prs"].get(str(row["number"]), {}).get("title"),
             "problems": problems,
             "previous_rewrite": kept.get(row["key"]),
             "review_records": [said(r, 500) for r in model["records"] if r["kind"] in ("review", "report", "head") and mention.search(r["text"])][-5:],

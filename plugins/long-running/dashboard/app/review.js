@@ -17,14 +17,14 @@ function testPill(pr) {
 function reviewPR(n, tab) {
   const row = boardRow(n);
   const gh = `https://github.com/${state.model.repo}/pull/${n}`;
-  const open = `<a class="pill" href="${gh}" target="_blank" rel="noopener">Open on GitHub ›</a><a class="pill" href="https://app.graphite.com/github/pr/${state.model.repo}/${n}" target="_blank" rel="noopener">Open in Graphite ›</a>`;
+  const open = `<a class="pill" href="${gh}" target="_blank" rel="noopener" data-key="o">Open on GitHub ›<kbd>O</kbd></a><a class="pill" href="https://app.graphite.com/github/pr/${state.model.repo}/${n}" target="_blank" rel="noopener">Open in Graphite ›</a>`;
   if (!row) {
     if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
     const s = prState(n);
     const pr = state.model.prs[n];
     const go = approvedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
-    return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
+    return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(prTitle(n))}</h1>
       <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
       ${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
   }
@@ -155,7 +155,7 @@ document.addEventListener('submit', (e) => {
     const answer = asking.nextElementSibling;
     answer.innerHTML = '<p class="dim">Thinking…</p>';
     fetch('/api/asked', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: `${question} (on #${n})` }) });
-    assistAsk(`About pull request #${n}, ${plainTitle(n)}: ${question}`, [], (text) => (answer.innerHTML = `<p>${inline(text).replace(/\n/g, '<br>')}</p>`))
+    assistAsk(`About pull request #${n}, ${prTitle(n)}: ${question}`, [], (text) => (answer.innerHTML = `<p>${inline(text).replace(/\n/g, '<br>')}</p>`))
       .catch((failure) => (answer.innerHTML = `<p class="bad">The answer stopped: ${esc(failure.message)}</p>`));
     return;
   }
@@ -235,7 +235,7 @@ setInterval(() => {
   const r = route();
   if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
 }, 5 * 60 * 1000);
-const PR_KEYS = { a: '[data-decide="approved"]', h: '[data-decide="hold"]', n: '[data-key="n"]', j: '[data-key="j"]', k: '[data-key="k"]' };
+const PR_KEYS = { a: '[data-decide="approved"]', h: '[data-decide="hold"]', n: '[data-key="n"]', j: '[data-key="j"]', k: '[data-key="k"]', o: '[data-key="o"]' };
 document.addEventListener('keydown', (e) => {
   const r = route();
   const pick = PR_KEYS[e.key.toLowerCase()];

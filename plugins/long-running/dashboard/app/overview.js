@@ -95,7 +95,7 @@ function workerName(lane) {
   const peers = step ? m.workers.filter((x) => x.step === step.id).map((x) => x.lane) : [];
   if (step) return `${step.label} worker${peers.length > 1 ? ` ${peers.indexOf(lane) + 1}` : ''}`;
   const pr = (w?.prs ?? []).find((n) => driveEntry(n)?.state !== 'landed') ?? m.drive.prs.find((e) => e.owner === lane && e.state !== 'landed')?.number;
-  if (pr) return `Worker on ${shortName(pr) ?? plainTitle(pr)}`;
+  if (pr) return `Worker on ${prTitle(pr)}`;
   return lane.replace(/^p\d+[a-z]?\d*-/, '').replace(/^r\d+-/, 'release-').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 const PART_WORD = { landed: 'landed', queued: 'approved', doing: 'moving', you: 'yours', failing: 'red', held: 'held', waiting: 'waiting' };
@@ -130,7 +130,7 @@ function prSheet() {
   const e = driveEntry(n) ?? { number: n, state: prState(n) };
   const row = boardRow(n);
   const approve = e.state === 'you' && row && !/^conflicts/i.test(row.blocker ?? '') ? `<button class="btn" data-approve="${n}" data-head="${esc(row.head)}">✓ Approve ${esc(row.head.slice(0, 7))}</button>` : '';
-  return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(shortName(n) ?? plainTitle(n))}</h3>
+  return sheet(`<div class="kick"><i class="lt ${e.state}"></i> ${STATE_WORD[e.state]}</div><h3>#${n} ${esc(prTitle(n))}</h3>
     ${prFacts(n)}
     <p class="acts">${approve}${m.prs[n] ? `<a class="btn${approve ? ' ghost' : ''}" href="#/review/${n}">Open the review ›</a>` : ''}<a class="btn ghost" href="https://github.com/${esc(m.repo)}/pull/${n}" target="_blank" rel="noopener">GitHub ↗</a></p>`, ' small');
 }
@@ -178,7 +178,7 @@ function showOnly(label, numbers) {
 const SAID = { head: 'Pushed a new version', report: 'Reported', state: 'Posted its status', blocker: 'Reported a blocker', ask: 'Asked a question', review: 'Reviewed', go: 'Got the go to land', opened: 'Opened a pull request', landed: 'Landed', defect: 'Reported a tool problem', answer: 'Answered', decide: 'Decided', incident: 'Raised an incident', 'fix-live': 'Put a fix live' };
 function lastWord(w) {
   const r = state.model.records.filter((x) => x.lane === w.lane).reduce((a, b) => (!a || new Date(b.at) > new Date(a.at) ? b : a), null);
-  const prs = w.prs.slice(0, 2).map((n) => `<a href="${prHref(n)}">#${n} ${esc(shortName(n) ?? plainTitle(n))}</a>`).join(', ');
+  const prs = w.prs.slice(0, 2).map((n) => `<a href="${prHref(n)}">#${n} ${esc(prTitle(n))}</a>`).join(', ');
   return `<li><span class="ws"><span class="bx">${w.boxes.map((b) => `<i class="${b}"></i>`).join('')}</span></span><div><button class="linkish" data-worker="${esc(w.lane)}" title="${esc(w.lane)}">${esc(workerName(w.lane))}</button> <b>${r ? SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind : 'At work'}</b>${prs ? ` on ${prs}` : ''}, ${agoWords(r?.at ?? w.at)}<small>${r ? `<a href="/record/${r.seq}" target="_blank" rel="noopener">its last word, #${r.seq} ↗</a>` : ''}</small></div></li>`;
 }
 function truth(n) {
@@ -191,7 +191,7 @@ function redWhy(n) {
 function prRow(p, extra = '') {
   const pr = state.model.prs[p.number] ?? {};
   const why = `${p.state === 'failing' ? redWhy(p.number) : ''}${pr.mergeable_state === 'dirty' ? ' · conflicts with its base' : ''}`;
-  return `<li><a href="${prHref(p.number)}" data-pr="${p.number}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(shortName(p.number) ?? plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${why}</em></a>${extra}</li>`;
+  return `<li><a href="${prHref(p.number)}" data-pr="${p.number}"><i class="lt ${p.state}"></i><b>#${p.number}</b><span>${esc(prTitle(p.number))}</span><em>${STATE_WORD[p.state]}${why}</em></a>${extra}</li>`;
 }
 function keySheet() {
   const say = { landed: 'Landed', queued: 'Approved, waiting to land', doing: 'Being worked on now', you: 'Waiting on your tap', failing: 'Tests failing', held: 'Held', waiting: 'Waiting its turn' };
@@ -206,7 +206,7 @@ function tipFor(el) {
     const step = state.model.steps.find((s) => s.id === e?.step);
     const part = state.model.parts.find((p) => p.key === e?.part);
     const pr = state.model.prs[n] ?? {};
-    return `<div class="tip-h"><i class="lt ${prState(n)}"></i><b>#${n}</b><span>${STATE_WORD[prState(n)]}</span></div><div>${esc(shortName(n) ?? plainTitle(n))}</div>
+    return `<div class="tip-h"><i class="lt ${prState(n)}"></i><b>#${n}</b><span>${STATE_WORD[prState(n)]}</span></div><div>${esc(prTitle(n))}</div>
       <div class="dim">${[step?.label ?? step?.title, part?.name, e?.worker?.lane, pr.landed_at ? `landed ${clock(pr.landed_at)}` : ''].filter(Boolean).map(esc).join(' · ')}</div>`;
   }
   if (el.dataset.part) {
@@ -216,7 +216,7 @@ function tipFor(el) {
   }
   if (el.dataset.lane) {
     const w = state.model.workers.find((x) => x.lane === el.dataset.lane);
-    return `<div class="tip-h"><b>${esc(workerName(w.lane))}</b><span>${agoWords(w.at)}</span></div>${w.prs.map((n) => `<div>#${n} ${esc(plainTitle(n))}</div>`).join('')}`;
+    return `<div class="tip-h"><b>${esc(workerName(w.lane))}</b><span>${agoWords(w.at)}</span></div>${w.prs.map((n) => `<div>#${n} ${esc(prTitle(n))}</div>`).join('')}`;
   }
   if (el.dataset.release) {
     const r = state.model.now.releases.find((x) => x.id === el.dataset.release);

@@ -45,7 +45,7 @@ function forSince(label) {
   const iso = sinceClock(label);
   return iso ? `<small class="pg-for">${blockedFor(iso)}</small>` : '';
 }
-const named = (n) => `“${shortName(n) ?? plainTitle(n)}”`;
+const named = (n) => `“${prTitle(n)}”`;
 const LEDGER_WORDS = [
   [/^waits on #(\d+) below it$/, (n) => `Waits for ${named(n)} below it to land`],
   [/^land #(\d+) first$/, (n) => `${named(n)} lands first`],
@@ -114,7 +114,7 @@ function stackLine(row) {
   const t = prTruth(row.pr);
   const l = { stage: t.blocks, next: t.next, since: t.since };
   const word = latestWord(row.pr);
-  return `<div class="wk-row"><span class="wk-body">${dotted('', light(prState(row.pr)))}<a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(t.owner ?? row.owner)}">${esc(workerName(t.owner ?? row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}${word ? `<br><a class="wk-word" href="/record/${word.seq}" target="_blank" rel="noopener">Latest word ${clock(word.at)} ↗</a>` : ''}</span></div>`;
+  return `<div class="wk-row"><span class="wk-body">${dotted('', light(prState(row.pr)))}<a href="#/review/${row.pr}"><b>${esc(prTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(t.owner ?? row.owner)}">${esc(workerName(t.owner ?? row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}${word ? `<br><a class="wk-word" href="/record/${word.seq}" target="_blank" rel="noopener">Latest word ${clock(word.at)} ↗</a>` : ''}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
@@ -215,7 +215,7 @@ function statusScreen() {
   const steps = statusRows();
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
-  const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
+  const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(prTitle(n))}</a></b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
   return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
     <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr data-step="${i}">${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j === 1 ? `<span class="st-light ${stepLight(c)}"></span>${inline(c)}` : j ? inline(c) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
@@ -243,7 +243,7 @@ function workerScreen(lane) {
   return detailPage(['#/work', 'Work'], helper ? 'Keeping the drive running' : 'Worker', helper?.name ?? workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Where it stands', helper ? esc(helper.latest) : ''],
     ['The log', m.register_log && /^register/.test(lane) ? '<a href="/register" target="_blank" rel="noopener">Open the owner request log ↗</a>' : ''],
-    ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
+    ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(prTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['What it posted lately', !posted ? 'Reading its records…' : posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing in the last day'],
   ]);
 }
@@ -272,7 +272,7 @@ function workScreen(item) {
 
 function rowWords(row) {
   const rewrite = rewritten('rows', row.key);
-  return Object.fromEntries(ROW_FIELDS.map((k) => [k, (rewrite ? rewrite[k] : row[k]) ?? '']));
+  return { ...Object.fromEntries(ROW_FIELDS.map((k) => [k, (rewrite ? rewrite[k] : row[k]) ?? ''])), title: prTitle(row.number) };
 }
 function verdictPill(row) {
   const when = row.verdict?.at ? ` at ${clock(row.verdict.at)}` : '';

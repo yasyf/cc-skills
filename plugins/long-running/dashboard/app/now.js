@@ -81,7 +81,7 @@ function needLine(item) {
   if (item.kind === 'prs' && item.prs.length === 1) {
     const r = item.prs[0];
     const busy = pending.number === r.number && !pending.error;
-    return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
+    return line(prTitle(r.number), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
   }
   if (item.kind === 'card') {
     const c = item.card;
