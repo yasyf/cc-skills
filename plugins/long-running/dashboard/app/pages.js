@@ -88,6 +88,13 @@ function latestWord(n) {
   const mention = new RegExp(`#${n}(?!\\d)`);
   return state.model.records.findLast((r) => WORD_KINDS.has(r.kind) && !/^(dashboard|register|cc-present|desk-runner|stall-watch)/.test(r.lane) && ((r.refs?.prs ?? []).some((p) => String(p).replace(/.*#/, '') === String(n)) || mention.test(r.text)));
 }
+function workWord(item) {
+  const lanes = workItem(item)?.workers ?? [];
+  return lanes.length ? state.model.records.findLast((r) => lanes.some((lane) => sameWorker(r.lane, lane))) : null;
+}
+function wordAt(r) {
+  return r ? `latest word ${clock(r.at)}` : '';
+}
 function wordLine(r) {
   const who = r.kind === 'owner' ? 'You' : workerName(r.lane);
   const did = r.kind === 'owner' ? 'answered' : (SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind).toLowerCase();
@@ -238,7 +245,7 @@ function workScreen(item) {
   const row = (w, line, side) => w.item === item
     ? `<div class="wk-story"><a class="wk-close" href="#/work">‹ All work</a><div id="nw-story">${storyBody(item)}</div></div>`
     : `<a class="wk-row" href="#/work/${encodeURIComponent(w.item)}"><span class="wk-body"><b>${esc(w.title)}</b><span class="wk-line">${line}</span></span><span class="wk-side">${side}</span></a>`;
-  const running = p.running.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : ''));
+  const running = p.running.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
   const rest = running.slice(RUNNING_AT_REST);
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
   const m = state.model;

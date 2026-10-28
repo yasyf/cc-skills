@@ -142,7 +142,7 @@ function blockers(b) {
   return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
 }
 function laterPath(path) {
-  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><b>${esc(n.text)}</b><span>${esc(NODE_WORD[n.state])}: ${esc(n.how)}${n.since ? ` · ${esc(waited(n.since))}` : ''}</span></li>`).join('')}</ul></div>`;
+  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><b>${esc(n.text)}</b><span title="${esc(NODE_WORD[n.state])}">${esc(n.how)}${lasted(n.since) ? ` · ${lasted(n.since)}` : ''}${nodeWord(n) ? ` · ${wordAt(nodeWord(n))}` : ''}</span></li>`).join('')}</ul></div>`;
 }
 function depthOf(path) {
   const out = new Map(path.nodes.map((n) => [n.id, []]));
@@ -171,10 +171,13 @@ function chart(path, index) {
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
     <div class="layer"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
 }
+function nodeWord(n) {
+  return (n.change && latestWord(n.change)) || (n.item && workWord(n.item));
+}
 function node(n, key) {
   const work = n.item && workItem(n.item);
   const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
-  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${waited(n.since) ? ` <i>${waited(n.since)}</i>` : ''}</span>${esc(n.text)}
+  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${waited(n.since) ? ` <i>${waited(n.since)}</i>` : ''}${nodeWord(n) ? ` <i>· ${wordAt(nodeWord(n))}</i>` : ''}</span>${esc(n.text)}
     ${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}</${work ? 'a' : 'div'}>`;
 }
 function cards(paths) {
@@ -216,7 +219,7 @@ function workList(b) {
 function workRow(w) {
   return `<a class="wr ${slug(w.status)}" href="${storyHref(w.item)}"><span class="pulse"></span>
     <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
-    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
+    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}${workWord(w.item) ? `<span>${wordAt(workWord(w.item))}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
 
 function follow(item) {
