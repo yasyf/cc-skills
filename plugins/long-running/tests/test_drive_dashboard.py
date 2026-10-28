@@ -721,23 +721,26 @@ def test_a_copy_without_defect_recipients_posts_nothing(monkeypatch):
     assert calls[0][0][calls[0][0].index("--to") + 1] == "keeper,root"
 
 
-def test_a_ci_fix_on_a_root_go_lands_without_his_tap_and_reports_no_defect():
-    drive = Drive({"board_url": "http://board/p/x"}, None)
+def test_a_ci_fix_on_a_root_go_lands_without_his_tap_only_outside_the_excluded_tree():
+    drive = Drive({"board_url": "http://board/p/x", "ci_fix_excludes": "New tree"}, None)
     reported = []
     drive.report_defect = reported.append
+    drive.paths = {"43644": {"trees": ["Shared"]}, "44138": {"trees": ["Shared"]}, "44087": {"trees": ["New tree"]}}
     drive.note_go({"kind": "go", "text": "go #43644 at a3f2ce2 (CI fix: tests and build fixes; lands on a root go without a tap)"})
+    drive.note_go({"kind": "go", "text": "go #44138 at 8783133: one-line tools/ci fix, outside the new tree; CI-fix exemption"})
+    drive.note_go({"kind": "go", "text": "go #44087 at c0ffee1: new-tree test fix; CI-fix exemption"})
     drive.note_go({"kind": "go", "text": "go #43700 at b4e5f6a (his tap on the board)"})
-    rows = [{"number": n, "head": head, "verdict": None} for n, head in ((43644, "a3f2ce2"), (43700, "b4e5f6a"))]
+    rows = [{"number": n, "head": head, "verdict": None} for n, head in ((43644, "a3f2ce2"), (44138, "8783133"), (44087, "c0ffee1"), (43700, "b4e5f6a"))]
     drive.board_rows_now = lambda: rows
 
     drive.check_gos(rows)
 
-    assert [(r["state"], r["ci_fix_go"]) for r in rows] == [("approved", True), ("approved", False)]
-    assert reported == ["#43700 has a root go at b4e5f6a but the board store holds no approval at that head; the dashboard shows it approved, landing"]
+    assert [r["ci_fix_go"] for r in rows] == [True, True, False, False]
+    assert [line.split(" ")[0] for line in reported] == ["#44087", "#43700"]
 
 
 def test_a_go_the_coordinator_withdraws_stops_counting_as_a_ci_fix():
-    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive = Drive({"board_url": "http://board/p/x", "ci_fix_excludes": "New tree"}, None)
     drive.note_go({"kind": "go", "lane": "root", "text": "go #44087 at 1a2b3c4 CI fix: new-tree test repair", "refs": {}})
     drive.note_go({"kind": "decide", "lane": "root", "text": "landing-desk-3 is right; go #161978 on #44087 is withdrawn: every new-tree fix goes to his tap.", "refs": {"prs": ["pr:Forge-AI/monorepo#44087"]}})
     assert (drive.gos, drive.ci_fixes) == ({}, set())

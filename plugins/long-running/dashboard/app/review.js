@@ -73,7 +73,7 @@ function decideBar(row, v) {
   if (busy) return `<span class="decided sending">${DECIDE_WORD[pending.verdict]}…</span>`;
   const error = pending.number === row.number && pending.error ? `<span class="pill bad">Not recorded: ${esc(pending.error)}</span><button class="btn" data-decide="${pending.verdict}">Retry</button>` : '';
   if (v === 'approved' || v === 'held') {
-    return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ CI fix, landing without your tap' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict?.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
+    return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ Landing under the CI-fix exemption' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict?.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
   return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" title="A">✓ Approve</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
 }

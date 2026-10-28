@@ -42,7 +42,7 @@ SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
-CI_FIX = re.compile(r"\bCI fix\b", re.I)
+CI_FIX = re.compile(r"\bCI[- ]fix\b", re.I)
 WITHDRAWN_GO = re.compile(r"\bgo\b[^.]*\bwithdr(?:aw|awn|ew)\b", re.I)
 CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
@@ -807,7 +807,8 @@ class Drive:
             row["go_head"] = self.gos.get(row["number"])
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
-            row["ci_fix_go"] = row["state"] == "approved" and not stored and row["number"] in self.ci_fixes
+            exempt = row["number"] in self.ci_fixes and self.config["ci_fix_excludes"] not in self.paths.get(str(row["number"]), {"trees": [self.config["ci_fix_excludes"]]})["trees"]
+            row["ci_fix_go"] = row["state"] == "approved" and not stored and exempt
             if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and (row["number"], row["head"]) not in self.reported:
                 suspects.append(row)
         if not suspects:
