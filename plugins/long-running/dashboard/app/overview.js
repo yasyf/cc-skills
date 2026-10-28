@@ -116,10 +116,9 @@ function prFacts(n) {
     ${t.blocker ? `<dt>What blocks it</dt><dd class="${/^GitHub has not/.test(t.blocker) ? 'warn' : 'bad'}">${inline(t.blocker)}</dd>` : ''}
     ${t.checks.length ? `<dt>Which check failed</dt><dd>${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}</dd>` : ''}
     ${t.next ? `<dt>What happens next</dt><dd>${inline(t.next)}</dd>` : ''}
-    <dt>Who is on it</dt><dd>${t.owner ? `<button class="linkish" data-worker="${esc(t.owner)}" title="${esc(t.owner)}">${esc(workerName(t.owner))}</button>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
+    <dt>Who is on it</dt><dd>${t.owner ? `<a href="#/worker/${encodeURIComponent(t.owner)}">${esc(workerName(t.owner))}</a>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
-    <dt>Part</dt><dd>${part ? `<button class="linkish" data-part-open="${esc(part.key)}">${esc(part.name)}</button>: ${esc(part.becomes)}` : 'Not in a part of the end state'}</dd>
-    <dt>Plan step</dt><dd>${step ? `<button class="linkish" data-track="${esc(step.id)}">${esc(step.label ?? step.title)}</button>` : 'No plan step names it'}</dd></dl>`;
+    <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : part ? `${esc(part.name)}: ${esc(part.becomes)}` : 'Not in a part of the plan'}</dd></dl>`;
 }
 function prSheet() {
   const m = state.model;

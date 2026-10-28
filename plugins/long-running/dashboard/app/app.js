@@ -259,9 +259,9 @@ function render() {
   if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History'], ['ask', 'Ask']];
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen };
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
@@ -274,9 +274,9 @@ function render() {
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
   syncCardEmbed(r);
-  if (r.screen === 'plan' && r.id && state.planFocus !== location.hash) {
-    state.planFocus = location.hash;
-    document.getElementById(`pl-${r.id}`)?.scrollIntoView({ block: 'center' });
+  if (r.screen === 'review' && r.id === 'q' && r.tab && state.focused !== location.hash) {
+    state.focused = location.hash;
+    document.getElementById(`card-${decodeURIComponent(r.tab)}`)?.scrollIntoView({ block: 'center' });
   }
   if ((screens[r.screen] ?? nowScreen) === nowScreen) mountNow();
   else if (r.screen === 'work' && r.id) follow(decodeURIComponent(r.id));

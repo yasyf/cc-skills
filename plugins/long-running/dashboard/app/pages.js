@@ -41,48 +41,82 @@ function forSince(label) {
 function waitingSince(number) {
   return state.model.records.findLast((r) => ['head', 'opened'].includes(r.kind) && r.refs?.prs?.includes(number))?.at;
 }
-function tableRow(id, focus, cells, detail) {
-  if (!detail) return `<div class="pg-row" id="pl-${esc(id)}"><div class="pg-cells">${cells.join('')}</div></div>`;
-  const open = state.open.has(id) || focus === id;
-  return `<details class="pg-row" id="pl-${esc(id)}" data-id="${esc(id)}"${open ? ' open' : ''}><summary class="pg-cells">${cells.join('')}</summary><div class="pg-detail">${detail}</div></details>`;
+function tableRow(id, cells) {
+  return `<a class="pg-row" id="pl-${esc(id)}" href="#/plan/${encodeURIComponent(id)}"><span class="pg-cells">${cells.join('')}</span></a>`;
 }
 function tableHead(...labels) {
   return `<div class="pg-thead">${labels.map((l) => `<span>${l}</span>`).join('')}</div>`;
-}
-function detailLine(label, text) {
-  return text ? `<p><b>${label}.</b> ${esc(text)}</p>` : '';
 }
 function fold(id, label, body, open = false) {
   return `<details class="pg-fold" data-id="${esc(id)}"${state.open.has(id) || open ? ' open' : ''}><summary>${label}</summary>${body}</details>`;
 }
 
+function answerLink(card) {
+  return card && state.model.board.cards.some((c) => c.id === card) ? `<a class="pg-go" href="#/review/q/${encodeURIComponent(card)}">Answer it on Review ›</a>` : '';
+}
+function milestoneOf(p, i) {
+  return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '' };
+}
 function planScreen(focus) {
   const p = curated('plan');
   if (!p) return writing('Plan');
+  const stop = /^m(\d+)$/.exec(focus ?? '');
+  if (stop && state.model.milestones[stop[1]]) return milestonePage(p, Number(stop[1]));
+  const focused = p.parts.find((part) => part.id === focus);
+  if (focused) return partPage(focused);
   const milestones = state.model.milestones.map((name, i) => {
-    const s = p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', note: '' };
+    const s = milestoneOf(p, i);
     const waits = s.state === 'not' ? cellText('', 'After the milestone above') : cellText(s.waits, s.state === 'live' ? 'Live' : 'Nothing open', s.since);
-    const ask = /\byour?\b/i.test(s.waits) ? '<a class="pg-go" href="#/review">Answer on Review ›</a>' : '';
-    return tableRow(`m${i}`, focus, [`<b>${esc(name)}</b>`, dotted(s.label, STOP_TONE[s.state]), waits], `${ask}${detailLine('What it waits on', s.state === 'not' ? s.waits : '')}${detailLine('What it ships', s.ships)}${detailLine('What went wrong so far', s.note)}`);
+    return tableRow(`m${i}`, [`<b>${esc(name)}</b>`, dotted(s.label, STOP_TONE[s.state]), waits]);
   });
-  const partRow = (part) => {
-    const changes = part.changes.map((c) => `<li><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`);
-    const landed = part.landed.length ? `<p class="pg-landed" title="${esc(part.landed.join('\n'))}">${plural(part.landed.length, 'change')} landed</p>` : '';
-    const you = part.state === 'you' ? '<a class="pg-go" href="#/review">Answer on Review ›</a>' : '';
-    return tableRow(part.id, focus, [`<b>${esc(part.name)}</b>`, dotted(part.label, PART_TONE[part.state]), cellText(part.blocks, 'Nothing', part.since), cellText(part.doing, part.state === 'later' ? 'Not started' : '')],
-      `${you}${detailLine('What it delivers', part.delivers)}${detailLine('What went wrong so far', part.went_wrong)}${changes.length ? `<ul class="pg-changes">${changes.join('')}</ul>` : ''}${landed}`);
-  };
+  const partRow = (part) => tableRow(part.id, [`<b>${esc(part.name)}</b>`, dotted(part.label, PART_TONE[part.state]), cellText(part.blocks, 'Nothing', part.since), cellText(part.doing, part.state === 'later' ? 'Not started' : '')]);
   const open = p.parts.filter((part) => part.state !== 'done' && part.state !== 'later');
   const later = p.parts.filter((part) => part.state === 'later');
   const done = p.parts.filter((part) => part.state === 'done');
-  const doneList = `<ul class="pg-done">${done.map((part) => `<li><b>${esc(part.name)}</b><span>${esc(part.delivers)}${part.landed.length ? ` Landed: ${esc(part.landed.join('; '))}.` : ''}</span></li>`).join('')}</ul>`;
   return `<div class="pg">${pageHead('Plan', p)}<p class="pg-lead">${esc(p.summary)}</p>
     <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${milestones.join('')}</div></section>
     <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'Who acts next')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
-    ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`, later.some((part) => part.id === focus)) : ''}
-    ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, doneList, done.some((part) => part.id === focus)) : ''}</section></div>`;
+    ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
+    ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, `<div class="pg-table pl-parts">${done.map(partRow).join('')}</div>`) : ''}</section></div>`;
 }
-
+function detailPage(back, kicker, title, stateLine, facts, extra = '') {
+  return `<div class="pg pg-page"><a class="pg-back" href="${back[0]}">‹ ${back[1]}</a><div class="kick muted">${kicker}</div><h1 class="pg-title">${esc(title)}</h1>${stateLine}
+    <dl class="pg-facts">${facts.filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>${extra}</div>`;
+}
+function milestonePage(p, i) {
+  const s = milestoneOf(p, i);
+  const names = state.model.milestones;
+  const step = (j, label) => (names[j] ? `<a class="btn" href="#/plan/m${j}">${label}</a>` : '');
+  return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}${answerLink(s.card)}</p>`, [
+    ['What it waits on', s.waits ? `${esc(s.waits)}${forSince(s.since)}` : esc(s.state === 'not' ? 'The milestone above' : s.state === 'live' ? 'Nothing: it is live' : 'Nothing open')],
+    ['What it ships', esc(s.ships)],
+    ['What went wrong so far', esc(s.note)],
+  ], `<p class="acts">${step(i - 1, '‹ Previous milestone')}${step(i + 1, 'Next milestone ›')}</p>`);
+}
+function partPage(part) {
+  const changes = part.changes.map((c) => `<li><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`).join('');
+  return detailPage(['#/plan', 'Plan'], 'Part of the plan', part.name, `<p class="pg-stateline">${dotted(part.label, PART_TONE[part.state])}${answerLink(part.card)}</p>`, [
+    ['What it delivers', esc(part.delivers)],
+    ['What blocks it', part.blocks ? `${esc(part.blocks)}${forSince(part.since)}` : ''],
+    ['Who acts next', esc(part.doing)],
+    ['What went wrong so far', esc(part.went_wrong)],
+    ['Open changes', changes ? `<ul class="pg-changes">${changes}</ul>` : ''],
+    ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>` : ''],
+  ]);
+}
+function workerScreen(lane) {
+  const m = state.model;
+  const prs = Object.entries(m.prs).filter(([, pr]) => pr.lane === lane && pr.state !== 'landed').map(([n]) => Number(n));
+  const said = m.records.findLast((r) => r.lane === lane);
+  const work = curated('work');
+  const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.includes(lane));
+  const waits = m.drive.prs.filter((e) => e.owner === lane && e.state !== 'landed' && e.blocker);
+  return detailPage(['#/work', 'Work'], 'Worker', workerName(lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
+    ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
+    ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
+    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li>${inline(e.blocker)}</li>`).join('')}</ul>` : 'Nothing'],
+  ]);
+}
 function workScreen(item) {
   const p = curated('work');
   if (!p) return writing('Work');
@@ -135,6 +169,7 @@ function askRow(item) {
 }
 function reviewScreen(list) {
   const m = state.model;
+  if (list === 'q') list = '';
   const decided = m.board.rows.filter((r) => verdictState(r) !== 'you');
   const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
   if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
@@ -166,13 +201,13 @@ function historyScreen(filter) {
   if (!p) return writing('History');
   const f = HISTORY_FILTERS.find(([id]) => id === (filter ?? '')) ?? HISTORY_FILTERS[0];
   const shown = p.entries.filter(f[2]);
-  const key = (f[0] ? shown : shown.filter((e) => KEY_EVENTS.has(e.kind))).slice(0, f[0] ? undefined : EVENTS_AT_REST);
-  const rest = f[0] ? [] : shown.filter((e) => !key.includes(e));
+  const key = (f[0] ? shown : shown.filter((e) => KEY_EVENTS.has(e.kind))).slice(0, EVENTS_AT_REST);
+  const rest = shown.filter((e) => !key.includes(e));
   const since = p.since ? ` since ${esc(p.since)}` : ' today';
   return `<div class="pg">${pageHead('History', p, p.since ? `<span class="pg-at">Covers today since ${esc(p.since)}</span>` : '')}<div class="pg-lead hs-sum">${p.summary.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
     <nav class="pg-filters">${HISTORY_FILTERS.map(([id, label]) => `<a href="#/history${id ? `/${id}` : ''}" class="${id === f[0] ? 'on' : ''}">${label}</a>`).join('')}</nav>
     <ol class="hs">${key.map(historyEntry).join('') || `<li class="pg-none">Nothing of this kind${since}.</li>`}</ol>
-    ${rest.length ? fold('hs-rest', `Other events <span class="pg-n">${rest.length}</span>`, `<ol class="hs">${rest.map(historyEntry).join('')}</ol>`) : ''}</div>`;
+    ${rest.length ? fold(`hs-rest-${f[0]}`, `${f[0] ? 'Earlier' : 'Other events'} <span class="pg-n">${rest.length}</span>`, `<ol class="hs">${rest.map(historyEntry).join('')}</ol>`) : ''}</div>`;
 }
 
 document.addEventListener('click', (e) => {

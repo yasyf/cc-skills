@@ -34,6 +34,7 @@ PLAN_SCHEMA = strict({
         "ships": string(),
         "waits": string(),
         "since": string("Pacific clock time the wait started, or empty"),
+        "card": string("id of the open_questions entry it waits on, or empty"),
         "note": string(),
     })),
     "parts": listing(strict({
@@ -43,6 +44,7 @@ PLAN_SCHEMA = strict({
         "label": string(),
         "blocks": string(),
         "since": string("Pacific clock time the blocker started, or empty"),
+        "card": string("id of the open_questions entry it waits on, or empty"),
         "doing": string(),
         "delivers": string(),
         "went_wrong": string(),
@@ -57,6 +59,7 @@ PLAN_PROMPT = PAGE_PROMPT.format(what="the Plan page of a live dashboard that a 
 - changes: each open change of the part, at most 8, the ones nearest to landing first: number from the facts, name at most 8 words for what it does for users, state at most 4 words such as Waits on you, Tests failing, Being built, Approved.
 - landed: up to four landed changes of the part, newest first, each at most 8 words for what it lets a person do, never its title.
 - A milestone's waits names the decision or change it waits on, never "your word"; its note and the part rows agree on one current failure.
+- A milestone or part waits on the owner only when an entry of open_questions asks it; then card is that entry's id and waits or blocks names the question. With no such entry, never say it waits on him or his pick; card is empty.
 - since, for a milestone that waits and a part that is blocked: the Pacific clock time of the record that started the wait (the push, the hold, the failing check, the question going up), or empty when nothing blocks it. The page shows how long from since, so waits and blocks never repeat the time.
 - A blocker the main page names keeps the same words here.""")
 
@@ -69,6 +72,7 @@ WORK_SCHEMA = strict({
 
 WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a busy engineering lead reads. It lists every piece of work in the drive today: what runs now, what finished and its result, and the helpers that keep the drive running.", fields="""- A piece of work is what is being made, never a worker. Several workers on one thing, and a worker's successor (a name ending in -2 or -3), are one piece.
 - running: every piece of work with a worker that reported in the last two hours, or whose result still waits on a release, an approval, tests or another change, most important first: fixing a blocker, then the next milestone, then the rest. item: reuse the id and title of the same work from main_page_work or previous. title: at most 8 words, what it makes for users. status: one of the listed words; "Ready for you" only when one of its open_pull_requests waits on Yasyf's approval, "Landing" when he approved them and they wait to land. latest: at most 16 words, the newest real progress, said as what works or what is still broken for users. started: the Pacific clock time its first worker started today. blocked_since: when its status is Stuck, Ready for you, Waiting on tests or Under review, the Pacific clock time of the record that started that wait (the push, the hold, the failing check, the review request); else empty. For work waiting on one of its open_pull_requests, blocked_since is that request's waiting_since, so Work and Review agree. The page shows how long from blocked_since, so latest never repeats when the wait began. workers: the worker names (facts only, never shown).
+- Say a piece of work waits on the owner (status Ready for you) only when an entry of open_questions or an open pull request in his review asks it, naming that question or change; otherwise name who it waits on.
 - finished: only work that delivered its result, or stopped for good with nothing left to do, newest first. Work stopped to wait for a decision is running with status Stuck or Ready for you. Work that still waits on a release, an approval, tests, a merge or another worker is running, never finished; so is work whose merge is not known. outcome: delivered or stopped. title as above. result: at most 16 words, what it delivered for users, or for stopped work why it stopped and who took it over. at: the Pacific clock time of its last report.
 - Leave out any piece of work whose purpose the facts do not say. Rolling out means a deploy is running now; a change that ships with the next release is Waiting for release.
 - Name whoever acts by their job, such as "the cloud runs worker", "codex" or "the merge process", never just "a worker".
@@ -134,6 +138,10 @@ def plan_slot(path):
     return None
 
 
+def open_questions(model):
+    return [{"id": card["id"], "question": card["title"], "recommended": card.get("recommended")} for card in model["board"]["cards"]]
+
+
 def plan_digest(model, config, previous, now):
     entries = {e["number"]: e for e in model["drive"]["prs"]}
     releases = {r.get("id"): r for r in model["now"].get("releases", [])}
@@ -158,6 +166,7 @@ def plan_digest(model, config, previous, now):
             }
             for s in model["steps"]
         ],
+        "open_questions": open_questions(model),
         "recent_trouble": trouble(model["records"], now),
         "coordinator_rulings": rulings(model["records"], now),
         "previous": previous_of(previous, PLAN_SCHEMA),
@@ -203,6 +212,7 @@ def work_digest(model, config, previous, now):
         "now": clock(now),
         "window": f"since {clock(now - WORK_WINDOW)}",
         "main_page_work": [{k: w[k] for k in ("item", "title", "workers")} for w in brief.get("work", [])],
+        "open_questions": open_questions(model),
         "coordinator_rulings": rulings(model["records"], now),
         "open_changes": open_changes(model),
         "workers": workers,

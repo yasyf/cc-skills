@@ -15,6 +15,7 @@ function testPill(pr) {
 function reviewPR(n, tab) {
   const row = boardRow(n);
   const gh = `https://github.com/${state.model.repo}/pull/${n}`;
+  const open = `<a class="pill" href="${gh}" target="_blank" rel="noopener">Open on GitHub ›</a><a class="pill" href="https://app.graphite.com/github/pr/${state.model.repo}/${n}" target="_blank" rel="noopener">Open in Graphite ›</a>`;
   if (!row) {
     if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
     const s = prState(n);
@@ -22,7 +23,7 @@ function reviewPR(n, tab) {
     const go = approvedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
-      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
+      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
       ${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
   }
   const v = verdictState(row);
@@ -35,7 +36,7 @@ function reviewPR(n, tab) {
   const waits = waitLine(row, w);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
   return `<div class="pr-head" data-assist-pr="${n}"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
-    <a class="pill" href="${gh}" target="_blank" rel="noopener">Open on GitHub ›</a>${testPill(state.model.prs[n] ?? {})}
+    ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
     ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${waits}${carried}${rowFacts(row)}</div>${prText(n)}`}`;

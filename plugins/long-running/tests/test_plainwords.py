@@ -24,6 +24,7 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "One finding remains open",
         "Fixed the typecheck that broke getSession",
         "Writes land through sandsql-journal-next",
+        "Threads link Sentry issues through cc-slack",
         "Blob storage credentials re-mint after an hour",
         "Two release-order footers are wrong",
         "Step 11 waits on the replica",

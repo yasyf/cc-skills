@@ -1,8 +1,4 @@
 <style>
-.kbtn + .fresh { margin-left: 0; }
-.kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
-.kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
-.kbtn:hover { color: var(--ink); border-color: var(--ink-3); }
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
 #pal { position: fixed; inset: 0; z-index: 80; background: rgba(10,14,17,.5); display: flex; justify-content: center; align-items: start; padding: 10vh 14px 14px; }
@@ -51,7 +47,6 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .as-bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
 .as-bucket.safe { color: var(--ok); } .as-bucket.read { color: var(--warn); }
 @media (max-width: 700px) {
-  .kbtn span, .kbtn kbd { display: none; }
   #pal { padding: 0; align-items: stretch; }
   #pal .box { max-height: none; border-radius: 0; width: 100%; }
   #pal .foot { order: -1; border-top: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; }
@@ -259,7 +254,6 @@ function needsYou(){
 
 function decorate(r){
  const top=document.querySelector(".top");
- if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
  const main=document.getElementById("main");
  if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
