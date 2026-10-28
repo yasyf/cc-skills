@@ -469,7 +469,6 @@ document.addEventListener("click",e=>{
  const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
-window.addEventListener("hashchange",closePal);
 Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
 })();
 </script>

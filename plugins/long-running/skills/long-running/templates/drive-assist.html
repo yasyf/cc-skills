@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:a6e0916f1e07 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:e233287717d2 — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
 #pal { margin-top: 18px; }
@@ -699,7 +699,6 @@ document.addEventListener("click",e=>{
  const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
-window.addEventListener("hashchange",closePal);
 Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
 })();
 </script>

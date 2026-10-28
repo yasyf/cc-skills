@@ -38,6 +38,40 @@ function forSince(label) {
   const iso = sinceClock(label);
   return iso ? `<small class="pg-for">${blockedFor(iso)}</small>` : '';
 }
+const named = (n) => `“${shortName(n) ?? plainTitle(n)}”`;
+const LEDGER_WORDS = [
+  [/^waits on #(\d+) below it$/, (n) => `Waits for ${named(n)} below it to land`],
+  [/^land #(\d+) first$/, (n) => `${named(n)} lands first`],
+  [/^held: a hold record covers it$/, () => 'Held by the coordinator'],
+  [/^held: (?:root cci hold: )?(.+?)(?: \(hold records[^)]*\))?$/, (why) => `Held by the coordinator: ${why}`],
+  [/^in the merge queue$/, () => 'In the merge queue'],
+  [/^green with a go, not queued$/, () => 'Approved and passing, not yet in the merge queue'],
+  [/^green, and no go names this head$/, () => 'Passing; this version is not approved yet'],
+  [/^needs a restack: the PR below it landed$/, () => 'Needs rebuilding on the change below it, which landed'],
+  [/^red on .+$/, () => 'Its tests fail'],
+  [/^fix the red build of #\d+ at \w+$/, () => 'its worker fixes the failing tests'],
+  [/^lift the hold on #\d+ or do what it waits on$/, () => 'the coordinator lifts the hold, or its worker does what the hold waits on'],
+  [/^restack #\d+ at \w+ onto its new parent/, () => 'its worker rebuilds it on the landed change'],
+  [/^root posts `go #\d+ at \w+`/, () => 'the coordinator approves this version or puts it on your board'],
+  [/^the landing desk enqueues #\d+ at \w+$/, () => 'the merge process queues it'],
+  [/^the landing desk reads why the merge queue still holds #\d+ at \w+$/, () => 'the merge process finds out why the queue still holds it'],
+];
+function ledgerWords(text) {
+  const hit = LEDGER_WORDS.find(([pattern]) => pattern.test(text));
+  if (hit) return hit[1](...text.match(hit[0]).slice(1));
+  return text.replace(/`[^`]*`/g, '').replace(/\b[0-9a-f]{7,40}\b/g, '').replace(/#(\d{4,6})\b/g, (_, n) => named(n)).replace(/\s+/g, ' ').trim();
+}
+function stackRow(n) {
+  return state.model.stack.find((row) => row.pr === String(n));
+}
+function stackFacts(n) {
+  const row = stackRow(n);
+  if (!row) return '';
+  return `<dt>Landing stage</dt><dd>${esc(ledgerWords(row.state))}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(ledgerWords(row.next).replace(/^./, (c) => c.toUpperCase()))}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
+}
+function stackLine(row) {
+  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(ledgerWords(row.state))}.${/^land #\d+ first$/.test(row.next) ? '' : ` Next, ${esc(ledgerWords(row.next))}.`}</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
+}
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
 }
@@ -120,7 +154,7 @@ function workerScreen(lane) {
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
-    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li>${inline(e.blocker)}</li>`).join('')}</ul>` : 'Nothing'],
+    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li><a href="#/review/${e.number}">${esc(blockerNode(e.number)?.text ?? (stackRow(e.number) ? ledgerWords(stackRow(e.number).state) : e.blocker))}</a></li>`).join('')}</ul>` : 'Nothing'],
   ]);
 }
 function workScreen(item) {
@@ -132,10 +166,15 @@ function workScreen(item) {
   const running = p.running.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : ''));
   const rest = running.slice(RUNNING_AT_REST);
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
+  const m = state.model;
+  const stuck = m.stack.filter((row) => row.stale);
+  const moving = m.stack.filter((row) => !row.stale);
   const helpers = p.helpers.map((h) => `<li>${h.workers.length ? `<a href="#/worker/${encodeURIComponent(h.workers[0])}"><b>${esc(h.name)}</b></a>` : `<b>${esc(h.name)}</b>`}<span>${esc(h.latest)}</span></li>`).join('');
   return `<div class="pg">${pageHead('Work', p)}
     <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
     ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`, p.running.slice(RUNNING_AT_REST).some((w) => w.item === item)) : ''}</section>
+    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<div class="pg-list">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
+    ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
     ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`, p.finished.some((w) => w.item === item))}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
 }
