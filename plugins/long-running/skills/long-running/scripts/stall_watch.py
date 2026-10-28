@@ -25,8 +25,8 @@ its ledger row names, it finds:
     fidelity  a `head` record names the head, and no fidelity grade does
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
-              the board holds no row or card for it at that head, and no root decide pulled its row
-              with no READY record about the PR since
+              the board holds no row or card for it at that head, no holds-file line leads with it, and no
+              root decide pulled its row with no READY record about the PR since
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
               such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
@@ -57,7 +57,8 @@ and, across the drive:
               PR whose owning lane has no live record in the window goes to root; a changed state on
               the same head counts from the pass that saw it change; a held PR whose holds-file line
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
-              is tapped, or the hold lifts
+              is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
+              line leads with counts as held here
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
@@ -143,6 +144,7 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 LANE_OWES = (RED, CONFLICTS, BASE_DRIFT, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
+LEADING_PRS = re.compile(r"^(?:#\d+\s+)+")
 SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
@@ -559,7 +561,7 @@ class Pass:
         hold_lines = holds.read(Path(landing["holds"]).expanduser())
         held = holds.held(hold_lines, rows) | set(cci.held_prs(self.tail, drive_name))
         for entry in hold_lines:
-            for named in entry.prs:
+            for named in PR_REF.findall(leading[0] if (leading := LEADING_PRS.match(entry.line)) else ""):
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
                 if board:
                     self.hold_asks.setdefault(named, set()).update(board.open_asks(named, entry.line))
@@ -587,7 +589,7 @@ class Pass:
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
-            entries.append(stack_row(pr, row, rows, lane, holding(pr), bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
+            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
@@ -631,7 +633,7 @@ class Pass:
             if not finder_ok or not standing or not all(grade["text"].startswith(grades.FIDELITY_OK) for grade in standing):
                 continue
             ready = max(at(record) for record in [*finder_ok, *standing])
-            if board.shows(pr, head) or self.now - ready < self.watch.age("board"):
+            if board.shows(pr, head) or pr in self.hold_gates or self.now - ready < self.watch.age("board"):
                 continue
             pulls = [record for record in records if record["lane"] in ROOT_NAMES and record["kind"] in ("decide", "decision") and grades.about_pr(record, repo, pr) and PULLED.search(grades.full_text(record))]
             if pulls and not any(record["seq"] > pulls[-1]["seq"] and grades.about_pr(record, repo, pr) and (record["kind"] == "ready" or READY.search(record["text"])) for record in records):

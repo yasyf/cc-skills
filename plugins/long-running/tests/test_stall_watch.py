@@ -432,6 +432,16 @@ def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_la
     assert "landed" not in text
 
 
+def test_a_pr_in_a_holds_lines_leading_run_draws_no_board_stall(config, tmp_path):
+    (tmp_path / "holds.md").write_text("#100 #101 restack onto #200 and land after the cloud-runs batch\n")
+    shell = FakeShell([*graded(1, "101", HEAD, 150), *graded(4, "200", HEAD, 150)], [row("101"), row("200", test_state="pending")])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.endswith(":101:abc1234")] == []
+    assert next(found for found in json.loads((config.parent / "inbox/stack.json").read_text())["prs"] if found["pr"] == "101")["state"].startswith("held: ")
+
+
 def merge_mode(config: Path, mode: str) -> None:
     raw = json.loads(config.read_text())
     raw["landing"]["merge_mode"] = mode
