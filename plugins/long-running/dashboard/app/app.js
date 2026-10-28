@@ -407,13 +407,15 @@ window.addEventListener('hashchange', () => {
   render();
   window.scrollTo(0, history.state?.y ?? 0);
 });
-let scrollSave = 0;
-window.addEventListener('scroll', () => {
-  clearTimeout(scrollSave);
-  scrollSave = setTimeout(() => history.replaceState({ ...history.state, y: window.scrollY }, ''), 120);
-}, { passive: true });
+function keepScroll() {
+  history.replaceState({ ...history.state, y: window.scrollY }, '');
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('a[href^="#"]') && !e.defaultPrevented) keepScroll();
+}, true);
 window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
   load();
   connect();
 });
+
