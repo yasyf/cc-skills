@@ -143,3 +143,13 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { #main.enter > .pg, .pg-fold[open] > :not(summary), .pg-wait::after { animation: none; } }
 .wk-caption { display: flex; align-items: center; gap: 8px; margin: -2px 0 8px; color: var(--ink-2); font-size: 13px; }
 .wk-next { color: var(--ink-3); }
+.st-table { max-width: none; }
+.st-table .tablewrap { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+.st-table table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.45; }
+.st-table th { padding: 10px 12px 8px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.st-table td { padding: 10px 12px; vertical-align: top; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.st-table td:first-child { color: var(--ink); font-weight: 600; min-width: 150px; }
+.st-table tr:last-child td { border-bottom: 0; }
+.st-prs .pg-thead, .st-prs .pg-cells { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .7fr) minmax(0, 1.5fr); }
+.st-prs .pg-cells > b:first-child { padding-left: 16px; }
+.st-for { color: var(--ink-2); font-size: 12.5px; }

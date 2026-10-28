@@ -36,6 +36,7 @@ PLAN_SCHEMA = strict({
         "since": string("Pacific clock time the wait started, or empty"),
         "card": string("id of the open_questions entry it waits on, or empty"),
         "note": string(),
+        "unblock": string(),
     })),
     "parts": listing(strict({
         "id": string("the part's id from the facts"),
@@ -54,14 +55,14 @@ PLAN_SCHEMA = strict({
 })
 
 PLAN_PROMPT = PAGE_PROMPT.format(what="the Plan page of a live dashboard that a busy engineering lead reads. For each milestone and each part of the plan it says where it stands, what blocks it, and what is being done about it.", fields="""- summary: one sentence of at most 25 words: how far the plan is and the one thing most in the way.
-- milestones: exactly one entry per milestone, in order. state and label as on the main page; copy them from main_page.stops when the facts agree, except never "Half live": a partly live milestone's label names what is live, such as "Old app live". ships: at most 16 words, what users get when it is live. waits: at most 16 words, what it waits on now, or empty when it is live or nothing is open. note: at most 25 words, a problem that still matters for this milestone and who is on it, or how a past problem was settled (such as "The update failed to publish at 1:10 PM; republished and checked at 1:52 PM"); empty when there is none.
-- parts: one entry per plan part, in the facts' order. id is the part's id. name: at most 6 words, what the part makes for users. state: done, doing (being built or tested), you (waits on the owner), stuck, waiting (on tests, the merge process or another part), or later. label: two to four words such as Done, Being built, Waits on you, Stuck in testing, Not started. name it by what a person can do once it is done, never by its mechanism (protocol, credentials, token, follower, conversion). state and label come from the earliest thing still unresolved in it: a change whose tests fail makes it stuck, not waiting on merging. blocks: at most 10 words, the one thing blocking it now, or empty; a decision it waits on is named, such as "your pick on the browser live-update question", never "your word". doing: at most 10 words, who acts next, named by their job such as "the cloud runs worker", "codex" or "the merge process", never just "a worker", and what they do; empty for a part that is done or not started; never "not known": when no one is on it, say who assigns it. delivers: at most 16 words. went_wrong: at most 25 words, only what still affects users or the plan; empty for a done part whose problems are settled.
+- milestones: exactly one entry per milestone, in order. state and label as on the main page; copy them from main_page.stops when the facts agree, except never "Half live": a partly live milestone's label names what is live, such as "Old app live". ships: at most 16 words, what users get when it is live. waits: at most 30 words, exactly what it waits on now and why, or empty when it is live or nothing is open. note is what went wrong so far: at most 40 words, a short retro of what went wrong on the way to this milestone and its cause, such as unplanned logic bundled into fixes, a revert, branches drifting apart, or conflicts from changes that landed midway; never the current blocker restated; empty when nothing went wrong. unblock: at most 30 words, what is being done to unblock it now: who does it, named by their job, the exact action, and when it is due from the records, or "no time given"; empty when it is live or not started.
+- parts: one entry per plan part, in the facts' order. id is the part's id. name: at most 6 words, what the part makes for users. state: done, doing (being built or tested), you (waits on the owner), stuck, waiting (on tests, the merge process or another part), or later. label: two to four words such as Done, Being built, Waits on you, Stuck in testing, Not started. name it by what a person can do once it is done, never by its mechanism (protocol, credentials, token, follower, conversion). state and label come from the earliest thing still unresolved in it: a change whose tests fail makes it stuck, not waiting on merging. blocks: at most 30 words, exactly what blocks it now and why, or empty; a decision it waits on is named, such as "your pick on the browser live-update question", never "your word". doing: at most 30 words, what is being done to unblock it: who acts, named by their job such as "the cloud runs worker", "codex" or "the merge process", never just "a worker", the exact action, and when it is due from the records, or "no time given"; empty for a part that is done or not started; never "not known": when no one is on it, say who assigns it. delivers: at most 16 words. went_wrong: at most 40 words, a short retro of what went wrong in this part and its cause, as for a milestone's note; empty for a done part whose problems are settled.
 - changes: each open change of the part, at most 8, the ones nearest to landing first: number from the facts, name at most 8 words for what it does for users, state at most 4 words such as Waits on you, Tests failing, Being built, Approved.
 - landed: up to four landed changes of the part, newest first, each at most 8 words for what it lets a person do, never its title.
 - A milestone's waits names the decision or change it waits on, never "your word"; its note and the part rows agree on one current failure.
 - A milestone or part waits on the owner only when an entry of open_questions asks it; then card is that entry's id and waits or blocks names the question. With no such entry, never say it waits on him or his pick; card is empty.
 - since, for a milestone that waits and a part that is blocked: the Pacific clock time of the record that started the wait (the push, the hold, the failing check, the question going up), or empty when nothing blocks it. The page shows how long from since, so waits and blocks never repeat the time.
-- A blocker the main page names keeps the same words here.""")
+- Exactly means the thing a reader could act on: which code fails and why, such as "the cloud runs layer and nine packages above it import the deleted blob store until the change that splits it lands", or "70 command tests fail in two clusters"; never a generic line such as "new code still fails to build" or "tests fail".""")
 
 WORK_ITEM = {"item": string("stable id, lowercase words joined by dashes"), "workers": listing(string()), "title": string()}
 WORK_SCHEMA = strict({
@@ -130,13 +131,13 @@ def plan_slot(path):
     if path == ("summary",):
         return "headline"
     if path[:1] == ("milestones",):
-        return {"label": "title", "ships": "latest", "waits": "latest", "note": "headline"}.get(key)
+        return {"label": "title", "ships": "latest", "waits": "story", "note": "sentence", "unblock": "story"}.get(key)
     if "changes" in path:
         return {"name": "title", "state": "title"}.get(key)
     if "landed" in path:
         return "title"
     if path[:1] == ("parts",):
-        return {"name": "title", "label": "title", "blocks": "latest", "doing": "latest", "delivers": "latest", "went_wrong": "headline"}.get(key)
+        return {"name": "title", "label": "title", "blocks": "story", "doing": "story", "delivers": "latest", "went_wrong": "sentence"}.get(key)
     return None
 
 

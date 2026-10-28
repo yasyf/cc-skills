@@ -839,6 +839,7 @@ class Drive:
             "brief_error": self.curator.error,
             "status_now": self.status_now,
             "stack": json.loads(Path(self.config["stack"]).read_text())["prs"],
+            "status_table": Path(self.config["status_table"]).read_text(),
             "pages": {name: curator.brief for name, curator in self.pages.items()},
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],

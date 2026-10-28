@@ -105,7 +105,7 @@ function answerLink(card) {
   return card && state.model.board.cards.some((c) => c.id === card) ? `<a class="pg-go" href="#/review/q/${encodeURIComponent(card)}">Answer it on Review ›</a>` : '';
 }
 function milestoneOf(p, i) {
-  return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '' };
+  return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '', unblock: '' };
 }
 function planScreen(focus) {
   const p = curated('plan');
@@ -125,7 +125,7 @@ function planScreen(focus) {
   const done = p.parts.filter((part) => part.state === 'done');
   return `<div class="pg">${pageHead('Plan', p)}<p class="pg-lead">${esc(p.summary)}</p>
     <section class="pg-sec"><h2>${esc(state.model.milestones_label)}</h2><div class="pg-table pl-ms">${tableHead('Milestone', 'State', 'What it waits on')}${milestones.join('')}</div></section>
-    <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'Who acts next')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
+    <section class="pg-sec"><h2>Parts of the plan still open</h2><div class="pg-table pl-parts">${tableHead('Part', 'State', 'What blocks it', 'What we are doing to unblock it')}${open.map(partRow).join('') || '<p class="pg-none">Every part of the plan is done.</p>'}</div>
     ${later.length ? fold('pl-later', `Not started <span class="pg-n">${later.length}</span>`, `<div class="pg-table pl-parts">${later.map(partRow).join('')}</div>`) : ''}
     ${done.length ? fold('pl-done', `Done <span class="pg-n">${done.length}</span>`, `<div class="pg-table pl-parts">${done.map(partRow).join('')}</div>`) : ''}</section></div>`;
 }
@@ -139,6 +139,7 @@ function milestonePage(p, i) {
   const step = (j, label) => (names[j] ? `<a class="btn" href="#/plan/m${j}">${label}</a>` : '');
   return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}${answerLink(s.card)}</p>`, [
     ['What it waits on', s.waits ? `${esc(s.waits)}${forSince(s.since)}` : esc(s.state === 'not' ? 'The milestone above' : s.state === 'live' ? 'Nothing: it is live' : 'Nothing open')],
+    ['What we are doing to unblock it', esc(s.unblock ?? '')],
     ['What it ships', esc(s.ships)],
     ['What went wrong so far', esc(s.note)],
   ], `<p class="acts">${step(i - 1, '‹ Previous milestone')}${step(i + 1, 'Next milestone ›')}</p>`);
@@ -148,11 +149,20 @@ function partPage(part) {
   return detailPage(['#/plan', 'Plan'], 'Part of the plan', part.name, `<p class="pg-stateline">${dotted(part.label, PART_TONE[part.state])}${answerLink(part.card)}</p>`, [
     ['What it delivers', esc(part.delivers)],
     ['What blocks it', part.blocks ? `${esc(part.blocks)}${forSince(part.since)}` : ''],
-    ['Who acts next', esc(part.doing)],
+    ['What we are doing to unblock it', esc(part.doing)],
     ['What went wrong so far', esc(part.went_wrong)],
     ['Open changes', changes ? `<ul class="pg-changes">${changes}</ul>` : ''],
     ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>` : ''],
   ]);
+}
+function statusScreen() {
+  const m = state.model;
+  const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
+  const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
+  const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${esc(problem(pr))}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
+  return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table">${markdown(m.status_table)}</div></section>
+    <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {
   return Boolean(a && b) && a.replace(/-\d+$/, '') === b.replace(/-\d+$/, '');
