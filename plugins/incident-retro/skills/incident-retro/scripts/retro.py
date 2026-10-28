@@ -188,9 +188,10 @@ LIVE_PHASES = ("detected", "investigating", "identified", "mitigated", "resolved
 LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "sessions", "source")
 SESSION_ROLES = ("fixer", "ic")
 SESSION_STATES = ("running", "draining", "drained", "skipped", "down")
-SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander"}
-FIXER_PHASES = ("investigating", "diagnosed", "fixing", "pr-opened", "pr-merged", "hotfixing", "shipped",
-                "stuck", "refused", "release-failed", "unproven", "muted")
+SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander", "waiting"}
+WAITING_FIELDS = {"on", "from", "since"}
+FIXER_PHASES = ("investigating", "diagnosed", "fixing", "applied", "watching", "pr-opened", "pr-merged", "hotfixing",
+                "shipped", "stuck", "refused", "release-failed", "unproven", "muted")
 PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
                 "mitigated": ("engaged", "mitigated"),
                 "resolved": ("engaged", "mitigated", "resolved", "allClear")}
@@ -1000,7 +1001,7 @@ def check_sessions(rep, sessions):
     if sessions is None:
         return
     if not isinstance(sessions, list) or not all(isinstance(x, dict) for x in sessions):
-        rep.err("live.sessions must be a list of {role, state, phase?, step?, since?, beatAt?, build?, attempt?, commander?}")
+        rep.err("live.sessions must be a list of {role, state, phase?, step?, since?, beatAt?, build?, attempt?, commander?, waiting?}")
         return
     for at, session in enumerate(sessions):
         where = f"live.sessions[{at}]"
@@ -1018,6 +1019,16 @@ def check_sessions(rep, sessions):
                     parse_ts(session[key])
                 except ValueError as e:
                     rep.err(f"{where}.{key} {session[key]!r} {e}")
+        waiting = session.get("waiting")
+        if waiting is not None:
+            if not isinstance(waiting, dict) or set(waiting) != WAITING_FIELDS or not all(
+                    isinstance(waiting[key], str) and waiting[key].strip() for key in WAITING_FIELDS):
+                rep.err(f"{where}.waiting must be {{on, from, since}}, each a non-empty string")
+            else:
+                try:
+                    parse_ts(waiting["since"])
+                except ValueError as e:
+                    rep.err(f"{where}.waiting.since {waiting['since']!r} {e}")
         if session.get("build") is not None and not (isinstance(session["build"], str) and session["build"].startswith("https://")):
             rep.err(f"{where}.build {session['build']!r} is not an https URL")
 
