@@ -29,6 +29,7 @@ TRIGGERS = (
     ("i", "do", "not", "understand"),
 )
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[?.!,;:\n]")
+PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
 LEADING = frozenset({"a", "an", "the", "this", "that", "these", "those"})
 PRONOUNS = frozenset({"this", "that", "it", "these", "those", "all", "everything"})
@@ -210,7 +211,7 @@ def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
         return prompt
     if (key := folded(prompt.get("stamp", prompt["text"]))) in seen:
         return prompt | {"at": seen[key].astimezone(UTC).strftime(STAMP)}
-    if ending and "submitted" in prompt:
+    if "submitted" in prompt and (ending or PASTED_IMAGE.search(prompt["text"])):
         return prompt | {"at": prompt["submitted"]}
     return prompt
 

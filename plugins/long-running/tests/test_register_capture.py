@@ -157,16 +157,14 @@ def test_a_queued_prompt_takes_its_queued_command_stamp(root):
     assert [capture["at"] for capture in root.captures()] == ["2026-10-22T19:43:49Z"]
 
 
-def test_a_queued_prompt_carrying_a_screenshot_lands_at_stop_with_the_time_its_hook_saw_it(root):
+def test_a_queued_prompt_carrying_a_screenshot_lands_at_the_next_hook_with_the_time_its_hook_saw_it(root):
     text = "this is too generic you can say ssql etc wtf [Image #32]"
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
     root.line({"type": "attachment", "attachment": {"type": "queued_command", "prompt": [{"type": "text", "text": text}, image], "commandMode": "prompt"}}, "2026-10-27T20:58:28.707Z")
     before = datetime.now(UTC).replace(microsecond=0)
     root.prompt(text)
-    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
-    assert root.captures() == []
 
-    root.fire(StopEvent)
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
 
     [landed] = root.captures()
     assert (landed["text"], landed["source"]) == (text, "prompt")
