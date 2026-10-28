@@ -58,7 +58,7 @@ NODE_SCHEMA = {
         "change": {"type": "integer", "description": "the number from open_changes of the change this node is about, or 0"},
         "text": {"type": "string", "description": "what is stuck or what must happen, at most 10 words"},
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
-        "how": {"type": "string", "description": "who acts next and what they do, at most 12 words, such as 'The cloud runs worker rebuilds the fix, then the review rechecks'"},
+        "how": {"type": "string", "description": "who acts next, named by their work and never as another drive or team, what they do, and by when, at most 12 words, such as 'The cloud runs worker rebuilds the fix by 5 PM' or 'Lands on your tap'; a time comes only from a record"},
         "item": {"type": "string", "description": "the work item id fixing it, or empty"},
         "since": {"type": "string", "description": "Pacific clock time of the record that started this wait, such as 11:45 AM; empty only when done"},
     },
