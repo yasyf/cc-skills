@@ -21,7 +21,7 @@ CHECKS = (
 def violations(text: str, slot: str = "line", lanes: tuple[str, ...] = ()) -> list[str]:
     found = [name for name, pattern in CHECKS if pattern.search(text)]
     lowered = text.lower()
-    found += [f"the coined word {word!r}" for word in COINED if re.search(rf"\b{re.escape(word)}s?\b", lowered)]
+    found += [f"the coined word {word!r}" for word in COINED if re.search(rf"\b{re.escape(word).replace(chr(92) + ' ', '[- ]')}s?\b", lowered)]
     found += [f"the git word {word!r}" for word in GIT_VERBS if re.search(rf"\b{re.escape(word)}", lowered)]
     found += [f"the worker name {lane!r}" for lane in lanes if lane and lane.lower() in lowered]
     words = len(text.split())
