@@ -83,28 +83,27 @@ def test_the_needs_you_band_shows_every_word(page):
     assert cut == []
 
 
-def test_the_needs_you_sheet_frames_each_question_once(page):
-    page.goto(page.url.split("#")[0] + "#/now")
-    page.wait_for_selector(".bcard")
+def test_review_frames_each_question_once(page):
+    page.goto(page.url.split("#")[0] + "#/review")
+    page.wait_for_selector(".bq")
     nested = page.evaluate("""() => {
         const framed = (el) => el.matches('section, article, div') && parseFloat(getComputedStyle(el).borderTopWidth) > 0 && parseFloat(getComputedStyle(el).borderTopLeftRadius) > 0;
-        return [...document.querySelectorAll('.bcard *')].filter((el) => {
+        return [...document.querySelectorAll('.bq *')].filter((el) => {
           if (!framed(el)) return false;
           let depth = 0;
-          for (let up = el.parentElement; up && !up.classList.contains('sheet'); up = up.parentElement) if (framed(up)) depth += 1;
+          for (let up = el.parentElement; up; up = up.parentElement) if (framed(up)) depth += 1;
           return depth > 1;
         }).map((el) => el.className);
     }""")
     assert nested == []
 
 
-def test_needs_you_headings_are_one_neutral_color(page):
-    page.goto(page.url.split("#")[0] + "#/now")
-    page.wait_for_selector(".bcard")
-    loud = page.evaluate("""() => [...document.querySelectorAll('.bcard > header h3')]
+def test_review_question_headings_are_one_neutral_color(page):
+    page.goto(page.url.split("#")[0] + "#/review")
+    page.wait_for_selector(".bq")
+    loud = page.evaluate("""() => [...document.querySelectorAll('.bq > header .mr-t')]
         .filter((h) => h.querySelector('.nmark, a, i') || [...h.querySelectorAll('*')].some((el) => getComputedStyle(el).color !== getComputedStyle(h).color))
         .map((h) => h.textContent)""")
-    assert page.locator(".bcard > header .nmark").count() == 0
     assert loud == []
 
 
