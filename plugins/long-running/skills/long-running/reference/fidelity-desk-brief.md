@@ -94,7 +94,8 @@ A head needs a grade when an `opened` or `head` record names it, when its lane
 reports READY, or when the runner's `blocker` names it ungraded.
 
 1. Print the head's required rows with `slice --required`.
-2. Read the diff at that head, pinned by sha (`git fetch origin <sha>`, then
+2. Read the diff at that head, pinned by sha (`git fetch origin <sha>` only when
+   `git --no-lazy-fetch cat-file --batch-check` reports it missing, then
    `git diff <base>...<sha>`), never the PR's moving tip, and read the code around every changed symbol at that sha
    (its callers and callees as the head has them, and their base versions too when the head deletes or moves
    behavior), the tests it adds or edits, and the PR body.
