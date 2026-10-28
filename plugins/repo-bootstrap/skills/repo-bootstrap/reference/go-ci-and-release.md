@@ -85,7 +85,7 @@ homebrew_casks:
     custom_block: |
       postflight_steps do
         on_macos do
-          run "/usr/bin/codesign", args: ["--verify", "--strict", "-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"<TEAM_ID>\"", "--", "{{ "{{staged_path}}" }}/<name>"]
+          run "/usr/bin/codesign", args: ["--verify", "--strict", '-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "<TEAM_ID>"', "--", "{{ "{{staged_path}}" }}/<name>"]
           run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{ "{{staged_path}}" }}/<name>"], must_succeed: false, print_stderr: false
         end
       end
