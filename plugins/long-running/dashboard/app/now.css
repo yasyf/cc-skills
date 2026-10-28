@@ -165,4 +165,19 @@
 .nw-later li:not(:last-child)::after { content: ""; position: absolute; left: 3.5px; top: 15px; bottom: -6px; width: 1px; background: var(--line2); }
 .nw-later li.goal::before { content: "↓"; width: auto; height: auto; margin: -2px 0 0 -1px; border: 0; font-size: 11px; color: var(--ink3); }
 .nw-later li.goal b { font-weight: 500; color: var(--ink2); }
+.nw-code { margin: 2px 0 0; font-size: 12.5px; }
+.nw-later li > p { margin: 0; grid-column: 2; }
+.nw-later li > p b { font-weight: 600; }
+.nw-later li:not(:last-child)::after { top: 13px; bottom: -3px; left: 1px; width: 7px; background: var(--ink3); clip-path: polygon(3px 0, 4px 0, 4px calc(100% - 5px), 7px calc(100% - 5px), 3.5px 100%, 0 calc(100% - 5px), 3px calc(100% - 5px)); }
+.nw-later li::before { grid-row: 1; }
+.nw-later ul { gap: 5px; }
+.nw-cards { gap: 8px; }
+.nw-cards .stuck { padding: 8px 14px 6px; }
+.nw-cards .stuck .t { font-size: 14px; }
+.nw-cards .meta { font-size: 12px; margin-top: 1px; }
+.nw-cards .unb { padding: 6px 14px 8px; font-size: 13px; }
 
+.nw-later { padding: 5px 12px 6px; }
+.nw-later ul { margin-top: 2px; gap: 3px; }
+.nw-later li { line-height: 1.3; }
+.nw-later li:not(:last-child)::after { bottom: -2px; }
