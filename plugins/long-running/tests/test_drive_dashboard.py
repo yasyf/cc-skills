@@ -734,3 +734,10 @@ def test_a_ci_fix_on_a_root_go_lands_without_his_tap_and_reports_no_defect():
 
     assert [(r["state"], r["ci_fix_go"]) for r in rows] == [("approved", True), ("approved", False)]
     assert reported == ["#43700 has a root go at b4e5f6a but the board store holds no approval at that head; the dashboard shows it approved, landing"]
+
+
+def test_a_go_the_coordinator_withdraws_stops_counting_as_a_ci_fix():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.note_go({"kind": "go", "lane": "root", "text": "go #44087 at 1a2b3c4 CI fix: new-tree test repair", "refs": {}})
+    drive.note_go({"kind": "decide", "lane": "root", "text": "landing-desk-3 is right; go #161978 on #44087 is withdrawn: every new-tree fix goes to his tap.", "refs": {"prs": ["pr:Forge-AI/monorepo#44087"]}})
+    assert (drive.gos, drive.ci_fixes) == ({}, set())
