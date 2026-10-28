@@ -347,7 +347,7 @@ def review_digest(model, config, previous, now):
 
 PAGES = (
     Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180),
-    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer"}), 180, work_checks, work_settle),
+    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer", "evidence"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),
 )
