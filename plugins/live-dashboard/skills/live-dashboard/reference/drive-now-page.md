@@ -25,7 +25,8 @@ From top to bottom:
 3. Overall progress: the drive's milestones, each with its state.
 4. Two columns. Blockers come first, drawn as a dependency chart with arrows into each
    milestone they hold up. Work comes second, as three rows that each open a live story in
-   place of the list.
+   place of the list. Every open blocker and work row says how long it has waited and since
+   when.
 5. The drive's own diagram.
 
 ## The keys a drive sets
@@ -77,10 +78,15 @@ The digest holds:
 - each milestone and its release entry from `steps.json`;
 - the plan steps with their state, blocker, and next step;
 - the counts of tracked changes by state, for the code line;
+- each open change with its ledger owner, the coordinator's last three rulings about it,
+  the two newest worker records about it, and its fixers, which are the active workers those
+  rulings name, else the owner or the owner's numbered successor;
+- the status paragraphs the progress desk writes, so the page uses their names and never
+  contradicts them;
 - the owner's open taps and questions;
 - each active worker with its last three records;
-- blocker, incident, ask, hold, and decide records from the last three hours, which is
-  where the blocker chart comes from;
+- blocker, incident, ask, hold, and decide records from the last three hours that no later
+  record resolved, which is where the blocker chart comes from;
 - the owner's words from the last two hours;
 - the previous brief, so a sentence whose facts did not change stays word for word.
 
@@ -98,7 +104,15 @@ every two minutes, and no timer runs it.
 - a release or plan code, a record or pull request number, or a hash;
 - code, a path, or a UTC time;
 - a worker's name, one of the drive's coined words, or a git verb such as rebase;
-- more words than its slot allows.
+- more words than its slot allows;
+- in a blocker's fix, a line that only says someone answers the review or fixes the failing
+  tests without saying what the finding is.
+
+The curator also sends a brief back in three more cases. A blocker on a change with fixers
+reads No one assigned. An open blocker or work row has no start time. Something waits on the
+owner while his board asks nothing. Whatever still breaks those rules after one retry
+is corrected in code: the blocker becomes being fixed, and the false waits-on-you rows drop
+out.
 
 A failing brief goes back to the model once with every
 violation listed. Whatever still fails keeps its last passing text, so a raw string never
