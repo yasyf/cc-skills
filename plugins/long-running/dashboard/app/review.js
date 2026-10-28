@@ -42,7 +42,7 @@ function reviewPR(n, tab) {
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd><dt>Blocks landing</dt><dd>${node ? `${esc(node.text)}${forSince(node.since)}` : `${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}`}</dd>${node?.how ? `<dt>What happens next</dt><dd>${esc(node.how)}</dd>` : ''}</dl></div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${stackFacts(n)}<dt>Blocks landing</dt><dd>${node ? `${esc(node.text)}${forSince(node.since)}` : `${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}`}</dd>${node?.how ? `<dt>What happens next</dt><dd>${esc(node.how)}</dd>` : ''}</dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;

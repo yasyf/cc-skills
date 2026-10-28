@@ -38,6 +38,17 @@ function forSince(label) {
   const iso = sinceClock(label);
   return iso ? `<small class="pg-for">${blockedFor(iso)}</small>` : '';
 }
+function stackRow(n) {
+  return state.model.stack.find((row) => row.pr === String(n));
+}
+function stackFacts(n) {
+  const row = stackRow(n);
+  if (!row) return '';
+  return `<dt>Landing stage</dt><dd>${esc(row.state)}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(row.next)}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
+}
+function stackLine(row) {
+  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(row.state)}. Next: ${esc(row.next)}.</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
+}
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
 }
@@ -132,10 +143,15 @@ function workScreen(item) {
   const running = p.running.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : ''));
   const rest = running.slice(RUNNING_AT_REST);
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
+  const m = state.model;
+  const stuck = m.stack.filter((row) => row.stale);
+  const moving = m.stack.filter((row) => !row.stale);
   const helpers = p.helpers.map((h) => `<li>${h.workers.length ? `<a href="#/worker/${encodeURIComponent(h.workers[0])}"><b>${esc(h.name)}</b></a>` : `<b>${esc(h.name)}</b>`}<span>${esc(h.latest)}</span></li>`).join('');
   return `<div class="pg">${pageHead('Work', p)}
     <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
     ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`, p.running.slice(RUNNING_AT_REST).some((w) => w.item === item)) : ''}</section>
+    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<div class="pg-list">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
+    ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
     ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`, p.finished.some((w) => w.item === item))}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
 }

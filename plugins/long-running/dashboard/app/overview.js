@@ -120,7 +120,7 @@ function prFacts(n) {
   const node = blockerNode(n);
   const blocks = node?.text ?? t.blocker;
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.read_at ? ` <small class="dim">read ${agoWords(t.read_at)}</small>` : ''}</dd>
-    <dt>Blocks landing</dt><dd${blocks ? ` class="${/^GitHub has not/.test(blocks) ? 'warn' : 'bad'}"` : ''}>${blocks ? `${inline(blocks)}${node ? forSince(node.since) : ''}` : pr.landed_at ? 'Nothing: it landed' : 'Nothing'}</dd>
+    ${stackFacts(n)}<dt>Blocks landing</dt><dd${blocks ? ` class="${/^GitHub has not/.test(blocks) ? 'warn' : 'bad'}"` : ''}>${blocks ? `${inline(blocks)}${node ? forSince(node.since) : ''}` : pr.landed_at ? 'Nothing: it landed' : 'Nothing'}</dd>
     <dt>Tests</dt><dd>${TEST_WORD[pr.test_state] ?? 'Not known'}${t.checks.length ? `: ${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}` : ''}</dd>
     ${node?.how || t.next ? `<dt>What happens next</dt><dd>${node ? inline(node.how) : namedWorkers(inline(t.next))}</dd>` : ''}
     <dt>Who is on it</dt><dd>${t.owner ? `<a href="#/worker/${encodeURIComponent(t.owner)}">${esc(workerName(t.owner))}</a>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
