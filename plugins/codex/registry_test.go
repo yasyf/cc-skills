@@ -290,7 +290,6 @@ func TestDispatchReapIsLaneLocal(t *testing.T) {
 	}
 }
 
-// prunableLane builds an aged terminal run dir under runs, prunable by --ps.
 func prunableLane(t *testing.T, parent string) string {
 	t.Helper()
 	sdir, err := os.MkdirTemp(parent, "codex-ask.")
@@ -319,27 +318,57 @@ func runPs(t *testing.T, runs string) {
 	}
 }
 
-// TestPruneSkipsLockedLane: --ps takes the lane lock non-blocking before rmtree,
-// so a lane whose lock is held (mid-reuse, awaited, watched) survives the prune.
+func TestPsPreservesAgedRunDirectories(t *testing.T) {
+	runs := mustTempDir(t)
+	standalone := prunableLane(t, runs)
+	container := filepath.Join(runs, "codex-root.status")
+	nested := agedNamedLane(t, container, "review")
+	roster := filepath.Join(container, "pending-roster")
+	if err := os.MkdirAll(roster, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().Add(-(pruneAgeS + 3600) * time.Second)
+	if err := os.Chtimes(roster, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	runPs(t, runs)
+
+	for _, lane := range []string{standalone, nested, roster} {
+		if !isDir(lane) {
+			t.Fatalf("--ps removed lane %s", lane)
+		}
+		if exists(filepath.Join(lane, "lane.lock")) {
+			t.Fatalf("--ps created a pruning lock in %s", lane)
+		}
+	}
+	for _, lane := range []string{standalone, nested} {
+		if !isFile(filepath.Join(lane, "meta")) {
+			t.Fatalf("--ps removed state in %s", lane)
+		}
+	}
+}
+
 func TestPruneSkipsLockedLane(t *testing.T) {
 	runs := mustTempDir(t)
 	sdir := prunableLane(t, runs)
 
 	lock := acquireLaneLock(sdir, true)
-	runPs(t, runs)
+	runSweep(t, runs)
 	if !isFile(filepath.Join(sdir, "meta")) {
-		t.Fatal("--ps pruned a lane whose lock was held")
+		t.Fatal("--sweep pruned a lane whose lock was held")
 	}
 	releaseLaneLock(lock)
+	if err := os.Remove(filepath.Join(runs, "sweep.stamp")); err != nil {
+		t.Fatal(err)
+	}
 
-	runPs(t, runs)
+	runSweep(t, runs)
 	if _, err := os.Stat(sdir); !os.IsNotExist(err) {
 		t.Fatal("released aged terminal lane survived the prune")
 	}
 }
 
-// TestPruneSkipsSymlinkedEntry: the --ps walk is lstat-based, so a symlinked
-// registry entry can no longer route the prune's rmtree outside the base.
 func TestPruneSkipsSymlinkedEntry(t *testing.T) {
 	runs := mustTempDir(t)
 	victimContainer := mustTempDir(t)
@@ -348,9 +377,9 @@ func TestPruneSkipsSymlinkedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runPs(t, runs)
+	runSweep(t, runs)
 	if !isFile(filepath.Join(victimLane, "meta")) {
-		t.Fatal("--ps pruned through a symlinked registry entry")
+		t.Fatal("--sweep pruned through a symlinked registry entry")
 	}
 }
 
@@ -819,7 +848,7 @@ func TestPruneReapsMintedContainer(t *testing.T) {
 	foreign := filepath.Join(runs, "keep")
 	agedNamedLane(t, foreign, "lane")
 
-	runPs(t, runs)
+	runSweep(t, runs)
 	if _, err := os.Stat(container); !os.IsNotExist(err) {
 		t.Fatal("aged fan-out container survived the prune")
 	}

@@ -53,9 +53,6 @@ type psRecord struct {
 	ReplyFile *string  `json:"reply_file,omitempty"`
 }
 
-// runsBase: the fixed registry root; every run lands here so the filesystem is the
-// registry. $CODEX_ASK_RUNS_DIR overrides but must clear the same guards as -s — a
-// relative or in-repo value would let --ps prune rmtree arbitrary source dirs.
 func runsBase() string {
 	override := os.Getenv("CODEX_ASK_RUNS_DIR")
 	var base string
@@ -397,11 +394,7 @@ func runMtime(d string) float64 {
 	return newest
 }
 
-// psMode: the registry view. Walk the base, classify every run as one JSONL
-// record, expand fan-out containers into lane children, reap only terminal-and-aged
-// codex-ask dirs.
 func psMode() {
-	reapRuns(reapAge, false, false)
 	base := runsBase()
 	now := nowSec()
 	entries, _ := os.ReadDir(base)
@@ -413,11 +406,6 @@ func psMode() {
 	os.Exit(0)
 }
 
-// sweepMode: the prune on a path that actually runs. --ps only sweeps when a
-// human types it, so run dirs accumulated indefinitely; a SessionStart hook runs
-// this instead. One sweeper at a time across concurrent sessions (the base lock),
-// at most one walk per sweepIntervalS (the stamp), and no record output — the
-// walk skips classify for unaged lanes, so a steady-state sweep execs nothing.
 func sweepMode() {
 	base := runsBase()
 	lock, ok := tryFileLock(join(base, "sweep.lock"), true)
@@ -458,7 +446,7 @@ func psWalk(d, base string, now float64, owned, emit bool) {
 			for _, c := range subdirs {
 				psWalk(c, base, now, minted, emit)
 			}
-			if minted {
+			if minted && !emit {
 				_ = os.Remove(d)
 			}
 			return
@@ -473,7 +461,7 @@ func psWalk(d, base string, now float64, owned, emit bool) {
 	// owned lane (inside a minted container) needs no meta: a roster lane that
 	// never dispatched is aged no-run residue, and requiring meta left every
 	// fan-out container unreapable — lane basenames carry no run prefix.
-	if (startsWithRunPrefix(filepath.Base(d)) && isFile(join(d, "meta")) || owned) &&
+	if !emit && (startsWithRunPrefix(filepath.Base(d)) && isFile(join(d, "meta")) || owned) &&
 		contains(terminal, li.state) && now-runMtime(d) > pruneAgeS {
 		if lock, ok := tryLaneLock(d, true); ok {
 			// A no-run lane's only mtime is the dir's, which creating lane.lock
