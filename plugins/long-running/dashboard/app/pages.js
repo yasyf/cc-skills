@@ -70,7 +70,7 @@ function stackFacts(n) {
   return `<dt>Landing stage</dt><dd>${esc(ledgerWords(row.state))}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(ledgerWords(row.next).replace(/^./, (c) => c.toUpperCase()))}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
 }
 function stackLine(row) {
-  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(ledgerWords(row.state))}. Next, ${esc(ledgerWords(row.next))}.</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
+  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(ledgerWords(row.state))}.${/^land #\d+ first$/.test(row.next) ? '' : ` Next, ${esc(ledgerWords(row.next))}.`}</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
