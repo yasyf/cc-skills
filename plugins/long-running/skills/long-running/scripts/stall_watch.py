@@ -35,7 +35,9 @@ and, across the drive:
     ask       a lane's `ask` to root is open, and no root record answers it
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
-board 15, carry 15, lane 30, ask 15. Two questions need judgment, and one headless Claude call per pass
+board 15, carry 20 (one fidelity pass), lane 30, ask 15. A PR's head is as old as the first record about the
+PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record.
+Two questions need judgment, and one headless Claude call per pass
 (`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
 a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
 lane's last record explains its silence and by when it promised its next state. A verdict is kept
@@ -82,7 +84,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 15, "lane": 30, "ask": 15}
+MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 20, "lane": 30, "ask": 15}
 PR_KINDS = frozenset({"go", "tap", "finder", "fidelity", "board", "carry"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -423,9 +425,9 @@ class Pass:
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
-            announced = [record for record in about if record["kind"] == "head" and grades.names_head(grades.graded_head(record["text"]), head)]
+            announced = [record for record in records if grades.about_pr(record, repo, pr) and short(head) in grades.full_text(record)]
             head_at = at(announced[0]) if announced else None
-            lane = row.get("lane") or (announced[-1]["lane"] if announced else ROOT)
+            lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
             if going := grades.gone_at(gos, pr, head):
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
@@ -447,9 +449,9 @@ class Pass:
             reached = carried_heads(head, grades.fidelity_carries(graded))
             finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if any(grades.names_head(record["head"], sha) for sha in reached)]
             if not finders and self.now - head_at >= self.watch.age("finder"):
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, announced {pacific(head_at)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
             if not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
-                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, announced {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             if board is None:
                 continue
             taps = [(sha, f"root go #{go['seq']}") for go in gos if (sha := grades.go_heads(go).get(pr))]
@@ -501,7 +503,7 @@ class Pass:
         tapped, how = tap
         subject = f"#{pr} at {short(head)}"
         heads = [{"seq": record["seq"], "at": record["at"], "lane": record["lane"], "text": clip(grades.full_text(record), RECORD_CHARS)} for record in about if record["kind"] == "head" and record["seq"] <= newest["seq"]][-HEAD_RECORDS:]
-        what = f"{how} names {short(tapped)}, and no go or carry names this head, announced {pacific(head_at)}"
+        what = f"{how} names {short(tapped)}, and no go or carry names this head, first named {pacific(head_at)}"
         key = f"carry:{pr}:{short(head)}"
         carry_line = f"`fidelity: ok {short(head)} carried from {short(tapped)}`"
 

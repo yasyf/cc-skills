@@ -146,6 +146,19 @@ def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_unt
     assert shell.topics() == ["finder:101:abc1234", "finder:101:fedcba9"]
 
 
+@pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])
+def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_record_with_no_sha(config, named, stalls):
+    bulk = record(1, "api-lane", "head", "HEAD api-lane: #101 conflict fix, then the stack above restacked onto it. Published 9:00 AM.", 600, "101")
+    ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", named, "101")
+    shell = FakeShell([bulk, ready, fidelity(3, "101", HEAD, 1)], [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+    if stalls:
+        assert "no finder review names this head, first named 12:20 PM in #2" in shell.post("finder:101:abc1234")["text"]
+
+
 def test_a_source_that_does_not_read_keeps_its_stall_open_so_nothing_posts_twice(config):
     shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
 
