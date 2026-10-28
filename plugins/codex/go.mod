@@ -2,12 +2,12 @@ module github.com/yasyf/cc-skills/plugins/codex
 
 go 1.26.5
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-interact v0.38.1-0.20261028042730-4062b9bc5703
-	github.com/yasyf/daemonkit v0.34.1-0.20261028043932-567e3df37f44
+	github.com/yasyf/cc-interact v0.39.0
+	github.com/yasyf/daemonkit v0.35.1
 	golang.org/x/sys v0.48.0
 )
 
