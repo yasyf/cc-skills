@@ -1,8 +1,8 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:5e2decf5f049 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:3bb731e29d47 — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
-#pal { position: fixed; inset: 0; z-index: 80; background: rgba(10,14,17,.5); display: flex; justify-content: center; align-items: start; padding: 10vh 14px 14px; }
+#pal { position: fixed; inset: 54px 0 0; z-index: 30; background: var(--bg); display: flex; justify-content: center; align-items: start; padding: 40px 14px 14px; }
 #pal[hidden], #ash[hidden] { display: none; }
 #pal .box { width: min(680px, 100%); max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
 #pal input { border: 0; outline: 0; padding: 18px 20px; font: 500 18px var(--sans); background: transparent; color: var(--ink); border-bottom: 1px solid var(--line); }
@@ -483,6 +483,7 @@ function needsYou(){
 }
 
 function decorate(r){
+ if(r.screen==="jump"){if(document.getElementById("pal").hidden)showPal()}else closePal();
  const top=document.querySelector(".top");
  const main=document.getElementById("main");
  if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
@@ -613,7 +614,8 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
-function openPal(){
+function openPal(){location.hash="#/jump"}
+function showPal(){
  document.getElementById("pal").hidden=false;
  const input=document.getElementById("pal-q");
  input.value="";input.focus();
@@ -621,6 +623,7 @@ function openPal(){
  paintPal();
 }
 function closePal(){document.getElementById("pal").hidden=true;pal.busy=null}
+function leavePal(){location.hash="#/"}
 function paintPal(){
  const {items,q}=results(document.getElementById("pal-q").value);
  pal.items=items;pal.i=Math.min(pal.i,Math.max(0,items.length-1));
@@ -672,11 +675,11 @@ function paintSheet(){
 
 document.addEventListener("keydown",e=>{
  const palOpen=!document.getElementById("pal").hidden;
- if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
+ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?leavePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
  if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
  e.stopImmediatePropagation();
- if(e.key==="Escape"){e.preventDefault();closePal()}
+ if(e.key==="Escape"){e.preventDefault();leavePal()}
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
  else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
  else if(e.key==="Enter"){e.preventDefault();pick(pal.i)}
@@ -684,7 +687,7 @@ document.addEventListener("keydown",e=>{
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
-document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))closePal()});
+document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
 document.addEventListener("click",e=>{
  const t=e.target;
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}

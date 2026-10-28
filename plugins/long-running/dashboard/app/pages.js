@@ -163,10 +163,6 @@ function mergeRow(row) {
     : verdictPill(row);
   return `<article class="mr"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}</article>`;
 }
-function askRow(item) {
-  const a = item.ask;
-  return `<article class="mr"><header><span class="mr-t">${esc(a.what)}</span><span class="mr-acts">${a.link ? `<a class="btn ghost" href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.link_text ?? 'Open')}</a>` : ''}</span></header><p class="mr-why">${esc(item.why)}</p></article>`;
-}
 function reviewScreen(list) {
   const m = state.model;
   if (list === 'q') list = '';
@@ -180,13 +176,11 @@ function reviewScreen(list) {
     return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
   }).join('');
   const cards = m.needs.filter((item) => item.kind === 'card');
-  const asks = m.needs.filter((item) => item.kind === 'ask');
   return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
     ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
     ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
     ${merges}
-    ${cards.length ? `<section class="pg-sec"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}
-    ${asks.length ? `<section class="pg-sec"><h2>Other asks</h2><div class="mr-list">${asks.map(askRow).join('')}</div></section>` : ''}</div>`;
+    ${cards.length ? `<section class="pg-sec"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
 }
 
 function historyEntry(e) {

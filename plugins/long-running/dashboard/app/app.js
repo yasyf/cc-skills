@@ -181,7 +181,7 @@ function markdown(md) {
 
 
 function needsTotal() {
-  return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : 1), 0);
+  return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : item.kind === 'card' ? 1 : 0), 0);
 }
 function boardCard(item) {
   const c = item.card;
@@ -259,9 +259,10 @@ function render() {
   if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History'], ['ask', 'Ask']];
+  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
+  $('#kbtn').classList.toggle('on', r.screen === 'jump');
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, jump: () => '', worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;

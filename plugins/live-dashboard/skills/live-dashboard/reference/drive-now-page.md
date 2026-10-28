@@ -139,7 +139,7 @@ The app cannot be restarted while a writer runs, so close story tabs before a de
 
 ## The other pages
 
-The app has six tabs, Now, Plan, Work, Review, History, and Ask, and every one is a page with its own URL; nothing in the nav bar opens a modal. Command-K still opens the Jump palette from any page. Every named thing links to its own page. A milestone opens `#/plan/m<i>` and a plan part `#/plan/<part id>`. A worker opens `#/worker/<lane>`, which lists its pull requests, its last word, and what it waits on. A change opens `#/review/<number>` and an open board question `#/review/q/<card id>`.
+The app has five tabs, Now, Plan, Work, Review, and History, and a Jump to anything button; each is a page with its own URL, and nothing in the nav bar opens a modal. Jump lives at `#/jump`, and Command-K opens it from any page. The Review count covers only what his board asks. Every named thing links to its own page. A milestone opens `#/plan/m<i>` and a plan part `#/plan/<part id>`. A worker opens `#/worker/<lane>`, which lists its pull requests, its last word, and what it waits on. A change opens `#/review/<number>` and an open board question `#/review/q/<card id>`.
 
 Plan, Work, History, and Review each have their own curator using the same machinery as the Now page. Each curator makes one model call per page when a record that can change that page arrives. At most one run happens per page at a time, never on a timer, and each page enforces its own minimum gap between runs. Every output passes the plain-words gate. A failing string goes back to the model once and otherwise keeps its last passing text.
 
