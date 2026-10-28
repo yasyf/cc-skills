@@ -240,6 +240,32 @@ def test_a_reserved_row_matches_only_what_a_diff_adds_never_what_it_deletes_or_r
     assert check(capsys, CheckShell(rows, diff=DIFF + changed("go/sand/cmd/session_pass.go", [], ["\tclient.DeleteObject(ctx, key)"]))) == refused
 
 
+CLOUD_DELETE_MECHANISMS = dict(
+    CLOUD_DELETE,
+    ops='["*DeleteObject*", "*DeleteBucket*", "*delete_prefix*", "delete from iris_sessions*", "kubectl delete *", "aws s3 rm *", "gsutil rm *"]',
+)
+
+
+def test_a_reserved_cloud_delete_row_matches_cloud_deletion_never_a_map_delete_a_table_read_or_a_local_remove(package: Path, state: Path, registered: Path, capsys) -> None:
+    """#42790: runtime-api dropped its own in-memory cached grant with a Go map delete and joined iris_sessions in a query; neither deletes anything in the cloud."""
+    rows = pinned(package) | {"reserved/cloud-delete": CLOUD_DELETE_MECHANISMS}
+    refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud chat without my word."])
+
+    for path, line in [
+        ("go/sand/next/cmd/runtime-api/run_grants.go", "\t\tdelete(g.held, key)"),
+        ("go/sand/next/internal/runtime-api/sessions/queries.sql", "JOIN iris_sessions s ON s.id = r.session_id"),
+        ("go/sand/next/cmd/runtime-api/session_replicas.go", "os.Remove(path)"),
+        ("go/sand/next/cmd/runtime-api/session_replicas_test.go", "client.DeleteObject(ctx, key)"),
+    ]:
+        assert check(capsys, CheckShell(rows, diff=DIFF + added(path, line))) == (0, []), line
+    for path, line in [
+        ("go/sand/cmd/session_pass.go", "client.DeleteObject(ctx, key)"),
+        ("go/sand/next/internal/runtime-api/sessions/queries.sql", "DELETE FROM iris_sessions WHERE id = $1"),
+        ("tools/cleanup.sh", "aws s3 rm s3://chats/sessions --recursive"),
+    ]:
+        assert check(capsys, CheckShell(rows, diff=DIFF + added(path, line))) == refused, line
+
+
 def copied(source: str, path: str, hunk: str) -> str:
     return f"diff --git a/{source} b/{path}\nsimilarity index 97%\ncopy from {source}\ncopy to {path}\nindex 1111111..2222222 100644\n--- a/{source}\n+++ b/{path}\n{hunk}"
 
