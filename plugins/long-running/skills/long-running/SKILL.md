@@ -3133,6 +3133,11 @@ instead of the root while `cci who` lists the lane. The lane holds the `classify
 `cci who` does not list the lane, the blocker goes to the root, which resumes the lane by
 `SendMessage` with the listed captures.
 
+Once `drive.py start` registers the drive, every `ledger.py` verb resolves `--ledger` on its own:
+from `--drive <id or cci drive>` when given, else from the drive this session runs in, so a
+lane runs `ledger.py reassign --pr <n> --lane <new>` without the ledger id. Verbs that carry
+lane messages default `--drive` to that drive's cci drive the same way.
+
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
 drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>] [--program <plan slug>] [--register-lane <lane>]

@@ -54,6 +54,10 @@ through :class:`Shell`, the one seam tests replace.
 
 Every ``--ask ID`` takes the key ``ask`` printed, ``ask/000104``, or its bare number, ``000104``.
 
+Every ``--ledger ID`` may be left out: it defaults to the ledger of the registered drive ``--drive`` names, by
+its id or its cci drive, else of the drive this session runs in, and a verb that carries lane messages
+defaults its ``--drive`` to that drive's cci drive the same way.
+
 An owner ask's status is exactly one of LIVE, LANDED-NOT-LIVE, IN-PR, IN-PROGRESS, or LOST, plus the
 terminal ``dropped`` and ``answered``. LIVE needs every linked PR landed and a
 ``ledger.py live`` timestamp at or after the latest of those landings; short of that a
@@ -387,19 +391,39 @@ def inside_checkout() -> bool:
     return any((folder / ".git").exists() for folder in (here, *here.parents))
 
 
-def registry_checkout(args: argparse.Namespace) -> str | None:
-    """The checkout of the registered drive whose ledger or cci drive the command names."""
+def registered_drive(ledger_id: str, bus: str) -> dict | None:
+    """The registered drive whose ledger starts with ledger_id, or whose id or cci drive is bus."""
     import drive
 
-    ledger_id, bus = vars(args).get("ledger") or "", vars(args).get("drive") or ""
     return next(
         (
-            entry["checkout"]
+            entry
             for entry in drive.drives()
-            if entry.get("checkout") and ((ledger_id and str(entry.get("ledger") or "").startswith(ledger_id)) or (bus and drive.cci_drive(entry) == bus))
+            if (ledger_id and str(entry.get("ledger") or "").startswith(ledger_id)) or (bus and bus in (entry.get("drive"), drive.cci_drive(entry)))
         ),
         None,
     )
+
+
+def registry_checkout(args: argparse.Namespace) -> str | None:
+    """The checkout of the registered drive whose ledger or cci drive the command names."""
+    entry = registered_drive(vars(args).get("ledger") or "", vars(args).get("drive") or "")
+    return entry.get("checkout") if entry else None
+
+
+def default_from_drive(args: argparse.Namespace) -> None:
+    """Fill a missing --ledger, and a bus verb's missing --drive, from the drive --drive names, else the current one."""
+    import drive
+
+    if args.ledger and (args.drive or not args.bus):
+        return
+    bus = args.drive or ("" if args.ledger else drive.current_drive() or drive.orca_run_drive() or "")
+    if not (entry := registered_drive(args.ledger or "", bus)):
+        named = f"--ledger {args.ledger}" if args.ledger else f"--drive {bus}" if bus else "this session"
+        raise SystemExit(f"no registered drive in {drive.drives_dir()} matches {named}; pass --ledger ID and --drive D")
+    args.ledger = args.ledger or entry["ledger"]
+    if args.bus:
+        args.drive = drive.cci_drive(entry)
 
 
 def same_repo(left: str, right: str) -> bool:
@@ -2429,9 +2453,12 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
 def add_ledger(parser: argparse.ArgumentParser, repo: bool = False, drive: bool = False) -> None:
     if repo:
         parser.add_argument("--repo", metavar="OWNER/NAME", help="the repository the PRs live in; default: the origin of --checkout, else of the working directory")
-    parser.add_argument("--ledger", required=True)
+    parser.add_argument("--ledger", help="the ledger id; default: the ledger of the registered drive --drive names, else of the drive this session runs in")
     if drive:
-        parser.add_argument("--drive", required=True, help="the cci drive that carries the lane messages")
+        parser.add_argument("--drive", help="the cci drive that carries the lane messages; default: the cci drive of the registered drive --ledger names, else of this session's")
+    else:
+        parser.add_argument("--drive", help="the registered drive, by id or cci drive, whose ledger --ledger defaults to")
+    parser.set_defaults(bus=drive)
 
 
 def ask_key(value: str) -> str:
@@ -2726,6 +2753,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
     shell = shell or Shell()
+    if "ledger" in vars(args):
+        default_from_drive(args)
     if args.directory:
         os.chdir(args.directory)
     elif not inside_checkout() and (checkout := registry_checkout(args)):

@@ -60,28 +60,72 @@ def test_the_lock_names_its_holder_only_while_held(tmp_path):
 class StopAtCcn(ledger.Shell):
     def __init__(self) -> None:
         self.cwd = ""
+        self.argv: list[str] = []
 
     def run(self, argv, stdin=None, cwd=None):
         if argv[0] == "ccn":
-            self.cwd = os.getcwd()
+            self.cwd, self.argv = os.getcwd(), argv
             raise SystemExit("stopped at ccn")
         return super().run(argv, stdin, cwd)
 
 
-def test_a_command_outside_any_checkout_runs_in_its_registered_drives_checkout(tmp_path, monkeypatch):
+@pytest.fixture
+def checkout(tmp_path, monkeypatch):
     checkout = tmp_path / "checkout"
     subprocess.run(["git", "init", "-q", str(checkout)], check=True)
     subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin", "https://github.com/acme/app.git"], check=True)
     drives = tmp_path / "config" / "long-running" / "drives"
     drives.mkdir(parents=True)
-    (drives / "brook.json").write_text(json.dumps({"drive": "brook", "ledger": "5b91baca4e233792d0bb", "cci_drive": "brook-bus", "checkout": str(checkout)}))
+    entry = {"drive": "brook", "ledger": "5b91baca4e233792d0bb", "cci_drive": "brook-bus", "checkout": str(checkout), "sessions": ["root-session"]}
+    (drives / "brook.json").write_text(json.dumps(entry))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.delenv("ORCA_LAUNCH_RUN", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-session")
     monkeypatch.chdir(scratch)
+    return checkout
+
+
+def test_a_command_outside_any_checkout_runs_in_its_registered_drives_checkout(checkout):
     shell = StopAtCcn()
 
     with pytest.raises(SystemExit, match="stopped at ccn"):
         ledger.main(["hold", "--ledger", "5b91baca4e233792d0bb", "--pr", "12", "--reason", "r", "--hours", "1"], shell)
 
     assert shell.cwd == str(checkout.resolve())
+
+
+def test_a_verb_without_ledger_uses_the_ledger_of_the_drive_this_session_runs_in(checkout, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-session")
+    shell = StopAtCcn()
+
+    with pytest.raises(SystemExit, match="stopped at ccn"):
+        ledger.main(["reassign", "--pr", "12", "--lane", "quiet"], shell)
+
+    assert shell.argv[:4] == ["ccn", "ledger", "show", "5b91baca4e233792d0bb"]
+    assert shell.cwd == str(checkout.resolve())
+
+
+@pytest.mark.parametrize("named", ["brook", "brook-bus"])
+def test_drive_by_id_or_cci_drive_names_the_ledger(checkout, named):
+    shell = StopAtCcn()
+
+    with pytest.raises(SystemExit, match="stopped at ccn"):
+        ledger.main(["reassign", "--drive", named, "--pr", "12", "--lane", "quiet"], shell)
+
+    assert shell.argv[:4] == ["ccn", "ledger", "show", "5b91baca4e233792d0bb"]
+
+
+def test_a_message_verb_takes_its_cci_drive_from_the_drive_its_ledger_names(checkout):
+    args = ledger.build_parser().parse_args(["inbox", "--ledger", "5b91baca"])
+
+    ledger.default_from_drive(args)
+
+    assert (args.ledger, args.drive) == ("5b91baca", "brook-bus")
+
+
+def test_a_verb_outside_any_drive_refuses_and_names_the_flags(checkout):
+    with pytest.raises(SystemExit, match="matches this session; pass --ledger ID and --drive D"):
+        ledger.main(["reassign", "--pr", "12", "--lane", "quiet"], StopAtCcn())
