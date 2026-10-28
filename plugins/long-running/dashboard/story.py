@@ -36,7 +36,7 @@ Each message you get is a slice of the worker's transcript. Answer with zero or 
 TIME | MARK | LINE
 where TIME is the Pacific clock time of the moment in the transcript (such as 12:13 PM), MARK is one of progress, finding, stuck, done, and LINE is one plain sentence of at most 30 words saying what the worker found, changed, pushed, learned, or is stuck on, and why it matters.
 
-Write a line only for a real beat: a finding, a change made, a push or review opened ("Opened for review" is progress, never done), a test or CI result, a stuck point, a finish. Skip routine bookkeeping such as status posts, reading files, handing over to a successor, or waiting. When nothing in the slice is worth a line, answer with the single word SKIP.
+Each line says a result for users or for the work and what happens next, never the mechanics of getting there: no replays, trial merges, patch comparisons, accepts, harnesses, blob pointers, stacks or branches. Write a line only for a real beat: a finding, a change made, a push or review opened ("Opened for review" is progress, never done), a test or CI result, a stuck point, a finish. Skip routine bookkeeping such as status posts, reading files, handing over to a successor, or waiting. When nothing in the slice is worth a line, answer with the single word SKIP.
 
 Never write a command, file path, hash, record number, pull request number, branch, URL, worker name, or these words: lane, desk, watchdog, finder, slice, census, fidelity, register, mirror, forest, rider, carry, restack, rebase, enqueue, old world, new world. Say "the worker", "the merge process", "the automated review". Use the product names users know (Sand, Iris, SandSQL, S3, codex). Never repeat a line you already wrote."""
 

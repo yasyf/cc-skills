@@ -100,7 +100,7 @@ SCHEMA = {
                     "item": {"type": "string", "description": "stable short id, lowercase words joined by dashes, kept across briefs"},
                     "workers": {"type": "array", "items": {"type": "string"}},
                     "title": {"type": "string"},
-                    "status": {"enum": ["Under review", "Ready for you", "Testing", "Building", "Rolling out", "Stuck", "Passed", "Waiting on tests", "Fixing", "Investigating"]},
+                    "status": {"enum": ["Under review", "Ready for you", "Ready to merge", "Testing", "Building", "Rolling out", "Stuck", "Waiting on tests", "Fixing", "Investigating"]},
                     "latest": {"type": "string"},
                     "unblocks": {"type": "string", "description": "id of the blocker node this work fixes, or empty"},
                 },
@@ -118,6 +118,7 @@ Rules for every string:
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
+- Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
 - Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
 

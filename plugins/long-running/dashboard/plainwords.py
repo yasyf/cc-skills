@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 LIMITS = {"headline": 25, "stuck": 18, "unblock": 16, "how": 12, "node": 10, "title": 8, "latest": 16, "story": 30, "sentence": 40, "line": 20}
-COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "old world", "new world")
+COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "old world", "new world", "new tree", "old tree")
 GIT_VERBS = ("restack", "rebase", "enqueue", "cherry-pick")
 CHECKS = (
     ("a release or plan code", re.compile(r"\b(?:R\d{1,2}|P\d{1,2}[a-z]?|step \d+[a-z]?)\b")),

@@ -17,6 +17,7 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "Last passed at 2026-10-27T08:01Z",
         "The landing desk queued it",
         "Restacked three changes onto the new base",
+        "The new tree builds again",
         "on it for 45 h 0 min",
     ],
 )

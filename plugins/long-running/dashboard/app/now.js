@@ -39,8 +39,8 @@ function band(b) {
   const m = state.model;
   if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
   if (!m.needs.length) return '';
-  const rows = m.needs.slice(0, 3).map(needLine).join('');
-  const more = m.needs.length - 3;
+  const rows = m.needs.slice(0, 2).map(needLine).join('');
+  const more = m.needs.length - 2;
   return `<div class="nw-band needs nw-needs"><span class="tag">Needs you</span><div class="rows">${rows}${more > 0 ? `<a class="more" href="#/now">${more} more decision${more === 1 ? '' : 's'} ›</a>` : ''}</div></div>`;
 }
 function needLine(item) {
@@ -53,9 +53,9 @@ function needLine(item) {
   if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/now">Review them</a>');
   if (item.kind === 'card') {
     const c = item.card;
-    const options = [...c.options].sort((a, b) => b.recommended - a.recommended).slice(0, 2);
+    const options = [...c.options].sort((a, b) => b.recommended - a.recommended).slice(0, 1);
     const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
-    return line(c.title, item.why, `${options.map((o) => `<button class="nbtn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<a class="nbtn" href="#/now">Other options</a>`);
+    return line(c.title, item.why, `${options.map((o) => `<button class="nbtn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>${esc(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</button>`).join('')}<a class="nbtn" href="#/now">Other answers</a>`);
   }
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/now">Details</a>');
 }
@@ -216,7 +216,8 @@ function storyPage(item) {
 function storyBody(item) {
   const w = workItem(item);
   if (!w) return '<p class="nw-calm">This work finished or is no longer on the main page.</p>';
-  const lines = [...story.lines].reverse();
+  const minutes = (t) => { const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t) ?? [0, 0, 0, 'AM']; return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm); };
+  const lines = [...story.lines].sort((x, y) => minutes(y.at) - minutes(x.at));
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
