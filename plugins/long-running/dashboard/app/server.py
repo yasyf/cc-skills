@@ -51,7 +51,7 @@ ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assi
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
-SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
+SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go")

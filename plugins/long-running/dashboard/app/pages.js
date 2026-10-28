@@ -102,7 +102,7 @@ function stackLine(row) {
   const t = prTruth(row.pr);
   const l = { stage: t.blocks, next: t.next, since: t.since };
   const word = latestWord(row.pr);
-  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}${word ? `<br><a class="wk-word" href="/record/${word.seq}" target="_blank" rel="noopener">Latest word ${clock(word.at)} ↗</a>` : ''}</span></div>`;
+  return `<div class="wk-row"><span class="wk-body">${dotted('', light(prState(row.pr)))}<a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}${word ? `<br><a class="wk-word" href="/record/${word.seq}" target="_blank" rel="noopener">Latest word ${clock(word.at)} ↗</a>` : ''}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
@@ -164,14 +164,14 @@ function milestonePage(p, i) {
   ], `<p class="acts">${step(i - 1, '‹ Previous milestone')}${step(i + 1, 'Next milestone ›')}</p>`);
 }
 function partPage(part) {
-  const changes = part.changes.map((c) => `<li><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`).join('');
+  const changes = part.changes.map((c) => `<li class="${light(prState(c.number))}"><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`).join('');
   return detailPage(['#/plan', 'Plan'], 'Part of the plan', part.name, `<p class="pg-stateline">${dotted(part.label, PART_TONE[part.state])}${answerLink(part.card)}</p>`, [
     ['What it delivers', esc(part.delivers)],
     ['What blocks it', part.blocks ? `${esc(part.blocks)}${forSince(part.since)}` : ''],
     ['What we are doing to unblock it', esc(part.doing)],
     ['What went wrong so far', esc(part.went_wrong)],
     ['Open changes', changes ? `<ul class="pg-changes">${changes}</ul>` : ''],
-    ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>` : ''],
+    ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li class="ok"><span class="pg-name">${esc(name)}</span></li>`).join('')}</ul>` : ''],
   ]);
 }
 function liveSince(table) {
@@ -191,6 +191,9 @@ function statusRows() {
   const [head, , ...rows] = liveSince(state.model.status_table.split(/\n\s*\n/)[0]).trim().split('\n').map(split);
   return { head, rows };
 }
+function stepLight(cell) {
+  return /^done\b/i.test(cell) ? 'ok' : /\b(red|fail|broken|stuck|conflict)/i.test(cell) ? 'bad' : /^not started|^later/i.test(cell) ? '' : 'acc';
+}
 function statusStep(row) {
   const { head } = statusRows();
   return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${inline(c)}</dd>`).join('')}</dl></div>`;
@@ -202,7 +205,7 @@ function statusScreen() {
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
   const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${esc(problem(pr))}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
   return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr>${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j ? inline(c) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr>${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j === 1 ? `<span class="st-light ${stepLight(c)}"></span>${inline(c)}` : j ? inline(c) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {
@@ -268,7 +271,7 @@ function rowFacts(row) {
 function waitLine(row, w) {
   const since = waitingSince(row.number);
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
-  return verdictState(row) === 'you' && since ? `<p class="mr-waits">Waiting on you ${blockedFor(since)}</p>` : '';
+  return verdictState(row) === 'you' && since ? `<p class="mr-waits">${dotted('Waiting on you', 'you')} ${blockedFor(since)}</p>` : '';
 }
 function mergeRow(row) {
   const w = rowWords(row);
