@@ -200,6 +200,7 @@ class FakeShell(runner_module.Shell):
         self.board: dict[str, dict[str, dict]] = {}
         self.unknown_blocks: set[str] = set()
         self.carries: list[dict[str, str]] = []
+        self.register: dict[str, dict] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -467,6 +468,8 @@ class FakeShell(runner_module.Shell):
         if verb == "slice" and flags[4] == "--refresh":
             self.refreshes.append(argv)
             return runner_module.Done(1 if self.refresh_error else 0, "", self.refresh_error)
+        if verb == "rows":
+            return runner_module.Done(0, json.dumps({"rows": self.register}), "")
         repo, _, pr = flags[flags.index("--pr") + 1].rpartition("#")
         assert repo == "Forge-AI/monorepo"
         assert verb == "check-pr", argv
@@ -2962,6 +2965,29 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+@pytest.mark.parametrize("row", ["", "29020", "merge-row-29020-cccc333"])
+def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_at_that_head(shell, config, row):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.board["merge-rows"] = {row or "29020": {"verdict": "approved", "head": "cccc333333" if row else "bbbb222222", "at": "2026-10-01T17:40:00Z"}}
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    if row:
+        assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
+        return
+    assert shell.enqueues() == []
+    [blocker] = refusals
+    assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333")
+
+
 def test_the_prs_a_root_go_names_enqueue_before_any_status_read_of_the_rest_of_the_ledger(shell, config, tmp_path):
     merge_mode(config, "every")
     heads = {str(pr): f"{pr:x}aaaaaa" for pr in range(30000, 30040)}
@@ -5027,6 +5053,26 @@ def test_an_order_for_a_pr_already_out_of_the_queue_latches_its_head_out_and_one
     assert mq(shell, config, "requeue", "29020") == 0
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
+
+
+@pytest.mark.parametrize("closing", ["resolves", "re"])
+def test_a_root_withdraw_of_a_go_the_runner_already_enqueued_takes_the_pr_out_and_never_enqueues_it_again(shell, config, closing):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    go = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "withdraw", "to": ["landing-desk"], "refs": {}, "text": "go on #29020 withdrawn: new-tree fix, his tap first", "at": actions.stamp(shell.clock), closing: [go] if closing == "resolves" else go})
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and stopped(shell) == [("d1", LANE)]
+    assert dequeue_lines(shell) == [f"DEQUEUED dequeue:40000:29020 #29020: #29020 at cccc333333, root #40000 withdrew go #{go}: the status read after the dequeue finds it not queued; its head stays out until mq.py requeue"]
 
 
 def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):

@@ -1469,7 +1469,9 @@ which first has the adapter release its own latch on the head: under `label`, `l
 clears the pulled or labelled mark that otherwise refuses the same head.
 The root can order the same dequeue on the bus: a root record that opens with
 `dequeue #<n>`, or says `landing-desk: dequeue #<n>` outside quotes and code, makes
-the landing runner take the PR out before any enqueue of its next pass. It says
+the landing runner take the PR out before any enqueue of its next pass. A root
+`withdraw` record that resolves or answers a root `go` orders out the same way each
+PR of that go the runner already enqueued at the head the go names. It says
 `DEQUEUED` only once a status read shows the queue let the PR go, and
 `DEQUEUE-FAILED` when the read still finds it queued or the dequeue is refused.
 `mq.py hold <n> --reason R` and `mq.py lift <n>` write the holds file through
@@ -1580,6 +1582,14 @@ and names the adapter as `landing.adapter`: `graphite-stack-enqueue` when the ch
 `.agents/skills/submit-pr/scripts/stack-enqueue`, else `label`. The landing runner refuses to start without one of the three
 values and posts `MERGE-MODE-UNSET`. It re-reads the value on every use, so a later
 change is one edit plus an `answer supersede`, with no restart.
+
+`landing.tap_rules` maps a register row key to path globs, such as
+`{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
+merge mode, a head whose changed files a row's globs name, or do not read, waits while
+`rulings.py rows` does not read that row out of force, until an approval on the root's
+board names that head. A root `go` never stands in for that tap. The runner posts one
+`TAP-REQUIRED` blocker per head, naming the row, to the PR's lane, the root, and each
+`landing.board_lane`.
 
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
