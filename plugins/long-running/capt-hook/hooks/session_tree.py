@@ -75,7 +75,7 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
 
 
 def nearest_name(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _: False) -> str | None:
-    lanes = evt.transcript_path.with_suffix("") / "subagents"
+    lanes = Path(evt._raw["transcript_path"]).with_suffix("") / "subagents"
     agent_id = evt.agent_id
     while agent_id and (meta := lanes / f"agent-{agent_id}.meta.json").is_file():
         fields = json.loads(meta.read_text())
