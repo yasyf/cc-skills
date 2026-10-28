@@ -90,12 +90,13 @@ body:has(.nw) { background: #080a0d; }
 .nw-path .nd.nobody { border-color: #5a2222; }
 .nw-path .nd.goal { border: 0; background: transparent; font-weight: 600; padding-left: 10px; }
 
-.nw-cards { display: flex; flex-direction: column; gap: 8px; }
-.nw-cards .blk { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink3); border-radius: 12px; padding: 8px 14px; }
+.nw-cards { display: flex; flex-direction: column; gap: 6px; }
+.nw-cards .blk { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink3); border-radius: 12px; padding: 6px 12px; }
 .nw-cards .blk.nobody { border-left-color: var(--bad); } .nw-cards .blk.you { border-left-color: var(--you); } .nw-cards .blk.fixing { border-left-color: var(--doing); }
-.nw-cards .stuck .t { font-size: 14px; font-weight: 600; }
-.nw-cards .meta { color: var(--ink2); font-size: 12px; margin-top: 1px; }
-.nw-cards .unb { font-size: 13px; margin-top: 4px; color: var(--ink2); }
+.nw-cards .stuck { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.nw-cards .stuck .t { font-size: 13.5px; font-weight: 600; }
+.nw-cards .meta { color: var(--ink3); font-size: 12px; }
+.nw-cards .unb { font-size: 12.5px; margin-top: 2px; color: var(--ink2); }
 .nw-cards .chip { display: inline; margin-right: 8px; }
 .nw-cards .chip.fixing { color: var(--doing); } .nw-cards .chip.you { color: var(--you); } .nw-cards .chip.nobody { color: var(--bad); }
 

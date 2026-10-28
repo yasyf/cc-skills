@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import plainwords
 
-CURATOR_KINDS = {"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "owner", "defect", "state"}
+CURATOR_KINDS = {"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "owner", "defect", "state", "report", "opened"}
 MIN_GAP = 120
 HISTORY = 50
 WORDS_WINDOW = dt.timedelta(hours=2)
