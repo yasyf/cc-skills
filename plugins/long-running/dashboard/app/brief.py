@@ -26,7 +26,7 @@ CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
 WAITED = re.compile(r"\bfor \d+ (?:min|minutes?|hours?|h)\b|\bsince \d{1,2}:\d{2} [AP]M\b")
 CHECK_PLACEHOLDER = re.compile(r"\bfixes [\w-]+/[\w-]+\.?$")
 BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner", "stall-watch")
-CHANGE_KINDS = {"decide", "decision", "hold", "lift", "blocker", "go", "landed", "head", "review", "fix-live", "answer", "mechanism", "opened"}
+CHANGE_KINDS = {"decide", "decision", "hold", "lift", "blocker", "go", "landed", "head", "review", "fix-live", "answer", "mechanism", "opened", "state", "report", "done", "note", "handoff", "stand-down", "stopped"}
 CHANGE_WINDOW = dt.timedelta(hours=12)
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
