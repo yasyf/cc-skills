@@ -9,6 +9,16 @@ function view(key) {
 function workItem(item) {
   return state.model.brief?.work.find((w) => w.item === item);
 }
+function minutesOf(t) {
+  const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
+  return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm);
+}
+function waited(since) {
+  if (!/^\d{1,2}:\d{2} [AP]M$/.test(since ?? '')) return '';
+  const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
+  const mins = (h * 60 + m - minutesOf(since) + 1440) % 1440;
+  return `for ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`}, since ${since}`;
+}
 function storyHref(item) {
   return `#/story/${encodeURIComponent(item)}`;
 }
@@ -132,7 +142,7 @@ function chart(path, index) {
 function node(n, key) {
   const work = n.item && workItem(n.item);
   const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
-  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}</span>${esc(n.text)}
+  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${waited(n.since) ? ` <i>${waited(n.since)}</i>` : ''}</span>${esc(n.text)}
     ${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}</${work ? 'a' : 'div'}>`;
 }
 function cards(paths) {
@@ -140,7 +150,7 @@ function cards(paths) {
   const list = paths.flatMap((p) => p.nodes.filter((n) => n.state !== 'done').map((n) => ({ ...n, holds: state.model.milestones[p.milestone] }))).sort((a, b) => rank[a.state] - rank[b.state]);
   return `<div class="nw-cards">${list.map((n) => {
     const work = n.item && workItem(n.item);
-    return `<div class="blk ${n.state}"><div class="stuck"><div class="t">${esc(n.text)}</div><div class="meta">Holds up <b>${esc(n.holds ?? 'the next milestone')}</b>${n.since ? ` · since ${esc(n.since)}` : ''}</div></div>
+    return `<div class="blk ${n.state}"><div class="stuck"><div class="t">${esc(n.text)}</div><div class="meta">Holds up <b>${esc(n.holds ?? 'the next milestone')}</b>${waited(n.since) ? ` · ${waited(n.since)}` : ''}</div></div>
       <div class="unb"><span class="chip ${n.state}">${NODE_WORD[n.state]}</span>${esc(n.how)}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div></div>`;
   }).join('')}</div>`;
 }
@@ -171,7 +181,7 @@ function drawArrows() {
 }
 
 function workList(b) {
-  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span><span>${esc(w.latest)}</span></a>`).join('')}</div>`;
+  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}</span>` : ''}<span>${esc(w.latest)}</span></a>`).join('')}</div>`;
   const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
   const more = b.work.length - rows.length;
   if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
@@ -179,7 +189,7 @@ function workList(b) {
 }
 function workRow(w) {
   return `<a class="wr" href="${storyHref(w.item)}">
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
+    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}${esc(w.latest)}</span></span>
     <span class="side"><span class="open">Live story ›</span></span></a>`;
 }
 
@@ -219,12 +229,11 @@ function storyPage(item) {
 function storyBody(item) {
   const w = workItem(item);
   if (!w) return '<p class="nw-calm">This work finished or is no longer on the main page.</p>';
-  const minutes = (t) => { const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t) ?? [0, 0, 0, 'AM']; return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm); };
-  const lines = [...story.lines].sort((x, y) => minutes(y.at) - minutes(x.at));
+  const lines = [...story.lines].sort((x, y) => minutesOf(y.at) - minutesOf(x.at));
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
-  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span><b>Now:</b> ${esc(w.latest)}</p>
+  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}<b>Now:</b> ${esc(w.latest)}</p>
     ${latest ? `<p class="nw-sub">Latest update ${esc(latest.at)}</p>` : ''}</div>
     ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}

@@ -20,6 +20,7 @@ TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide"
 SUCCESSOR = re.compile(r"-\d+$")
 ROOT = {"root", "main"}
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
+CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -51,7 +52,7 @@ NODE_SCHEMA = {
         "state": {"enum": ["fixing", "you", "nobody", "waiting", "done"]},
         "how": {"type": "string", "description": "who acts next and what they do, at most 12 words, such as 'The cloud runs worker rebuilds the fix, then the review rechecks'"},
         "item": {"type": "string", "description": "the work item id fixing it, or empty"},
-        "since": {"type": "string", "description": "Pacific clock time it got stuck, such as 11:45 AM, or empty"},
+        "since": {"type": "string", "description": "Pacific clock time of the record that started this wait, such as 11:45 AM; empty only when done"},
     },
 }
 SCHEMA = {
@@ -97,7 +98,7 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["item", "workers", "title", "status", "latest", "unblocks"],
+                "required": ["item", "workers", "title", "status", "latest", "unblocks", "since"],
                 "properties": {
                     "item": {"type": "string", "description": "stable short id, lowercase words joined by dashes, kept across briefs"},
                     "workers": {"type": "array", "items": {"type": "string"}},
@@ -105,6 +106,7 @@ SCHEMA = {
                     "status": {"enum": ["Under review", "Ready for you", "Ready to merge", "Testing", "Building", "Rolling out", "Stuck", "Waiting on tests", "Fixing", "Investigating"]},
                     "latest": {"type": "string"},
                     "unblocks": {"type": "string", "description": "id of the blocker node this work fixes, or empty"},
+                    "since": {"type": "string", "description": "Pacific clock time its current status began, such as 5:52 PM"},
                 },
             },
         },
@@ -135,7 +137,8 @@ Fields:
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
 - paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most three nodes per path: the biggest things in the way, merged where they share a fix. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour), waiting (tests, the merge process, a reviewer), done. how always names who acts next and the specific fix they make, never a goal like "make it compile" (write "the cloud runs worker moves the 22 files still using the deleted session store"): a worker named by its work ("the cloud runs worker"), you, the coordinator, the merge process, or the automated review. Never write "not known" in how; when the next step is undecided, say who decides it. For nobody, say "The coordinator assigns a worker" plus when it was raised. A decision the owner already made is done: drop it, and never ask him again for something he approved. item names the work item fixing it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
-- work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work."""
+- work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work. since is the Pacific clock time its current status began.
+- since, on every node not done and every work row: the time of the record that started the wait, such as the push its tests run on, the hold, the review request, or the card going up. The page shows how long that has been."""
 
 
 def at(iso):
@@ -191,6 +194,12 @@ def open_changes(model):
         changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": worker, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
                         "coordinator_ruling": ruling and f"{clock(at(ruling['at']))}: {clip(ruling['text'], 500)}", "fixers": named or ([worker] if worker in active else [])})
     return changes
+
+
+def undated(brief):
+    nodes = [f"paths.{i}.nodes.{j}.since" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] != "done" and not CLOCK.fullmatch(node.get("since", ""))]
+    rows = [f"work.{i}.since" for i, row in enumerate(brief["work"]) if not CLOCK.fullmatch(row.get("since", ""))]
+    return [f"{path}: empty; give the Pacific clock time of the record that started this wait" for path in nodes + rows]
 
 
 def unassigned(brief, changes):
@@ -283,7 +292,7 @@ class Curator:
         prompt = json.dumps(facts, indent=1)
         model_name = self.config.get("curator_model", "claude-opus-5-5")
         brief = run_model(model_name, prompt, SCHEMA)
-        problems = gate(brief, lanes) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
+        problems = gate(brief, lanes) + undated(brief) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
         if problems:
             brief = run_model(model_name, prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
             problems = gate(brief, lanes)

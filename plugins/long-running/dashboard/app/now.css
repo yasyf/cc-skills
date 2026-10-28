@@ -63,7 +63,7 @@ body:has(.nw) { background: #080a0d; }
 .nw-seg i { height: 6px; border-radius: 3px; background: var(--line2); }
 .nw-seg i.ms-live { background: var(--done); } .nw-seg i.ms-progress, .nw-seg i.ms-next { background: var(--doing); } .nw-seg i.ms-paused { background: var(--you); } .nw-seg i.ms-broken { background: var(--bad); }
 
-.nw-cols { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(320px, 1fr); gap: 18px; align-items: start; }
+.nw-cols { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(360px, 1fr); gap: 18px; align-items: start; }
 .nw-cols section { margin: 0; }
 .nw-calm { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; display: flex; gap: 10px; align-items: center; }
 .nw-calm .ok { color: var(--done); font-weight: 700; }
@@ -149,3 +149,5 @@ body:has(.nw) { background: #080a0d; }
 .nw-read b { font: 750 28px/1 var(--display); color: var(--ink); letter-spacing: -.015em; margin-right: 2px; }
 .nw-read b.ok { color: var(--done); }
 .nw-read i { font-style: normal; color: var(--ink3); margin-right: 5px; }
+.nw-path .nd .w i { font-style: normal; font-weight: 400; color: var(--ink3); }
+.nw .for { color: var(--ink2); margin-right: 2px; }

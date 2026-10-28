@@ -1,3 +1,4 @@
+import re
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -57,6 +58,13 @@ def test_status_progress_blockers_and_work_fit_a_laptop_screen(page):
     for selector in (".nw-status", ".nw-read", ".nw-journey", ".nw-chart", ".nw-work"):
         box = page.locator(selector).bounding_box()
         assert box["y"] + box["height"] <= LAPTOP["height"], selector
+
+
+def test_every_open_blocker_and_work_row_says_how_long_it_has_waited(page):
+    now(page)
+    rows = page.locator(".nw-path .nd:not(.goal), .nw-work .wr").all_inner_texts()
+    assert rows
+    assert [row for row in rows if not re.search(r"for \d+ (min|h)", row) or not re.search(r"since \d{1,2}:\d{2} [AP]M", row)] == []
 
 
 def test_the_needs_you_band_shows_every_word(page):

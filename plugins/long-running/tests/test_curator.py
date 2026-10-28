@@ -63,3 +63,21 @@ def test_a_blocker_on_a_change_with_fixers_never_reads_no_one_assigned(tmp_path,
     assert len(prompts) == 2
     assert "change 43421 is being fixed by p8a-step5-4, p8a-step7" in prompts[1]
     assert json.loads(curator.path.read_text())["paths"][0]["nodes"][0]["state"] == "fixing"
+
+
+def test_an_open_blocker_or_work_row_without_its_start_time_is_sent_back(tmp_path, monkeypatch):
+    prompts = []
+    undated = blocked("fixing")
+    undated["work"] = [{"item": "viewer", "workers": ["p8a-step7"], "title": "Cloud viewer reads chats", "status": "Fixing", "latest": "Moving the callers off the deleted store.", "unblocks": "viewer", "since": ""}]
+
+    def reply(name, prompt, schema):
+        prompts.append(prompt)
+        return undated
+
+    monkeypatch.setattr(brief, "run_model", reply)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
+    curator.curate()
+    assert len(prompts) == 2
+    assert "paths.0.nodes.0.since" in prompts[1]
+    assert "work.0.since" in prompts[1]
