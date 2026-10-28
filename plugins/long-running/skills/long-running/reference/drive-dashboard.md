@@ -9,7 +9,7 @@ it all work to this page.
 
 The Overview reads `GET /api/model` and nothing else, and re-renders on every
 `/api/stream` push. Everything local (PR states, board verdicts, workers, steps) streams
-with no API key; only short names and Command-K answers call Cerebras.
+with no API key; only plain-word record lines and Command-K answers call Cerebras.
 
 | Field | Shape | Source |
 |---|---|---|

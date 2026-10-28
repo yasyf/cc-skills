@@ -309,25 +309,6 @@ async function filterBy(sentence){
   onOverview(()=>showOnly(sentence,numbers));
  }catch(e){box.innerHTML=`<span class="dim">The assistant could not filter: ${esc(e.message)}</span>`}
 }
-const SHORT={name:"short",schema:{type:"object",additionalProperties:false,required:["names"],properties:{names:{type:"array",items:{type:"object",additionalProperties:false,required:["pr","name"],properties:{pr:{type:"integer"},name:{type:"string"}}}}}}};
-const shortKey=n=>`drive-assist:name:${n}:${boardRow(n)?.head??state.model.prs[n]?.head??""}`;
-const shortWanted=new Set(),shortAsked=new Set();
-function shortName(n){
- const key=shortKey(n);
- const hit=localStorage.getItem(key);
- if(hit)return hit;
- if(AI.key&&!shortAsked.has(key)){shortWanted.add(Number(n));if(shortWanted.size===1)queueMicrotask(nameBatch)}
- return null;
-}
-function nameBatch(){
- const batch=[...shortWanted].slice(0,40);
- batch.forEach(n=>{shortWanted.delete(n);shortAsked.add(shortKey(n))});
- if(!batch.length)return;
- aiOnce(compose(`Give each pull request a short name of at most six plain words that says what it changes for a person using the product. Keep its direction: a change that removes, drops or deletes something must say so. No pull request numbers, no jargon, no trailing period.\n\n${batch.map(n=>{const r=boardRow(n);return `#${n} ${plainTitle(n)}${r?`. ${short(r.change,240)}`:""}`}).join("\n")}`),{schema:SHORT}).then(out=>{
-  out.names.filter(x=>batch.includes(x.pr)).forEach(x=>localStorage.setItem(shortKey(x.pr),x.name.split(/\s+/).slice(0,6).join(" ").replace(/\.$/,"")));
-  render();
- }).catch(()=>{}).finally(nameBatch);
-}
 const PLAIN={name:"plain",schema:{type:"object",additionalProperties:false,required:["lines"],properties:{lines:{type:"array",items:{type:"object",additionalProperties:false,required:["seq","line"],properties:{seq:{type:"integer"},line:{type:"string"}}}}}}};
 const plainKey=seq=>`drive-assist:plain:${seq}`;
 const plainWanted=new Set(),plainAsked=new Set();
@@ -470,6 +451,6 @@ document.addEventListener("click",e=>{
  const batch=t.closest("[data-batch]");if(batch&&!batching){approveAll(batch.dataset.batch.split(",").map(want));return}
  if(sheet&&!t.closest("#ash")&&!t.closest("#pal")&&t.closest("a[href^='#']")){sheet=null;paintSheet()}
 });
-Object.assign(window,{assistAsk,needsYou,needsCount,decorate,shortName,plainWord});
+Object.assign(window,{assistAsk,needsYou,needsCount,decorate,plainWord});
 })();
 </script>
