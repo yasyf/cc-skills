@@ -4242,9 +4242,10 @@ def build_failures_in(body: str) -> dict[str, str]:
 
 
 def import_path(package: str, directory: str, other: str) -> str | None:
-    """The import path of the package in `other`, by the module root that `package`, whose directory is `directory`, shares with it; None when `other` is outside that module."""
+    """The import path of the package in `other`, by the module root that `package`, whose directory is `directory`, shares with it; None when `other` is outside that module, or when `directory` is not `package`'s own, as for a missing import Go reports under its importer's header."""
     parts, dirs = package.split("/"), directory.split("/")
-    shared = len(os.path.commonprefix([parts[::-1], dirs[::-1]]))
+    if not (shared := len(os.path.commonprefix([parts[::-1], dirs[::-1]]))):
+        return None
     root, module = "/".join(dirs[: len(dirs) - shared]), "/".join(parts[: len(parts) - shared])
     if (relative := os.path.relpath(other, root or ".")).startswith(".."):
         return None

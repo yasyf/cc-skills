@@ -10235,6 +10235,7 @@ def test_build_failures_in_reads_each_package_and_its_first_error_from_the_annot
         ("example.com/svc/api", "services/svc/api", "services/svc/store", "example.com/svc/store"),
         ("example.com/svc/api", "services/svc/api", "services/svc", "example.com/svc"),
         ("example.com/svc/api", "services/svc/api", "tools/other", None),
+        ("sand/next/internal/runtime-api/server", "go/sand/next/internal/runtime-api/sessions", "go/sand/next/internal/runtime-api/sessions/store", None),
     ],
 )
 def test_import_path_maps_a_directory_to_its_import_path_by_the_failing_packages_module(package, directory, other, path):
