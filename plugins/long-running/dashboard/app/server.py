@@ -61,6 +61,7 @@ PR_WORD = {"landed": "landed", "you": "waits on your tap", "failing": "its tests
 TONIGHT_KINDS = {"landed": "Landed", "go": "Approved", "lift": "Hold lifted", "fix-live": "Fix live", "incident": "Broke", "blocker": "Blocked"}
 PR_FACTS = "{body: .body, head: .head.sha}"
 BOT_COMMENTS = '[.[] | select(.user.type == "Bot") | .body]'
+BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {state: .state, at: .submitted_at}] | last'
 ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
 BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
@@ -880,7 +881,8 @@ class Drive:
     def facts(self, number):
         repo = self.config["repo"]
         pr = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}", "--jq", PR_FACTS))
-        return {**pr, **bot_words(json.loads(gh(repo, "api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--jq", BOT_COMMENTS)))}
+        review = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}/reviews?per_page=100", "--jq", BOT_REVIEW))
+        return {**pr, "review": review, **bot_words(json.loads(gh(repo, "api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--jq", BOT_COMMENTS)))}
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:

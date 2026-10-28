@@ -6,6 +6,7 @@ const pending = { number: null, holding: false, error: '', note: '' };
 function approvedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
 }
+const REVIEW_WORD = { APPROVED: 'The reviewer bot approved it', CHANGES_REQUESTED: 'The reviewer bot asked for changes', DISMISSED: 'The reviewer bot’s review was dismissed' };
 const TEST_WORD = { success: 'Pass', failure: 'Failing', pending: 'Running' };
 function testPill(pr) {
   if (pr.test_state === 'success') return '<span class="pill ok">Tests pass</span>';
@@ -34,13 +35,14 @@ function reviewPR(n, tab) {
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
+  const node = blockerNode(n);
   const since = verdictState(row) === 'you' || !SETTLED.test(w.blocker.trim()) ? waitingSince(row.number) : null;
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
   return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd><dt>Blocks landing</dt><dd>${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</dd></dl></div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd><dt>Blocks landing</dt><dd>${node ? `${esc(node.text)}${forSince(node.since)}` : `${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}`}</dd>${node?.how ? `<dt>What happens next</dt><dd>${esc(node.how)}</dd>` : ''}</dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
@@ -60,8 +62,9 @@ function prText(n) {
   if (!pr) return '<p class="dim pr-wait">Reading the description and the reviewer bot’s summary…</p>';
   if (pr.error) return `<p class="pr-wait">The description is unavailable right now${/rate limit/i.test(pr.error) ? ': GitHub is limiting requests' : ''}. <a href="https://github.com/${esc(state.model.repo)}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub ↗</a></p>`;
   const bot = pr.eli5 ?? pr.summary;
+  const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
   const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
-  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'In plain words, from the reviewer bot' : 'The reviewer bot’s summary'}</div><div class="md">${markdown(bot)}</div></section>` : ''}
+  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'In plain words, from the reviewer bot' : 'The reviewer bot’s summary'}</div>${reviewed || ''}<div class="md">${markdown(bot)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : ''}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
 }
 function decideBar(row, v) {

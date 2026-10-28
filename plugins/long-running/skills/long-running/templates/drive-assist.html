@@ -1,8 +1,9 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:3bb731e29d47 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:d055f742e7cd — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
-#pal { position: fixed; inset: 54px 0 0; z-index: 30; background: var(--bg); display: flex; justify-content: center; align-items: start; padding: 40px 14px 14px; }
+#pal { position: fixed; inset: 180px 0 0; z-index: 30; display: flex; justify-content: center; align-items: start; padding: 0 14px 14px; pointer-events: none; }
+#pal .box { pointer-events: auto; }
 #pal[hidden], #ash[hidden] { display: none; }
 #pal .box { width: min(680px, 100%); max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
 #pal input { border: 0; outline: 0; padding: 18px 20px; font: 500 18px var(--sans); background: transparent; color: var(--ink); border-bottom: 1px solid var(--line); }

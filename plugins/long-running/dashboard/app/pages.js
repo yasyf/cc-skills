@@ -38,6 +38,9 @@ function forSince(label) {
   const iso = sinceClock(label);
   return iso ? `<small class="pg-for">${blockedFor(iso)}</small>` : '';
 }
+function blockerNode(n) {
+  return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
+}
 function waitingSince(number) {
   return state.model.records.findLast((r) => ['head', 'opened'].includes(r.kind) && r.refs?.prs?.includes(number))?.at;
 }
@@ -104,14 +107,17 @@ function partPage(part) {
     ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>` : ''],
   ]);
 }
+function sameWorker(a, b) {
+  return Boolean(a && b) && a.replace(/-\d+$/, '') === b.replace(/-\d+$/, '');
+}
 function workerScreen(lane) {
   const m = state.model;
-  const prs = Object.entries(m.prs).filter(([, pr]) => pr.lane === lane && pr.state === 'open').map(([n]) => Number(n));
-  const said = m.records.findLast((r) => r.lane === lane);
+  const prs = Object.entries(m.prs).filter(([, pr]) => sameWorker(pr.lane, lane) && pr.state === 'open').map(([n]) => Number(n));
+  const said = m.records.findLast((r) => sameWorker(r.lane, lane));
   const work = curated('work');
-  const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.includes(lane));
-  const waits = m.drive.prs.filter((e) => e.owner === lane && e.state !== 'landed' && e.blocker);
-  return detailPage(['#/work', 'Work'], 'Worker', workerName(lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
+  const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)));
+  const waits = m.drive.prs.filter((e) => sameWorker(e.owner, lane) && e.state !== 'landed' && e.blocker);
+  return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
     ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
     ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li>${inline(e.blocker)}</li>`).join('')}</ul>` : 'Nothing'],

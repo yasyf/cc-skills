@@ -45,3 +45,4 @@ body:has(#embed:not([hidden])[data-tab="code"]) .foot { display: none; }
 .pr-read .md > :last-child { margin-bottom: 0; }
 .pr-eli5 { border-left: 3px solid var(--ink-3); }
 .pr-wait { margin: 14px 0 0; }
+.pr-reviewed { margin: 0 0 8px; font-weight: 600; color: var(--ink); }

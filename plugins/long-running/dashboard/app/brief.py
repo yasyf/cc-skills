@@ -224,7 +224,7 @@ def open_changes(model):
         named = next((found for r in reversed(said) if (found := sorted(lane for lane in active if re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", r["text"])))), [])
         changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "owner": owner, "next": "" if CHECK_PLACEHOLDER.search(e.get("next") or "") else clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
                         "coordinator_rulings": [f"{clock(at(r['at']))}: {clip(r['text'], 300)}" for r in said],
-                        "newest_records": [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 220)}" for r in mentions.get(e["number"], [])[-2:]], "fixers": named or sorted(lane for lane in active if owner and base_lane(lane) == base_lane(owner))})
+                        "newest_records": [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 220)}" for r in mentions.get(e["number"], [])[-4:]], "fixers": named or sorted(lane for lane in active if owner and base_lane(lane) == base_lane(owner))})
     return changes
 
 

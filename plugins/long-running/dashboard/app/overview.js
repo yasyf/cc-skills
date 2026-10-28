@@ -112,7 +112,7 @@ function prFacts(n) {
   const row = boardRow(n);
   const w = m.workers.find((x) => x.lane === t.owner);
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[t.state]}${t.base ? ` · stacked on #${t.base}${t.base_failing ? ', whose tests fail' : ''}` : ''}`;
-  const node = (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
+  const node = blockerNode(n);
   const blocks = node?.text ?? t.blocker;
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.read_at ? ` <small class="dim">read ${agoWords(t.read_at)}</small>` : ''}</dd>
     <dt>Blocks landing</dt><dd${blocks ? ` class="${/^GitHub has not/.test(blocks) ? 'warn' : 'bad'}"` : ''}>${blocks ? `${inline(blocks)}${node ? forSince(node.since) : ''}` : pr.landed_at ? 'Nothing: it landed' : 'Nothing'}</dd>
@@ -275,10 +275,9 @@ document.addEventListener('mouseover', (e) => {
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg')) return;
-  const away = () => (route().screen === 'overview' ? render() : (location.hash = '#/'));
   if (e.metaKey || e.ctrlKey) return;
-  const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');
-  if (light) { e.preventDefault(); ov.pr = Number(light.dataset.n ?? light.dataset.pr); state.overlay = 'pr'; return render(); }
+  const light = e.target.closest('.ck .dot[data-n]');
+  if (light) { e.preventDefault(); return (location.hash = `#/review/${light.dataset.n}`); }
   const strip = e.target.closest('.ck .route');
   if (strip && !e.target.closest('.planlink, a')) return (location.hash = `#/plan/${e.target.closest('[data-release]')?.dataset.release ?? ''}`);
   const onlyEl = e.target.closest('[data-only]');
@@ -289,25 +288,24 @@ document.addEventListener('click', (e) => {
   const scrubTo = e.target.closest('[data-scrubto]');
   if (scrubTo) return setScrub(Number(scrubTo.dataset.scrubto));
   const partEl = e.target.closest('[data-part-open], .ck .pl');
-  if (partEl) { ov.part = partEl.dataset.partOpen ?? partEl.closest('[data-part]')?.dataset.part; if (ov.part) { state.overlay = 'part'; return away(); } }
+  if (partEl) return (location.hash = '#/plan');
   const workerEl = e.target.closest('[data-worker]');
-  if (workerEl) { e.preventDefault(); ov.lane = workerEl.dataset.worker; state.overlay = 'worker'; return away(); }
+  if (workerEl) { e.preventDefault(); return (location.hash = `#/worker/${encodeURIComponent(workerEl.dataset.worker)}`); }
   const trackEl = e.target.closest('[data-track]');
-  if (trackEl && !e.target.closest('a')) { ov.track = trackEl.dataset.track; state.overlay = 'track'; return away(); }
-  const planEl = e.target.closest('[data-plan]');
-  if (planEl) { state.overlay = 'plan'; ov.planTab = planEl.dataset.plan || 'steps'; return render(); }
-  if (e.target.closest('[data-desks]')) { e.preventDefault(); state.overlay = 'desks'; return render(); }
+  if (trackEl && !e.target.closest('a')) return (location.hash = `#/plan/${encodeURIComponent(trackEl.dataset.track)}`);
+  if (e.target.closest('[data-plan]')) return (location.hash = '#/plan');
+  if (e.target.closest('[data-desks]')) { e.preventDefault(); return (location.hash = '#/work'); }
   if (e.target.closest('[data-back]')) {
     ov.only = ov.only?.key === 'back' ? null : { key: 'back', label: 'landed since you last looked', numbers: new Set(landedSinceLook().map((x) => x.number)) };
     return render();
   }
   if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
-  if (e.target.closest('[data-jump]')) return $('#kbtn')?.click();
-  if (e.target.closest('[data-stop]')) { state.overlay = 'stop'; return render(); }
-  if (e.target.closest('[data-key]')) { state.overlay = 'key'; return render(); }
+  if (e.target.closest('[data-jump]')) return (location.hash = '#/jump');
+  if (e.target.closest('[data-stop]')) return (location.hash = '#/plan');
+  if (e.target.closest('[data-key]')) return;
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
   const rel = e.target.closest('[data-release]');
-  if (rel) { ov.release = rel.dataset.release; state.overlay = 'release'; return route().screen === 'overview' ? render() : (location.hash = '#/'); }
+  if (rel) return (location.hash = '#/plan');
   if (e.target.closest('[data-scrub-clear]')) return setScrub(0);
   if (e.target.closest('[data-replay]')) { ov.replayOpen = true; return render(); }
   const ptab = e.target.closest('[data-ptab]');

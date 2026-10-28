@@ -192,8 +192,10 @@ def work_digest(model, config, previous, now):
     for record in model["fetch"](WORK_KINDS, now - WORK_WINDOW):
         lanes.setdefault(record["lane"], []).append(record)
     entries = {str(e["number"]): e for e in model["drive"]["prs"]}
-    holds = {}
+    holds, landed = {}, {}
     for number, pr in model["prs"].items():
+        if pr.get("state") == "landed" and pr.get("lane") and pr.get("landed_at") and at(pr["landed_at"]) >= now - WORK_WINDOW:
+            landed.setdefault(pr["lane"], []).append({"number": int(number), "title": pr.get("title"), "landed_at": clock(at(pr["landed_at"]))})
         if pr.get("state") == "open" and pr.get("lane"):
             holds.setdefault(pr["lane"], []).append({"number": int(number), "title": pr.get("title"), "state": OWNER_STATE.get(entries.get(number, {}).get("state"), "not known"), "waiting_since": waiting_since(model["records"], int(number))})
     workers = [
@@ -203,6 +205,7 @@ def work_digest(model, config, previous, now):
             "first_record": clock(at(mine[0]["at"])),
             "last_record": clock(at(mine[-1]["at"])),
             "open_pull_requests": holds.get(lane, [])[:6],
+            "landed_pull_requests": landed.get(lane, [])[-6:],
             "records": [said(r, 220) for r in mine[-(1 if COORDINATORS.search(lane) else 3):]],
         }
         for lane, mine in sorted(lanes.items(), key=lambda item: item[1][-1]["at"], reverse=True)
