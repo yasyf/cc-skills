@@ -364,22 +364,27 @@ Every run — ad-hoc or fan-out — lives under
 `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` (override: `CODEX_ASK_RUNS_DIR`,
 absolute and outside any repo). The filesystem is the registry:
 
-- `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps` walks the base and prints one JSONL record per run — state
-  (the collect classification), pid while the run's own process still holds it
-  (a settled run's pid is often recycled, so it is omitted), start time, log age, cwd, session —
-  pruning only long-terminal runs. A run whose caller died, compacted, or was
+- `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps` walks the base without
+  reaping processes or pruning run directories and prints one JSONL record
+  per run — state (the collect classification), pid while the run's own process
+  still holds it (a settled run's pid is often recycled, so it is omitted),
+  start time, log age, cwd, session. A run whose caller died, compacted, or was
   never woken is *not* lost: any session can find it here and recover with
   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await <run-dir>` (single run)
   or `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect <root>` (fan-out
-  root).
+  root). To monitor a single run or lane, use
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch RUN/LANE` instead of
+  repeatedly polling `--ps` and filtering all runs.
 - Before re-dispatching anything that "seems dead", check `--ps` first — a
   wedged run is visible (old log age, live pid) and killable; a completed one
   has its reply on disk.
 - A run's worker kills its codex process tree when the run settles.
   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --reap [--older-than 1h] [--dry-run]`
-  kills the tree a dead worker left behind. It covers runs settled longer ago than
-  `--older-than` and prints one JSONL record per run it targets. `--ps` and
-  `--collect` run it silently at the 1h default.
+  kills the tree a dead worker left behind. It covers runs settled longer ago
+  than `--older-than` and prints one JSONL record per run it targets.
+  `--collect` runs it silently at the 1h default; `--ps` does not reap. Use
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --sweep` to prune long-terminal
+  run directories.
 - `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --cancel <run-dir>` stops a live run
   you dispatched by mistake. It sends its worker SIGTERM, which kills the run's
   codex tree and records the run as failed. Use it instead of `kill`, which the

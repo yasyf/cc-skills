@@ -88,6 +88,18 @@ func orphanedRun(t *testing.T, runs string, sid int, ended time.Time, status boo
 	return sdir
 }
 
+func TestPsPreservesSettledRunTree(t *testing.T) {
+	runs := mustTempDir(t)
+	sid, pid := detachedOrphan(t)
+	orphanedRun(t, runs, sid, time.Now(), false)
+
+	runPs(t, runs)
+
+	if !kill0(pid) {
+		t.Fatal("--ps terminated the settled run's process")
+	}
+}
+
 func TestReapKillsDiedRunTree(t *testing.T) {
 	runs := mustTempDir(t)
 	sid, pid := detachedOrphan(t)
