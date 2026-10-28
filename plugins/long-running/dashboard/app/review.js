@@ -35,7 +35,7 @@ function reviewPR(n, tab) {
   const w = rowWords(row);
   const waits = waitLine(row, w);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
-  return `<div class="pr-head" data-assist-pr="${n}"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
+  return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
@@ -71,7 +71,7 @@ function decideBar(row, v) {
   if (busy) return `<span class="decided sending">${DECIDE_WORD[pending.verdict]}…</span>`;
   const error = pending.number === row.number && pending.error ? `<span class="pill bad">Not recorded: ${esc(pending.error)}</span><button class="btn" data-decide="${pending.verdict}">Retry</button>` : '';
   if (v === 'approved' || v === 'held') {
-    return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ CI fix, landing without your tap' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
+    return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ CI fix, landing without your tap' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict?.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
   return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" title="A">✓ Approve</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
 }
