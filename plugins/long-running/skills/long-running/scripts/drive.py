@@ -467,7 +467,7 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
         for row in prs:
             sits = f"#{row['below']}" if row["below"] else row["base"]
             owner = row["owner"] if row["live"] else f"{row['owner']}, not live"
-            print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next'] or 'none'}")
+            print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next']}")
     return 0 if current else 1
 
 
