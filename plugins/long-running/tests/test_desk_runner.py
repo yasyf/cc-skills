@@ -149,6 +149,7 @@ class FakeShell(runner_module.Shell):
         self.alive: list[str] = []
         self.records: list[dict] = []
         self.trunk: list[dict] = []
+        self.trunk_error = ""
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -321,6 +322,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
             return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
+            if self.trunk_error:
+                return runner_module.Done(128, "", self.trunk_error)
             return runner_module.Done(0, f"{self.trunk[0]['oid']}\trefs/heads/dev\n" if self.trunk else "", "")
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "cat-file", "-e"]:
             return runner_module.Done(0 if argv[5].removesuffix("^{commit}") in self.local_heads else 128, "", "")
@@ -10145,6 +10148,24 @@ def test_a_settled_trunk_is_read_from_github_again_only_once_ls_remote_shows_it_
     shell.clock += runner_module.TRUNK_REREAD
     landing.watch_trunk(OPEN_ROWS)
     assert len(graphql_reads(shell)) == 3
+
+
+def test_a_trunk_that_does_not_read_gates_nothing_and_posts_once_per_streak(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    shell.trunk_error = "fatal: expected flush after ref listing"
+    landing_pass(shell, config)
+    shell.clock += timedelta(hours=2)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["TRUNK-READ-FAILED"]
+    shell.trunk_error = ""
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["TRUNK-READ-FAILED", "TRUNK-READ-RECOVERED"]
 
 
 def test_a_pr_body_is_read_once_per_five_minutes_across_passes(shell, config, tmp_path):
