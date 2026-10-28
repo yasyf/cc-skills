@@ -451,6 +451,26 @@ def test_a_green_head_with_no_go_waits_on_a_live_tap_row_with_one_state_record_a
     assert shell.post(topic) == post
 
 
+@pytest.mark.parametrize(
+    ("board", "owed", "stalls"),
+    [(True, False, []), (True, True, ["lane:api-lane"]), (False, False, ["lane:api-lane"])],
+    ids=["all-prs-on-the-tap-list", "owes-a-record", "pr-off-the-tap-list"],
+)
+def test_a_quiet_lane_whose_every_pr_waits_on_the_owners_tap_and_that_owes_no_record_is_idle_not_stalled(config, tmp_path, board, owed, stalls):
+    merge_mode(config, "ask")
+    task(tmp_path, 1, "api-lane", minutes_ago=200)
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101")])
+    if board:
+        shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": HEAD[:7]}]}]}]}
+    if owed:
+        shell.records.append(record(4, "root", "decide", "rebase #101 on dev", 60, to=["api-lane@d1"]))
+    shell.answer = lambda question: {"explained": False}
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("lane:")] == stalls
+
+
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
     shell = FakeShell([*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300)], [row("101", mergeable_state="dirty"), row("102", OTHER, mergeable_state="dirty")])
     shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:102:{OTHER[:7]}", "type": "card", "children": []}]}

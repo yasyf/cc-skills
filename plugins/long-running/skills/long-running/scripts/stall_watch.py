@@ -35,7 +35,8 @@ and, across the drive:
 
     lane      a lane owning an in-progress task on the root's task list posted nothing past the time
               its last record promised, or for `stall.minutes.lane`, counted for a lane with no
-              record yet from when its task file was last written
+              record yet from when its task file was last written; a lane whose every open PR waits
+              on the owner's tap and that no record since its last addresses owes nothing and is idle
     ask       a lane's `ask` to root is open, and no root record answers it
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
@@ -378,7 +379,7 @@ class Pass:
         if (session := root_session(self.watch.drive)) is None:
             self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
         stalls, questions, entries = self.prs(records, session)
-        lane_stalls, lane_questions = self.lanes(records, session)
+        lane_stalls, lane_questions = self.lanes(records, session, entries)
         stalls += lane_stalls + self.asks(records)
         questions += lane_questions
         cached = saved.get("verdicts", {})
@@ -671,7 +672,7 @@ class Pass:
 
         return Question(f"tap-keeps:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
 
-    def lanes(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question]]:
+    def lanes(self, records: list[dict], session: str | None, entries: list[dict]) -> tuple[list[Stall], list[Question]]:
         if session is None:
             return [], []
         newest: dict[str, dict] = {}
@@ -684,6 +685,10 @@ class Pass:
                 continue
             named = successor_of(lane)
             last = max((record for name, record in newest.items() if named.fullmatch(name)), key=lambda record: record["seq"], default=None)
+            prs = [found for found in entries if named.fullmatch(found["owner"])]
+            owed = [record for record in records if record["lane"] != LANE and record["seq"] > (last["seq"] if last else 0) and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])]
+            if prs and all(found["state"] == TAP_WAIT for found in prs) and not owed:
+                continue
             owned = ", ".join(f"#{task}" for task, _ in tasks)
             if last is None:
                 given = max(when for _, when in tasks)
