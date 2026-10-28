@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -921,9 +922,10 @@ class Drive:
 
     def facts(self, number):
         repo = self.config["repo"]
-        pr = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}", "--jq", PR_FACTS))
-        review = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}/reviews?per_page=100", "--jq", BOT_REVIEW))
-        return {**pr, "review": review, **bot_words(json.loads(gh(repo, "api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--jq", BOT_COMMENTS)))}
+        reads = [(f"repos/{repo}/pulls/{number}", PR_FACTS), (f"repos/{repo}/pulls/{number}/reviews?per_page=100", BOT_REVIEW), (f"repos/{repo}/issues/{number}/comments?per_page=100", BOT_COMMENTS)]
+        with ThreadPoolExecutor(len(reads)) as pool:
+            pr, review, comments = pool.map(lambda read: json.loads(gh(repo, "api", read[0], "--jq", read[1])), reads)
+        return {**pr, "review": review, **bot_words(comments)}
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
