@@ -352,7 +352,7 @@ class Drive:
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,
-            "stack": json.loads(Path(self.config["stack"]).read_text()),
+            "stack": json.loads(stack.read_text()) if (stack := Path(self.config["stack"])).is_file() else None,
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "errors": dict(self.errors),
         }

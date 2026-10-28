@@ -41,7 +41,7 @@ def fidelity(seq: int, pr: str, sha: str, minutes_ago: float) -> dict:
 
 
 def row(pr: str, sha: str = HEAD, **fields) -> dict:
-    return {"pr": pr, "head": sha, "lane": "api-lane", "state": "open", "test_state": "success", "branch": f"b{pr}", "base": "dev"} | fields
+    return {"pr": pr, "head": sha, "lane": "api-lane", "state": "open", "test_state": "success", "ai_review": "success", "branch": f"b{pr}", "base": "dev"} | fields
 
 
 class FakeShell(stall_watch.Shell):
@@ -408,16 +408,20 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     assert opened(config) == {}
 
 
-def test_a_pr_that_moved_less_than_two_hours_ago_or_sits_in_the_queue_is_not_stale(config):
-    records = [*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300), record(7, "root", "go", f"go #102 at {OTHER[:7]}", 290)]
-    records.append(record(8, "desk-runner", "report", f"QUEUED #102 at {OTHER[:10]} (go #7)", 280))
-    shell = FakeShell(records, [row("101", mergeable_state="dirty"), row("102", OTHER)])
-    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
+def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
+    shell = FakeShell([*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300)], [row("101", mergeable_state="dirty"), row("102", OTHER, mergeable_state="dirty")])
+    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:102:{OTHER[:7]}", "type": "card", "children": []}]}
 
     watch(shell, config)
+    shell.rows[1] = row("102", OTHER, test_state="failure")
+    watch(shell, config)
 
-    assert shell.topics() == []
-    assert {pr: (found["state"], found["stale"]) for pr, found in stack(config).items()} == {"101": ("conflicts with its base", False), "102": ("in the merge queue", False)}
+    assert shell.topics() == ["stale:102:fedcba9"]
+    assert opened(config) == {}
+    assert {pr: (found["state"], found["since"], found["stale"]) for pr, found in stack(config).items()} == {
+        "101": ("conflicts with its base", stamp(100), False),
+        "102": ("red on a required check", stamp(0), False),
+    }
 
 
 def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
@@ -442,6 +446,7 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
         "head": OTHER,
         "base": "b201",
         "below": "201",
+        "waits": "201",
         "state": "waits on #201 below it",
         "next": "land #201 first",
         "owner": "api-lane",

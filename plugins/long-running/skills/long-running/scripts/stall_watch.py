@@ -36,9 +36,11 @@ and, across the drive:
     ask       a lane's `ask` to root is open, and no root record answers it
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
-              held by the reviewer bot, green with a go, or green with none; no other stall names it,
-              and a stack shares one record naming its lowest stale PR and every stale PR above it;
-              a PR whose owning lane has no live record in the window goes to root
+              held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
+              other stall names it, a PR that waits on the PR below it posts nothing itself and is
+              listed on the stale PR its stack waits on, and a PR whose owning lane has no live record
+              in the window goes to root; a changed state on the same head counts from the pass
+              that saw it change
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
@@ -97,6 +99,7 @@ WINDOW_HOURS = 24
 MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 20, "lane": 30, "ask": 15, "stale": 120}
 PR_KINDS = frozenset({"go", "tap", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
+REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
 EXPLAINED_CEILING = 4
 HEAD_RECORDS = 4
@@ -298,12 +301,13 @@ def downstack(rows: dict[str, dict], row: dict) -> list[str]:
     return below
 
 
-def stack_row(pr: str, row: dict, rows: dict[str, dict], held: bool, going: bool, in_queue: bool) -> dict:
+def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool) -> dict:
     named = f"#{pr} at {short(row['head'])}"
     below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
     red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
+    waits = ""
     if in_queue:
-        state, step = "in the merge queue", ""
+        state, step = "in the merge queue", f"the landing desk reads why the merge queue still holds {named}"
     elif held:
         state, step = f"held: {clip(row.get('hold_reason') or 'a hold record covers it')}", f"lift the hold on #{pr} or do what it waits on"
     elif row.get("base", "").startswith("graphite-base/"):
@@ -313,16 +317,18 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], held: bool, going: bool
     elif row.get("test_state") == "failure":
         state, step = f"red on {red}", f"fix the red build of {named}"
     elif below:
-        state, step = f"waits on #{below} below it", f"land #{below} first"
+        state, step, waits = f"waits on #{below} below it", f"land #{below} first", below
     elif row.get("test_state") != "success":
         state, step = "its build has not finished", f"read the build of {named}"
-    elif row.get("ai_review") == "failure":
+    elif row.get("ai_review") in REVIEW_HELD:
         state, step = "the reviewer bot holds it", f"answer each blocking finding on #{pr} with a fix or a one-line rebuttal"
+    elif row.get("ai_review") != "success":
+        state, step = "no reviewer bot verdict on this head", f"re-request the reviewer bot's review of {named}"
     elif going:
         state, step = "green with a go, not queued", f"the landing desk enqueues {named}"
     else:
         state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
-    return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "state": state, "next": step, "owner": row.get("lane") or ROOT}
+    return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner}
 
 
 def successor_of(lane: str) -> re.Pattern[str]:
@@ -361,7 +367,8 @@ class Pass:
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
         stalls += [stall for question in questions if (stall := question.settle(verdicts[question.key]))]
-        stalls += self.stale(entries, saved.get("states", {}), records, {stall.pr for stall in stalls if stall.pr})
+        kept = {key.split(":")[1] for key, entry in saved["open"].items() if entry["kind"] in PR_KINDS & self.unread}
+        stalls += self.stale(entries, saved.get("states", {}), records, kept | {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
 
     def report(self, standing: dict[str, Stall], saved: dict, verdicts: dict[str, dict], dry_run: bool) -> int:
@@ -474,12 +481,12 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            entries.append(stack_row(pr, row, rows, holding(pr), bool(going), in_queue) | {"head_at": head_at})
+            lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
+            entries.append(stack_row(pr, row, rows, lane, holding(pr), bool(going), in_queue) | {"head_at": head_at})
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
-            lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
             if going:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
@@ -546,23 +553,33 @@ class Pass:
             pr, head_at = found["pr"], found.pop("head_at")
             signature = f"{found['head']} {found['state']}"
             was = saved.get(pr)
-            since = actions.parse_stamp(was["since"]) if was and was["signature"] == signature else head_at or self.now
+            if was and was["signature"] == signature:
+                since = actions.parse_stamp(was["since"])
+            elif was and was["signature"].split(" ", 1)[0] == found["head"]:
+                since = self.now
+            else:
+                since = head_at or self.now
             self.states[pr] = {"signature": signature, "since": actions.stamp(since)}
             last = max((record for name, record in newest.items() if successor_of(found["owner"]).fullmatch(name)), key=lambda record: record["seq"], default=None)
             live = last is not None and last["kind"] not in ENDED
-            stale = bool(found["next"]) and self.now - since >= self.watch.age("stale")
+            stale = self.now - since >= self.watch.age("stale")
             self.stack.append(found | {"since": actions.stamp(since), "live": live, "stale": stale})
             if stale and pr not in stalled:
                 standing[pr] = (found, since, live)
+        rows = {found["pr"]: found for found in self.stack}
+        above: dict[str, list[str]] = {}
+        for pr, (found, *_) in standing.items():
+            below = found["waits"]
+            while below in rows and rows[below]["waits"]:
+                below = rows[below]["waits"]
+            if found["waits"] and below in standing:
+                above.setdefault(below, []).append(f"#{pr}")
         stalls: list[Stall] = []
         for pr, (found, since, live) in standing.items():
-            if found["below"] in standing:
+            if found["waits"]:
                 continue
-            above, below = [], pr
-            while waiter := next((other for other, (row, *_) in standing.items() if row["below"] == below), None):
-                above.append(f"#{waiter}")
-                below = waiter
-            what = found["state"] + (f"; {len(above)} above wait on it: {', '.join(above[:LISTED])}" if above else "")
+            waiting = above.get(pr, [])
+            what = found["state"] + (f"; {len(waiting)} above wait on it: {', '.join(waiting)}" if waiting else "")
             if not live:
                 what += f"; {found['owner']} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h"
             subject = f"#{pr} at {short(found['head'])}"
